@@ -145,7 +145,7 @@ async function movieDto(row: any) {
   const [genres, cast, sources] = await Promise.all([
     adminSupabase.from('movie_genres').select('genres(id,name_ar,name_en,slug)').eq('movie_id', row.id),
     adminSupabase.from('movie_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('movie_id', row.id).order('cast_order'),
-    adminSupabase.from('playback_sources').select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)').eq('content_type', 'movie').eq('content_id', row.id).eq('is_working', true),
+    adminSupabase.from('playback_sources').select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name,enabled)').eq('content_type', 'movie').eq('content_id', row.id).eq('is_working', true),
   ]);
   return {
     id: row.id, type: 'movie',
@@ -381,7 +381,7 @@ app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
 
   if (error) return fail(res, 500, 'SOURCES_QUERY_FAILED', 'Unable to load playback sources');
 
-  const valid = (data || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date());
+  const valid = (data || []).filter((x: any) => x.providers?.enabled !== false && (!x.expires_at || new Date(x.expires_at) > new Date()));
 
   if (valid.length) {
     return ok(res, valid.map(sourceDto));
@@ -878,6 +878,211 @@ app.get(`${api}/admin/stats`, requireAuth, requireAdmin, asyncRoute(async (_req,
     totalMovies: m.count || 0, totalSeries: s.count || 0, totalEpisodes: e.count || 0,
     activeProviders: p.count || 0, streamHealthPct: src.count ? 100 : 0, dailyStreamRequests: 0,
   });
+}));
+
+
+const adminPlaybackSourceBody = z.object({
+  providerId: z.string().uuid(),
+  contentType: z.enum(['movie', 'episode']),
+  contentId: z.string().uuid(),
+  sourceType: z.enum(['hls', 'mp4', 'dash']),
+  url: z.string().url(),
+  providerReference: z.string().max(500).optional().nullable(),
+  quality: z.string().max(50).default('auto'),
+  language: z.string().max(20).default('und'),
+  labelAr: z.string().max(150).optional().nullable(),
+  labelEn: z.string().max(150).optional().nullable(),
+  expiresAt: z.string().optional().nullable(),
+  isWorking: z.boolean().default(true),
+});
+
+async function validatePlaybackSourceTarget(contentType: 'movie' | 'episode', contentId: string) {
+  const table = contentType === 'movie' ? 'movies' : 'episodes';
+  const { data } = await adminSupabase.from(table).select('id').eq('id', contentId).maybeSingle();
+  return !!data;
+}
+
+function normalizeAdminPlaybackSourceBody(value: z.infer<typeof adminPlaybackSourceBody>) {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(value.url);
+  } catch {
+    throw new Error('SOURCE_URL_INVALID');
+  }
+
+  if (parsedUrl.protocol !== 'https:') throw new Error('SOURCE_URL_MUST_USE_HTTPS');
+
+  let expiresAt: string | null = null;
+  if (value.expiresAt) {
+    const timestamp = Date.parse(value.expiresAt);
+    if (!Number.isFinite(timestamp)) throw new Error('SOURCE_EXPIRES_AT_INVALID');
+    expiresAt = new Date(timestamp).toISOString();
+  }
+
+  return {
+    provider_id: value.providerId,
+    content_type: value.contentType,
+    content_id: value.contentId,
+    source_type: value.sourceType,
+    url: parsedUrl.toString(),
+    provider_reference: value.providerReference || null,
+    quality: value.quality || 'auto',
+    language: value.language || 'und',
+    label_ar: value.labelAr || '',
+    label_en: value.labelEn || '',
+    expires_at: expiresAt,
+    is_working: value.isWorking !== false,
+    last_checked_at: value.isWorking !== false ? new Date().toISOString() : null,
+  };
+}
+
+app.get(`${api}/admin/sources`, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const parsed = z.object({
+    contentType: z.enum(['movie', 'episode']).optional(),
+    contentId: z.string().uuid().optional(),
+    providerId: z.string().uuid().optional(),
+    includeBroken: z.coerce.boolean().default(true),
+  }).safeParse(req.query);
+
+  if (!parsed.success) return fail(res, 400, 'INVALID_QUERY', 'Invalid source parameters');
+
+  let request = adminSupabase
+    .from('playback_sources')
+    .select('id,provider_id,content_type,content_id,source_type,url,provider_reference,quality,language,label_ar,label_en,expires_at,is_working,last_checked_at,failure_count,providers(id,name,key,enabled)')
+    .order('last_checked_at', { ascending: false });
+
+  if (parsed.data.contentType) request = request.eq('content_type', parsed.data.contentType);
+  if (parsed.data.contentId) request = request.eq('content_id', parsed.data.contentId);
+  if (parsed.data.providerId) request = request.eq('provider_id', parsed.data.providerId);
+  if (!parsed.data.includeBroken) request = request.eq('is_working', true);
+
+  const { data, error } = await request;
+  if (error) return fail(res, 500, 'SOURCES_QUERY_FAILED', 'Unable to load playback sources');
+  return ok(res, data || []);
+}));
+
+app.post(`${api}/admin/sources`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const parsed = adminPlaybackSourceBody.safeParse(req.body);
+  if (!parsed.success) return fail(res, 400, 'INVALID_BODY', 'Invalid playback source payload');
+
+  try {
+    const payload = normalizeAdminPlaybackSourceBody(parsed.data);
+
+    const { data: provider } = await adminSupabase
+      .from('providers')
+      .select('id')
+      .eq('id', payload.provider_id)
+      .maybeSingle();
+    if (!provider) return fail(res, 404, 'PROVIDER_NOT_FOUND', 'Provider not found');
+
+    if (!(await validatePlaybackSourceTarget(payload.content_type, payload.content_id))) {
+      return fail(res, 404, 'CONTENT_NOT_FOUND', 'Target content not found');
+    }
+
+    const { data: duplicate } = await adminSupabase
+      .from('playback_sources')
+      .select('id')
+      .eq('provider_id', payload.provider_id)
+      .eq('content_type', payload.content_type)
+      .eq('content_id', payload.content_id)
+      .eq('url', payload.url)
+      .maybeSingle();
+    if (duplicate) return fail(res, 409, 'SOURCE_ALREADY_EXISTS', 'Playback source already exists');
+
+    const { data, error } = await adminSupabase
+      .from('playback_sources')
+      .insert(payload)
+      .select('id,provider_id,content_type,content_id,source_type,url,provider_reference,quality,language,label_ar,label_en,expires_at,is_working,last_checked_at,failure_count,providers(id,name,key,enabled)')
+      .single();
+
+    if (error || !data) return fail(res, 500, 'SOURCE_CREATE_FAILED', 'Unable to create playback source');
+    await writeAudit(req.userId!, 'create_playback_source', payload.content_type, payload.content_id, { sourceId: data.id, providerId: payload.provider_id });
+    return created(res, data);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : '';
+    if (code === 'SOURCE_URL_INVALID') return fail(res, 400, code, 'Invalid source URL');
+    if (code === 'SOURCE_URL_MUST_USE_HTTPS') return fail(res, 400, code, 'Source URL must use HTTPS');
+    if (code === 'SOURCE_EXPIRES_AT_INVALID') return fail(res, 400, code, 'Invalid source expiry timestamp');
+    return fail(res, 400, 'SOURCE_PAYLOAD_INVALID', 'Invalid playback source payload');
+  }
+}));
+
+app.patch(`${api}/admin/sources/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const parsed = adminPlaybackSourceBody.partial().safeParse(req.body);
+  if (!parsed.success) return fail(res, 400, 'INVALID_BODY', 'Invalid playback source payload');
+
+  try {
+    const current = await adminSupabase
+      .from('playback_sources')
+      .select('id,provider_id,content_type,content_id,source_type,url,provider_reference,quality,language,label_ar,label_en,expires_at,is_working,last_checked_at')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (current.error || !current.data) return fail(res, 404, 'SOURCE_NOT_FOUND', 'Playback source not found');
+
+    const values = parsed.data;
+    const merged = {
+      providerId: values.providerId ?? current.data.provider_id,
+      contentType: values.contentType ?? current.data.content_type,
+      contentId: values.contentId ?? current.data.content_id,
+      sourceType: values.sourceType ?? current.data.source_type,
+      url: values.url ?? current.data.url,
+      providerReference: values.providerReference ?? current.data.provider_reference,
+      quality: values.quality ?? current.data.quality ?? 'auto',
+      language: values.language ?? current.data.language ?? 'und',
+      labelAr: values.labelAr ?? current.data.label_ar ?? '',
+      labelEn: values.labelEn ?? current.data.label_en ?? '',
+      expiresAt: values.expiresAt ?? current.data.expires_at,
+      isWorking: values.isWorking ?? current.data.is_working,
+    };
+
+    const payload = normalizeAdminPlaybackSourceBody(merged);
+
+    const { data: provider } = await adminSupabase
+      .from('providers')
+      .select('id')
+      .eq('id', payload.provider_id)
+      .maybeSingle();
+    if (!provider) return fail(res, 404, 'PROVIDER_NOT_FOUND', 'Provider not found');
+
+    if (!(await validatePlaybackSourceTarget(payload.content_type, payload.content_id))) {
+      return fail(res, 404, 'CONTENT_NOT_FOUND', 'Target content not found');
+    }
+
+    const { data, error } = await adminSupabase
+      .from('playback_sources')
+      .update(payload)
+      .eq('id', req.params.id)
+      .select('id,provider_id,content_type,content_id,source_type,url,provider_reference,quality,language,label_ar,label_en,expires_at,is_working,last_checked_at,failure_count,providers(id,name,key,enabled)')
+      .maybeSingle();
+
+    if (error || !data) return fail(res, 404, 'SOURCE_UPDATE_FAILED', 'Playback source not found or not updated');
+    await writeAudit(req.userId!, 'update_playback_source', payload.content_type, payload.content_id, { sourceId: data.id });
+    return ok(res, data);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : '';
+    if (code === 'SOURCE_URL_INVALID') return fail(res, 400, code, 'Invalid source URL');
+    if (code === 'SOURCE_URL_MUST_USE_HTTPS') return fail(res, 400, code, 'Source URL must use HTTPS');
+    if (code === 'SOURCE_EXPIRES_AT_INVALID') return fail(res, 400, code, 'Invalid source expiry timestamp');
+    return fail(res, 400, 'SOURCE_PAYLOAD_INVALID', 'Invalid playback source payload');
+  }
+}));
+
+app.delete(`${api}/admin/sources/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const { data, error } = await adminSupabase
+    .from('playback_sources')
+    .select('id,content_type,content_id')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (error || !data) return fail(res, 404, 'SOURCE_NOT_FOUND', 'Playback source not found');
+
+  const { error: deleteError } = await adminSupabase
+    .from('playback_sources')
+    .delete()
+    .eq('id', req.params.id);
+  if (deleteError) return fail(res, 500, 'SOURCE_DELETE_FAILED', 'Unable to delete playback source');
+
+  await writeAudit(req.userId!, 'delete_playback_source', data.content_type, data.content_id, { sourceId: data.id });
+  return ok(res, { deleted: true });
 }));
 
 app.post(`${api}/admin/providers/:id/test`, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
