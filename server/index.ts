@@ -301,6 +301,72 @@ app.get(`${api}/series/:id`, asyncRoute(async (req, res) => {
   return ok(res, { series, similar: [] });
 }));
 
+app.get(`${api}/series/:id/seasons`, asyncRoute(async (req, res) => {
+  const { data: series, error: seriesError } = await adminSupabase
+    .from('series').select('id').eq('id', req.params.id).eq('status', 'published').maybeSingle();
+  if (seriesError || !series) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
+
+  const { data: seasons, error } = await adminSupabase
+    .from('seasons').select('*').eq('series_id', req.params.id).order('season_number');
+  if (error) return fail(res, 500, 'SEASONS_QUERY_FAILED', 'Unable to load seasons');
+
+  const seasonRows = seasons || [];
+  const seasonIds = seasonRows.map((season: any) => season.id);
+  const { data: episodeRows } = seasonIds.length
+    ? await adminSupabase.from('episodes').select('season_id').in('season_id', seasonIds)
+    : { data: [] as any[] };
+  const counts = new Map<string, number>();
+  for (const episode of episodeRows || []) counts.set(episode.season_id, (counts.get(episode.season_id) || 0) + 1);
+
+  return ok(res, seasonRows.map((season: any) => ({
+    id: season.id, seriesId: season.series_id, tmdbId: season.tmdb_id, seasonNumber: season.season_number,
+    name: season.name_ar || season.name_en || `الموسم ${season.season_number}`,
+    nameEn: season.name_en || season.name_ar || `Season ${season.season_number}`,
+    overview: season.overview_ar || '', overviewEn: season.overview_en || season.overview_ar || '',
+    posterUrl: season.poster_url || '', airDate: season.air_date || '',
+    episodesCount: counts.get(season.id) || 0,
+  })));
+}));
+
+app.get(`${api}/seasons/:id`, asyncRoute(async (req, res) => {
+  const { data: season, error } = await adminSupabase.from('seasons').select('*').eq('id', req.params.id).maybeSingle();
+  if (error || !season) return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
+  const { data: series } = await adminSupabase.from('series').select('id,title_ar,title_en,original_title,poster_url').eq('id', season.series_id).eq('status', 'published').maybeSingle();
+  if (!series) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
+  const { data: episodes, error: episodeError } = await adminSupabase.from('episodes').select('*').eq('season_id', season.id).order('episode_number');
+  if (episodeError) return fail(res, 500, 'EPISODES_QUERY_FAILED', 'Unable to load episodes');
+  return ok(res, {
+    season: { id: season.id, seriesId: season.series_id, tmdbId: season.tmdb_id, seasonNumber: season.season_number,
+      name: season.name_ar || season.name_en || `الموسم ${season.season_number}`, nameEn: season.name_en || season.name_ar || `Season ${season.season_number}`,
+      overview: season.overview_ar || '', overviewEn: season.overview_en || season.overview_ar || '', posterUrl: season.poster_url || '', airDate: season.air_date || '',
+      episodesCount: (episodes || []).length },
+    series: { id: series.id, title: series.title_ar, titleEn: series.title_en || series.title_ar, originalTitle: series.original_title || series.title_en || series.title_ar, posterUrl: series.poster_url || '' },
+    episodes: (episodes || []).map((episode: any) => ({
+      id: episode.id, seriesId: series.id, seasonId: season.id, seasonNumber: season.season_number, tmdbId: episode.tmdb_id, episodeNumber: episode.episode_number,
+      title: episode.name_ar || episode.name_en || `الحلقة ${episode.episode_number}`, titleEn: episode.name_en || episode.name_ar || `Episode ${episode.episode_number}`,
+      overview: episode.overview_ar || '', overviewEn: episode.overview_en || episode.overview_ar || '', stillUrl: episode.still_url || '',
+      duration: Number(episode.runtime_minutes || 0), airDate: episode.air_date || '',
+    })),
+  });
+}));
+
+app.get(`${api}/episodes/:id`, asyncRoute(async (req, res) => {
+  const { data: episode, error } = await adminSupabase.from('episodes').select('*').eq('id', req.params.id).maybeSingle();
+  if (error || !episode) return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
+  const { data: season } = await adminSupabase.from('seasons').select('id,series_id,season_number,name_ar,name_en').eq('id', episode.season_id).maybeSingle();
+  if (!season) return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
+  const { data: series } = await adminSupabase.from('series').select('id,title_ar,title_en,original_title,poster_url,backdrop_url').eq('id', season.series_id).eq('status', 'published').maybeSingle();
+  if (!series) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
+  return ok(res, {
+    id: episode.id, seriesId: series.id, seasonId: season.id, seasonNumber: season.season_number, tmdbId: episode.tmdb_id, episodeNumber: episode.episode_number,
+    title: episode.name_ar || episode.name_en || `الحلقة ${episode.episode_number}`, titleEn: episode.name_en || episode.name_ar || `Episode ${episode.episode_number}`,
+    overview: episode.overview_ar || '', overviewEn: episode.overview_en || episode.overview_ar || '', stillUrl: episode.still_url || '',
+    duration: Number(episode.runtime_minutes || 0), airDate: episode.air_date || '',
+    series: { id: series.id, title: series.title_ar, titleEn: series.title_en || series.title_ar, originalTitle: series.original_title || series.title_en || series.title_ar, posterUrl: series.poster_url || '', backdropUrl: series.backdrop_url || '' },
+    season: { id: season.id, seasonNumber: season.season_number, name: season.name_ar || season.name_en || `الموسم ${season.season_number}`, nameEn: season.name_en || season.name_ar || `Season ${season.season_number}` },
+  });
+}));
+
 app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
   const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : null;
   const type = episodeId ? 'episode' : 'movie';
@@ -333,21 +399,25 @@ app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
 
 app.get(`${api}/search`, asyncRoute(async (req, res) => {
   const q = z.string().trim().min(1).max(100).parse(req.query.q);
-  const [movies, series] = await Promise.all([
+  const [movies, series, people] = await Promise.all([
     adminSupabase.from('movies').select('*').eq('status', 'published').or(`title_ar.ilike.%${q}%,title_en.ilike.%${q}%,original_title.ilike.%${q}%`).limit(24),
     adminSupabase.from('series').select('*').eq('status', 'published').or(`title_ar.ilike.%${q}%,title_en.ilike.%${q}%,original_title.ilike.%${q}%`).limit(24),
+    adminSupabase.from('people').select('id,name_ar,name_en,original_name,avatar_url').or(`name_ar.ilike.%${q}%,name_en.ilike.%${q}%,original_name.ilike.%${q}%`).limit(12),
   ]);
-  const movieRows = movies.data || [];
-  const seriesRows = series.data || [];
-  const [movieGenres, seriesGenres] = await Promise.all([
-    batchMovieGenres(movieRows.map((row: any) => row.id)),
-    batchSeriesGenres(seriesRows.map((row: any) => row.id)),
-  ]);
+  const movieRows = movies.data || []; const seriesRows = series.data || []; const personRows = people.data || [];
+  const [movieGenres, seriesGenres] = await Promise.all([batchMovieGenres(movieRows.map((row: any) => row.id)), batchSeriesGenres(seriesRows.map((row: any) => row.id))]);
+  const personIds = personRows.map((person: any) => person.id);
+  const [movieLinks, seriesLinks] = personIds.length ? await Promise.all([
+    adminSupabase.from('movie_cast').select('person_id').in('person_id', personIds),
+    adminSupabase.from('series_cast').select('person_id').in('person_id', personIds),
+  ]) : [{ data: [] as any[] }, { data: [] as any[] }];
+  const workCounts = new Map<string, number>();
+  for (const link of [...(movieLinks.data || []), ...(seriesLinks.data || [])]) workCounts.set(link.person_id, (workCounts.get(link.person_id) || 0) + 1);
   const movieResults = movieRows.map((row: any) => movieCardDto(row, movieGenres.get(row.id) || []));
   const seriesResults = seriesRows.map((row: any) => seriesCardDto(row, seriesGenres.get(row.id) || []));
-  return ok(res, { movies: movieResults, series: seriesResults, cast: [] }, { total: movieResults.length + seriesResults.length });
+  const castResults = personRows.map((person: any) => ({ name: person.name_ar || person.name_en || person.original_name || '', nameEn: person.name_en || person.original_name || person.name_ar || '', worksCount: workCounts.get(person.id) || 0, avatarUrl: person.avatar_url || '' }));
+  return ok(res, { movies: movieResults, series: seriesResults, cast: castResults }, { total: movieResults.length + seriesResults.length + castResults.length });
 }));
-
 app.get(`${api}/home`, asyncRoute(async (_req, res) => {
   const [movies, series, genres] = await Promise.all([
     adminSupabase.from('movies').select('*').eq('status', 'published').order('vote_count', { ascending: false }).limit(12),
@@ -387,59 +457,63 @@ app.get(`${api}/auth/me`, requireAuth, asyncRoute(async (req: AuthenticatedReque
 app.get(`${api}/watchlist`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {
   const { data, error } = await req.supabase!.from('watchlist').select('*').eq('user_id', req.userId!).order('created_at', { ascending: false });
   if (error) return fail(res, 500, 'WATCHLIST_QUERY_FAILED', 'Unable to load watchlist');
-  return ok(res, (data || []).map((x: any) => ({
-    id: x.id, userId: x.user_id, contentId: x.content_id, contentType: x.content_type,
-    title: '', titleEn: '', posterUrl: '', year: 0, rating: 0, genres: [], addedAt: x.created_at,
-  })));
+  const rows = data || [];
+  const movieIds = rows.filter((x: any) => x.content_type === 'movie').map((x: any) => x.content_id);
+  const seriesIds = rows.filter((x: any) => x.content_type === 'series').map((x: any) => x.content_id);
+  const [movies, series] = await Promise.all([
+    movieIds.length ? adminSupabase.from('movies').select('*').in('id', movieIds) : { data: [] as any[] },
+    seriesIds.length ? adminSupabase.from('series').select('*').in('id', seriesIds) : { data: [] as any[] },
+  ]);
+  const movieMap = new Map((movies.data || []).map((x: any) => [x.id, x]));
+  const seriesMap = new Map((series.data || []).map((x: any) => [x.id, x]));
+  const [movieGenres, seriesGenres] = await Promise.all([batchMovieGenres(movieIds), batchSeriesGenres(seriesIds)]);
+  return ok(res, rows.map((x: any) => {
+    const row = x.content_type === 'movie' ? movieMap.get(x.content_id) : seriesMap.get(x.content_id);
+    const genres = x.content_type === 'movie' ? movieGenres.get(x.content_id) || [] : seriesGenres.get(x.content_id) || [];
+    return { id: x.id, userId: x.user_id, contentId: x.content_id, contentType: x.content_type, title: row?.title_ar || '', titleEn: row?.title_en || row?.title_ar || '', posterUrl: row?.poster_url || '', year: Number(String(row?.release_date || row?.first_air_date || '').slice(0,4)) || 0, rating: Number(row?.rating || 0), genres, addedAt: x.created_at };
+  }));
 }));
-
-app.post(`${api}/watchlist`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {
-  const body = z.object({ contentId: z.string().uuid(), contentType: z.enum(['movie', 'series']) }).safeParse(req.body);
-  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid watchlist item');
-  const { data, error } = await req.supabase!.from('watchlist').upsert({
-    user_id: req.userId!, content_id: body.data.contentId, content_type: body.data.contentType,
-  }, { onConflict: 'user_id,content_type,content_id' }).select('*').single();
-  if (error) return fail(res, 500, 'WATCHLIST_WRITE_FAILED', 'Unable to save watchlist item');
-  return created(res, { id: data.id, userId: data.user_id, contentId: data.content_id, contentType: data.content_type, title: '', titleEn: '', posterUrl: '', year: 0, rating: 0, genres: [], addedAt: data.created_at });
-}));
-
-app.delete(`${api}/watchlist/:contentId`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {
-  const { error } = await req.supabase!.from('watchlist').delete().eq('user_id', req.userId!).eq('content_id', req.params.contentId);
-  if (error) return fail(res, 500, 'WATCHLIST_DELETE_FAILED', 'Unable to remove watchlist item');
-  return ok(res, { removed: true });
-}));
-
 app.get(`${api}/history`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {
   const { data, error } = await req.supabase!.from('watch_history').select('*').eq('user_id', req.userId!).order('updated_at', { ascending: false }).limit(100);
   if (error) return fail(res, 500, 'HISTORY_QUERY_FAILED', 'Unable to load history');
-  return ok(res, (data || []).map((x: any) => ({
-    contentId: x.content_id,
-    contentType: x.content_type === 'episode' ? 'series' : 'movie',
-    title: '', titleEn: '', posterUrl: '', backdropUrl: '',
-    positionSeconds: x.position_seconds, durationSeconds: x.duration_seconds,
-    percentage: x.duration_seconds ? Math.floor((x.position_seconds / x.duration_seconds) * 100) : 0,
-    lastWatchedAt: x.updated_at, completed: x.completed,
-  })));
+  const rows = data || [];
+  const movieIds = rows.filter((x: any) => x.content_type === 'movie').map((x: any) => x.content_id);
+  const episodeIds = rows.filter((x: any) => x.content_type === 'episode').map((x: any) => x.content_id);
+  const [movies, episodes] = await Promise.all([
+    movieIds.length ? adminSupabase.from('movies').select('id,title_ar,title_en,poster_url,backdrop_url,rating').in('id', movieIds) : { data: [] as any[] },
+    episodeIds.length ? adminSupabase.from('episodes').select('id,season_id,episode_number,name_ar,name_en').in('id', episodeIds) : { data: [] as any[] },
+  ]);
+  const movieMap = new Map((movies.data || []).map((x: any) => [x.id, x]));
+  const episodeRows = episodes.data || []; const seasonIds = episodeRows.map((x: any) => x.season_id);
+  const { data: seasons } = seasonIds.length ? await adminSupabase.from('seasons').select('id,series_id,season_number').in('id', seasonIds) : { data: [] as any[] };
+  const seasonMap = new Map((seasons || []).map((x: any) => [x.id, x]));
+  const seriesIds = [...new Set((seasons || []).map((x: any) => x.series_id))];
+  const { data: seriesRows } = seriesIds.length ? await adminSupabase.from('series').select('id,title_ar,title_en,poster_url,backdrop_url,rating').in('id', seriesIds) : { data: [] as any[] };
+  const seriesMap = new Map((seriesRows || []).map((x: any) => [x.id, x])); const episodeMap = new Map(episodeRows.map((x: any) => [x.id, x]));
+  return ok(res, rows.map((x: any) => {
+    const movie = x.content_type === 'movie' ? movieMap.get(x.content_id) : null; const episode = x.content_type === 'episode' ? episodeMap.get(x.content_id) : null;
+    const season = episode ? seasonMap.get(episode.season_id) : null; const series = season ? seriesMap.get(season.series_id) : null; const base = movie || series;
+    return { contentId: base?.id || x.content_id, contentType: movie ? 'movie' : 'series', episodeId: episode?.id || undefined, episodeNumber: episode?.episode_number || undefined, seasonNumber: season?.season_number || undefined,
+      title: base?.title_ar || episode?.name_ar || '', titleEn: base?.title_en || episode?.name_en || '', posterUrl: base?.poster_url || '', backdropUrl: base?.backdrop_url || '',
+      positionSeconds: x.position_seconds, durationSeconds: x.duration_seconds, percentage: x.duration_seconds ? Math.floor((x.position_seconds / x.duration_seconds) * 100) : 0, lastWatchedAt: x.updated_at, completed: x.completed };
+  }));
 }));
-
 app.get(`${api}/watch/:id/progress`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {
   const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : null;
-  const contentType = episodeId ? 'episode' : 'movie';
-  const contentId = episodeId || req.params.id;
+  const contentType = episodeId ? 'episode' : 'movie'; const contentId = episodeId || req.params.id;
   const { data, error } = await req.supabase!.from('watch_history').select('*').eq('user_id', req.userId!).eq('content_type', contentType).eq('content_id', contentId).maybeSingle();
-  if (error) return fail(res, 500, 'PROGRESS_QUERY_FAILED', 'Unable to load progress');
-  if (!data) return ok(res, null);
-  return ok(res, {
-    contentId: data.content_id,
-    contentType: contentType === 'episode' ? 'series' : 'movie',
-    title: '', titleEn: '', posterUrl: '', backdropUrl: '',
-    positionSeconds: data.position_seconds, durationSeconds: data.duration_seconds,
-    percentage: data.duration_seconds ? Math.floor((data.position_seconds / data.duration_seconds) * 100) : 0,
-    lastWatchedAt: data.updated_at, completed: data.completed, episodeId: episodeId || undefined,
-  });
+  if (error) return fail(res, 500, 'PROGRESS_QUERY_FAILED', 'Unable to load progress'); if (!data) return ok(res, null);
+  if (contentType === 'episode') {
+    const { data: episode } = await adminSupabase.from('episodes').select('id,season_id,episode_number').eq('id', data.content_id).maybeSingle();
+    const { data: season } = episode ? await adminSupabase.from('seasons').select('id,series_id,season_number').eq('id', episode.season_id).maybeSingle() : { data: null };
+    const { data: series } = season ? await adminSupabase.from('series').select('id,title_ar,title_en,poster_url,backdrop_url').eq('id', season.series_id).maybeSingle() : { data: null };
+    return ok(res, { contentId: series?.id || data.content_id, contentType: 'series', title: series?.title_ar || '', titleEn: series?.title_en || '', posterUrl: series?.poster_url || '', backdropUrl: series?.backdrop_url || '', positionSeconds: data.position_seconds, durationSeconds: data.duration_seconds, percentage: data.duration_seconds ? Math.floor((data.position_seconds / data.duration_seconds) * 100) : 0, lastWatchedAt: data.updated_at, completed: data.completed, episodeId: data.content_id, episodeNumber: episode?.episode_number || undefined, seasonNumber: season?.season_number || undefined });
+  }
+  const { data: movie } = await adminSupabase.from('movies').select('title_ar,title_en,poster_url,backdrop_url').eq('id', data.content_id).maybeSingle();
+  return ok(res, { contentId: data.content_id, contentType: 'movie', title: movie?.title_ar || '', titleEn: movie?.title_en || '', posterUrl: movie?.poster_url || '', backdropUrl: movie?.backdrop_url || '', positionSeconds: data.position_seconds, durationSeconds: data.duration_seconds, percentage: data.duration_seconds ? Math.floor((data.position_seconds / data.duration_seconds) * 100) : 0, lastWatchedAt: data.updated_at, completed: data.completed });
 }));
 
-app.post(`${api}/watch/:id/progress`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {
+app.post(`${api}/watch/:id/progress`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {app.post(`${api}/watch/:id/progress`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {
   const body = z.object({
     contentType: z.enum(['movie', 'series']),
     episodeId: z.string().uuid().optional(),
