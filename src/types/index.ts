@@ -174,6 +174,7 @@ export interface ProviderHealth {
   adapterName: string;
   type: 'api' | 'scraper' | 'direct';
   status: 'healthy' | 'degraded' | 'offline';
+  enabled: boolean;
   latencyMs: number;
   successRate: number; // percentage
   lastChecked: string;
