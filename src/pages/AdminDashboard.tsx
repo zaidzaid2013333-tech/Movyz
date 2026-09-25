@@ -43,6 +43,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
   const [seriesList, setSeriesList] = useState<Series[]>([]);
   const [providers, setProviders] = useState<ProviderHealth[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [syncJobs, setSyncJobs] = useState<Array<{
+    id: string; provider: string; jobType: string; status: string; pages: number | null;
+    moviesSynced: number; seriesSynced: number; seasonsSynced: number; episodesSynced: number;
+    error: string; startedAt: string; finishedAt: string; createdAt: string;
+  }>>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Delete modal state
@@ -52,12 +57,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
   const [isEpisodeSyncing, setIsEpisodeSyncing] = useState(false);
 
   const loadAdminData = async () => {
-    const [statsRes, moviesRes, seriesRes, provRes, logsRes] = await Promise.all([
+    const [statsRes, moviesRes, seriesRes, provRes, logsRes, jobsRes] = await Promise.all([
       MovyzaApi.getAdminStats(),
       MovyzaApi.getMovies(),
       MovyzaApi.getSeries(),
       MovyzaApi.getAdminProviders(),
       MovyzaApi.getAdminAuditLogs(),
+      MovyzaApi.getAdminSyncJobs(),
     ]);
 
     setStats(statsRes.data);
@@ -65,6 +71,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     setSeriesList(seriesRes.data);
     setProviders(provRes.data);
     setAuditLogs(logsRes.data);
+    setSyncJobs(jobsRes.data);
   };
 
   useEffect(() => {
@@ -88,10 +95,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
 
   const handleTriggerSync = async () => {
     setIsSyncing(true);
-    const res = await MovyzaApi.triggerTmdbSync();
-    setIsSyncing(false);
-    showToast(res.data.message);
-    loadAdminData();
+    try {
+      const res = await MovyzaApi.triggerTmdbSync();
+      showToast(res.data.message);
+      await loadAdminData();
+    } catch {
+      showToast('تعذر تنفيذ مزامنة TMDB');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleToggleProvider = async (provider: ProviderHealth) => {
+    try {
+      await MovyzaApi.setProviderEnabled(provider.id, provider.status !== 'healthy');
+      showToast(provider.status === 'healthy' ? 'تم تعطيل المزود' : 'تم تفعيل المزود');
+      await loadAdminData();
+    } catch {
+      showToast('تعذر تغيير حالة المزود');
+    }
   };
 
   const handleEpisodeSync = async () => {
@@ -251,7 +273,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                 <span>المزودات ومحرك المطابقة الذكي (Provider Matching)</span>
               </h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                يقوم النظام بالربط التلقائي بين معرفات TMDB وروابط المشاهدة واستخراج الجودات عبر محرك CloudStream و FaselHD و EgyBest مع نظام الثقة (Confidence Score).
+                يعرض هذا القسم المزودات المسجلة في النظام، وحالة المحولات الخاصة بها، وعدد مصادر التشغيل الفعلية المحفوظة.
               </p>
               <button
                 onClick={() => setActiveTab('providers')}
@@ -419,12 +441,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                   <span className="text-[10px] text-slate-400">
                     آخر فحص: {prov.lastChecked}
                   </span>
-                  <button
-                    onClick={() => handleTestProvider(prov.id)}
-                    className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
-                  >
-                    {t('testConnection')}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleTestProvider(prov.id)}
+                      className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
+                    >
+                      {t('testConnection')}
+                    </button>
+                    {isOwner && (
+                      <button
+                        onClick={() => handleToggleProvider(prov)}
+                        className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
+                      >
+                        {prov.status === 'healthy' ? 'تعطيل' : 'تفعيل'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -437,10 +469,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
         <div className="space-y-6 animate-in fade-in">
           <div className="p-6 rounded-3xl bg-white/[0.02] border border-white/[0.06] space-y-4">
             <h3 className="text-base font-bold text-white">
-              حالة عمال الخلفية (Background Sync Workers)
+              سجل مزامنة البيانات الوصفية
             </h3>
             <p className="text-xs text-slate-400 leading-relaxed max-w-2xl">
-              تتم المزامنة الثقيلة من TMDB عبر Background Workers لضمان سرعة الاستجابة الفائقة وعدم تعطيل واجهة المستخدم. يتم تطبيق الذاكرة المؤقتة المتقدمة للبيانات الوصفية (Aggressive Metadata Caching).
+              كل عملية مزامنة تسجل حالة البدء والنجاح أو الفشل وعدد الأفلام والمسلسلات والمواسم والحلقات التي عولجت. التنفيذ الحالي محمي بالتعامل مع الأخطاء وإعادة المحاولة مع TMDB.
             </p>
             <div className="flex items-center gap-3 pt-2">
               <button
@@ -460,13 +492,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
 
               <button
                 onClick={() => {
-                  showToast('الكاش المعروض من قاعدة البيانات؛ لا يوجد تخزين محتوى محلي للتحديث.');
+                  showToast('المحتوى الحالي يقرأ من قاعدة البيانات؛ لا يوجد كاش محلي وهمي.');
                 }}
                 className="px-4 py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-medium text-slate-300 transition-colors cursor-pointer"
               >
                 حالة الكاش
               </button>
             </div>
+          {syncJobs.length > 0 && (
+            <div className="rounded-2xl border border-white/[0.08] overflow-x-auto">
+              <table className="w-full text-xs text-start">
+                <thead className="bg-white/[0.03] text-slate-400">
+                  <tr>
+                    <th className="py-3 px-4 text-start">النوع</th>
+                    <th className="py-3 px-4 text-start">الحالة</th>
+                    <th className="py-3 px-4 text-start">النتائج</th>
+                    <th className="py-3 px-4 text-start">التاريخ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.04]">
+                  {syncJobs.slice(0, 10).map((job) => (
+                    <tr key={job.id}>
+                      <td className="py-3 px-4 font-medium text-white">{job.provider} / {job.jobType}</td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-1 rounded-lg ${job.status === 'succeeded' ? 'bg-emerald-500/10 text-emerald-400' : job.status === 'failed' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                          {job.status}
+                        </span>
+                        {job.error && <p className="mt-1 text-[10px] text-rose-400 max-w-xs">{job.error}</p>}
+                      </td>
+                      <td className="py-3 px-4 text-slate-300">
+                        {job.moviesSynced} أفلام · {job.seriesSynced} مسلسلات · {job.episodesSynced} حلقات
+                      </td>
+                      <td className="py-3 px-4 text-slate-500 font-mono">{job.finishedAt || job.startedAt || job.createdAt}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           </div>
         </div>
       )}
