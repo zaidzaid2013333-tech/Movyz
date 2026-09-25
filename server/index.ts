@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, type AuthenticatedRequest } from './auth';
-import { runTmdbSync } from './tmdb';
+import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
@@ -502,6 +502,27 @@ app.get(`${api}/admin/providers`, requireAuth, requireAdmin, asyncRoute(async (_
     status: p.status, latencyMs: p.latency_ms || 0, successRate: Number(p.success_rate || 0),
     lastChecked: p.last_checked_at || '', activeSources: 0,
   })));
+}));
+
+app.post(`${api}/admin/sync/tmdb/episodes`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = z.object({ seriesLimit: z.number().int().min(1).max(25).default(10) }).safeParse(req.body || {});
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid episode sync options');
+  try {
+    const result = await syncEpisodesForSeries(body.data.seriesLimit);
+    await adminSupabase.from('audit_logs').insert({
+      actor_id: req.userId,
+      action: 'tmdb_episode_sync',
+      target_type: 'episodes',
+      target_id: 'tmdb',
+      details: result,
+    });
+    return ok(res, {
+      syncedCount: result.episodes,
+      message: `Episode sync completed: ${result.episodes} episodes across ${result.seasons} seasons`,
+    });
+  } catch (error) {
+    return fail(res, 502, 'TMDB_EPISODE_SYNC_FAILED', error instanceof Error ? error.message : 'Episode sync failed');
+  }
 }));
 
 app.get(`${api}/admin/audit`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
