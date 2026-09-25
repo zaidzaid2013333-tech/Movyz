@@ -169,6 +169,64 @@ export const MovyzaApi = {
 
   syncTmdbEpisodes: (seriesLimit = 10) => request<{ syncedCount: number; message: string }>('/admin/sync/tmdb/episodes', { method: 'POST', body: JSON.stringify({ seriesLimit }) }),
 
+
+  getWatchTarget: (contentId: string, contentType: 'movie' | 'episode' = 'movie') =>
+    request<any>(`/watch/${encodeURIComponent(contentId)}?type=${contentType}`),
+
+  getAdminMovies: (params?: { page?: number; limit?: number; search?: string }) =>
+    request<Movie[]>(`/admin/movies${query(params || {})}`),
+
+  createAdminMovie: (payload: Record<string, unknown>) =>
+    request<Movie>('/admin/movies', { method: 'POST', body: JSON.stringify(payload) }),
+
+  updateAdminMovie: (id: string, payload: Record<string, unknown>) =>
+    request<Movie>(`/admin/movies/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+
+  getAdminSeries: (params?: { page?: number; limit?: number; search?: string }) =>
+    request<Series[]>(`/admin/series${query(params || {})}`),
+
+  createAdminSeries: (payload: Record<string, unknown>) =>
+    request<Series>('/admin/series', { method: 'POST', body: JSON.stringify(payload) }),
+
+  updateAdminSeries: (id: string, payload: Record<string, unknown>) =>
+    request<Series>(`/admin/series/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+
+  getAdminEpisodes: (params?: { seriesId?: string; seasonId?: string; page?: number; limit?: number }) =>
+    request<any[]>(`/admin/episodes${query(params || {})}`),
+
+  createAdminEpisode: (payload: Record<string, unknown>) =>
+    request<any>('/admin/episodes', { method: 'POST', body: JSON.stringify(payload) }),
+
+  updateAdminEpisode: (id: string, payload: Record<string, unknown>) =>
+    request<any>(`/admin/episodes/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+
+  deleteAdminEpisode: (id: string) =>
+    request<{ deleted: boolean }>(`/admin/episodes/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  createAdminProvider: (payload: { key: string; name: string; adapterName: string; enabled?: boolean }) =>
+    request<any>('/admin/providers', { method: 'POST', body: JSON.stringify(payload) }),
+
+  updateAdminProvider: (id: string, payload: { name?: string; adapterName?: string; enabled?: boolean }) =>
+    request<any>(`/admin/providers/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+
+  deleteAdminProvider: (id: string) =>
+    request<{ deleted: boolean }>(`/admin/providers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  getAdminReports: (status?: string) =>
+    request<any[]>(`/admin/reports${query({ status })}`),
+
+  updateAdminReport: (id: string, status: 'pending' | 'investigating' | 'resolved') =>
+    request<any>(`/admin/reports/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+
+  getAdminUsers: (params?: { page?: number; limit?: number }) =>
+    request<any[]>(`/admin/users${query(params || {})}`),
+
+  updateAdminUserRole: (id: string, role: UserProfile['role']) =>
+    request<{ id: string; role: UserProfile['role'] }>(`/admin/users/${encodeURIComponent(id)}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+
+  triggerAdminSync: (payload?: { provider?: 'tmdb'; kind?: 'catalog' | 'episodes'; pages?: number; seriesLimit?: number }) =>
+    request<any>('/admin/sync', { method: 'POST', body: JSON.stringify(payload || {}) }),
+
   getMe: () => request<UserProfile>('/auth/me'),
 };
 
