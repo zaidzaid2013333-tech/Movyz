@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, type AuthenticatedRequest } from './auth';
+import { runTmdbSync } from './tmdb';
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
@@ -520,8 +521,25 @@ app.delete(`${api}/admin/movies/:id`, requireAuth, requireAdmin, asyncRoute(asyn
   return ok(res, { deleted: true });
 }));
 
-app.post(`${api}/admin/sync/tmdb`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
-  return ok(res, { status: 'not_configured', syncedCount: 0, message: 'TMDB sync worker is not configured yet' });
+app.post(`${api}/admin/sync/tmdb`, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const body = z.object({ pages: z.number().int().min(1).max(3).default(1) }).safeParse(req.body || {});
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid sync options');
+  try {
+    const result = await runTmdbSync({ pages: body.data.pages });
+    await adminSupabase.from('audit_logs').insert({
+      actor_id: (req as AuthenticatedRequest).userId,
+      action: 'tmdb_sync',
+      target_type: 'catalog',
+      target_id: 'tmdb',
+      details: result,
+    });
+    return ok(res, {
+      syncedCount: result.total,
+      message: `TMDB sync completed: ${result.movies} movies, ${result.series} series`,
+    });
+  } catch (error) {
+    return fail(res, 502, 'TMDB_SYNC_FAILED', error instanceof Error ? error.message : 'TMDB sync failed');
+  }
 }));
 
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
