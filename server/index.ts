@@ -8,6 +8,7 @@ import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, type AuthenticatedRequest } from './auth';
 import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
 import { getProvider } from './providers/registry';
+import { resolvePlaybackSources } from './providers/resolver';
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
@@ -304,15 +305,30 @@ app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
   const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : null;
   const type = episodeId ? 'episode' : 'movie';
   const contentId = episodeId || req.params.id;
+
   const { data, error } = await adminSupabase
     .from('playback_sources')
     .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)')
     .eq('content_type', type)
     .eq('content_id', contentId)
     .eq('is_working', true);
+
   if (error) return fail(res, 500, 'SOURCES_QUERY_FAILED', 'Unable to load playback sources');
+
   const valid = (data || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date());
-  return ok(res, valid.map(sourceDto));
+
+  if (valid.length) {
+    return ok(res, valid.map(sourceDto));
+  }
+
+  try {
+    const resolved = await resolvePlaybackSources(type, contentId);
+    if (resolved.length) return ok(res, resolved);
+  } catch (error) {
+    console.error('Provider resolution failed:', error);
+  }
+
+  return ok(res, []);
 }));
 
 app.get(`${api}/search`, asyncRoute(async (req, res) => {
@@ -527,10 +543,25 @@ app.post(`${api}/admin/providers/:id/test`, requireAuth, requireAdmin, asyncRout
 app.get(`${api}/admin/providers`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
   const { data, error } = await adminSupabase.from('providers').select('*').order('name');
   if (error) return fail(res, 500, 'PROVIDERS_QUERY_FAILED', 'Unable to load providers');
-  return ok(res, (data || []).map((p: any) => ({
+
+  const providers = data || [];
+  const sourceCounts = new Map<string, number>();
+  if (providers.length) {
+    const { data: sources } = await adminSupabase
+      .from('playback_sources')
+      .select('provider_id')
+      .eq('is_working', true)
+      .in('provider_id', providers.map((p: any) => p.id));
+
+    for (const source of sources || []) {
+      sourceCounts.set(source.provider_id, (sourceCounts.get(source.provider_id) || 0) + 1);
+    }
+  }
+
+  return ok(res, providers.map((p: any) => ({
     id: p.id, name: p.name, adapterName: p.adapter_name, type: 'api',
     status: p.status, latencyMs: p.latency_ms || 0, successRate: Number(p.success_rate || 0),
-    lastChecked: p.last_checked_at || '', activeSources: 0,
+    lastChecked: p.last_checked_at || '', activeSources: sourceCounts.get(p.id) || 0,
   })));
 }));
 
