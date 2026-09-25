@@ -51,6 +51,93 @@ const genreDto = (g: any) => ({
   slug: g.slug,
 });
 
+const movieCardDto = (row: any, genres: any[] = []) => ({
+  id: row.id,
+  type: 'movie',
+  title: row.title_ar,
+  titleEn: row.title_en || row.title_ar,
+  originalTitle: row.original_title || row.title_en || row.title_ar,
+  year: row.release_date ? Number(String(row.release_date).slice(0, 4)) : 0,
+  releaseDate: row.release_date || '',
+  rating: Number(row.rating || 0),
+  votesCount: Number(row.vote_count || 0),
+  runtime: Number(row.runtime_minutes || 0),
+  overview: row.overview_ar || '',
+  overviewEn: row.overview_en || row.overview_ar || '',
+  posterUrl: row.poster_url || '',
+  backdropUrl: row.backdrop_url || '',
+  genres,
+  director: row.metadata?.director_ar || '',
+  directorEn: row.metadata?.director_en || '',
+  cast: [],
+  sources: [],
+  isFeatured: !!row.featured,
+  isTrending: !!row.trending,
+  isPopular: !!row.popular,
+  addedAt: row.created_at,
+  ageRating: row.age_rating || '',
+});
+
+const seriesCardDto = (row: any, genres: any[] = []) => ({
+  id: row.id,
+  type: 'series',
+  title: row.title_ar,
+  titleEn: row.title_en || row.title_ar,
+  originalTitle: row.original_title || row.title_en || row.title_ar,
+  startYear: row.first_air_date ? Number(String(row.first_air_date).slice(0, 4)) : 0,
+  endYear: row.last_air_date ? Number(String(row.last_air_date).slice(0, 4)) : undefined,
+  releaseDate: row.first_air_date || '',
+  rating: Number(row.rating || 0),
+  votesCount: Number(row.vote_count || 0),
+  overview: row.overview_ar || '',
+  overviewEn: row.overview_en || row.overview_ar || '',
+  posterUrl: row.poster_url || '',
+  backdropUrl: row.backdrop_url || '',
+  genres,
+  creator: row.metadata?.creator_ar || '',
+  creatorEn: row.metadata?.creator_en || '',
+  cast: [],
+  seasonsCount: 0,
+  episodesCount: 0,
+  seasons: [],
+  isFeatured: !!row.featured,
+  isTrending: !!row.trending,
+  isPopular: !!row.popular,
+  status: row.status,
+  addedAt: row.created_at,
+  ageRating: row.age_rating || '',
+});
+
+async function batchMovieGenres(ids: string[]) {
+  if (!ids.length) return new Map<string, any[]>();
+  const { data } = await adminSupabase
+    .from('movie_genres')
+    .select('movie_id,genres(id,name_ar,name_en,slug)')
+    .in('movie_id', ids);
+  const map = new Map<string, any[]>();
+  for (const row of data || []) {
+    const list = map.get(row.movie_id) || [];
+    if (row.genres) list.push(genreDto(row.genres));
+    map.set(row.movie_id, list);
+  }
+  return map;
+}
+
+async function batchSeriesGenres(ids: string[]) {
+  if (!ids.length) return new Map<string, any[]>();
+  const { data } = await adminSupabase
+    .from('series_genres')
+    .select('series_id,genres(id,name_ar,name_en,slug)')
+    .in('series_id', ids);
+  const map = new Map<string, any[]>();
+  for (const row of data || []) {
+    const list = map.get(row.series_id) || [];
+    if (row.genres) list.push(genreDto(row.genres));
+    map.set(row.series_id, list);
+  }
+  return map;
+}
+
 async function movieDto(row: any) {
   const [genres, cast, sources] = await Promise.all([
     adminSupabase.from('movie_genres').select('genres(id,name_ar,name_en,slug)').eq('movie_id', row.id),
@@ -166,8 +253,10 @@ app.get(`${api}/movies`, asyncRoute(async (req, res) => {
     : query.order('vote_count', { ascending: false });
   const { data, count, error } = await query.range(from, to);
   if (error) return fail(res, 500, 'MOVIES_QUERY_FAILED', 'Unable to load movies');
-  const rows = await Promise.all((data || []).map(movieDto));
-  return ok(res, rows, { page: q.page, limit: q.limit, total: count || 0, totalPages: Math.ceil((count || 0) / q.limit) || 1 });
+  const rows = data || [];
+  const genreMap = await batchMovieGenres(rows.map((row: any) => row.id));
+  const output = rows.map((row: any) => movieCardDto(row, genreMap.get(row.id) || []));
+  return ok(res, output, { page: q.page, limit: q.limit, total: count || 0, totalPages: Math.ceil((count || 0) / q.limit) || 1 });
 }));
 
 app.get(`${api}/movies/:id`, asyncRoute(async (req, res) => {
@@ -196,8 +285,10 @@ app.get(`${api}/series`, asyncRoute(async (req, res) => {
     : query.order('vote_count', { ascending: false });
   const { data, count, error } = await query.range(from, to);
   if (error) return fail(res, 500, 'SERIES_QUERY_FAILED', 'Unable to load series');
-  const rows = await Promise.all((data || []).map(seriesDto));
-  return ok(res, rows, { page: q.page, limit: q.limit, total: count || 0, totalPages: Math.ceil((count || 0) / q.limit) || 1 });
+  const rows = data || [];
+  const genreMap = await batchSeriesGenres(rows.map((row: any) => row.id));
+  const output = rows.map((row: any) => seriesCardDto(row, genreMap.get(row.id) || []));
+  return ok(res, output, { page: q.page, limit: q.limit, total: count || 0, totalPages: Math.ceil((count || 0) / q.limit) || 1 });
 }));
 
 app.get(`${api}/series/:id`, asyncRoute(async (req, res) => {
@@ -228,9 +319,15 @@ app.get(`${api}/search`, asyncRoute(async (req, res) => {
     adminSupabase.from('movies').select('*').eq('status', 'published').or(`title_ar.ilike.%${q}%,title_en.ilike.%${q}%,original_title.ilike.%${q}%`).limit(24),
     adminSupabase.from('series').select('*').eq('status', 'published').or(`title_ar.ilike.%${q}%,title_en.ilike.%${q}%,original_title.ilike.%${q}%`).limit(24),
   ]);
-  const movieRows = await Promise.all((movies.data || []).map(movieDto));
-  const seriesRows = await Promise.all((series.data || []).map(seriesDto));
-  return ok(res, { movies: movieRows, series: seriesRows, cast: [] }, { total: movieRows.length + seriesRows.length });
+  const movieRows = movies.data || [];
+  const seriesRows = series.data || [];
+  const [movieGenres, seriesGenres] = await Promise.all([
+    batchMovieGenres(movieRows.map((row: any) => row.id)),
+    batchSeriesGenres(seriesRows.map((row: any) => row.id)),
+  ]);
+  const movieResults = movieRows.map((row: any) => movieCardDto(row, movieGenres.get(row.id) || []));
+  const seriesResults = seriesRows.map((row: any) => seriesCardDto(row, seriesGenres.get(row.id) || []));
+  return ok(res, { movies: movieResults, series: seriesResults, cast: [] }, { total: movieResults.length + seriesResults.length });
 }));
 
 app.get(`${api}/home`, asyncRoute(async (_req, res) => {
@@ -239,8 +336,14 @@ app.get(`${api}/home`, asyncRoute(async (_req, res) => {
     adminSupabase.from('series').select('*').eq('status', 'published').order('vote_count', { ascending: false }).limit(12),
     adminSupabase.from('genres').select('id,name_ar,name_en,slug').order('id'),
   ]);
-  const movieDtos = await Promise.all((movies.data || []).map(movieDto));
-  const seriesDtos = await Promise.all((series.data || []).map(seriesDto));
+  const movieRows = movies.data || [];
+  const seriesRows = series.data || [];
+  const [movieGenres, seriesGenres] = await Promise.all([
+    batchMovieGenres(movieRows.map((row: any) => row.id)),
+    batchSeriesGenres(seriesRows.map((row: any) => row.id)),
+  ]);
+  const movieDtos = movieRows.map((row: any) => movieCardDto(row, movieGenres.get(row.id) || []));
+  const seriesDtos = seriesRows.map((row: any) => seriesCardDto(row, seriesGenres.get(row.id) || []));
   const combined = [...movieDtos, ...seriesDtos].sort((a: any, b: any) => b.rating - a.rating);
   return ok(res, {
     hero: combined.find((x: any) => x.isFeatured) || combined[0],
