@@ -42,19 +42,30 @@ function genreSlug(id: number, name: string) {
 }
 
 async function syncGenres() {
-  const [ar, en] = await Promise.all([
+  const [movieAr, movieEn, tvAr, tvEn] = await Promise.all([
     tmdbGet<any>('/genre/movie/list', { language: 'ar-SA' }),
     tmdbGet<any>('/genre/movie/list', { language: 'en-US' }),
+    tmdbGet<any>('/genre/tv/list', { language: 'ar-SA' }),
+    tmdbGet<any>('/genre/tv/list', { language: 'en-US' }),
   ]);
 
-  const enMap = new Map<number, string>((en.genres || []).map((g: any) => [g.id, g.name]));
+  const arMap = new Map<number, string>();
+  const enMap = new Map<number, string>();
 
-  for (const genre of ar.genres || []) {
+  for (const genre of [...(movieAr.genres || []), ...(tvAr.genres || [])]) {
+    if (!arMap.has(genre.id)) arMap.set(genre.id, genre.name);
+  }
+  for (const genre of [...(movieEn.genres || []), ...(tvEn.genres || [])]) {
+    if (!enMap.has(genre.id)) enMap.set(genre.id, genre.name);
+  }
+
+  for (const [id, arabicName] of arMap) {
+    const englishName = enMap.get(id) || arabicName;
     await adminSupabase.from('genres').upsert({
-      id: genre.id,
-      name_ar: genre.name,
-      name_en: enMap.get(genre.id) || genre.name,
-      slug: genreSlug(genre.id, enMap.get(genre.id) || genre.name),
+      id,
+      name_ar: arabicName,
+      name_en: englishName,
+      slug: genreSlug(id, englishName),
     }, { onConflict: 'id' });
   }
 }
