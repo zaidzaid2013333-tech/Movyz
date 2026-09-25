@@ -60,7 +60,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       if (movieRes.status === 'fulfilled') {
         const movie = movieRes.value.data.movie;
         setContent(movie);
-        setSources(movie.sources);
+        try {
+          const sourceRes = await MovyzaApi.getWatchSources(movie.id);
+          setSources(sourceRes.data);
+        } catch {
+          setSources([]);
+        }
         setLoading(false);
       } else if (seriesRes.status === 'fulfilled') {
         const series = seriesRes.value.data.series;
@@ -74,7 +79,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           currentSeason?.episodes[0];
 
         setCurrentEpisode(episode);
-        setSources(episode?.sources || []);
+        if (episode) {
+          try {
+            const sourceRes = await MovyzaApi.getWatchSources(series.id, episode.id);
+            setSources(sourceRes.data);
+          } catch {
+            setSources([]);
+          }
+        } else {
+          setSources([]);
+        }
         setLoading(false);
       } else {
         setError('تعذر العثور على المحتوى المطلوب في خوادم العرض');
