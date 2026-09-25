@@ -57,7 +57,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onSelectEpisode,
   onNavigateBack,
 }) => {
-  const { language, t } = useLanguage();
+  const { language, t, direction } = useLanguage();
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
 
