@@ -140,6 +140,15 @@ export const MovyzaApi = {
 
   getAdminProviders: () => request<ProviderHealth[]>('/admin/providers'),
 
+  getAdminSources: (params?: { contentType?: 'movie' | 'episode'; contentId?: string; providerId?: string; includeBroken?: boolean }) =>
+    request<any[]>(`/admin/sources${query(params || {})}`),
+  createAdminSource: (payload: any) =>
+    request<any>('/admin/sources', { method: 'POST', body: JSON.stringify(payload) }),
+  updateAdminSource: (id: string, payload: any) =>
+    request<any>(`/admin/sources/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteAdminSource: (id: string) =>
+    request<{ deleted: boolean }>(`/admin/sources/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
   testProvider: (providerId: string) =>
     request<ProviderHealth>(`/admin/providers/${encodeURIComponent(providerId)}/test`, { method: 'POST' }),
 
