@@ -110,12 +110,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
         <h2 className="text-xl font-bold text-white">غير مصرح بالدخول</h2>
         <p className="text-xs text-slate-400">
           تتطلب لوحة التحكم الإدارية صلاحيات المشرف (ADMIN) أو المالك (OWNER).
+          يمنح الدور من الخادم فقط ولا يمكن تغييره من واجهة المستخدم.
         </p>
         <button
           onClick={() => onNavigate('/profile')}
           className="px-6 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs cursor-pointer"
         >
-          الانتقال للملف الشخصي لتبديل الدور
+          العودة إلى الملف الشخصي
         </button>
       </div>
     );
