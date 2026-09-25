@@ -544,8 +544,12 @@ app.post(`${api}/reports`, requireAuth, asyncRoute(async (req: AuthenticatedRequ
     sourceId: z.string().uuid(), issueType: z.string().max(80), description: z.string().max(2000),
   }).safeParse(req.body);
   if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid report payload');
+  const { data: source } = await req.supabase!.from('playback_sources').select('content_type,content_id').eq('id', body.data.sourceId).maybeSingle();
+  const reportContentType = source?.content_type === 'episode' ? 'episode' : 'movie';
+  const reportContentId = source?.content_id || body.data.contentId;
+
   const { data, error } = await req.supabase!.from('reports').insert({
-    user_id: req.userId!, content_id: body.data.contentId, content_type: 'movie',
+    user_id: req.userId!, content_id: reportContentId, content_type: reportContentType,
     source_id: body.data.sourceId, issue_type: body.data.issueType, description: body.data.description,
   }).select('*').single();
   if (error) return fail(res, 500, 'REPORT_WRITE_FAILED', 'Unable to submit report');
@@ -722,6 +726,258 @@ app.post(`${api}/admin/sync/tmdb`, requireAuth, requireAdmin, asyncRoute(async (
   } catch (error) {
     return fail(res, 502, 'TMDB_SYNC_FAILED', error instanceof Error ? error.message : 'TMDB sync failed');
   }
+}));
+
+
+// --- Extended administration: providers, playback sources, reports, series and users ---
+app.patch(`${api}/admin/providers/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = z.object({ enabled: z.boolean().optional() }).refine((value) => value.enabled !== undefined, 'At least one provider setting is required').safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid provider settings');
+
+  const { data, error } = await adminSupabase
+    .from('providers')
+    .update({ enabled: body.data.enabled })
+    .eq('id', req.params.id)
+    .select('id,key,name,adapter_name,enabled,status,latency_ms,success_rate,last_checked_at')
+    .maybeSingle();
+
+  if (error || !data) return fail(res, 404, 'PROVIDER_NOT_FOUND', 'Provider not found');
+
+  await adminSupabase.from('audit_logs').insert({
+    actor_id: req.userId,
+    action: 'update_provider',
+    target_type: 'provider',
+    target_id: data.id,
+    details: { enabled: data.enabled },
+  });
+
+  return ok(res, data);
+}));
+
+app.get(`${api}/admin/sources`, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const contentId = typeof req.query.contentId === 'string' ? req.query.contentId : undefined;
+  const contentType = typeof req.query.contentType === 'string' ? req.query.contentType : undefined;
+  let query = adminSupabase
+    .from('playback_sources')
+    .select('id,provider_id,content_type,content_id,source_type,url,provider_reference,quality,language,label_ar,label_en,expires_at,is_working,failure_count,last_checked_at,providers(name,key)')
+    .order('last_checked_at', { ascending: false });
+
+  if (contentId) query = query.eq('content_id', contentId);
+  if (contentType) query = query.eq('content_type', contentType);
+
+  const { data, error } = await query.limit(200);
+  if (error) return fail(res, 500, 'SOURCES_QUERY_FAILED', 'Unable to load playback sources');
+  return ok(res, data || []);
+}));
+
+app.post(`${api}/admin/sources`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = z.object({
+    providerId: z.string().uuid().nullable().optional(),
+    contentType: z.enum(['movie', 'episode']),
+    contentId: z.string().uuid(),
+    sourceType: z.enum(['hls', 'mp4', 'dash']),
+    url: z.string().url().refine((value) => new URL(value).protocol === 'https:', 'HTTPS URL required'),
+    quality: z.string().max(20).default('auto'),
+    language: z.string().max(20).default('und'),
+    labelAr: z.string().max(120).default('مصدر'),
+    labelEn: z.string().max(120).default('Source'),
+    providerReference: z.string().max(300).nullable().optional(),
+    expiresAt: z.string().datetime().nullable().optional(),
+    isWorking: z.boolean().default(true),
+  }).safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid playback source');
+
+  const { data, error } = await adminSupabase.from('playback_sources').insert({
+    provider_id: body.data.providerId || null,
+    content_type: body.data.contentType,
+    content_id: body.data.contentId,
+    source_type: body.data.sourceType,
+    url: body.data.url,
+    quality: body.data.quality,
+    language: body.data.language,
+    label_ar: body.data.labelAr,
+    label_en: body.data.labelEn,
+    provider_reference: body.data.providerReference || null,
+    expires_at: body.data.expiresAt || null,
+    is_working: body.data.isWorking,
+    last_checked_at: new Date().toISOString(),
+    failure_count: 0,
+  }).select('*').single();
+
+  if (error) return fail(res, 409, 'SOURCE_WRITE_FAILED', 'Unable to create playback source');
+
+  await adminSupabase.from('audit_logs').insert({
+    actor_id: req.userId,
+    action: 'create_playback_source',
+    target_type: body.data.contentType,
+    target_id: body.data.contentId,
+    details: { sourceId: data.id, sourceType: data.source_type },
+  });
+
+  return created(res, data);
+}));
+
+app.patch(`${api}/admin/sources/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = z.object({
+    sourceType: z.enum(['hls', 'mp4', 'dash']).optional(),
+    url: z.string().url().refine((value) => new URL(value).protocol === 'https:', 'HTTPS URL required').optional(),
+    quality: z.string().max(20).optional(),
+    language: z.string().max(20).optional(),
+    labelAr: z.string().max(120).optional(),
+    labelEn: z.string().max(120).optional(),
+    expiresAt: z.string().datetime().nullable().optional(),
+    isWorking: z.boolean().optional(),
+  }).safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid playback source update');
+
+  const patch: Record<string, unknown> = {};
+  if (body.data.sourceType !== undefined) patch.source_type = body.data.sourceType;
+  if (body.data.url !== undefined) patch.url = body.data.url;
+  if (body.data.quality !== undefined) patch.quality = body.data.quality;
+  if (body.data.language !== undefined) patch.language = body.data.language;
+  if (body.data.labelAr !== undefined) patch.label_ar = body.data.labelAr;
+  if (body.data.labelEn !== undefined) patch.label_en = body.data.labelEn;
+  if (body.data.expiresAt !== undefined) patch.expires_at = body.data.expiresAt;
+  if (body.data.isWorking !== undefined) patch.is_working = body.data.isWorking;
+
+  const { data, error } = await adminSupabase.from('playback_sources').update(patch).eq('id', req.params.id).select('*').maybeSingle();
+  if (error || !data) return fail(res, 404, 'SOURCE_NOT_FOUND', 'Playback source not found');
+
+  await adminSupabase.from('audit_logs').insert({
+    actor_id: req.userId,
+    action: 'update_playback_source',
+    target_type: data.content_type,
+    target_id: data.content_id,
+    details: { sourceId: data.id, changes: patch },
+  });
+
+  return ok(res, data);
+}));
+
+app.delete(`${api}/admin/sources/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const { data } = await adminSupabase.from('playback_sources').select('content_type,content_id').eq('id', req.params.id).maybeSingle();
+  const { error } = await adminSupabase.from('playback_sources').delete().eq('id', req.params.id);
+  if (error) return fail(res, 500, 'SOURCE_DELETE_FAILED', 'Unable to delete playback source');
+
+  await adminSupabase.from('audit_logs').insert({
+    actor_id: req.userId,
+    action: 'delete_playback_source',
+    target_type: data?.content_type || 'source',
+    target_id: data?.content_id || req.params.id,
+    details: { sourceId: req.params.id },
+  });
+
+  return ok(res, { deleted: true });
+}));
+
+app.delete(`${api}/admin/series/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const { data, error } = await adminSupabase.from('series').update({ status: 'archived' }).eq('id', req.params.id).select('id').maybeSingle();
+  if (error || !data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
+
+  await adminSupabase.from('audit_logs').insert({
+    actor_id: req.userId,
+    action: 'archive_series',
+    target_type: 'series',
+    target_id: req.params.id,
+  });
+
+  return ok(res, { deleted: true });
+}));
+
+app.get(`${api}/admin/reports`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
+  const { data, error } = await adminSupabase
+    .from('reports')
+    .select('id,user_id,content_id,content_type,source_id,issue_type,description,status,created_at')
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) return fail(res, 500, 'REPORTS_QUERY_FAILED', 'Unable to load reports');
+  return ok(res, (data || []).map((report: any) => ({
+    id: report.id,
+    userId: report.user_id,
+    contentId: report.content_id,
+    contentType: report.content_type,
+    sourceId: report.source_id,
+    issueType: report.issue_type,
+    description: report.description || '',
+    status: report.status,
+    createdAt: report.created_at,
+  })));
+}));
+
+app.patch(`${api}/admin/reports/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = z.object({ status: z.enum(['pending', 'investigating', 'resolved']) }).safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid report status');
+
+  const { data, error } = await adminSupabase
+    .from('reports')
+    .update({ status: body.data.status })
+    .eq('id', req.params.id)
+    .select('*')
+    .maybeSingle();
+
+  if (error || !data) return fail(res, 404, 'REPORT_NOT_FOUND', 'Report not found');
+
+  await adminSupabase.from('audit_logs').insert({
+    actor_id: req.userId,
+    action: 'update_report_status',
+    target_type: 'report',
+    target_id: data.id,
+    details: { status: data.status },
+  });
+
+  return ok(res, data);
+}));
+
+app.get(`${api}/admin/users`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
+  const { data, error } = await adminSupabase
+    .from('profiles')
+    .select('id,role,display_name,avatar_url,locale,created_at,updated_at')
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) return fail(res, 500, 'USERS_QUERY_FAILED', 'Unable to load users');
+
+  const userIds = (data || []).map((user: any) => user.id);
+  let emails = new Map<string, string>();
+  if (userIds.length) {
+    const authUsers = await Promise.all(userIds.map(async (id) => {
+      const result = await adminSupabase.auth.admin.getUserById(id);
+      return [id, result.data.user?.email || ''] as const;
+    }));
+    emails = new Map(authUsers);
+  }
+
+  return ok(res, (data || []).map((user: any) => ({
+    id: user.id, email: emails.get(user.id) || '', name: user.display_name || '',
+    role: user.role, avatarUrl: user.avatar_url || '', locale: user.locale || 'ar',
+    createdAt: user.created_at, updatedAt: user.updated_at,
+  })));
+}));
+
+app.patch(`${api}/admin/users/:id/role`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  if (req.role !== 'OWNER') return fail(res, 403, 'OWNER_ONLY', 'Only the owner can change user roles');
+  const body = z.object({ role: z.enum(['USER', 'ADMIN', 'OWNER']) }).safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid role');
+
+  if (body.data.role === 'OWNER' && req.params.id !== req.userId) {
+    const { count } = await adminSupabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'OWNER');
+    if ((count || 0) >= 1) return fail(res, 409, 'OWNER_ALREADY_EXISTS', 'An owner already exists');
+  }
+  if (req.params.id === req.userId && body.data.role !== 'OWNER') {
+    return fail(res, 409, 'OWNER_SELF_DEMOTION_BLOCKED', 'The owner cannot remove their own owner role');
+  }
+
+  const { data, error } = await adminSupabase.from('profiles').update({ role: body.data.role }).eq('id', req.params.id).select('id,role').maybeSingle();
+  if (error || !data) return fail(res, 404, 'USER_NOT_FOUND', 'User not found');
+
+  await adminSupabase.from('audit_logs').insert({
+    actor_id: req.userId,
+    action: 'change_user_role',
+    target_type: 'user',
+    target_id: req.params.id,
+    details: { role: body.data.role },
+  });
+
+  return ok(res, data);
 }));
 
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
