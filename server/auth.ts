@@ -19,3 +19,8 @@ export function requireAdmin(req:AuthenticatedRequest,res:Response,next:NextFunc
   if(req.role!=='ADMIN'&&req.role!=='OWNER') return res.status(403).json({success:false,error:{code:'FORBIDDEN',message:'Admin permission required'}});
   next();
 }
+
+export function requireOwner(req:AuthenticatedRequest,res:Response,next:NextFunction){
+  if(req.role!=='OWNER') return res.status(403).json({success:false,error:{code:'OWNER_ONLY',message:'Owner permission required'}});
+  next();
+}
