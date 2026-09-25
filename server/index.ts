@@ -586,6 +586,32 @@ app.post(`${api}/admin/sync/tmdb/episodes`, requireAuth, requireAdmin, asyncRout
   }
 }));
 
+app.get(`${api}/admin/sync/jobs`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
+  const { data, error } = await adminSupabase
+    .from('sync_jobs')
+    .select('id,provider,job_type,status,pages,movies_synced,series_synced,seasons_synced,episodes_synced,error,started_at,finished_at,created_at')
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (error) return fail(res, 500, 'SYNC_JOBS_QUERY_FAILED', 'Unable to load sync jobs');
+
+  return ok(res, (data || []).map((job: any) => ({
+    id: job.id,
+    provider: job.provider,
+    jobType: job.job_type,
+    status: job.status,
+    pages: job.pages,
+    moviesSynced: job.movies_synced,
+    seriesSynced: job.series_synced,
+    seasonsSynced: job.seasons_synced,
+    episodesSynced: job.episodes_synced,
+    error: job.error || '',
+    startedAt: job.started_at || '',
+    finishedAt: job.finished_at || '',
+    createdAt: job.created_at,
+  })));
+}));
+
 app.get(`${api}/admin/audit`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
   const { data, error } = await adminSupabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(200);
   if (error) return fail(res, 500, 'AUDIT_QUERY_FAILED', 'Unable to load audit logs');
