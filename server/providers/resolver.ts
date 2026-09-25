@@ -2,6 +2,20 @@ import { adminSupabase } from '../supabase';
 import { getProvider } from './registry';
 import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
+function sourceDto(source: any) {
+  return {
+    id: source.id,
+    type: source.source_type,
+    quality: source.quality || 'auto',
+    language: source.language || 'und',
+    label: source.label_ar || source.providers?.name || 'Source',
+    labelEn: source.label_en || source.providers?.name || 'Source',
+    url: source.url || '',
+    isWorking: source.is_working === true,
+    provider: source.providers?.name || 'Provider',
+  };
+}
+
 const validTypes = new Set(['hls', 'mp4', 'dash']);
 
 function normalizeUrl(value: unknown) {
@@ -27,19 +41,34 @@ async function getContext(contentType: 'movie' | 'episode', contentId: string): 
     return { tmdbId: data.tmdb_id };
   }
 
-  const { data } = await adminSupabase
+  const { data: episode } = await adminSupabase
     .from('episodes')
-    .select('tmdb_id,episode_number,seasons(season_number)')
+    .select('episode_number,season_id')
     .eq('id', contentId)
     .maybeSingle();
 
-  const season = Array.isArray(data?.seasons) ? data?.seasons[0] : data?.seasons;
-  if (!data?.tmdb_id || !season?.season_number) return null;
+  if (!episode?.season_id || !episode.episode_number) return null;
+
+  const { data: season } = await adminSupabase
+    .from('seasons')
+    .select('season_number,series_id')
+    .eq('id', episode.season_id)
+    .maybeSingle();
+
+  if (!season?.series_id || !season.season_number) return null;
+
+  const { data: series } = await adminSupabase
+    .from('series')
+    .select('tmdb_id')
+    .eq('id', season.series_id)
+    .maybeSingle();
+
+  if (!series?.tmdb_id) return null;
 
   return {
-    tmdbId: data.tmdb_id,
+    tmdbId: series.tmdb_id,
     seasonNumber: season.season_number,
-    episodeNumber: data.episode_number,
+    episodeNumber: episode.episode_number,
   };
 }
 
@@ -94,9 +123,16 @@ export async function resolvePlaybackSources(
 
   const uniqueSources = [...unique.values()];
 
-  if (uniqueSources.length) {
-    await adminSupabase.from('playback_sources').insert(
-      uniqueSources.map((source) => ({
+  const activeSources = uniqueSources.filter(
+    (source) => !source.expiresAt || new Date(source.expiresAt) > new Date(),
+  );
+
+  if (!activeSources.length) return [];
+
+  const { data: insertedSources, error: insertError } = await adminSupabase
+    .from('playback_sources')
+    .insert(
+      activeSources.map((source) => ({
         provider_id: source.providerId,
         content_type: contentType,
         content_id: contentId,
@@ -112,18 +148,10 @@ export async function resolvePlaybackSources(
         last_checked_at: new Date().toISOString(),
         failure_count: 0,
       })),
-    );
-  }
+    )
+    .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)');
 
-  return uniqueSources.map((source) => ({
-    id: `resolved-${source.providerId}-${source.type}-${Buffer.from(source.url!).toString('base64url').slice(0, 12)}`,
-    type: source.type,
-    quality: source.quality,
-    language: source.language,
-    label: source.label,
-    labelEn: source.label,
-    url: source.url,
-    isWorking: true,
-    provider: source.providerName,
-  }));
+  if (insertError) throw new Error('Unable to persist resolved playback sources');
+
+  return (insertedSources || []).map((source: any) => sourceDto(source));
 }
