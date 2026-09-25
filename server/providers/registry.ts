@@ -1,7 +1,9 @@
 import type { ProviderAdapter } from './types';
-import './external';
+import externalProvider from './external';
 
 const adapters = new Map<string, ProviderAdapter>();
+
+registerProvider(externalProvider);
 
 export function registerProvider(adapter: ProviderAdapter) {
   adapters.set(adapter.key, adapter);
