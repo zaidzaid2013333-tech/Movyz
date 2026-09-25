@@ -145,6 +145,22 @@ export const MovyzaApi = {
 
   getAdminAuditLogs: () => request<AuditLog[]>('/admin/audit'),
 
+  getAdminSyncJobs: () => request<Array<{
+    id: string;
+    provider: string;
+    jobType: string;
+    status: string;
+    pages: number | null;
+    moviesSynced: number;
+    seriesSynced: number;
+    seasonsSynced: number;
+    episodesSynced: number;
+    error: string;
+    startedAt: string;
+    finishedAt: string;
+    createdAt: string;
+  }>>('/admin/sync/jobs'),
+
   deleteMovie: (id: string) =>
     request<{ deleted: boolean }>(`/admin/movies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 

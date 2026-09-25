@@ -257,72 +257,103 @@ async function syncSeries(page: number) {
 }
 
 export async function syncEpisodesForSeries(seriesLimit = 10) {
-  const { data: seriesRows, error } = await adminSupabase
-    .from('series')
-    .select('id,tmdb_id')
-    .not('tmdb_id', 'is', null)
-    .order('created_at', { ascending: false })
-    .limit(Math.min(Math.max(seriesLimit, 1), 25));
+  const limit = Math.min(Math.max(seriesLimit, 1), 25);
+  const { data: job, error: jobError } = await adminSupabase.from('sync_jobs').insert({
+    provider: 'tmdb',
+    job_type: 'episodes',
+    status: 'running',
+    pages: 0,
+    started_at: new Date().toISOString(),
+  }).select('id').single();
 
-  if (error) throw new Error('Unable to load series for episode sync');
+  if (jobError || !job) throw new Error('Unable to start episode sync job');
 
-  let seasonsSynced = 0;
-  let episodesSynced = 0;
+  try {
+    const { data: seriesRows, error } = await adminSupabase
+      .from('series')
+      .select('id,tmdb_id')
+      .not('tmdb_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(limit);
 
-  for (const series of seriesRows || []) {
-    if (!series.tmdb_id) continue;
+    if (error) throw new Error('Unable to load series for episode sync');
 
-    const { data: seasons } = await adminSupabase
-      .from('seasons')
-      .select('id,season_number')
-      .eq('series_id', series.id)
-      .order('season_number');
+    let seasonsSynced = 0;
+    let episodesSynced = 0;
 
-    for (const season of seasons || []) {
-      if (!season.season_number) continue;
-      await throttle();
+    for (const series of seriesRows || []) {
+      if (!series.tmdb_id) continue;
 
-      const [en, ar] = await Promise.all([
-        tmdbGet<any>('/tv/' + series.tmdb_id + '/season/' + season.season_number, { language: 'en-US' }),
-        tmdbGet<any>('/tv/' + series.tmdb_id + '/season/' + season.season_number, { language: 'ar-SA' }),
-      ]);
+      const { data: seasons } = await adminSupabase
+        .from('seasons')
+        .select('id,season_number')
+        .eq('series_id', series.id)
+        .order('season_number');
 
-      const arByNumber = new Map<number, any>((ar.episodes || []).map((e: any) => [e.episode_number, e]));
+      for (const season of seasons || []) {
+        if (!season.season_number) continue;
+        await throttle();
 
-      const episodeRows = (en.episodes || []).map((episode: any) => {
-        const arEpisode = arByNumber.get(episode.episode_number) || episode;
-        return {
-          season_id: season.id,
-          tmdb_id: episode.id,
-          episode_number: episode.episode_number,
-          name_ar: arEpisode.name || episode.name || 'الحلقة ' + episode.episode_number,
-          name_en: episode.name || 'Episode ' + episode.episode_number,
-          overview_ar: arEpisode.overview || '',
-          overview_en: episode.overview || '',
-          still_url: episode.still_path ? IMAGE + episode.still_path : '',
-          air_date: episode.air_date || null,
-          runtime_minutes: episode.runtime || null,
-        };
-      });
+        const [en, ar] = await Promise.all([
+          tmdbGet<any>('/tv/' + series.tmdb_id + '/season/' + season.season_number, { language: 'en-US' }),
+          tmdbGet<any>('/tv/' + series.tmdb_id + '/season/' + season.season_number, { language: 'ar-SA' }),
+        ]);
 
-      if (episodeRows.length) {
-        const { error: episodeError } = await adminSupabase
-          .from('episodes')
-          .upsert(episodeRows, { onConflict: 'season_id,episode_number' });
+        const arByNumber = new Map<number, any>((ar.episodes || []).map((e: any) => [e.episode_number, e]));
 
-        if (episodeError) throw new Error('Failed to sync season ' + season.season_number);
-        episodesSynced += episodeRows.length;
+        const episodeRows = (en.episodes || []).map((episode: any) => {
+          const arEpisode = arByNumber.get(episode.episode_number) || episode;
+          return {
+            season_id: season.id,
+            tmdb_id: episode.id,
+            episode_number: episode.episode_number,
+            name_ar: arEpisode.name || episode.name || 'الحلقة ' + episode.episode_number,
+            name_en: episode.name || 'Episode ' + episode.episode_number,
+            overview_ar: arEpisode.overview || '',
+            overview_en: episode.overview || '',
+            still_url: episode.still_path ? IMAGE + episode.still_path : '',
+            air_date: episode.air_date || null,
+            runtime_minutes: episode.runtime || null,
+          };
+        });
+
+        if (episodeRows.length) {
+          const { error: episodeError } = await adminSupabase
+            .from('episodes')
+            .upsert(episodeRows, { onConflict: 'season_id,episode_number' });
+
+          if (episodeError) throw new Error('Failed to sync season ' + season.season_number);
+          episodesSynced += episodeRows.length;
+        }
+
+        seasonsSynced++;
       }
-
-      seasonsSynced++;
     }
-  }
 
-  return {
-    series: (seriesRows || []).length,
-    seasons: seasonsSynced,
-    episodes: episodesSynced,
-  };
+    const result = {
+      series: (seriesRows || []).length,
+      seasons: seasonsSynced,
+      episodes: episodesSynced,
+    };
+
+    await adminSupabase.from('sync_jobs').update({
+      status: 'succeeded',
+      series_synced: result.series,
+      seasons_synced: result.seasons,
+      episodes_synced: result.episodes,
+      finished_at: new Date().toISOString(),
+    }).eq('id', job.id);
+
+    return result;
+  } catch (error) {
+    await adminSupabase.from('sync_jobs').update({
+      status: 'failed',
+      error: error instanceof Error ? error.message : 'Unknown TMDB episode sync error',
+      finished_at: new Date().toISOString(),
+    }).eq('id', job.id);
+
+    throw error;
+  }
 }
 
 export async function runTmdbSync(options: { pages?: number } = {}) {
