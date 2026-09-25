@@ -8,6 +8,8 @@ import {
   Film,
   Tv,
   Server,
+  Users,
+  Flag,
   RefreshCw,
   Activity,
   Trash2,
@@ -29,7 +31,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
   const { user, role, isAdmin, isOwner } = useAuth();
   const { language, t } = useLanguage();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'movies' | 'series' | 'providers' | 'sync' | 'audit'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'movies' | 'series' | 'providers' | 'sync' | 'reports' | 'users' | 'audit'>('overview');
   const [stats, setStats] = useState<{
     totalMovies: number;
     totalSeries: number;
@@ -48,6 +50,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     moviesSynced: number; seriesSynced: number; seasonsSynced: number; episodesSynced: number;
     error: string; startedAt: string; finishedAt: string; createdAt: string;
   }>>([]);
+  const [reports, setReports] = useState<Array<{
+    id: string; userId: string; contentId: string; contentType: 'movie' | 'episode';
+    sourceId: string | null; issueType: string; description: string; status: string; createdAt: string;
+  }>>([]);
+  const [users, setUsers] = useState<Array<{
+    id: string; email: string; name: string; role: 'USER' | 'ADMIN' | 'OWNER';
+    avatarUrl: string; locale: string; createdAt: string; updatedAt: string;
+  }>>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Delete modal state
@@ -57,13 +67,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
   const [isEpisodeSyncing, setIsEpisodeSyncing] = useState(false);
 
   const loadAdminData = async () => {
-    const [statsRes, moviesRes, seriesRes, provRes, logsRes, jobsRes] = await Promise.all([
+    const [statsRes, moviesRes, seriesRes, provRes, logsRes, jobsRes, reportsRes, usersRes] = await Promise.all([
       MovyzaApi.getAdminStats(),
       MovyzaApi.getMovies(),
       MovyzaApi.getSeries(),
       MovyzaApi.getAdminProviders(),
       MovyzaApi.getAdminAuditLogs(),
       MovyzaApi.getAdminSyncJobs(),
+      MovyzaApi.getAdminReports(),
+      MovyzaApi.getAdminUsers(),
     ]);
 
     setStats(statsRes.data);
@@ -72,6 +84,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     setProviders(provRes.data);
     setAuditLogs(logsRes.data);
     setSyncJobs(jobsRes.data);
+    setReports(reportsRes.data);
+    setUsers(usersRes.data);
   };
 
   useEffect(() => {
@@ -164,6 +178,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     { id: 'series' as const, label: t('manageSeries'), icon: Tv },
     { id: 'providers' as const, label: t('providerAdapters'), icon: Server },
     { id: 'sync' as const, label: t('syncSystem'), icon: RefreshCw },
+    { id: 'reports' as const, label: 'البلاغات', icon: Flag },
+    { id: 'users' as const, label: 'المستخدمون', icon: Users },
     { id: 'audit' as const, label: t('auditLogs'), icon: Clock },
   ];
 
@@ -531,6 +547,104 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
             </div>
           )}
 
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Reports */}
+      {activeTab === 'reports' && (
+        <div className="space-y-4 animate-in fade-in">
+          <div className="overflow-x-auto rounded-2xl border border-white/[0.08]">
+            <table className="w-full text-start text-xs">
+              <thead className="bg-white/[0.03] text-slate-400 border-b border-white/[0.08]">
+                <tr>
+                  <th className="py-3 px-4 text-start">التاريخ</th>
+                  <th className="py-3 px-4 text-start">النوع</th>
+                  <th className="py-3 px-4 text-start">نوع المشكلة</th>
+                  <th className="py-3 px-4 text-start">الوصف</th>
+                  <th className="py-3 px-4 text-start">الحالة</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.04]">
+                {reports.map((report) => (
+                  <tr key={report.id}>
+                    <td className="py-3 px-4 text-slate-500 font-mono">{report.createdAt}</td>
+                    <td className="py-3 px-4 text-slate-300">{report.contentType}</td>
+                    <td className="py-3 px-4 text-white">{report.issueType}</td>
+                    <td className="py-3 px-4 text-slate-400 max-w-md">{report.description || '—'}</td>
+                    <td className="py-3 px-4">
+                      <select
+                        value={report.status}
+                        onChange={async (e) => {
+                          try {
+                            await MovyzaApi.updateAdminReport(report.id, e.target.value as 'pending' | 'investigating' | 'resolved');
+                            setReports((prev) => prev.map((item) => item.id === report.id ? { ...item, status: e.target.value } : item));
+                          } catch {
+                            showToast('تعذر تحديث البلاغ');
+                          }
+                        }}
+                        className="bg-white/[0.06] border border-white/[0.08] rounded-lg px-2 py-1 text-xs text-white"
+                      >
+                        <option value="pending">pending</option>
+                        <option value="investigating">investigating</option>
+                        <option value="resolved">resolved</option>
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Users */}
+      {activeTab === 'users' && (
+        <div className="space-y-4 animate-in fade-in">
+          <div className="overflow-x-auto rounded-2xl border border-white/[0.08]">
+            <table className="w-full text-start text-xs">
+              <thead className="bg-white/[0.03] text-slate-400 border-b border-white/[0.08]">
+                <tr>
+                  <th className="py-3 px-4 text-start">المستخدم</th>
+                  <th className="py-3 px-4 text-start">الدور</th>
+                  <th className="py-3 px-4 text-start">تاريخ الإنشاء</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.04]">
+                {users.map((item) => (
+                  <tr key={item.id}>
+                    <td className="py-3 px-4">
+                      <p className="font-semibold text-white">{item.name || item.email || item.id}</p>
+                      <p className="text-[11px] text-slate-500">{item.email}</p>
+                    </td>
+                    <td className="py-3 px-4">
+                      {isOwner ? (
+                        <select
+                          value={item.role}
+                          onChange={async (e) => {
+                            const nextRole = e.target.value as 'USER' | 'ADMIN' | 'OWNER';
+                            try {
+                              await MovyzaApi.updateUserRole(item.id, nextRole);
+                              setUsers((prev) => prev.map((user) => user.id === item.id ? { ...user, role: nextRole } : user));
+                            } catch {
+                              showToast('تعذر تغيير دور المستخدم');
+                            }
+                          }}
+                          className="bg-white/[0.06] border border-white/[0.08] rounded-lg px-2 py-1 text-xs text-white"
+                        >
+                          <option value="USER">USER</option>
+                          <option value="ADMIN">ADMIN</option>
+                          <option value="OWNER">OWNER</option>
+                        </select>
+                      ) : (
+                        <span className="text-slate-300 font-mono">{item.role}</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-slate-500 font-mono">{item.createdAt}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
