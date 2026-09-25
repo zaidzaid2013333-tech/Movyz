@@ -644,6 +644,7 @@ app.post(`${api}/admin/providers/:id/test`, requireAuth, requireAdmin, asyncRout
       successRate: health.status === 'healthy' ? 100 : health.status === 'degraded' ? 50 : 0,
       lastChecked: new Date().toISOString(),
       activeSources: 0,
+      enabled: data.enabled,
     });
   } catch (error) {
     return fail(res, 502, 'PROVIDER_HEALTH_CHECK_FAILED', error instanceof Error ? error.message : 'Provider health check failed');
