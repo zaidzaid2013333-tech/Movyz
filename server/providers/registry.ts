@@ -1,4 +1,5 @@
 import type { ProviderAdapter } from './types';
+import './external';
 
 const adapters = new Map<string, ProviderAdapter>();
 
