@@ -46,12 +46,24 @@ function MainApp() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Fetch initial watchlist
+  // Watchlist belongs to the authenticated account; guests keep an empty local UI state.
   useEffect(() => {
-    MovyzaApi.getWatchlist().then((res) => {
-      setWatchlistIds(res.data.map((item) => item.contentId));
-    });
-  }, []);
+    let active = true;
+    if (!user) {
+      setWatchlistIds([]);
+      return () => { active = false; };
+    }
+
+    MovyzaApi.getWatchlist()
+      .then((res) => {
+        if (active) setWatchlistIds(res.data.map((item) => item.contentId));
+      })
+      .catch(() => {
+        if (active) setWatchlistIds([]);
+      });
+
+    return () => { active = false; };
+  }, [user?.id]);
 
   const navigate = (path: string) => {
     window.history.pushState({}, '', path);
@@ -60,13 +72,18 @@ function MainApp() {
   };
 
   const handleToggleWatchlist = async (item: Movie | Series) => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
     if (watchlistIds.includes(item.id)) {
       setWatchlistIds((prev) => prev.filter((id) => id !== item.id));
       await MovyzaApi.removeFromWatchlist(item.id);
     } else {
       setWatchlistIds((prev) => [...prev, item.id]);
       await MovyzaApi.addToWatchlist({
-        userId: user?.id || 'usr-guest',
+        userId: user.id,
         contentId: item.id,
         contentType: item.type,
         title: item.title,
