@@ -7,6 +7,7 @@ import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, type AuthenticatedRequest } from './auth';
 import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
+import { getProvider } from './providers/registry';
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
@@ -482,16 +483,45 @@ app.get(`${api}/admin/stats`, requireAuth, requireAdmin, asyncRoute(async (_req,
 app.post(`${api}/admin/providers/:id/test`, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
   const { data, error } = await adminSupabase
     .from('providers')
-    .update({ status: 'healthy', last_checked_at: new Date().toISOString() })
-    .eq('id', req.params.id)
     .select('*')
+    .eq('id', req.params.id)
     .maybeSingle();
+
   if (error || !data) return fail(res, 404, 'PROVIDER_NOT_FOUND', 'Provider not found');
-  return ok(res, {
-    id: data.id, name: data.name, adapterName: data.adapter_name, type: 'api',
-    status: data.status, latencyMs: data.latency_ms || 0, successRate: Number(data.success_rate || 0),
-    lastChecked: data.last_checked_at || '', activeSources: 0,
-  });
+
+  const adapter = getProvider(data.key);
+  if (!adapter || !adapter.enabled) {
+    return fail(res, 409, 'PROVIDER_ADAPTER_NOT_CONFIGURED', 'Provider adapter is not configured');
+  }
+
+  const started = Date.now();
+  try {
+    const health = await adapter.health();
+    const latencyMs = Date.now() - started;
+    await adminSupabase
+      .from('providers')
+      .update({
+        status: health.status,
+        latency_ms: latencyMs,
+        success_rate: health.status === 'healthy' ? 100 : health.status === 'degraded' ? 50 : 0,
+        last_checked_at: new Date().toISOString(),
+      })
+      .eq('id', data.id);
+
+    return ok(res, {
+      id: data.id,
+      name: data.name,
+      adapterName: data.adapter_name,
+      type: 'api',
+      status: health.status,
+      latencyMs,
+      successRate: health.status === 'healthy' ? 100 : health.status === 'degraded' ? 50 : 0,
+      lastChecked: new Date().toISOString(),
+      activeSources: 0,
+    });
+  } catch (error) {
+    return fail(res, 502, 'PROVIDER_HEALTH_CHECK_FAILED', error instanceof Error ? error.message : 'Provider health check failed');
+  }
 }));
 
 app.get(`${api}/admin/providers`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {

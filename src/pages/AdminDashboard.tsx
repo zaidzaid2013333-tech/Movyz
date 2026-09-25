@@ -49,6 +49,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
   const [deleteCandidate, setDeleteCandidate] = useState<{ id: string; title: string } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isEpisodeSyncing, setIsEpisodeSyncing] = useState(false);
 
   const loadAdminData = async () => {
     const [statsRes, moviesRes, seriesRes, provRes, logsRes] = await Promise.all([
@@ -91,6 +92,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     setIsSyncing(false);
     showToast(res.data.message);
     loadAdminData();
+  };
+
+  const handleEpisodeSync = async () => {
+    setIsEpisodeSyncing(true);
+    try {
+      const res = await MovyzaApi.syncTmdbEpisodes(10);
+      showToast(res.data.message);
+      await loadAdminData();
+    } catch {
+      showToast('تعذر مزامنة الحلقات حالياً');
+    } finally {
+      setIsEpisodeSyncing(false);
+    }
   };
 
   const handleDeleteConfirm = async () => {
@@ -437,12 +451,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                 {isSyncing ? 'جاري الفحص والمزامنة...' : 'مزامنة الكتالوج الآن'}
               </button>
               <button
+                onClick={handleEpisodeSync}
+                disabled={isEpisodeSyncing}
+                className="px-4 py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-medium text-slate-300 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isEpisodeSyncing ? 'جاري مزامنة الحلقات...' : 'مزامنة المواسم والحلقات'}
+              </button>
+
+              <button
                 onClick={() => {
-                  showToast('تم إفراغ الذاكرة المؤقتة وتحديث الكاش المحلي بنجاح');
+                  showToast('الكاش المعروض من قاعدة البيانات؛ لا يوجد تخزين محتوى محلي للتحديث.');
                 }}
                 className="px-4 py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-medium text-slate-300 transition-colors cursor-pointer"
               >
-                تحديث الكاش المحلي
+                حالة الكاش
               </button>
             </div>
           </div>

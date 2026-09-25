@@ -151,6 +151,8 @@ export const MovyzaApi = {
   triggerTmdbSync: () =>
     request<{ syncedCount: number; message: string }>('/admin/sync/tmdb', { method: 'POST' }),
 
+  syncTmdbEpisodes: (seriesLimit = 10) => request<{ syncedCount: number; message: string }>('/admin/sync/tmdb/episodes', { method: 'POST', body: JSON.stringify({ seriesLimit }) }),
+
   getMe: () => request<UserProfile>('/auth/me'),
 };
 

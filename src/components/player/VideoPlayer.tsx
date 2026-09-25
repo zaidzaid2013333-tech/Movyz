@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import Hls from 'hls.js';
+import * as dashjs from 'dashjs';
 import {
   Play,
   Pause,
@@ -55,7 +57,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onSelectEpisode,
   onNavigateBack,
 }) => {
-  const { language, t } = useLanguage();
+  const { language, t, direction } = useLanguage();
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
 
@@ -91,6 +93,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [reportSuccess, setReportSuccess] = useState(false);
 
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const dashRef = useRef<dashjs.MediaPlayerClass | null>(null);
 
   const activeSource = sources[activeSourceIndex] || sources[0];
 
@@ -157,6 +161,72 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }, 5000);
     return () => clearInterval(interval);
   }, [isPlaying, saveProgress]);
+
+  // Attach the correct playback engine for MP4, HLS and DASH sources.
+  useEffect(() => {
+    const video = videoRef.current;
+    const source = activeSource;
+
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
+    dashRef.current?.reset();
+    dashRef.current = null;
+
+    if (!video || !source?.url) {
+      setHasError(true);
+      setIsLoading(false);
+      return;
+    }
+
+    setHasError(false);
+    setIsLoading(true);
+
+    if (source.type === 'hls') {
+      if (video.canPlayType('application/vnd.apple.mpegurl') && !Hls.isSupported()) {
+        video.src = source.url;
+        video.load();
+      } else if (Hls.isSupported()) {
+        const hls = new Hls({ enableWorker: true });
+        hlsRef.current = hls;
+        hls.loadSource(source.url);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal) return;
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hls.startLoad();
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            hls.recoverMediaError();
+          } else {
+            handleSourceError();
+          }
+        });
+      } else {
+        handleSourceError();
+      }
+    } else if (source.type === 'dash') {
+      if (!dashjs.supportsMediaSource()) {
+        handleSourceError();
+      } else {
+        const dash = dashjs.MediaPlayer().create();
+        dashRef.current = dash;
+        dash.initialize(video, source.url, false);
+        dash.on(dashjs.MediaPlayer.events.ERROR, () => handleSourceError());
+      }
+    } else {
+      video.src = source.url;
+      video.load();
+    }
+
+    return () => {
+      hlsRef.current?.destroy();
+      hlsRef.current = null;
+      dashRef.current?.reset();
+      dashRef.current = null;
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    };
+  }, [activeSource?.id, activeSource?.url, activeSource?.type]);
 
   // Handle controls activity hide
   const resetControlsTimer = () => {
@@ -257,6 +327,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Submit issue report
   const handleSubmitReport = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!activeSource) return;
     await MovyzaApi.reportIssue({
       contentId,
       contentTitle: title,
@@ -359,7 +430,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* HTML5 Video Element with direct CDN stream */}
       <video
         ref={videoRef}
-        src={activeSource?.url}
         poster={backdropUrl}
         preload="metadata"
         playsInline
