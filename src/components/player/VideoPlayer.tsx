@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Hls from 'hls.js';
-import dashjs from 'dashjs';
+import * as dashjs from 'dashjs';
 import {
   Play,
   Pause,
