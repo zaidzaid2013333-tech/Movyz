@@ -5,7 +5,7 @@ import cors from 'cors';
 import { z } from 'zod';
 import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
-import { requireAdmin, requireAuth, type AuthenticatedRequest } from './auth';
+import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } from './auth';
 import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
 import { getProvider } from './providers/registry';
 import { resolvePlaybackSources } from './providers/resolver';
@@ -397,6 +397,53 @@ app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
   return ok(res, []);
 }));
 
+
+app.get(`${api}` + '/watch/:id', asyncRoute(async (req, res) => {
+  const contentType = z.enum(['movie','episode']).default('movie').parse(req.query.type);
+  const id = req.params.id;
+
+  if (contentType === 'movie') {
+    const { data, error } = await adminSupabase.from('movies').select('*').eq('id', id).eq('status', 'published').maybeSingle();
+    if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
+    const detail = await movieDto(data);
+    const { data: rows } = await adminSupabase
+      .from('playback_sources')
+      .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)')
+      .eq('content_type', 'movie').eq('content_id', id).eq('is_working', true);
+    const sources = (rows || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date()).map(sourceDto);
+    return ok(res, { contentType, id, content: detail, sources });
+  }
+
+  const { data: episode, error: episodeError } = await adminSupabase
+    .from('episodes')
+    .select('*,seasons(id,season_number,series_id,series:series_id(id,title_ar,title_en,status))')
+    .eq('id', id).maybeSingle();
+  const series = episode?.seasons?.series;
+  if (episodeError || !episode || !series || series.status !== 'published') {
+    return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
+  }
+
+  const { data: rows } = await adminSupabase
+    .from('playback_sources')
+    .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)')
+    .eq('content_type', 'episode').eq('content_id', id).eq('is_working', true);
+  const sources = (rows || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date()).map(sourceDto);
+
+  return ok(res, {
+    contentType, id,
+    content: {
+      id: episode.id, seriesId: series.id,
+      seriesTitle: series.title_ar, seriesTitleEn: series.title_en || series.title_ar,
+      seasonNumber: episode.seasons.season_number, episodeNumber: episode.episode_number,
+      title: episode.name_ar || episode.name_en || ('الحلقة ' + episode.episode_number),
+      titleEn: episode.name_en || episode.name_ar || ('Episode ' + episode.episode_number),
+      overview: episode.overview_ar || '', overviewEn: episode.overview_en || episode.overview_ar || '',
+      stillUrl: episode.still_url || '', duration: Number(episode.runtime_minutes || 0), airDate: episode.air_date || '',
+    },
+    sources,
+  });
+}));
+
 app.get(`${api}/search`, asyncRoute(async (req, res) => {
   const q = z.string().trim().min(1).max(100).parse(req.query.q);
   const [movies, series, people] = await Promise.all([
@@ -554,6 +601,269 @@ app.post(`${api}/reports`, requireAuth, asyncRoute(async (req: AuthenticatedRequ
     sourceId: data.source_id, issueType: data.issue_type, description: data.description || '',
     reportedAt: data.created_at, status: data.status,
   });
+}));
+
+
+async function writeAudit(actorId: string, action: string, targetType: string, targetId: string, details: Record<string, unknown> = {}) {
+  await adminSupabase.from('audit_logs').insert({ actor_id: actorId, action, target_type: targetType, target_id: targetId, details });
+}
+
+const adminListQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  search: z.string().trim().max(120).optional(),
+});
+
+app.get(`${api}` + '/admin/movies', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const parsed = adminListQuery.safeParse(req.query);
+  if (!parsed.success) return fail(res, 400, 'INVALID_QUERY', 'Invalid admin movie parameters');
+  const { page, limit, search } = parsed.data;
+  let query = adminSupabase.from('movies').select('*', { count: 'exact' }).order('updated_at', { ascending: false });
+  if (search) query = query.or('title_ar.ilike.%' + search + '%,title_en.ilike.%' + search + '%,original_title.ilike.%' + search + '%');
+  const from = (page - 1) * limit;
+  const { data, count, error } = await query.range(from, from + limit - 1);
+  if (error) return fail(res, 500, 'ADMIN_MOVIES_QUERY_FAILED', 'Unable to load admin movies');
+  return ok(res, (data || []).map((row: any) => movieCardDto(row)), { page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit) || 1 });
+}));
+
+const adminMovieBody = z.object({
+  titleAr: z.string().min(1).max(300),
+  titleEn: z.string().max(300).optional().nullable(),
+  originalTitle: z.string().max(300).optional().nullable(),
+  overviewAr: z.string().max(10000).optional().nullable(),
+  overviewEn: z.string().max(10000).optional().nullable(),
+  posterUrl: z.string().url().optional().nullable(),
+  backdropUrl: z.string().url().optional().nullable(),
+  releaseDate: z.string().optional().nullable(),
+  runtimeMinutes: z.number().int().min(0).max(1000).optional().nullable(),
+  rating: z.number().min(0).max(10).optional(),
+  voteCount: z.number().int().min(0).optional(),
+  ageRating: z.string().max(30).optional().nullable(),
+  status: z.enum(['draft','published','archived']).optional(),
+  featured: z.boolean().optional(), trending: z.boolean().optional(), popular: z.boolean().optional(),
+});
+
+app.post(`${api}` + '/admin/movies', requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = adminMovieBody.safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid movie payload');
+  const b = body.data;
+  const { data, error } = await adminSupabase.from('movies').insert({
+    title_ar: b.titleAr, title_en: b.titleEn || null, original_title: b.originalTitle || null,
+    overview_ar: b.overviewAr || '', overview_en: b.overviewEn || '', poster_url: b.posterUrl || '', backdrop_url: b.backdropUrl || '',
+    release_date: b.releaseDate || null, runtime_minutes: b.runtimeMinutes ?? null, rating: b.rating ?? 0, vote_count: b.voteCount ?? 0,
+    age_rating: b.ageRating || '', status: b.status || 'draft', featured: b.featured ?? false, trending: b.trending ?? false, popular: b.popular ?? false,
+  }).select('*').single();
+  if (error || !data) return fail(res, 500, 'MOVIE_CREATE_FAILED', 'Unable to create movie');
+  await writeAudit(req.userId!, 'create_movie', 'movie', data.id);
+  return created(res, movieCardDto(data));
+}));
+
+app.patch(`${api}` + '/admin/movies/:id', requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = adminMovieBody.partial().safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid movie payload');
+  const b = body.data;
+  const map: Record<string,string> = { titleAr:'title_ar', titleEn:'title_en', originalTitle:'original_title', overviewAr:'overview_ar', overviewEn:'overview_en', posterUrl:'poster_url', backdropUrl:'backdrop_url', releaseDate:'release_date', runtimeMinutes:'runtime_minutes', rating:'rating', voteCount:'vote_count', ageRating:'age_rating', status:'status', featured:'featured', trending:'trending', popular:'popular' };
+  const update: Record<string, unknown> = {};
+  for (const [from,to] of Object.entries(map)) if ((b as any)[from] !== undefined) update[to] = (b as any)[from];
+  const { data, error } = await adminSupabase.from('movies').update(update).eq('id', req.params.id).select('*').maybeSingle();
+  if (error || !data) return fail(res, 404, 'MOVIE_UPDATE_FAILED', 'Movie not found or not updated');
+  await writeAudit(req.userId!, 'update_movie', 'movie', data.id, { fields: Object.keys(update) });
+  return ok(res, movieCardDto(data));
+}));
+
+app.get(`${api}` + '/admin/series', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const parsed = adminListQuery.safeParse(req.query);
+  if (!parsed.success) return fail(res, 400, 'INVALID_QUERY', 'Invalid admin series parameters');
+  const { page, limit, search } = parsed.data;
+  let query = adminSupabase.from('series').select('*', { count: 'exact' }).order('updated_at', { ascending: false });
+  if (search) query = query.or('title_ar.ilike.%' + search + '%,title_en.ilike.%' + search + '%,original_title.ilike.%' + search + '%');
+  const from = (page - 1) * limit;
+  const { data, count, error } = await query.range(from, from + limit - 1);
+  if (error) return fail(res, 500, 'ADMIN_SERIES_QUERY_FAILED', 'Unable to load admin series');
+  return ok(res, (data || []).map((row: any) => seriesCardDto(row)), { page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit) || 1 });
+}));
+
+const adminSeriesBody = z.object({
+  titleAr: z.string().min(1).max(300),
+  titleEn: z.string().max(300).optional().nullable(),
+  originalTitle: z.string().max(300).optional().nullable(),
+  overviewAr: z.string().max(10000).optional().nullable(),
+  overviewEn: z.string().max(10000).optional().nullable(),
+  posterUrl: z.string().url().optional().nullable(),
+  backdropUrl: z.string().url().optional().nullable(),
+  firstAirDate: z.string().optional().nullable(),
+  lastAirDate: z.string().optional().nullable(),
+  rating: z.number().min(0).max(10).optional(), voteCount: z.number().int().min(0).optional(),
+  ageRating: z.string().max(30).optional().nullable(), status: z.enum(['draft','published','archived']).optional(),
+  featured: z.boolean().optional(), trending: z.boolean().optional(), popular: z.boolean().optional(),
+});
+
+app.post(`${api}` + '/admin/series', requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = adminSeriesBody.safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid series payload');
+  const b = body.data;
+  const { data, error } = await adminSupabase.from('series').insert({
+    title_ar: b.titleAr, title_en: b.titleEn || null, original_title: b.originalTitle || null,
+    overview_ar: b.overviewAr || '', overview_en: b.overviewEn || '', poster_url: b.posterUrl || '', backdrop_url: b.backdropUrl || '',
+    first_air_date: b.firstAirDate || null, last_air_date: b.lastAirDate || null, rating: b.rating ?? 0, vote_count: b.voteCount ?? 0,
+    age_rating: b.ageRating || '', status: b.status || 'draft', featured: b.featured ?? false, trending: b.trending ?? false, popular: b.popular ?? false,
+  }).select('*').single();
+  if (error || !data) return fail(res, 500, 'SERIES_CREATE_FAILED', 'Unable to create series');
+  await writeAudit(req.userId!, 'create_series', 'series', data.id);
+  return created(res, seriesCardDto(data));
+}));
+
+app.patch(`${api}` + '/admin/series/:id', requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = adminSeriesBody.partial().safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid series payload');
+  const b = body.data;
+  const map: Record<string,string> = { titleAr:'title_ar', titleEn:'title_en', originalTitle:'original_title', overviewAr:'overview_ar', overviewEn:'overview_en', posterUrl:'poster_url', backdropUrl:'backdrop_url', firstAirDate:'first_air_date', lastAirDate:'last_air_date', rating:'rating', voteCount:'vote_count', ageRating:'age_rating', status:'status', featured:'featured', trending:'trending', popular:'popular' };
+  const update: Record<string,unknown> = {};
+  for (const [from,to] of Object.entries(map)) if ((b as any)[from] !== undefined) update[to] = (b as any)[from];
+  const { data, error } = await adminSupabase.from('series').update(update).eq('id', req.params.id).select('*').maybeSingle();
+  if (error || !data) return fail(res, 404, 'SERIES_UPDATE_FAILED', 'Series not found or not updated');
+  await writeAudit(req.userId!, 'update_series', 'series', data.id, { fields:Object.keys(update) });
+  return ok(res, seriesCardDto(data));
+}));
+
+app.get(`${api}` + '/admin/episodes', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const q = z.object({ seriesId:z.string().uuid().optional(), seasonId:z.string().uuid().optional(), page:z.coerce.number().int().min(1).default(1), limit:z.coerce.number().int().min(1).max(100).default(50) }).safeParse(req.query);
+  if (!q.success) return fail(res, 400, 'INVALID_QUERY', 'Invalid episode parameters');
+  const { seriesId, seasonId, page, limit } = q.data;
+  let query = adminSupabase.from('episodes').select('*,seasons(series_id,season_number)', { count:'exact' }).order('episode_number');
+  if (seasonId) query = query.eq('season_id', seasonId);
+  const from = (page - 1) * limit;
+  const result = await query.range(from, from + limit - 1);
+  if (result.error) return fail(res, 500, 'EPISODES_QUERY_FAILED', 'Unable to load episodes');
+  let rows = result.data || [];
+  if (seriesId) rows = rows.filter((x:any) => x.seasons?.series_id === seriesId);
+  return ok(res, rows, { page, limit, total:result.count || rows.length, totalPages:Math.ceil((result.count || rows.length)/limit) || 1 });
+}));
+
+const adminEpisodeBody = z.object({
+  seasonId:z.string().uuid(), episodeNumber:z.number().int().min(1), nameAr:z.string().min(1).max(500), nameEn:z.string().max(500).optional().nullable(),
+  overviewAr:z.string().max(10000).optional().nullable(), overviewEn:z.string().max(10000).optional().nullable(),
+  stillUrl:z.string().url().optional().nullable(), airDate:z.string().optional().nullable(), runtimeMinutes:z.number().int().min(0).max(1000).optional().nullable(),
+});
+
+app.post(`${api}` + '/admin/episodes', requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = adminEpisodeBody.safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid episode payload');
+  const b = body.data;
+  const { data, error } = await adminSupabase.from('episodes').insert({
+    season_id:b.seasonId, episode_number:b.episodeNumber, name_ar:b.nameAr, name_en:b.nameEn || null, overview_ar:b.overviewAr || '', overview_en:b.overviewEn || '',
+    still_url:b.stillUrl || '', air_date:b.airDate || null, runtime_minutes:b.runtimeMinutes ?? null,
+  }).select('*').single();
+  if (error || !data) return fail(res, 500, 'EPISODE_CREATE_FAILED', 'Unable to create episode');
+  await writeAudit(req.userId!, 'create_episode', 'episode', data.id);
+  return created(res, data);
+}));
+
+app.patch(`${api}` + '/admin/episodes/:id', requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = adminEpisodeBody.partial().safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid episode payload');
+  const b = body.data;
+  const map: Record<string,string> = { seasonId:'season_id', episodeNumber:'episode_number', nameAr:'name_ar', nameEn:'name_en', overviewAr:'overview_ar', overviewEn:'overview_en', stillUrl:'still_url', airDate:'air_date', runtimeMinutes:'runtime_minutes' };
+  const update: Record<string,unknown> = {};
+  for (const [from,to] of Object.entries(map)) if ((b as any)[from] !== undefined) update[to] = (b as any)[from];
+  const { data, error } = await adminSupabase.from('episodes').update(update).eq('id', req.params.id).select('*').maybeSingle();
+  if (error || !data) return fail(res, 404, 'EPISODE_UPDATE_FAILED', 'Episode not found or not updated');
+  await writeAudit(req.userId!, 'update_episode', 'episode', data.id, { fields:Object.keys(update) });
+  return ok(res, data);
+}));
+
+app.delete(`${api}` + '/admin/episodes/:id', requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const { error } = await adminSupabase.from('episodes').delete().eq('id', req.params.id);
+  if (error) return fail(res, 500, 'EPISODE_DELETE_FAILED', 'Unable to delete episode');
+  await writeAudit(req.userId!, 'delete_episode', 'episode', req.params.id);
+  return ok(res, { deleted:true });
+}));
+
+app.post(`${api}` + '/admin/providers', requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body=z.object({key:z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/),name:z.string().min(1).max(150),adapterName:z.string().min(1).max(150),enabled:z.boolean().default(true)}).safeParse(req.body);
+  if(!body.success) return fail(res,400,'INVALID_BODY','Invalid provider payload');
+  const {key,name,adapterName,enabled}=body.data;
+  const {data,error}=await adminSupabase.from('providers').insert({key,name,adapter_name:adapterName,enabled}).select('*').single();
+  if(error||!data) return fail(res,409,'PROVIDER_CREATE_FAILED','Unable to create provider');
+  await writeAudit(req.userId!,'create_provider','provider',data.id);
+  return created(res,data);
+}));
+
+app.patch(`${api}` + '/admin/providers/:id', requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body=z.object({name:z.string().min(1).max(150).optional(),adapterName:z.string().min(1).max(150).optional(),enabled:z.boolean().optional()}).safeParse(req.body);
+  if(!body.success) return fail(res,400,'INVALID_BODY','Invalid provider payload');
+  const b=body.data; const update:Record<string,unknown>={};
+  if(b.name!==undefined) update.name=b.name;
+  if(b.adapterName!==undefined) update.adapter_name=b.adapterName;
+  if(b.enabled!==undefined) update.enabled=b.enabled;
+  const {data,error}=await adminSupabase.from('providers').update(update).eq('id',req.params.id).select('*').maybeSingle();
+  if(error||!data) return fail(res,404,'PROVIDER_UPDATE_FAILED','Provider not found or not updated');
+  await writeAudit(req.userId!,'update_provider','provider',data.id,{fields:Object.keys(update)});
+  return ok(res,data);
+}));
+
+app.delete(`${api}` + '/admin/providers/:id', requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const {error}=await adminSupabase.from('providers').delete().eq('id',req.params.id);
+  if(error) return fail(res,409,'PROVIDER_DELETE_FAILED','Unable to delete provider');
+  await writeAudit(req.userId!,'delete_provider','provider',req.params.id);
+  return ok(res,{deleted:true});
+}));
+
+app.get(`${api}` + '/admin/reports', requireAuth, requireAdmin, asyncRoute(async (req,res) => {
+  const q=z.object({status:z.string().optional(),limit:z.coerce.number().int().min(1).max(200).default(100)}).safeParse(req.query);
+  if(!q.success) return fail(res,400,'INVALID_QUERY','Invalid report parameters');
+  let query=adminSupabase.from('reports').select('*').order('created_at',{ascending:false}).limit(q.data.limit);
+  if(q.data.status) query=query.eq('status',q.data.status);
+  const {data,error}=await query;
+  if(error) return fail(res,500,'REPORTS_QUERY_FAILED','Unable to load reports');
+  return ok(res,data||[]);
+}));
+
+app.patch(`${api}` + '/admin/reports/:id', requireAuth, requireAdmin, asyncRoute(async (req:AuthenticatedRequest,res) => {
+  const body=z.object({status:z.enum(['pending','investigating','resolved'])}).safeParse(req.body);
+  if(!body.success) return fail(res,400,'INVALID_BODY','Invalid report status');
+  const {data,error}=await adminSupabase.from('reports').update({status:body.data.status}).eq('id',req.params.id).select('*').maybeSingle();
+  if(error||!data) return fail(res,404,'REPORT_NOT_FOUND','Report not found');
+  await writeAudit(req.userId!,'update_report','report',data.id,{status:data.status});
+  return ok(res,data);
+}));
+
+app.get(`${api}` + '/admin/users', requireAuth, requireAdmin, asyncRoute(async (req,res) => {
+  const q=z.object({page:z.coerce.number().int().min(1).default(1),limit:z.coerce.number().int().min(1).max(100).default(50)}).safeParse(req.query);
+  if(!q.success) return fail(res,400,'INVALID_QUERY','Invalid user parameters');
+  const {data:users,error}=await adminSupabase.auth.admin.listUsers({page:q.data.page,perPage:q.data.limit});
+  if(error) return fail(res,500,'USERS_QUERY_FAILED','Unable to load users');
+  const ids=(users.users||[]).map((u:any)=>u.id);
+  const {data:profiles}=ids.length?await adminSupabase.from('profiles').select('id,role,display_name,avatar_url,locale,created_at,updated_at').in('id',ids):{data:[] as any[]};
+  const profileMap=new Map((profiles||[]).map((p:any)=>[p.id,p]));
+  return ok(res,(users.users||[]).map((u:any)=>{const p=profileMap.get(u.id);return {id:u.id,email:u.email||'',role:p?.role||'USER',name:p?.display_name||'',avatarUrl:p?.avatar_url||'',preferredLanguage:p?.locale||'ar',createdAt:p?.created_at||u.created_at};}),{page:q.data.page,limit:q.data.limit,total:users.total||0});
+}));
+
+app.patch(`${api}` + '/admin/users/:id/role', requireAuth, requireOwner, asyncRoute(async (req:AuthenticatedRequest,res) => {
+  const body=z.object({role:z.enum(['USER','ADMIN','OWNER'])}).safeParse(req.body);
+  if(!body.success) return fail(res,400,'INVALID_BODY','Invalid user role');
+  if(req.userId===req.params.id && body.data.role!=='OWNER') return fail(res,400,'SELF_ROLE_CHANGE_BLOCKED','Owner cannot remove their own owner role');
+  const {data,error}=await adminSupabase.from('profiles').update({role:body.data.role}).eq('id',req.params.id).select('id,role').maybeSingle();
+  if(error||!data) return fail(res,404,'USER_NOT_FOUND','User not found');
+  await writeAudit(req.userId!,'update_user_role','user',data.id,{role:data.role});
+  return ok(res,data);
+}));
+
+app.post(`${api}` + '/admin/sync', requireAuth, requireAdmin, asyncRoute(async (req:AuthenticatedRequest,res) => {
+  const body=z.object({provider:z.literal('tmdb').default('tmdb'),kind:z.enum(['catalog','episodes']).default('catalog'),pages:z.number().int().min(1).max(3).default(1),seriesLimit:z.number().int().min(1).max(25).default(10)}).safeParse(req.body||{});
+  if(!body.success) return fail(res,400,'INVALID_BODY','Invalid sync request');
+  try{
+    if(body.data.kind==='episodes'){
+      const result=await syncEpisodesForSeries(body.data.seriesLimit);
+      await writeAudit(req.userId!,'sync','tmdb','episodes',result);
+      return ok(res,{kind:'episodes',syncedCount:result.episodes,result});
+    }
+    const result=await runTmdbSync({pages:body.data.pages});
+    await writeAudit(req.userId!,'sync','tmdb','catalog',result);
+    return ok(res,{kind:'catalog',syncedCount:result.total,result});
+  }catch(error){
+    return fail(res,502,'SYNC_FAILED',error instanceof Error?error.message:'Sync failed');
+  }
 }));
 
 app.get(`${api}/admin/stats`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
