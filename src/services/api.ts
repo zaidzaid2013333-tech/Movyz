@@ -36,7 +36,7 @@ function query(params: Record<string, unknown>) {
 
 export const MovyzaApi = {
   async getHomeData() {
-    return request<{
+    const home = await request<{
       hero: Movie | Series;
       continueWatching: WatchProgress[];
       trending: (Movie | Series)[];
@@ -45,6 +45,20 @@ export const MovyzaApi = {
       recentAdded: (Movie | Series)[];
       genres: Genre[];
     }>('/home');
+
+    if (supabase) {
+      const session = (await supabase.auth.getSession()).data.session;
+      if (session) {
+        try {
+          const history = await request<WatchProgress[]>('/history');
+          home.data.continueWatching = history.data.filter((item) => !item.completed && item.percentage > 2);
+        } catch {
+          // Public home remains usable when a session has expired.
+        }
+      }
+    }
+
+    return home;
   },
 
   getMovies: (params?: {
