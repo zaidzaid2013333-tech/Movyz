@@ -140,6 +140,46 @@ export const MovyzaApi = {
 
   getAdminProviders: () => request<ProviderHealth[]>('/admin/providers'),
 
+  setProviderEnabled: (providerId: string, enabled: boolean) =>
+    request<ProviderHealth>(`/admin/providers/${encodeURIComponent(providerId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    }),
+
+  getAdminReports: () => request<Array<{
+    id: string;
+    userId: string;
+    contentId: string;
+    contentType: 'movie' | 'episode';
+    sourceId: string | null;
+    issueType: string;
+    description: string;
+    status: string;
+    createdAt: string;
+  }>>('/admin/reports'),
+
+  updateAdminReport: (reportId: string, status: 'pending' | 'investigating' | 'resolved') =>
+    request<{ id: string; status: string }>(`/admin/reports/${encodeURIComponent(reportId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+
+  getAdminUsers: () => request<Array<{
+    id: string;
+    email: string;
+    name: string;
+    role: UserProfile['role'];
+    avatarUrl: string;
+    locale: string;
+    createdAt: string;
+    updatedAt: string;
+  }>>('/admin/users'),
+
+  updateUserRole: (userId: string, role: UserProfile['role']) =>
+    request<{ id: string; role: UserProfile['role'] }>(`/admin/users/${encodeURIComponent(userId)}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    }),
   testProvider: (providerId: string) =>
     request<ProviderHealth>(`/admin/providers/${encodeURIComponent(providerId)}/test`, { method: 'POST' }),
 
