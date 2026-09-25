@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import type { NormalizedPlaybackSource, ProviderAdapter, ProviderContext } from './types';
-import { registerProvider } from './registry';
 
 const responseSchema = z.object({
   sources: z.array(z.object({
@@ -68,4 +67,4 @@ const externalProvider: ProviderAdapter = {
   },
 };
 
-registerProvider(externalProvider);
+export default externalProvider;
