@@ -1,0 +1,6 @@
+{
+  "name": "Movyza | موفيزا",
+  "description": "منصة أفلام ومسلسلات عربية حديثة مصممة بأسلوب عالي الأداء مع تجربة سينمائية عربية أصيلة.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
