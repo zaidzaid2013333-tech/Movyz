@@ -343,8 +343,8 @@ export const INITIAL_PROVIDERS: ProviderHealth[] = [
     name: 'Akamai Edge Network',
     adapterName: 'AkamaiDirectHLSAdapter',
     type: 'direct',
-    status
-    enabled: true,$5: 'healthy',
+    status: 'healthy',
+    enabled: true,
     latencyMs: 38,
     successRate: 99.8,
     lastChecked: 'منذ دقيقة واحدة',
@@ -355,8 +355,8 @@ export const INITIAL_PROVIDERS: ProviderHealth[] = [
     name: 'FaselHD Stream Extractor',
     adapterName: 'FaselHDScraperAdapter',
     type: 'scraper',
-    status
-    enabled: true,$5: 'healthy',
+    status: 'healthy',
+    enabled: true,
     latencyMs: 145,
     successRate: 97.4,
     lastChecked: 'منذ 3 دقائق',
@@ -367,8 +367,8 @@ export const INITIAL_PROVIDERS: ProviderHealth[] = [
     name: 'EgyBest Cloud Stream',
     adapterName: 'EgyBestCloudAdapter',
     type: 'api',
-    status
-    enabled: true,$5: 'healthy',
+    status: 'healthy',
+    enabled: true,
     latencyMs: 82,
     successRate: 98.9,
     lastChecked: 'منذ دقيقتين',
@@ -379,8 +379,8 @@ export const INITIAL_PROVIDERS: ProviderHealth[] = [
     name: 'CloudStream Multi-Mirror',
     adapterName: 'CloudStreamEngine',
     type: 'api',
-    status
-    enabled: true,$5: 'degraded',
+    status: 'degraded',
+    enabled: true,
     latencyMs: 320,
     successRate: 91.2,
     lastChecked: 'منذ 5 دقائق',
