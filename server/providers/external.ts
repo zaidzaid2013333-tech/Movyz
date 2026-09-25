@@ -9,7 +9,7 @@ const responseSchema = z.object({
     language: z.string().default('und'),
     label: z.string().default('External source'),
     providerReference: z.string().optional(),
-    expiresAt: z.string().datetime().optional(),
+    expiresAt: z.string().datetime().nullish().transform((value) => value ?? undefined),
   })).default([]),
 });
 
