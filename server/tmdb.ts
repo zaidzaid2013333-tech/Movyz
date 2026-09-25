@@ -136,6 +136,59 @@ async function syncSeries(page: number) {
   return synced;
 }
 
+export async function syncEpisodesForSeries(seriesLimit = 10) {
+  const { data: seriesRows, error } = await adminSupabase
+    .from('series')
+    .select('id,tmdb_id')
+    .not('tmdb_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(Math.min(Math.max(seriesLimit, 1), 25));
+
+  if (error) throw new Error('Unable to load series for episode sync');
+
+  let seasonsSynced = 0;
+  let episodesSynced = 0;
+
+  for (const series of seriesRows || []) {
+    if (!series.tmdb_id) continue;
+    const { data: seasons } = await adminSupabase
+      .from('seasons')
+      .select('id,season_number')
+      .eq('series_id', series.id)
+      .order('season_number');
+
+    for (const season of seasons || []) {
+      if (!season.season_number) continue;
+      const detail = await tmdbGet<any>(
+        `/tv/${series.tmdb_id}/season/${season.season_number}`,
+        { language: 'en-US' }
+      );
+
+      const episodeRows = (detail.episodes || []).map((episode: any) => ({
+        season_id: season.id,
+        tmdb_id: episode.id,
+        episode_number: episode.episode_number,
+        name_en: episode.name || `Episode ${episode.episode_number}`,
+        overview_en: episode.overview || '',
+        still_url: episode.still_path ? `${IMAGE}${episode.still_path}` : '',
+        air_date: episode.air_date || null,
+        runtime_minutes: episode.runtime || null,
+      }));
+
+      if (episodeRows.length) {
+        const { error: episodeError } = await adminSupabase
+          .from('episodes')
+          .upsert(episodeRows, { onConflict: 'season_id,episode_number' });
+        if (episodeError) throw new Error(`Failed to sync season ${season.season_number}`);
+        episodesSynced += episodeRows.length;
+      }
+      seasonsSynced++;
+    }
+  }
+
+  return { series: (seriesRows || []).length, seasons: seasonsSynced, episodes: episodesSynced };
+}
+
 export async function runTmdbSync(options: { pages?: number } = {}) {
   const pages = Math.min(Math.max(options.pages || 1, 1), 3);
   await syncGenres();
