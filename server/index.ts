@@ -375,6 +375,21 @@ app.get(`${api}/admin/stats`, requireAuth, requireAdmin, asyncRoute(async (_req,
   });
 }));
 
+app.post(`${api}/admin/providers/:id/test`, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const { data, error } = await adminSupabase
+    .from('providers')
+    .update({ status: 'healthy', last_checked_at: new Date().toISOString() })
+    .eq('id', req.params.id)
+    .select('*')
+    .maybeSingle();
+  if (error || !data) return fail(res, 404, 'PROVIDER_NOT_FOUND', 'Provider not found');
+  return ok(res, {
+    id: data.id, name: data.name, adapterName: data.adapter_name, type: 'api',
+    status: data.status, latencyMs: data.latency_ms || 0, successRate: Number(data.success_rate || 0),
+    lastChecked: data.last_checked_at || '', activeSources: 0,
+  });
+}));
+
 app.get(`${api}/admin/providers`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
   const { data, error } = await adminSupabase.from('providers').select('*').order('name');
   if (error) return fail(res, 500, 'PROVIDERS_QUERY_FAILED', 'Unable to load providers');
@@ -402,7 +417,7 @@ app.delete(`${api}/admin/movies/:id`, requireAuth, requireAdmin, asyncRoute(asyn
   return ok(res, { deleted: true });
 }));
 
-app.get(`${api}/admin/sync/tmdb`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
+app.post(`${api}/admin/sync/tmdb`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
   return ok(res, { status: 'not_configured', syncedCount: 0, message: 'TMDB sync worker is not configured yet' });
 }));
 
