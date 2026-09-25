@@ -108,8 +108,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
 
   const handleToggleProvider = async (provider: ProviderHealth) => {
     try {
-      await MovyzaApi.setProviderEnabled(provider.id, provider.status !== 'healthy');
-      showToast(provider.status === 'healthy' ? 'تم تعطيل المزود' : 'تم تفعيل المزود');
+      await MovyzaApi.setProviderEnabled(provider.id, !provider.enabled);
+      showToast(provider.enabled ? 'تم تعطيل المزود' : 'تم تفعيل المزود');
       await loadAdminData();
     } catch {
       showToast('تعذر تغيير حالة المزود');
@@ -453,7 +453,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                         onClick={() => handleToggleProvider(prov)}
                         className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
                       >
-                        {prov.status === 'healthy' ? 'تعطيل' : 'تفعيل'}
+                        {prov.enabled ? 'تعطيل' : 'تفعيل'}
                       </button>
                     )}
                   </div>
