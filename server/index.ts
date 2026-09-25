@@ -384,14 +384,35 @@ app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
   const valid = (data || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date());
 
   if (valid.length) {
+    void adminSupabase.from('stream_request_logs').insert(
+      valid.map((source: any) => ({
+        content_type: type,
+        content_id: contentId,
+        source_id: source.id,
+        provider_id: source.provider_id || null,
+        success: true,
+      })),
+    );
     return ok(res, valid.map(sourceDto));
   }
 
   try {
     const resolved = await resolvePlaybackSources(type, contentId);
-    if (resolved.length) return ok(res, resolved);
+    if (resolved.length) {
+      void adminSupabase.from('stream_request_logs').insert({
+        content_type: type,
+        content_id: contentId,
+        success: true,
+      });
+      return ok(res, resolved);
+    }
   } catch (error) {
     console.error('Provider resolution failed:', error);
+    void adminSupabase.from('stream_request_logs').insert({
+      content_type: type,
+      content_id: contentId,
+      success: false,
+    });
   }
 
   return ok(res, []);
@@ -561,16 +582,27 @@ app.post(`${api}/reports`, requireAuth, asyncRoute(async (req: AuthenticatedRequ
 }));
 
 app.get(`${api}/admin/stats`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
-  const [m, s, e, p, src] = await Promise.all([
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const [m, s, e, p, src, logs] = await Promise.all([
     adminSupabase.from('movies').select('id', { count: 'exact', head: true }).eq('status', 'published'),
     adminSupabase.from('series').select('id', { count: 'exact', head: true }).eq('status', 'published'),
     adminSupabase.from('episodes').select('id', { count: 'exact', head: true }),
     adminSupabase.from('providers').select('id', { count: 'exact', head: true }).eq('enabled', true),
-    adminSupabase.from('playback_sources').select('id', { count: 'exact', head: true }).eq('is_working', true),
+    adminSupabase.from('playback_sources').select('id,is_working').not('url', 'is', null),
+    adminSupabase.from('stream_request_logs').select('id', { count: 'exact', head: true }).gte('created_at', since),
   ]);
+
+  const sourceRows = src.data || [];
+  const healthySources = sourceRows.filter((source: any) => source.is_working === true).length;
+  const streamHealthPct = sourceRows.length ? Math.round((healthySources / sourceRows.length) * 100) : 0;
+
   return ok(res, {
-    totalMovies: m.count || 0, totalSeries: s.count || 0, totalEpisodes: e.count || 0,
-    activeProviders: p.count || 0, streamHealthPct: src.count ? 100 : 0, dailyStreamRequests: 0,
+    totalMovies: m.count || 0,
+    totalSeries: s.count || 0,
+    totalEpisodes: e.count || 0,
+    activeProviders: p.count || 0,
+    streamHealthPct,
+    dailyStreamRequests: logs.count || 0,
   });
 }));
 
