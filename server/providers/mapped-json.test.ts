@@ -48,3 +48,43 @@ test('EgyBest adapter calls /dls with the mapped content URL and bearer token', 
     else process.env.EGYBEST_ACCESS_TOKEN = originalToken;
   }
 });
+
+
+test('ezvidAPI uses the JSON API origin and normalizes stream_url as HLS', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalOrigin = process.env.EZVIDAPI_ORIGINS;
+  const originalProvider = process.env.EZVIDAPI_PROVIDER;
+
+  delete process.env.EZVIDAPI_ORIGINS;
+  process.env.EZVIDAPI_PROVIDER = 'vidsrc';
+
+  let requestedUrl = '';
+
+  globalThis.fetch = (async (input) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({
+      stream_url: 'https://cdn.example.com/signed/playlist?token=test',
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const { createEzvidApiAdapter } = await import('./adapters/ezvidapi');
+    const adapter = createEzvidApiAdapter();
+    const sources = await adapter.resolveMovie({ tmdbId: 335984 });
+
+    assert.equal(requestedUrl, 'https://api.ezvidapi.com/movie/vidsrc/335984');
+    assert.equal(sources.length, 1);
+    assert.equal(sources[0].type, 'hls');
+    assert.equal(sources[0].provider, 'ezvidapi');
+    assert.equal(sources[0].url, 'https://cdn.example.com/signed/playlist?token=test');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalOrigin === undefined) delete process.env.EZVIDAPI_ORIGINS;
+    else process.env.EZVIDAPI_ORIGINS = originalOrigin;
+    if (originalProvider === undefined) delete process.env.EZVIDAPI_PROVIDER;
+    else process.env.EZVIDAPI_PROVIDER = originalProvider;
+  }
+});
