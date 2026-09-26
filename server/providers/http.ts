@@ -20,27 +20,23 @@ export function absoluteHttpsUrl(value: unknown): string | null {
   if (typeof value !== 'string' || !value.trim()) return null;
   try {
     const url = new URL(value.trim());
-    if (url.protocol !== 'https:') return null;
-    return url.toString();
+    return url.protocol === 'https:' ? url.toString() : null;
   } catch {
     return null;
   }
 }
 
-export function inferPlaybackType(url: string, explicit?: unknown) {
+export function inferPlaybackType(url: string, explicit?: unknown): 'hls' | 'mp4' | 'dash' | null {
   const type = typeof explicit === 'string' ? explicit.toLowerCase() : '';
-  if (type === 'hls' || type === 'm3u8') return 'hls' as const;
-  if (type === 'mp4') return 'mp4' as const;
-  if (type === 'dash' || type === 'mpd') return 'dash' as const;
+  if (type === 'hls' || type === 'm3u8') return 'hls';
+  if (type === 'mp4') return 'mp4';
+  if (type === 'dash' || type === 'mpd') return 'dash';
 
-  const pathname = (() => {
-    try { return new URL(url).pathname.toLowerCase(); } catch { return url.toLowerCase(); }
-  })();
-
-  if (pathname.includes('.m3u8')) return 'hls' as const;
-  if (pathname.includes('.mpd')) return 'dash' as const;
-  if (pathname.includes('.mp4')) return 'mp4' as const;
-  return 'hls' as const;
+  const pathname = new URL(url).pathname.toLowerCase();
+  if (pathname.includes('.m3u8')) return 'hls';
+  if (pathname.includes('.mpd')) return 'dash';
+  if (pathname.includes('.mp4')) return 'mp4';
+  return null;
 }
 
 export function inferQuality(value: unknown, url: string) {
@@ -82,11 +78,10 @@ export function extractPlaybackCandidates(payload: unknown): ExtractedCandidate[
   };
 
   const visit = (value: unknown, depth = 0) => {
-    if (depth > 4 || value == null) return;
+    if (depth > 5 || value == null) return;
 
     if (typeof value === 'string') {
-      const url = absoluteHttpsUrl(value);
-      if (url) add({ url });
+      add({ url: value });
       return;
     }
 
@@ -97,23 +92,27 @@ export function extractPlaybackCandidates(payload: unknown): ExtractedCandidate[
 
     if (!isObject(value)) return;
 
-    const urlKeys = ['url', 'stream_url', 'streamUrl', 'video_url', 'videoUrl', 'file', 'directLink', 'src'];
-    for (const key of urlKeys) {
+    const explicitType = typeof value.type === 'string' ? value.type
+      : typeof value.format === 'string' ? value.format
+      : undefined;
+    const quality = typeof value.quality === 'string' ? value.quality
+      : typeof value.label === 'string' ? value.label
+      : undefined;
+    const language = typeof value.language === 'string' ? value.language : undefined;
+    const label = typeof value.label === 'string' ? value.label : undefined;
+    const providerReference = value.id !== undefined ? String(value.id) : undefined;
+    const expiresAt = typeof value.expiresAt === 'string' ? value.expiresAt
+      : typeof value.expires_at === 'string' ? value.expires_at
+      : undefined;
+
+    for (const key of ['url', 'stream_url', 'streamUrl', 'video_url', 'videoUrl', 'file', 'directLink', 'src']) {
       const raw = value[key];
       if (typeof raw === 'string') {
-        add({
-          url: raw,
-          type: typeof value.type === 'string' ? value.type : typeof value.format === 'string' ? value.format : undefined,
-          quality: typeof value.quality === 'string' ? value.quality : typeof value.label === 'string' ? value.label : undefined,
-          language: typeof value.language === 'string' ? value.language : undefined,
-          label: typeof value.label === 'string' ? value.label : undefined,
-          providerReference: typeof value.id === 'string' ? value.id : undefined,
-          expiresAt: typeof value.expiresAt === 'string' ? value.expiresAt : undefined,
-        });
+        add({ url: raw, type: explicitType, quality, language, label, providerReference, expiresAt });
       }
     }
 
-    for (const key of ['sources', 'streams', 'data', 'results', 'links']) {
+    for (const key of ['sources', 'streams', 'data', 'results', 'links', 'directLink']) {
       if (key in value) visit(value[key], depth + 1);
     }
   };
@@ -133,9 +132,7 @@ export async function fetchJsonOrText(url: string, timeoutMs = 8_000) {
   });
 
   const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`Provider HTTP ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`Provider HTTP ${response.status}`);
 
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json') || text.trim().startsWith('{') || text.trim().startsWith('[')) {
@@ -150,8 +147,6 @@ export function resolveSourcesFromPayload(
 ) {
   return extractPlaybackCandidates(payload).map((candidate) => ({
     ...candidate,
-    type: candidate.type,
-    quality: candidate.quality,
     language: candidate.language || defaults.language,
     label: candidate.label || defaults.label,
   }));
