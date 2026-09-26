@@ -90,7 +90,7 @@ jobs:
             throw new Error('Worker health check failed');
           }
 
-          const watch = await get('/api/v1/watch/movie/10331', 20000);
+          const watch = await get('/api/v1/watch/movie/10331?provider=faselhd', 20000);
           if (!watch.response.ok) {
             throw new Error(
               'Dedicated playback fixture failed: HTTP ' +
@@ -103,7 +103,7 @@ jobs:
           const sources = Array.isArray(watch.json?.data) ? watch.json.data : [];
           if (!sources.length) throw new Error('Dedicated playback fixture returned no sources');
 
-          const source = sources.find((item) => ['hls', 'mp4', 'dash', 'webm'].includes(String(item?.type || '')));
+          const source = sources.find((item) => String(item?.providerKey || '').toLowerCase() === 'faselhd' && ['hls', 'mp4', 'dash', 'webm'].includes(String(item?.type || '')));
           if (!source) throw new Error('Dedicated playback fixture returned no supported direct source');
 
           if (!/^https:\/\//i.test(String(source.url || ''))) {
