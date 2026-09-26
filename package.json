@@ -11,7 +11,8 @@
     "server:dev": "tsx watch server/index.ts",
     "start": "tsx server/index.ts",
     "lint": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "tsx --test server/providers/http.test.ts server/providers/tmdb-hls.test.ts server/providers/mapped-json.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

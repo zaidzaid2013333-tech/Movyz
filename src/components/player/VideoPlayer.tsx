@@ -67,6 +67,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
   const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false);
+  const [fallbackSources, setFallbackSources] = useState<PlaybackSource[]>([]);
 
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -93,10 +94,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [reportSuccess, setReportSuccess] = useState(false);
 
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const sourceFailoverTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const dashRef = useRef<dashjs.MediaPlayerClass | null>(null);
+  const failedProvidersRef = useRef<Set<string>>(new Set());
+  const sourceRefreshInFlightRef = useRef(false);
 
-  const activeSource = sources[activeSourceIndex] || sources[0];
+  const playbackSources = [...sources, ...fallbackSources];
+  const activeSource = playbackSources[activeSourceIndex] || playbackSources[0];
+  const sourceKey = sources.map((source) => source.id).join('|');
+  const normalizeProviderKey = (provider?: string) =>
+    provider ? provider.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+
+  useEffect(() => {
+    setActiveSourceIndex(0);
+    setFallbackSources([]);
+    failedProvidersRef.current.clear();
+    sourceRefreshInFlightRef.current = false;
+    setHasError(false);
+    setIsLoading(sources.length > 0);
+  }, [contentId, currentEpisode?.id, sourceKey]);
 
   // Format seconds to mm:ss or hh:mm:ss
   const formatTime = (secs: number) => {
@@ -181,6 +198,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setHasError(false);
     setIsLoading(true);
 
+    if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+    sourceFailoverTimerRef.current = setTimeout(() => {
+      handleSourceError();
+    }, 12_000);
+
     if (source.type === 'hls') {
       if (video.canPlayType('application/vnd.apple.mpegurl') && !Hls.isSupported()) {
         video.src = source.url;
@@ -218,6 +240,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
 
     return () => {
+      if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+      sourceFailoverTimerRef.current = null;
       hlsRef.current?.destroy();
       hlsRef.current = null;
       dashRef.current?.reset();
@@ -299,18 +323,55 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  // Fallback to next source if current source fails
-  const handleSourceError = () => {
+  // Fallback locally first, then ask the API for the next provider when the list is exhausted.
+  const handleSourceError = async () => {
     console.warn(`[Player] Source ${activeSource?.id} failed, attempting failover...`);
+    if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+    sourceFailoverTimerRef.current = null;
     setHasError(true);
     setIsLoading(false);
-    if (activeSourceIndex < sources.length - 1) {
-      // Automatic seamless failover to secondary provider mirror
+
+    const failedProvider = normalizeProviderKey(activeSource?.provider);
+    if (failedProvider) failedProvidersRef.current.add(failedProvider);
+
+    if (activeSourceIndex < playbackSources.length - 1) {
       setTimeout(() => {
-        setActiveSourceIndex(activeSourceIndex + 1);
+        setActiveSourceIndex((index) => index + 1);
         setHasError(false);
         setIsLoading(true);
-      }, 1200);
+      }, 700);
+      return;
+    }
+
+    if (sourceRefreshInFlightRef.current) return;
+
+    const excludedProviders = [...failedProvidersRef.current];
+    if (!excludedProviders.length) return;
+
+    sourceRefreshInFlightRef.current = true;
+    const existingUrls = new Set(playbackSources.map((source) => source.url));
+
+    try {
+      const response = await MovyzaApi.getWatchSources(
+        contentId,
+        currentEpisode?.id,
+        { refresh: true, excludeProviders: excludedProviders },
+      );
+
+      const freshSources = response.data.filter((source) => !existingUrls.has(source.url));
+      if (freshSources.length) {
+        const nextIndex = playbackSources.length;
+        setFallbackSources((current) => [...current, ...freshSources]);
+        setTimeout(() => {
+          setActiveSourceIndex(nextIndex);
+          setHasError(false);
+          setIsLoading(true);
+        }, 0);
+      }
+    } catch (error) {
+      console.error('[Player] Provider refresh failed:', error);
+    } finally {
+      sourceRefreshInFlightRef.current = false;
     }
   };
 
@@ -436,6 +497,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         onLoadedMetadata={() => {
           if (videoRef.current) {
             setDuration(videoRef.current.duration);
+            if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+            sourceFailoverTimerRef.current = null;
             setIsLoading(false);
             setHasError(false);
           }
@@ -445,8 +508,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             setCurrentTime(videoRef.current.currentTime);
           }
         }}
-        onWaiting={() => setIsLoading(true)}
+        onWaiting={() => {
+          setIsLoading(true);
+          if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+          sourceFailoverTimerRef.current = setTimeout(() => {
+            handleSourceError();
+          }, 10_000);
+        }}
         onPlaying={() => {
+          if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+          sourceFailoverTimerRef.current = null;
           setIsLoading(false);
           setIsPlaying(true);
         }}
@@ -487,7 +558,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               : 'You can manually switch to an alternative server mirror or submit a stream report.'}
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
-            {sources.map((src, idx) => (
+            {playbackSources.map((src, idx) => (
               <button
                 key={src.id}
                 onClick={() => {
@@ -796,7 +867,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   <div className="px-3 py-1 text-slate-400 font-semibold border-b border-white/[0.06]">
                     {t('playerServer')}
                   </div>
-                  {sources.map((src, idx) => (
+                  {playbackSources.map((src, idx) => (
                     <button
                       key={src.id}
                       onClick={() => {
@@ -817,11 +888,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0 text-[10px] font-mono">
-                        <span className={idx === 0 ? 'text-emerald-400' : 'text-slate-400'}>
-                          {idx === 0 ? '85ms' : idx === 1 ? '120ms' : '160ms'}
-                        </span>
                         <span className="text-slate-500">
-                          {src.quality}
+                          {src.quality || 'auto'}
                         </span>
                       </div>
                     </button>

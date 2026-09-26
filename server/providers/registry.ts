@@ -15,21 +15,21 @@ export function getProviders() {
 }
 
 export async function healthCheckProviders() {
-  const results = [];
-  for (const adapter of adapters.values()) {
-    const started = Date.now();
-    try {
-      const health = await adapter.health();
-      results.push({ ...health, key: adapter.key, name: adapter.name, latencyMs: Date.now() - started });
-    } catch (error) {
-      results.push({
-        key: adapter.key,
-        name: adapter.name,
-        status: 'offline' as const,
-        latencyMs: Date.now() - started,
-        message: error instanceof Error ? error.message : 'Provider health check failed',
-      });
-    }
-  }
-  return results;
+  return Promise.all(
+    [...adapters.values()].map(async (adapter) => {
+      const started = Date.now();
+      try {
+        const health = await adapter.health();
+        return { ...health, key: adapter.key, name: adapter.name, latencyMs: Date.now() - started };
+      } catch (error) {
+        return {
+          key: adapter.key,
+          name: adapter.name,
+          status: 'offline' as const,
+          latencyMs: Date.now() - started,
+          message: error instanceof Error ? error.message : 'Provider health check failed',
+        };
+      }
+    }),
+  );
 }

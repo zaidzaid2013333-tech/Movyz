@@ -2,6 +2,20 @@ import { adminSupabase } from '../supabase';
 import { getProvider } from './registry';
 import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
+const VALID_TYPES = new Set(['hls', 'mp4', 'dash']);
+
+export const PROVIDER_PRIORITY: Record<string, number> = {
+  egybest: 0,
+  faselhd: 1,
+  ezvidapi: 2,
+  nhdapi: 3,
+  streamprovider: 4,
+};
+
+function providerPriority(key: string) {
+  return PROVIDER_PRIORITY[key] ?? 100;
+}
+
 function sourceDto(source: any) {
   return {
     id: source.id,
@@ -16,29 +30,30 @@ function sourceDto(source: any) {
   };
 }
 
-const validTypes = new Set(['hls', 'mp4', 'dash']);
-
 function normalizeUrl(value: unknown) {
   if (typeof value !== 'string' || !value.trim()) return null;
   try {
     const url = new URL(value.trim());
-    if (url.protocol !== 'https:') return null;
-    return url.toString();
+    return url.protocol === 'https:' ? url.toString() : null;
   } catch {
     return null;
   }
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 async function getContext(contentType: 'movie' | 'episode', contentId: string): Promise<ProviderContext | null> {
   if (contentType === 'movie') {
-    const { data } = await adminSupabase
-      .from('movies')
-      .select('tmdb_id')
-      .eq('id', contentId)
-      .maybeSingle();
-
-    if (!data?.tmdb_id) return null;
-    return { tmdbId: data.tmdb_id };
+    const { data } = await adminSupabase.from('movies').select('tmdb_id').eq('id', contentId).maybeSingle();
+    return data?.tmdb_id ? { tmdbId: data.tmdb_id } : null;
   }
 
   const { data: episode } = await adminSupabase
@@ -46,60 +61,79 @@ async function getContext(contentType: 'movie' | 'episode', contentId: string): 
     .select('episode_number,season_id')
     .eq('id', contentId)
     .maybeSingle();
-
-  if (!episode?.season_id || !episode.episode_number) return null;
+  if (!episode?.season_id || episode.episode_number == null) return null;
 
   const { data: season } = await adminSupabase
     .from('seasons')
     .select('season_number,series_id')
     .eq('id', episode.season_id)
     .maybeSingle();
+  if (!season?.series_id || season.season_number == null) return null;
 
-  if (!season?.series_id || !season.season_number) return null;
-
-  const { data: series } = await adminSupabase
-    .from('series')
-    .select('tmdb_id')
-    .eq('id', season.series_id)
-    .maybeSingle();
-
+  const { data: series } = await adminSupabase.from('series').select('tmdb_id').eq('id', season.series_id).maybeSingle();
   if (!series?.tmdb_id) return null;
 
-  return {
-    tmdbId: series.tmdb_id,
-    seasonNumber: season.season_number,
-    episodeNumber: episode.episode_number,
-  };
+  return { tmdbId: series.tmdb_id, seasonNumber: season.season_number, episodeNumber: episode.episode_number };
 }
 
-export async function resolvePlaybackSources(
-  contentType: 'movie' | 'episode',
-  contentId: string,
-) {
+export async function resolvePlaybackSources(contentType: 'movie' | 'episode', contentId: string, excludedProviders: string[] = []) {
   const context = await getContext(contentType, contentId);
   if (!context) return [];
 
-  const { data: providers, error } = await adminSupabase
-    .from('providers')
-    .select('id,key,name,enabled')
-    .eq('enabled', true);
+  const [{ data: providers, error: providersError }, { data: mappings, error: mappingsError }] = await Promise.all([
+    adminSupabase.from('providers').select('id,key,name,enabled,status,latency_ms,success_rate').eq('enabled', true),
+    adminSupabase.from('provider_mappings').select('provider_id,provider_content_id,confidence,status')
+      .eq('content_type', contentType).eq('internal_content_id', contentId).eq('status', 'active'),
+  ]);
 
-  if (error) throw new Error('Unable to load enabled providers');
+  if (providersError) throw new Error('Unable to load enabled providers');
+  if (mappingsError) throw new Error('Unable to load provider mappings');
 
-  const resolved: Array<NormalizedPlaybackSource & { providerId: string; providerName: string }> = [];
+  const mappingByProvider = new Map((mappings || []).map((mapping: any) => [mapping.provider_id, mapping]));
+  const orderedProviders = [...(providers || [])].sort((a: any, b: any) => {
+    const pa = providerPriority(a.key);
+    const pb = providerPriority(b.key);
+    if (pa !== pb) return pa - pb;
+    const rateDiff = Number(b.success_rate ?? -1) - Number(a.success_rate ?? -1);
+    return rateDiff || Number(a.latency_ms ?? Number.MAX_SAFE_INTEGER) - Number(b.latency_ms ?? Number.MAX_SAFE_INTEGER);
+  });
 
-  for (const provider of providers || []) {
+  const excluded = new Set(excludedProviders.map((value) => value.trim().toLowerCase()).filter(Boolean));
+  const timeoutMs = Math.max(2_000, Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000));
+
+  // True fallback: call providers in fixed priority order and stop at the first
+  // provider that returns at least one validated playable source.
+  for (const provider of orderedProviders) {
+    if (excluded.has(provider.key.toLowerCase()) || excluded.has(String(provider.name || '').trim().toLowerCase().replace(/\s+/g, ''))) continue;
+
     const adapter = getProvider(provider.key);
-    if (!adapter || !adapter.enabled) continue;
+    if (!adapter?.enabled) continue;
+
+    const mapping = mappingByProvider.get(provider.id);
+    if (adapter.requiresMapping && !mapping?.provider_content_id) continue;
+
+    const started = Date.now();
 
     try {
-      const sources = contentType === 'movie'
-        ? await adapter.resolveMovie(context)
-        : await adapter.resolveEpisode(context);
+      const rawSources = await withTimeout(
+        contentType === 'movie'
+          ? adapter.resolveMovie({ ...context, providerId: mapping?.provider_content_id })
+          : adapter.resolveEpisode({ ...context, providerId: mapping?.provider_content_id }),
+        timeoutMs,
+        `Provider ${provider.key} timed out`,
+      );
 
-      for (const source of sources || []) {
+      const latencyMs = Date.now() - started;
+      const resolved: Array<NormalizedPlaybackSource & {
+        providerId: string;
+        providerName: string;
+        providerLatencyMs: number;
+      }> = [];
+
+      for (const source of rawSources || []) {
         const url = normalizeUrl(source.url);
-        if (!url || !validTypes.has(source.type)) continue;
+        if (!url || !VALID_TYPES.has(source.type)) continue;
+        if (source.expiresAt && Number.isFinite(Date.parse(source.expiresAt)) && new Date(source.expiresAt) <= new Date()) continue;
 
         resolved.push({
           ...source,
@@ -109,30 +143,30 @@ export async function resolvePlaybackSources(
           label: source.label || provider.name,
           providerId: provider.id,
           providerName: provider.name,
+          providerLatencyMs: latencyMs,
         });
       }
-    } catch {
-      // One provider must never prevent another configured provider from resolving.
-    }
-  }
 
-  const unique = new Map<string, typeof resolved[number]>();
-  for (const source of resolved) {
-    unique.set(source.providerId + '|' + source.type + '|' + source.url, source);
-  }
+      const currentRate = provider.success_rate == null ? 50 : Number(provider.success_rate);
+      const nextSuccessRate = resolved.length
+        ? Math.min(100, currentRate * 0.8 + 20)
+        : Math.max(0, currentRate * 0.9);
 
-  const uniqueSources = [...unique.values()];
+      await adminSupabase.from('providers').update({
+        status: resolved.length ? 'healthy' : 'degraded',
+        latency_ms: latencyMs,
+        success_rate: Number(nextSuccessRate.toFixed(2)),
+        last_checked_at: new Date().toISOString(),
+      }).eq('id', provider.id);
 
-  const activeSources = uniqueSources.filter(
-    (source) => !source.expiresAt || new Date(source.expiresAt) > new Date(),
-  );
+      if (!resolved.length) continue;
 
-  if (!activeSources.length) return [];
+      const unique = new Map<string, typeof resolved[number]>();
+      for (const source of resolved) {
+        unique.set([source.providerId, contentType, source.type, source.url].join('|'), source);
+      }
 
-  const { data: insertedSources, error: insertError } = await adminSupabase
-    .from('playback_sources')
-    .insert(
-      activeSources.map((source) => ({
+      const rows = [...unique.values()].map((source) => ({
         provider_id: source.providerId,
         content_type: contentType,
         content_id: contentId,
@@ -147,11 +181,26 @@ export async function resolvePlaybackSources(
         is_working: true,
         last_checked_at: new Date().toISOString(),
         failure_count: 0,
-      })),
-    )
-    .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)');
+      }));
 
-  if (insertError) throw new Error('Unable to persist resolved playback sources');
+      const { data: persistedSources, error: insertError } = await adminSupabase
+        .from('playback_sources')
+        .upsert(rows, { onConflict: 'provider_id,content_type,content_id,url' })
+        .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)');
 
-  return (insertedSources || []).map((source: any) => sourceDto(source));
+      if (insertError) {
+        throw new Error('Unable to persist resolved playback sources');
+      }
+
+      return (persistedSources || []).map(sourceDto);
+    } catch {
+      await adminSupabase.from('providers').update({
+        status: 'degraded',
+        latency_ms: Math.max(Date.now() - started, timeoutMs),
+        last_checked_at: new Date().toISOString(),
+      }).eq('id', provider.id);
+    }
+  }
+
+  return [];
 }

@@ -8,11 +8,14 @@ import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } from './auth';
 import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
 import { getProvider } from './providers/registry';
-import { resolvePlaybackSources } from './providers/resolver';
+import { PROVIDER_PRIORITY, resolvePlaybackSources } from './providers/resolver';
+import { registerBuiltInProviders } from './providers/bootstrap';
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
 const api = '/api/v1';
+
+registerBuiltInProviders();
 
 app.disable('x-powered-by');
 app.use(helmet());
@@ -371,29 +374,47 @@ app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
   const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : null;
   const type = episodeId ? 'episode' : 'movie';
   const contentId = episodeId || req.params.id;
+  const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+  const excludedProviders = typeof req.query.excludeProvider === 'string'
+    ? req.query.excludeProvider.split(',').map((value) => value.trim()).filter(Boolean)
+    : [];
 
   const { data, error } = await adminSupabase
     .from('playback_sources')
-    .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)')
+    .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(key,name,enabled,success_rate,latency_ms)')
     .eq('content_type', type)
     .eq('content_id', contentId)
     .eq('is_working', true);
 
   if (error) return fail(res, 500, 'SOURCES_QUERY_FAILED', 'Unable to load playback sources');
 
-  const valid = (data || []).filter((x: any) => x.providers?.enabled !== false && (!x.expires_at || new Date(x.expires_at) > new Date()));
+  const valid = (data || [])
+    .filter((x: any) => x.providers?.enabled !== false && (!x.expires_at || new Date(x.expires_at) > new Date()))
+    .filter((x: any) => {
+      const key = String(x.providers?.key || '').toLowerCase();
+      return !excludedProviders.some((value) => value.toLowerCase() === key);
+    })
+    .sort((a: any, b: any) => {
+      const pa = PROVIDER_PRIORITY[a.providers?.key] ?? 100;
+      const pb = PROVIDER_PRIORITY[b.providers?.key] ?? 100;
+      if (pa !== pb) return pa - pb;
+      const rateDiff = Number(b.providers?.success_rate ?? -1) - Number(a.providers?.success_rate ?? -1);
+      if (rateDiff) return rateDiff;
+      return Number(a.providers?.latency_ms ?? Number.MAX_SAFE_INTEGER) - Number(b.providers?.latency_ms ?? Number.MAX_SAFE_INTEGER);
+    });
 
-  if (valid.length) {
+  if (valid.length && !refresh) {
     return ok(res, valid.map(sourceDto));
   }
 
   try {
-    const resolved = await resolvePlaybackSources(type, contentId);
+    const resolved = await resolvePlaybackSources(type, contentId, excludedProviders);
     if (resolved.length) return ok(res, resolved);
   } catch (error) {
     console.error('Provider resolution failed:', error);
   }
 
+  if (valid.length) return ok(res, valid.map(sourceDto));
   return ok(res, []);
 }));
 
@@ -410,7 +431,14 @@ app.get(`${api}` + '/watch/:id', asyncRoute(async (req, res) => {
       .from('playback_sources')
       .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)')
       .eq('content_type', 'movie').eq('content_id', id).eq('is_working', true);
-    const sources = (rows || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date()).map(sourceDto);
+    let sources = (rows || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date()).map(sourceDto);
+    if (!sources.length) {
+      try {
+        sources = await resolvePlaybackSources('movie', id);
+      } catch (error) {
+        console.error('Provider resolution failed:', error);
+      }
+    }
     return ok(res, { contentType, id, content: detail, sources });
   }
 
@@ -427,7 +455,14 @@ app.get(`${api}` + '/watch/:id', asyncRoute(async (req, res) => {
     .from('playback_sources')
     .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)')
     .eq('content_type', 'episode').eq('content_id', id).eq('is_working', true);
-  const sources = (rows || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date()).map(sourceDto);
+  let sources = (rows || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date()).map(sourceDto);
+  if (!sources.length) {
+    try {
+      sources = await resolvePlaybackSources('episode', id);
+    } catch (error) {
+      console.error('Provider resolution failed:', error);
+    }
+  }
 
   return ok(res, {
     contentType, id,

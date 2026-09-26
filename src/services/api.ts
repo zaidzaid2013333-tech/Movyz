@@ -79,10 +79,13 @@ export const MovyzaApi = {
   getSeriesById: (id: string) =>
     request<{ series: Series; similar: Series[] }>(`/series/${encodeURIComponent(id)}`),
 
-  getWatchSources: (contentId: string, episodeId?: string) =>
-    request<PlaybackSource[]>(
-      `/watch/${encodeURIComponent(contentId)}/sources${episodeId ? `?episodeId=${encodeURIComponent(episodeId)}` : ''}`
-    ),
+  getWatchSources: (contentId: string, episodeId?: string, options?: { refresh?: boolean; excludeProviders?: string[] }) => {
+    const params: Record<string, string> = {};
+    if (episodeId) params.episodeId = episodeId;
+    if (options?.refresh) params.refresh = '1';
+    if (options?.excludeProviders?.length) params.excludeProvider = options.excludeProviders.join(',');
+    return request<PlaybackSource[]>(`/watch/${encodeURIComponent(contentId)}/sources${query(params)}`);
+  },
 
   searchCatalog: (search: string) =>
     request<{
