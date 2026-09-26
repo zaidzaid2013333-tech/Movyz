@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 import { adminSupabase } from '../server/supabase';
 import { syncMovieCandidate } from '../server/tmdb';
-import { createVidZeeAdapter } from '../server/providers/adapters/tmdb-hls';
+import { resolvePlaybackSources } from '../server/providers/resolver';
 
 type MovieListItem = {
   id: number;
@@ -174,27 +174,19 @@ async function main() {
   }
 
   process.env.MOVYZA_PROVIDER_TIMEOUT_MS = String(PROVIDER_TIMEOUT_MS);
-  process.env.VIDZEE_SERVERS = process.env.VIDZEE_SERVERS || 'dcloud,tik,ipcloud,v6:Hindi';
-
-  const provider = await adminSupabase
+  const providerRows = await adminSupabase
     .from('providers')
-    .select('id,key,name,enabled')
-    .eq('key', 'vidzee')
-    .maybeSingle();
+    .select('key,enabled')
+    .in('key', ['moviebox-api', 'ezvidapi']);
 
-  const vidzeeProvider = provider.data;
-  if (provider.error || !vidzeeProvider?.id || !vidzeeProvider.enabled) {
-    throw new Error('VidZee provider is not registered/enabled in Supabase');
+  if (providerRows.error) throw new Error('Unable to load playback providers');
+  const enabledKeys = new Set((providerRows.data || []).filter((row: any) => row.enabled).map((row: any) => row.key));
+  if (!enabledKeys.has('moviebox-api') && !enabledKeys.has('ezvidapi')) {
+    throw new Error('MovieBox API and ezVidAPI are not enabled in Supabase');
   }
-
-  const adapter = createVidZeeAdapter();
-  const candidates = await fetchLists();
-
-  const summary = { candidates: candidates.length, playable: 0, synced: 0, sources: 0, failed: 0, skipped: 0 };
 
   await mapWithConcurrency(candidates, async (candidate) => {
     const tmdbId = candidate.en.id;
-
     try {
       const existing = await adminSupabase
         .from('movies')
@@ -202,35 +194,11 @@ async function main() {
         .eq('tmdb_id', tmdbId)
         .eq('status', 'published')
         .maybeSingle();
-
       if (existing.error) throw new Error(existing.error.message);
 
-      if (existing.data?.id) {
-        const cached = await adminSupabase
-          .from('playback_sources')
-          .select('id')
-          .eq('content_type', 'movie')
-          .eq('content_id', existing.data.id)
-          .eq('provider_id', vidzeeProvider.id)
-          .eq('is_working', true)
-          .limit(1);
-
-        if (!cached.error && cached.data?.length) {
-          summary.skipped++;
-          return;
-        }
-      }
-
+      const movieId = existing.data?.id || await syncMovieCandidate(candidate.ar, candidate.en);
       const started = Date.now();
-      let sources = [];
-      try {
-        sources = await adapter.resolveMovie({ tmdbId });
-      } catch (error) {
-        if (tmdbId !== 550) {
-          throw error;
-        }
-        throw error;
-      }
+      const sources = await resolvePlaybackSources('movie', movieId);
 
       if (!sources.length) {
         summary.skipped++;
@@ -238,41 +206,14 @@ async function main() {
       }
 
       summary.playable++;
-      console.log(`PLAYABLE tmdb=${tmdbId} title=${candidate.en.title || candidate.en.original_title || ''} sources=${sources.length} latencyMs=${Date.now() - started}`);
-
-      const movieId = existing.data?.id || await syncMovieCandidate(candidate.ar, candidate.en);
-
-      const rows = sources.map((source) => ({
-        provider_id: vidzeeProvider.id,
-        content_type: 'movie',
-        content_id: movieId,
-        source_type: source.type,
-        url: source.url,
-        provider_reference: source.providerReference || `vidzee:${tmdbId}`,
-        quality: source.quality || 'auto',
-        language: source.language || 'und',
-        label_ar: source.label || 'VidZee',
-        label_en: source.label || 'VidZee',
-        expires_at: source.expiresAt || null,
-        is_working: true,
-        last_checked_at: new Date().toISOString(),
-        failure_count: 0,
-      }));
-
-      const { error: upsertError } = await adminSupabase
-        .from('playback_sources')
-        .upsert(rows, { onConflict: 'provider_id,content_type,content_id,url' });
-
-      if (upsertError) throw new Error('Playback source cache failed: ' + upsertError.message);
-
       summary.synced++;
-      summary.sources += rows.length;
+      summary.sources += sources.length;
+      console.log('PLAYABLE tmdb=' + tmdbId + ' title=' + (candidate.en.title || candidate.en.original_title || '') + ' providers=' + sources.map((s: any) => s.provider).join(',') + ' sources=' + sources.length + ' latencyMs=' + (Date.now() - started));
     } catch (error) {
       summary.failed++;
-      console.warn(`COVERAGE_FAIL tmdb=${tmdbId} title=${candidate.en.title || candidate.en.original_title || ''} error=${error instanceof Error ? error.message : String(error)}`);
+      console.warn('COVERAGE_FAIL tmdb=' + tmdbId + ' title=' + (candidate.en.title || candidate.en.original_title || '') + ' error=' + (error instanceof Error ? error.message : String(error)));
     }
   });
-
   console.log('COVERAGE_SUMMARY ' + JSON.stringify(summary));
 }
 
