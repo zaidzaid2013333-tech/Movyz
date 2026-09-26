@@ -9,6 +9,20 @@ type SearchItem = { title?: string; name?: string; slug?: string; detailPath?: s
 
 function env(name: string, fallback = '') { return String(process.env[name] || fallback).trim(); }
 
+function h5Headers(extra: Record<string, string> = {}) {
+  const headers: Record<string, string> = {
+    Accept: 'application/json, text/plain, */*',
+    'User-Agent': USER_AGENT,
+    'X-Client-Info': '{"timezone":"Africa/Algiers"}',
+    'X-Request-Lang': 'en',
+    Referer: 'https://moviebox.pk/',
+    ...extra,
+  };
+  const authorization = env('MOVIEBOX_AUTHORIZATION');
+  if (authorization) headers.Authorization = authorization;
+  return headers;
+}
+
 function normalizeTitle(value: unknown) {
   return String(value || '')
     .toLowerCase()
@@ -36,10 +50,10 @@ function yearOf(item: SearchItem) {
   return match ? Number(match[0]) : 0;
 }
 
-async function fetchJson<T>(url: string, timeoutMs: number, init: RequestInit = {}): Promise<T> {
+async function fetchJson<T>(url: string, timeoutMs: number, init: RequestInit = {}, headersOverride?: Record<string, string>): Promise<T> {
   const response = await fetchWithTimeout(url, {
     ...init,
-    headers: { Accept: 'application/json, text/plain, */*', 'User-Agent': USER_AGENT, ...(init.headers || {}) },
+    headers: headersOverride || h5Headers(init.headers && !(init.headers instanceof Headers) ? init.headers as Record<string, string> : {}),
     timeoutMs,
   });
   const text = await response.text();
@@ -48,16 +62,29 @@ async function fetchJson<T>(url: string, timeoutMs: number, init: RequestInit = 
 }
 
 async function searchViaMovieBoxApi(baseUrl: string, query: string, timeoutMs: number): Promise<SearchItem[]> {
-  const payload = await fetchJson<any>(baseUrl + '/search?q=' + encodeURIComponent(query), timeoutMs);
-  return Array.isArray(payload?.movies) ? payload.movies : Array.isArray(payload?.results) ? payload.results : [];
+  const payload = await fetchJson<any>(baseUrl + '/search?q=' + encodeURIComponent(query), timeoutMs, {}, { Accept: 'application/json', 'User-Agent': USER_AGENT });
+  return Array.isArray(payload?.movies) ? payload.movies : Array.isArray(payload?.results) ? payload.results : Array.isArray(payload?.items) ? payload.items : [];
 }
 
 async function searchViaH5(query: string, timeoutMs: number): Promise<SearchItem[]> {
-  const payload = await fetchJson<any>(H5_API + '/wefeed-h5api-bff/subject/search', timeoutMs, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ keyword: query, perPage: 30, page: 1 }),
-  });
-  return Array.isArray(payload?.data?.items) ? payload.data.items : [];
+  const endpoints = [
+    '/wefeed-h5api-bff/subject/search',
+    '/wefeed-h5api-bff/subject/everyone-search',
+  ];
+  for (const endpoint of endpoints) {
+    try {
+      const payload = await fetchJson<any>(H5_API + endpoint, timeoutMs, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword: query, perPage: 30, page: 1 }),
+      });
+      const items = payload?.data?.items || payload?.data?.subjects || payload?.items || [];
+      if (Array.isArray(items) && items.length) return items;
+    } catch {
+      // Try the current alternate H5 search endpoint.
+    }
+  }
+  return [];
 }
 
 async function chooseMatch(context: ProviderContext, timeoutMs: number, baseUrl: string) {
@@ -67,7 +94,10 @@ async function chooseMatch(context: ProviderContext, timeoutMs: number, baseUrl:
     try { all.push(...(baseUrl ? await searchViaMovieBoxApi(baseUrl, query, timeoutMs) : await searchViaH5(query, timeoutMs))); } catch { continue; }
   }
   const unique = new Map<string, SearchItem>();
-  for (const item of all) { const slug = String(item.slug || item.detailPath || '').trim(); if (slug && !unique.has(slug)) unique.set(slug, item); }
+  for (const item of all) {
+    const slug = String(item.slug || item.detailPath || '').trim();
+    if (slug && !unique.has(slug)) unique.set(slug, item);
+  }
   let best: { score: number; item: SearchItem } | null = null;
   for (const item of unique.values()) {
     const title = String(item.title || item.name || '');
@@ -84,15 +114,17 @@ async function chooseMatch(context: ProviderContext, timeoutMs: number, baseUrl:
 }
 
 async function getSubjectIdFromMovieBoxApi(baseUrl: string, slug: string, timeoutMs: number) {
-  const detail = await fetchJson<any>(baseUrl + '/detail/' + encodeURIComponent(slug), timeoutMs);
-  const subjectId = detail?.metadata?.id;
+  const detail = await fetchJson<any>(baseUrl + '/detail/' + encodeURIComponent(slug), timeoutMs, {}, { Accept: 'application/json', 'User-Agent': USER_AGENT });
+  const subjectId = detail?.metadata?.id || detail?.subjectId || detail?.id;
   return subjectId != null ? String(subjectId) : '';
 }
 
 async function getSubjectIdFromH5(slug: string, timeoutMs: number) {
   const detail = await fetchJson<any>(H5_API + '/wefeed-h5api-bff/detail?detailPath=' + encodeURIComponent(slug), timeoutMs);
-  const data = detail?.data || {}; const resource = data.resource || {};
-  const subjectId = data.subject?.subjectId || data.subjectId || resource.id;
+  const data = detail?.data || {};
+  const resource = data.resource || {};
+  const subject = data.subject || resource.subject || {};
+  const subjectId = subject.subjectId || subject.id || data.subjectId || data.subject_id || data.id || resource.id || resource.subjectId;
   return subjectId != null ? String(subjectId) : '';
 }
 
@@ -100,25 +132,34 @@ async function discoverDomain(timeoutMs: number) {
   const configured = env('MOVIEBOX_STREAM_DOMAIN');
   if (configured) return configured.replace(/\/+$/, '');
   try {
-    const payload = await fetchJson<any>(H5_API + '/wefeed-h5api-bff/media-player/get-domain', timeoutMs, { headers: { 'X-Client-Type': 'h5' } });
-    const domain = String(payload?.data || '').trim(); if (domain) return domain.replace(/\/+$/, '');
+    const payload = await fetchJson<any>(H5_API + '/wefeed-h5api-bff/media-player/get-domain', timeoutMs, {
+      headers: { 'X-Client-Type': 'h5' },
+    });
+    const domain = String(payload?.data?.domain || payload?.data?.url || payload?.data || '').trim();
+    if (domain) return domain.replace(/\/+$/, '');
   } catch {}
   return DEFAULT_STREAM_DOMAIN;
 }
 
 async function fetchStreamsViaMovieBoxApi(baseUrl: string, subjectId: string, slug: string, season: number, episode: number, timeoutMs: number) {
   const url = baseUrl + '/api/stream/' + encodeURIComponent(subjectId) + '?detail_path=' + encodeURIComponent(slug) + '&se=' + season + '&ep=' + episode;
-  const payload = await fetchJson<any>(url, timeoutMs);
-  return Array.isArray(payload?.sources) ? payload.sources : [];
+  const payload = await fetchJson<any>(url, timeoutMs, {}, { Accept: 'application/json', 'User-Agent': USER_AGENT });
+  return payload?.sources || payload?.streams || payload?.data?.sources || payload?.data?.streams || [];
 }
 
 async function fetchStreamsViaH5(subjectId: string, slug: string, season: number, episode: number, timeoutMs: number) {
   const domain = await discoverDomain(timeoutMs);
   const url = domain + '/wefeed-h5api-bff/subject/play?subjectId=' + encodeURIComponent(subjectId) + '&se=' + season + '&ep=' + episode + '&detailPath=' + encodeURIComponent(slug);
   const payload = await fetchJson<any>(url, timeoutMs, {
-    headers: { referer: domain + '/spa/videoPlayPage/movies/' + slug, 'X-Client-Info': '{"timezone":"Africa/Algiers"}', Cookie: 'uuid=d8c3539e-2e46-4000-af20-7046a856e30a' },
+    headers: {
+      'Content-Type': 'application/json',
+      referer: domain + '/spa/videoPlayPage/movies/' + slug,
+      Cookie: 'uuid=d8c3539e-2e46-4000-af20-7046a856e30a',
+      'X-Client-Info': '{"timezone":"Africa/Algiers"}',
+    },
   });
-  return Array.isArray(payload?.data?.streams) ? payload.data.streams : [];
+  const data = payload?.data || payload;
+  return data?.streams || data?.sources || data?.resourceList || data?.resources || payload?.streams || payload?.sources || [];
 }
 
 function buildProxyUrl(baseUrl: string, subjectId: string, slug: string, season: number, episode: number, resolution: number) {
@@ -129,6 +170,23 @@ function buildProxyUrl(baseUrl: string, subjectId: string, slug: string, season:
     resolution: String(resolution || 0),
   });
   return baseUrl + '/watch/' + encodeURIComponent(subjectId) + '?' + params.toString();
+}
+
+function streamUrl(stream: any) {
+  for (const key of ['url', 'resourceUrl', 'resourceLink', 'playUrl', 'videoUrl', 'link', 'src']) {
+    if (typeof stream?.[key] === 'string' && stream[key].trim()) return stream[key].trim();
+  }
+  return '';
+}
+
+function streamType(stream: any, rawUrl: string) {
+  const explicit = String(stream?.format || stream?.type || stream?.mimeType || stream?.contentType || '').toLowerCase();
+  const inferred = inferPlaybackType(rawUrl, explicit);
+  if (inferred) return inferred;
+  if (explicit.includes('m3u8') || explicit.includes('hls')) return 'hls' as const;
+  if (explicit.includes('mpd') || explicit.includes('dash')) return 'dash' as const;
+  if (explicit.includes('mp4') || explicit.includes('video/')) return 'mp4' as const;
+  return null;
 }
 
 export function createMovieBoxApiAdapter(): ProviderAdapter {
@@ -148,17 +206,15 @@ export function createMovieBoxApiAdapter(): ProviderAdapter {
       ? await fetchStreamsViaMovieBoxApi(baseUrl, subjectId, match.slug, season, episode, timeoutMs)
       : await fetchStreamsViaH5(subjectId, match.slug, season, episode, timeoutMs);
 
-    return streams.flatMap((stream: any, index: number): NormalizedPlaybackSource[] => {
-      const rawUrl = typeof stream?.url === 'string' ? stream.url.trim() : '';
+    return (Array.isArray(streams) ? streams : []).flatMap((stream: any, index: number): NormalizedPlaybackSource[] => {
+      const rawUrl = streamUrl(stream);
       if (!rawUrl || !/^https:\/\//i.test(rawUrl)) return [];
 
-      const resolution = Number(stream?.resolutions || 0);
-      // Infer the media type from the original CDN URL/format before optionally
-      // replacing the URL with the zero-buffer MovieBox Worker proxy.
-      const type = inferPlaybackType(rawUrl, stream?.format || stream?.type);
+      const resolution = Number(String(stream?.resolutions ?? stream?.resolution ?? '').replace(/[^0-9]/g, '')) || 0;
+      const type = streamType(stream, rawUrl);
       if (!type) return [];
 
-      const quality = resolution ? String(resolution) + 'p' : inferQuality(stream?.label || '', rawUrl);
+      const quality = resolution ? String(resolution) + 'p' : inferQuality(stream?.label || stream?.quality || '', rawUrl);
       const url = proxyPlayback
         ? buildProxyUrl(baseUrl, subjectId, match.slug, season, episode, resolution)
         : rawUrl;
