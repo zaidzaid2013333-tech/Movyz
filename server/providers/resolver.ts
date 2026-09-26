@@ -6,7 +6,8 @@ import type { NormalizedPlaybackSource, ProviderContext } from './types';
 const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'embed']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
-  tmdbembed: 1,
+  streamprovider: 1,
+  tmdbembed: 10,
   faselhd: 20,
 };
 
