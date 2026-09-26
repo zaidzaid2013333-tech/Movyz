@@ -246,29 +246,60 @@ app.get(`${api}/playback/ezvidapi`, asyncRoute(async (req, res) => {
   }
 
   let lastError = 'No playable stream returned';
+  const fallbackProviders = ['vidsrc'];
+
+  const extractProviderKeys = (payload: unknown) => {
+    const keys = new Set<string>();
+    const visit = (value: unknown, depth = 0): void => {
+      if (depth > 5 || value == null) return;
+      if (Array.isArray(value)) {
+        for (const item of value) visit(item, depth + 1);
+        return;
+      }
+      if (typeof value !== 'object') return;
+      const obj = value as Record<string, unknown>;
+      for (const field of ['key', 'slug', 'provider', 'providerKey', 'id']) {
+        const candidate = obj[field];
+        if (typeof candidate === 'string' && /^[a-z0-9_-]{2,40}$/i.test(candidate)) keys.add(candidate.toLowerCase());
+      }
+      for (const field of ['providers', 'data', 'results', 'items']) visit(obj[field], depth + 1);
+    };
+    visit(payload);
+    return [...keys];
+  };
 
   for (const origin of EZVIDAPI_ORIGINS) {
-    const url = type === 'movie'
-      ? `${origin}/movie/vidsrc/${tmdbId}`
-      : `${origin}/tv/vidsrc/${tmdbId}?season=${season}&episode=${episode}`;
+    let providers = [...fallbackProviders];
     try {
-      const payload = await fetchJsonOrText(url, 10_000, { Referer: 'https://ezvidapi.com/' });
-      const candidates = resolveSourcesFromPayload(payload, { language: 'und', label: 'ezvidapi' });
-      const stream = candidates.find((item) => /\.m3u8(?:$|[?#])/i.test(item.url)) || candidates[0];
-      if (stream?.url) {
-        return ok(res, {
-          stream_url: stream.url,
-          type: stream.type || 'hls',
-          quality: stream.quality || 'auto',
-          language: stream.language || 'und',
-          provider: 'vidsrc',
-          provider_reference: stream.providerReference || String(tmdbId),
-          expires_at: stream.expiresAt || null,
-        });
-      }
-      lastError = 'ezvidapi returned no playable stream';
+      const listPayload = await fetchJsonOrText(origin + '/list', 8_000, { Referer: 'https://ezvidapi.com/' });
+      providers = [...new Set([...extractProviderKeys(listPayload), ...fallbackProviders])];
     } catch (error) {
-      lastError = error instanceof Error ? error.message : 'ezvidapi request failed';
+      lastError = error instanceof Error ? error.message : 'ezvidapi provider list failed';
+    }
+
+    for (const provider of providers) {
+      const url = type === 'movie'
+        ? origin + '/movie/' + encodeURIComponent(provider) + '/' + tmdbId
+        : origin + '/tv/' + encodeURIComponent(provider) + '/' + tmdbId + '?season=' + season + '&episode=' + episode;
+      try {
+        const payload = await fetchJsonOrText(url, 10_000, { Referer: 'https://ezvidapi.com/' });
+        const candidates = resolveSourcesFromPayload(payload, { language: 'und', label: 'ezvidapi:' + provider });
+        const stream = candidates.find((item) => /\.m3u8(?:$|[?#])/i.test(item.url)) || candidates[0];
+        if (stream?.url) {
+          return ok(res, {
+            stream_url: stream.url,
+            type: stream.type || 'hls',
+            quality: stream.quality || 'auto',
+            language: stream.language || 'und',
+            provider,
+            provider_reference: stream.providerReference || String(tmdbId),
+            expires_at: stream.expiresAt || null,
+          });
+        }
+        lastError = 'ezvidapi provider ' + provider + ' returned no playable stream';
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'ezvidapi provider ' + provider + ' failed';
+      }
     }
   }
 
