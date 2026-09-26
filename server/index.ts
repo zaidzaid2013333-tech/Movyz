@@ -51,9 +51,9 @@ const sourceDto = (s: any) => {
   const embedUrl =
     providerKey === 'vidzee' && isTmdbId
       ? kind === 'episode' && isSeason && isEpisode
-        ? `https://player.vidzee.wtf/embed/tv/${encodeURIComponent(tmdbId)}/${encodeURIComponent(parts[2])}/${encodeURIComponent(parts[3])}`
+        ? `https://player.vidzee.wtf/v2/embed/tv/${encodeURIComponent(tmdbId)}/${encodeURIComponent(parts[2])}/${encodeURIComponent(parts[3])}`
         : kind === 'movie'
-          ? `https://player.vidzee.wtf/embed/movie/${encodeURIComponent(tmdbId)}`
+          ? `https://player.vidzee.wtf/v2/embed/movie/${encodeURIComponent(tmdbId)}`
           : undefined
       : undefined;
 
