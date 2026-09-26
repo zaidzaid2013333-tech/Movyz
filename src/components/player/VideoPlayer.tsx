@@ -58,7 +58,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         title,
         titleEn,
         posterUrl,
-        backdropUrl: '',
+        backdropUrl,
         episodeId: currentEpisode?.id,
         seasonNumber,
         episodeNumber,
@@ -80,7 +80,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     let cancelled = false;
 
     const loadStream = async () => {
-      const handleSourceChange = (sourceId: string) => {
+  const handleSourceChange = (sourceId: string) => {
     const source = availableSources.find((item) => item.id === sourceId);
     if (!source) return;
     setSelectedSourceId(source.id);
@@ -88,6 +88,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setStreamUrl(source.url);
     setError('');
   };
+
 
   if (!safeTmdbId) {
         setStreamUrl('');
