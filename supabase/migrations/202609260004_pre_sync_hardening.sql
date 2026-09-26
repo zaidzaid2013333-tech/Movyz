@@ -11,7 +11,7 @@ alter table if exists public.sync_jobs
 with ranked as (
   select id,
          row_number() over (
-           partition by provider, job_type
+           partition by provider
            order by created_at desc nulls last, id desc
          ) as rn
   from public.sync_jobs
