@@ -25,6 +25,7 @@ test('VidZee adapter resolves an HLS source and wraps it in the Movyz proxy', as
     assert.equal(sources.length, 1);
     assert.equal(sources[0].provider, 'vidzee');
     assert.equal(sources[0].type, 'hls');
+    assert.ok(sources[0].url);
     assert.match(sources[0].url, /^\/api\/v1\/playback\/proxy\?url=/);
   } finally {
     globalThis.fetch = originalFetch;
