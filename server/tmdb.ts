@@ -367,7 +367,12 @@ export async function runTmdbSync(options: { pages?: number } = {}) {
     started_at: new Date().toISOString(),
   }).select('id').single();
 
-  if (jobError || !job) throw new Error('Unable to start sync job');
+  if (jobError || !job) {
+    const detail = jobError
+      ? `${jobError.code || 'unknown'}: ${jobError.message}${jobError.details ? ` (${jobError.details})` : ''}`
+      : 'No job row returned';
+    throw new Error('Unable to start sync job: ' + detail);
+  }
 
   try {
     await syncGenres();
