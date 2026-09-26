@@ -20,7 +20,7 @@ interface VideoPlayerProps {
   onNavigateBack: () => void;
 }
 
-const EZVIDAPI_API_ORIGIN = 'https://api.ezvidapi.com';
+const EZVIDAPI_API_ORIGIN = 'https://ezvidapi.com';
 
 type EzvidApiResponse = {
   stream_url?: string;
