@@ -147,7 +147,7 @@ function hmacMd5(keyBytes, message) {
 
   const messageBytes = new TextEncoder().encode(message);
   const inner = hexToBytes(md5Hex(concatBytes(innerPad, messageBytes)));
-  return base64Encode(hexToBytes(md5Hex(concatBytes(outerPad, inner))));
+  return hexToBytes(md5Hex(concatBytes(outerPad, inner)));
 }
 
 function generateClientToken(timestamp) {
