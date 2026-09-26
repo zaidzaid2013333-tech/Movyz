@@ -93,6 +93,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [reportSuccess, setReportSuccess] = useState(false);
 
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const sourceFailoverTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const dashRef = useRef<dashjs.MediaPlayerClass | null>(null);
 
@@ -188,6 +189,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setHasError(false);
     setIsLoading(true);
 
+    if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+    sourceFailoverTimerRef.current = setTimeout(() => {
+      handleSourceError();
+    }, 12_000);
+
     if (source.type === 'hls') {
       if (video.canPlayType('application/vnd.apple.mpegurl') && !Hls.isSupported()) {
         video.src = source.url;
@@ -225,6 +231,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
 
     return () => {
+      if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+      sourceFailoverTimerRef.current = null;
       hlsRef.current?.destroy();
       hlsRef.current = null;
       dashRef.current?.reset();
@@ -309,6 +317,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Fallback to next source if current source fails
   const handleSourceError = () => {
     console.warn(`[Player] Source ${activeSource?.id} failed, attempting failover...`);
+    if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+    sourceFailoverTimerRef.current = null;
     setHasError(true);
     setIsLoading(false);
     if (activeSourceIndex < sources.length - 1) {
@@ -443,6 +453,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         onLoadedMetadata={() => {
           if (videoRef.current) {
             setDuration(videoRef.current.duration);
+            if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+            sourceFailoverTimerRef.current = null;
             setIsLoading(false);
             setHasError(false);
           }
@@ -454,6 +466,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }}
         onWaiting={() => setIsLoading(true)}
         onPlaying={() => {
+          if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+          sourceFailoverTimerRef.current = null;
           setIsLoading(false);
           setIsPlaying(true);
         }}
