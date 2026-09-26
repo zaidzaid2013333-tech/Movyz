@@ -23,6 +23,7 @@ interface VideoPlayerProps {
 
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
+  contentId,
   title,
   titleEn,
   posterUrl,
