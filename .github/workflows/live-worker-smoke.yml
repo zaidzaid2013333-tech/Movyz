@@ -27,6 +27,44 @@ jobs:
             return JSON.parse(body);
           };
 
+          const movieBoxBase = 'https://movyz-moviebox.sameranede.workers.dev';
+
+          const getMovieBoxJson = async (path, timeout = 20000) => {
+            const r = await fetch(movieBoxBase + path, {
+              headers: {'Accept':'application/json'},
+              redirect:'follow',
+              signal:AbortSignal.timeout(timeout)
+            });
+            const body = await r.text();
+            console.log('MOVIEBOX', path, 'HTTP', r.status, body.slice(0,1800));
+            if (!r.ok) throw new Error('MovieBox ' + path + ' -> HTTP ' + r.status + ' ' + body.slice(0,500));
+            return JSON.parse(body);
+          };
+
+          const mbSearch = await getMovieBoxJson('/search?q=Interstellar');
+          const mbMovies = mbSearch?.movies ?? mbSearch?.results ?? mbSearch?.items ?? [];
+          if (!Array.isArray(mbMovies) || !mbMovies.length) throw new Error('MovieBox search returned no Interstellar result');
+
+          const mbMatch = mbMovies[0];
+          const mbSlug = mbMatch?.slug ?? mbMatch?.detailPath;
+          if (!mbSlug) throw new Error('MovieBox search result has no slug');
+
+          const mbDetail = await getMovieBoxJson('/detail/' + encodeURIComponent(mbSlug));
+          const mbSubjectId = mbDetail?.metadata?.id ?? mbDetail?.subjectId ?? mbDetail?.id ?? mbDetail?.data?.subjectId ?? mbDetail?.data?.id;
+          if (!mbSubjectId) throw new Error('MovieBox detail returned no subject id');
+
+          const mbStream = await getMovieBoxJson(
+            '/api/stream/' + encodeURIComponent(String(mbSubjectId)) +
+            '?detail_path=' + encodeURIComponent(String(mbSlug)) + '&se=0&ep=0'
+          );
+          const mbSources = mbStream?.sources ?? mbStream?.streams ?? mbStream?.data?.sources ?? mbStream?.data?.streams ?? [];
+          console.log('MOVIEBOX_RESULT', JSON.stringify({
+            slug: mbSlug,
+            subjectId: String(mbSubjectId),
+            sourceCount: Array.isArray(mbSources) ? mbSources.length : 0,
+            first: Array.isArray(mbSources) ? mbSources[0] : null
+          }));
+
           const health = await getJson('/health', 15000);
           if (!health?.success) throw new Error('Worker health check failed');
 
