@@ -259,7 +259,7 @@ function MainApp() {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 w-full">{renderCurrentRoute()}</main>
+      <main className="flex-1 w-full min-w-0 overflow-x-clip">{renderCurrentRoute()}</main>
 
       {/* Footer: hidden on watch page */}
       {!isWatchPage && <Footer onNavigate={navigate} />}
