@@ -77,7 +77,7 @@ function candidateUrlsFromText(text: string, baseUrl: string) {
     found.push(normalized);
   };
 
-  const streamRegex = /(?:https?:\/\/[^\s"'<>\\]+|(?:\/\/)?[^\s"'<>\\]+)(?:\.m3u8|\.mpd|\.mp4)(?:[?#][^\s"'<>\\]*)?/gi;
+  const streamRegex = /https?:\/\/[^\s"'<>]+(?:\.m3u8|\.mpd|\.mp4)(?:[?#][^\s"'<>]*)?/gi;
   for (const match of text.match(streamRegex) || []) add(match);
 
   const attributeRegex = /(?:src|data-src|file|url|stream|source|hls|dash)\s*[:=]\s*["'\x60]([^"'\x60]+)["'\x60]/gi;
