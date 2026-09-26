@@ -98,6 +98,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const activeSource = sources[activeSourceIndex] || sources[0];
 
+  useEffect(() => {
+    setActiveSourceIndex(0);
+    setHasError(false);
+    setIsLoading(sources.length > 0);
+  }, [contentId, currentEpisode?.id, sources]);
+
   // Format seconds to mm:ss or hh:mm:ss
   const formatTime = (secs: number) => {
     if (isNaN(secs)) return '00:00';
@@ -817,11 +823,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0 text-[10px] font-mono">
-                        <span className={idx === 0 ? 'text-emerald-400' : 'text-slate-400'}>
-                          {idx === 0 ? '85ms' : idx === 1 ? '120ms' : '160ms'}
-                        </span>
                         <span className="text-slate-500">
-                          {src.quality}
+                          {src.quality || 'auto'}
                         </span>
                       </div>
                     </button>
