@@ -604,4 +604,25 @@ create index if not exists provider_mappings_content_idx
 
 commit;
 
+-- Reload PostgREST schema cache so newly created/altered tables are visible to the API immediately.
+notify pgrst, 'reload schema';
+
+-- Final sanity check: the API-critical tables must exist before this setup is considered complete.
+do $verify$
+begin
+  if to_regclass('public.genres') is null
+     or to_regclass('public.movies') is null
+     or to_regclass('public.series') is null
+     or to_regclass('public.providers') is null
+     or to_regclass('public.playback_sources') is null then
+    raise exception 'Movyz schema is incomplete: run this full setup in the same Supabase project used by the application.';
+  end if;
+end
+$verify$;
+
+commit;
+
+-- Reload once more after the final transaction commits.
+notify pgrst, 'reload schema';
+
 -- End of Movyz database setup.
