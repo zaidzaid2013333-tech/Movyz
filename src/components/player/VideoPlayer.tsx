@@ -390,6 +390,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onError={(playbackError) => {
               console.warn('[movyza-player] source error', playbackError);
+              setStreamUrl('');
+              setFallbackEmbedUrl(fallbackUrl);
+              setLoading(true);
+              setError('');
               moveToNextSource();
             }}
             onWaiting={() => setLoading(true)}
