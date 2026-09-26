@@ -34,6 +34,7 @@ insert into public.providers(key,name,adapter_name,enabled,status)
 values
   ('ezvidapi','ezvidAPI','ezvidapi',true,'unknown'),
   ('streamprovider','StreamProvider','streamprovider',true,'unknown'),
+  ('nhdapi','NHD API','nhdapi',true,'unknown'),
   ('faselhd','FaselHD','faselhd',false,'unknown')
 on conflict(key) do update
 set name = excluded.name,
