@@ -206,13 +206,31 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
       const { data: persistedSources, error: insertError } = await adminSupabase
         .from('playback_sources')
         .upsert(rows, { onConflict: 'provider_id,content_type,content_id,url' })
-        .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name)');
+        .select('id,provider_id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working');
 
       if (insertError) {
-        throw new Error('Unable to persist resolved playback sources');
+        console.error('[playback-resolver] source persistence failed', provider.key, insertError.message);
       }
 
-      allResolvedSources.push(...(persistedSources || []).map(sourceDto));
+      const persistedByUrl = new Map((persistedSources || []).map((row: any) => [row.url, row]));
+      const outputSources = resolved.map((source) => {
+        const persisted = persistedByUrl.get(source.url);
+        return {
+          id: persisted?.id || '',
+          type: source.type,
+          quality: source.quality || 'auto',
+          language: source.language || 'und',
+          label: source.label || provider.name,
+          labelEn: source.label || provider.name,
+          url: source.url,
+          isWorking: true,
+          provider: provider.name,
+          providerKey: provider.key,
+          providerReference: source.providerReference || undefined,
+        };
+      });
+
+      allResolvedSources.push(...outputSources);
 
       // Stop after the first provider that returns usable playback sources.
       break;
