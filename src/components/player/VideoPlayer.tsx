@@ -56,7 +56,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => {
     let active = true;
-    MovyzaApi.getWatchProgress(contentId, isMovie ? undefined : undefined).then((res) => {
+    MovyzaApi.getWatchProgress(contentId, isMovie ? undefined : currentEpisode?.id).then((res) => {
       if (active) resumeRef.current = res.data;
     }).catch(() => {});
     return () => { active = false; };
@@ -81,7 +81,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           backdropUrl,
           seasonNumber,
           episodeNumber,
-          episodeId: contentType === 'series' ? undefined : undefined,
+          episodeId: contentType === 'series' ? currentEpisode?.id : undefined,
           positionSeconds: position,
           durationSeconds: duration,
           percentage: Math.floor((position / duration) * 100),
@@ -103,6 +103,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             backdropUrl,
             seasonNumber,
             episodeNumber,
+            episodeId: contentType === 'series' ? currentEpisode?.id : undefined,
             positionSeconds: duration,
             durationSeconds: duration,
             percentage: 100,
@@ -126,8 +127,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     contentId,
     contentType,
     episodeNumber,
+    currentEpisode?.id,
     onSelectEpisode,
     posterUrl,
+    currentEpisode?.id,
     seasonNumber,
     title,
     titleEn,
