@@ -210,7 +210,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return /arabic|العربية|العربي|ar[-_]?\w*/i.test(text);
   });
 
-  const qualityOptions = panels.quality || panels.qualities || panels.settings || [];
+  const qualityOptions = (panels.quality || panels.qualities || []).filter((item) => /1080p|720p|480p|360p|auto/i.test(`${item.label} ${item.value}`));
   const sourceOptions = panels.source || [];
 
   if (!embedUrl) {
@@ -294,7 +294,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             {qualityOptions.length ? (
               <div className="flex flex-wrap gap-2">
                 {qualityOptions.map((item, index) => (
-                  <button key={`quality-${item.value}-${index}`} onClick={() => sendOption(item)} className="rounded-xl border border-violet-400/25 bg-violet-400/10 px-3 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-400/20">
+                  <button key={`quality-${item.value}-${index}`} onClick={() => setQuality(item.label || item.value)} className="rounded-xl border border-violet-400/25 bg-violet-400/10 px-3 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-400/20">
                     {item.label || item.value}
                   </button>
                 ))}
