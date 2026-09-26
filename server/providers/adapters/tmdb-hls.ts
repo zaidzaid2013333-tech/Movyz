@@ -109,8 +109,8 @@ export function createNhdApiAdapter() {
   return createTmdbHlsAdapter({
     key: 'nhdapi',
     name: 'NHD API',
-    movieUrl: process.env.NHD_MOVIE_URL_TEMPLATE || 'https://nhdapi.com/movie/{{tmdbId}}?key={{key}}',
-    episodeUrl: process.env.NHD_TV_URL_TEMPLATE || 'https://nhdapi.com/tv/{{tmdbId}}/{{season}}/{{episode}}?key={{key}}',
+    movieUrl: process.env.NHD_MOVIE_URL_TEMPLATE || 'https://nhdapi.st/api/movie/{{tmdbId}}?key={{key}}',
+    episodeUrl: process.env.NHD_TV_URL_TEMPLATE || 'https://nhdapi.st/api/tv/{{tmdbId}}/{{season}}/{{episode}}?key={{key}}',
     timeoutMs,
     language: 'und',
     templateValues: { key },
