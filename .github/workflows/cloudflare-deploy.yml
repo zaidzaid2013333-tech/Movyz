@@ -67,6 +67,48 @@ jobs:
       - name: Deploy Movyz
         run: npx wrangler deploy --secrets-file .env.production
 
+      - name: Diagnose FaselHD HTTP extraction
+        run: |
+          node <<'NODE'
+          const hosts = [
+            'https://web31818x.faselhdx.bid',
+            'https://web6712x.faselhdx.bid',
+            'https://www.fasel-hd.cam',
+          ];
+          const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36';
+          const targets = ['Night of the Living Dead', '10331'];
+          for (const host of hosts) {
+            for (const target of targets) {
+              const url = target === '10331' ? host + '/' : host + '/?s=' + encodeURIComponent(target);
+              try {
+                const res = await fetch(url, {
+                  redirect: 'follow',
+                  headers: {
+                    'User-Agent': ua,
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
+                  },
+                  signal: AbortSignal.timeout(15000),
+                });
+                const body = await res.text();
+                console.log(JSON.stringify({
+                  requested: url,
+                  status: res.status,
+                  finalUrl: res.url,
+                  contentType: res.headers.get('content-type'),
+                  length: body.length,
+                  head: body.slice(0, 1200).replace(/s+/g, ' '),
+                  mediaHits: (body.match(/(?:\.m3u8|\.mp4)/gi) || []).slice(0, 10),
+                  playerHits: (body.match(/(?:videoplayer|video_player|playertoken|player_token)/gi) || []).slice(0, 20),
+                  titleHits: (body.match(/Night of the Living Dead/gi) || []).length,
+                }));
+              } catch (error) {
+                console.log(JSON.stringify({requested:url,error:String(error)}));
+              }
+            }
+          }
+          NODE
+
       # Watch API must pass against the dedicated public-domain playback fixture.
       - name: Verify deployed Watch API playback
         run: |
