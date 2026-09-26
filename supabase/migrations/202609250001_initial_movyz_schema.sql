@@ -1,3 +1,5 @@
+begin;
+
 create extension if not exists pgcrypto;
 create extension if not exists pg_trgm;
 
@@ -276,26 +278,28 @@ alter table public.watch_history enable row level security;
 alter table public.reports enable row level security;
 alter table public.audit_logs enable row level security;
 
-create policy profiles_self on public.profiles for select using(auth.uid()=id or public.is_admin_or_owner());
-create policy movies_public on public.movies for select using(status='published');
-create policy series_public on public.series for select using(status='published');
-create policy genres_public on public.genres for select using(true);
-create policy movie_genres_public on public.movie_genres for select using(true);
-create policy series_genres_public on public.series_genres for select using(true);
-create policy people_public on public.people for select using(true);
-create policy movie_cast_public on public.movie_cast for select using(true);
-create policy series_cast_public on public.series_cast for select using(true);
-create policy seasons_public on public.seasons for select using(exists(select 1 from public.series s where s.id=series_id and s.status='published'));
-create policy episodes_public on public.episodes for select using(exists(select 1 from public.seasons se join public.series s on s.id=se.series_id where se.id=season_id and s.status='published'));
-create policy sources_public on public.playback_sources for select using(is_working=true and (expires_at is null or expires_at>now()));
-create policy watchlist_self on public.watchlist for all using(auth.uid()=user_id) with check(auth.uid()=user_id);
-create policy history_self on public.watch_history for all using(auth.uid()=user_id) with check(auth.uid()=user_id);
-create policy reports_insert_self on public.reports for insert with check(auth.uid()=user_id);
-create policy reports_read_admin on public.reports for select using(auth.uid()=user_id or public.is_admin_or_owner());
-create policy providers_admin on public.providers for select using(public.is_admin_or_owner());
-create policy mappings_admin on public.provider_mappings for all using(public.is_admin_or_owner()) with check(public.is_admin_or_owner());
-create policy sources_admin on public.playback_sources for all using(public.is_admin_or_owner()) with check(public.is_admin_or_owner());
-create policy audit_admin on public.audit_logs for select using(public.is_admin_or_owner());
+drop policy if exists profiles_self on public.profiles for select using(auth.uid()=id or public.is_admin_or_owner());
+drop policy if exists movies_public on public.movies for select using(status='published');
+drop policy if exists series_public on public.series for select using(status='published');
+drop policy if exists genres_public on public.genres for select using(true);
+drop policy if exists movie_genres_public on public.movie_genres for select using(true);
+drop policy if exists series_genres_public on public.series_genres for select using(true);
+drop policy if exists people_public on public.people for select using(true);
+drop policy if exists movie_cast_public on public.movie_cast for select using(true);
+drop policy if exists series_cast_public on public.series_cast for select using(true);
+drop policy if exists seasons_public on public.seasons for select using(exists(select 1 from public.series s where s.id=series_id and s.status='published'));
+drop policy if exists episodes_public on public.episodes for select using(exists(select 1 from public.seasons se join public.series s on s.id=se.series_id where se.id=season_id and s.status='published'));
+drop policy if exists sources_public on public.playback_sources for select using(is_working=true and (expires_at is null or expires_at>now()));
+drop policy if exists watchlist_self on public.watchlist for all using(auth.uid()=user_id) with check(auth.uid()=user_id);
+drop policy if exists history_self on public.watch_history for all using(auth.uid()=user_id) with check(auth.uid()=user_id);
+drop policy if exists reports_insert_self on public.reports for insert with check(auth.uid()=user_id);
+drop policy if exists reports_read_admin on public.reports for select using(auth.uid()=user_id or public.is_admin_or_owner());
+drop policy if exists providers_admin on public.providers for select using(public.is_admin_or_owner());
+drop policy if exists mappings_admin on public.provider_mappings for all using(public.is_admin_or_owner()) with check(public.is_admin_or_owner());
+drop policy if exists sources_admin on public.playback_sources for all using(public.is_admin_or_owner()) with check(public.is_admin_or_owner());
+drop policy if exists audit_admin on public.audit_logs for select using(public.is_admin_or_owner());
 
 -- Bootstrap OWNER only after the first trusted account exists:
 -- update public.profiles set role='OWNER' where id='<AUTH_USER_UUID>';
+
+commit;
