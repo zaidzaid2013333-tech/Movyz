@@ -10,17 +10,23 @@ create extension if not exists pgcrypto;
 -- evaluated with the function owner's privileges instead of caller RLS.
 create or replace function public.is_admin_or_owner()
 returns boolean
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $function$
-  select exists (
+begin
+  if to_regclass('public.profiles') is null then
+    return false;
+  end if;
+
+  return exists (
     select 1
     from public.profiles
     where id = auth.uid()
       and role in ('ADMIN','OWNER')
   );
+end;
 $function$;
 
 -- Keep provider.updated_at available before its trigger is installed.
