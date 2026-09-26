@@ -23,11 +23,14 @@ create policy sync_jobs_admin on public.sync_jobs
   for select using (public.is_admin_or_owner());
 
 create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
+returns trigger
+language plpgsql
+as $
 begin
   new.updated_at = now();
   return new;
-end $$;
+end;
+$;
 
 drop trigger if exists profiles_updated_at on public.profiles;
 create trigger profiles_updated_at before update on public.profiles
