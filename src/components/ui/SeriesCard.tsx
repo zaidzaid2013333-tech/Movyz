@@ -28,7 +28,7 @@ export const SeriesCard: React.FC<SeriesCardProps> = ({
   return (
     <div
       onClick={() => onSelect(series.id)}
-      className="group relative flex flex-col cursor-pointer transition-all duration-300 select-none"
+      className="group relative flex flex-col cursor-pointer touch-pan-y transition-all duration-300 select-none"
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
@@ -41,7 +41,7 @@ export const SeriesCard: React.FC<SeriesCardProps> = ({
     >
       {/* Poster Media (Clean, Borderless, Natural) */}
       <div
-        className={`relative w-full overflow-hidden rounded-xl bg-slate-900 shadow-md group-hover:shadow-2xl transition-all duration-300 group-hover:-translate-y-1 ${
+        className={`relative w-full touch-pan-y overflow-hidden rounded-xl bg-slate-900 shadow-md group-hover:shadow-2xl transition-all duration-300 group-hover:-translate-y-1 ${
           isStill ? 'aspect-video' : 'aspect-[2/3]'
         }`}
       >
@@ -53,6 +53,7 @@ export const SeriesCard: React.FC<SeriesCardProps> = ({
           <img
             src={isStill ? series.backdropUrl || series.posterUrl : series.posterUrl}
             alt={displayTitle}
+            draggable={false}
             referrerPolicy="no-referrer"
             loading="lazy"
             onLoad={() => setImageLoaded(true)}
