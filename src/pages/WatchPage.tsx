@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Movie, Series, PlaybackSource, Episode } from '../types';
+import { Movie, Series, Episode } from '../types';
 import { MovyzaApi } from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
 import { VideoPlayer } from '../components/player/VideoPlayer';
@@ -36,7 +36,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 }) => {
   const { language, t, direction } = useLanguage();
   const [content, setContent] = useState<Movie | Series | null>(null);
-  const [sources, setSources] = useState<PlaybackSource[]>([]);
   const [currentEpisode, setCurrentEpisode] = useState<Episode | undefined>(undefined);
   const [seasonNum, setSeasonNum] = useState<number>(seasonParam || 1);
   const [episodeNum, setEpisodeNum] = useState<number>(episodeParam || 1);
@@ -60,16 +59,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       if (movieRes.status === 'fulfilled') {
         const movie = movieRes.value.data.movie;
         setContent(movie);
-        try {
-          let sourceRes = await MovyzaApi.getWatchSources(movie.id);
-          // One explicit refresh only when the cached/first attempt returned no source.
-          if (!sourceRes.data.length) {
-            sourceRes = await MovyzaApi.getWatchSources(movie.id, undefined, { refresh: true });
-          }
-          setSources(sourceRes.data);
-        } catch {
-          setSources([]);
-        }
         setLoading(false);
       } else if (seriesRes.status === 'fulfilled') {
         const series = seriesRes.value.data.series;
@@ -84,16 +73,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
         setCurrentEpisode(episode);
         if (episode) {
-          try {
-            let sourceRes = await MovyzaApi.getWatchSources(series.id, episode.id);
-            // One explicit refresh only when the cached/first attempt returned no source.
-            if (!sourceRes.data.length) {
-              sourceRes = await MovyzaApi.getWatchSources(series.id, episode.id, { refresh: true });
-            }
-            setSources(sourceRes.data);
-          } catch {
-            setSources([]);
-          }
+          // VidRift resolves playback from the series TMDB id and episode numbers.
         } else {
           setSources([]);
         }
@@ -219,7 +199,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             titleEn={content.titleEn}
             posterUrl={content.posterUrl}
             backdropUrl={content.backdropUrl}
-            sources={sources}
+            tmdbId={content.tmdbId}
             seasonNumber={seasonNum}
             episodeNumber={episodeNum}
             currentEpisode={currentEpisode}
@@ -300,8 +280,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 </span>
                 <p className="text-[11px] leading-relaxed">
                   {language === 'ar'
-                    ? 'في حال واجهت أي تقطيع أو تأخير في الاستجابة، يقوم المشغل تلقائياً بالتحويل إلى خادم الحافة الأقرب. يمكنك أيضاً تبديل المصادر يدوياً من قائمة المشغل.'
-                    : 'If buffering or latency occurs, Movyza automatically switches to the nearest edge cache CDN. You can also manually switch sources inside the player.'}
+                    ? 'التشغيل يتم عبر VidRift اعتمادًا على معرّف TMDB. يمكنك اختيار المصدر المتاح من قائمة المشغل الخارجية.'
+                    : 'Playback is powered by VidRift using the TMDB id. Available sources can be selected from the embedded player.'}
                 </p>
               </div>
             </div>
