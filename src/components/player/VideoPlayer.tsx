@@ -43,6 +43,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [reportMessage, setReportMessage] = useState('');
+  const failedSourceIdsRef = useRef<Set<string>>(new Set());
   const progressLoadedRef = useRef(false);
   const lastSavedAtRef = useRef(0);
   const saveProgress = async (video: HTMLVideoElement, force = false) => {
@@ -83,6 +84,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setSelectedSourceId(source.id);
     setStreamType(source.type);
     setStreamUrl(source.url);
+    failedSourceIdsRef.current.delete(source.id);
     setError('');
   };
 
@@ -124,6 +126,7 @@ if (!safeTmdbId) {
       setStreamType('hls');
       setAvailableSources([]);
       setSelectedSourceId('');
+      failedSourceIdsRef.current.clear();
       progressLoadedRef.current = false;
 
       try {
@@ -145,6 +148,7 @@ if (!safeTmdbId) {
         }
 
         if (!cancelled) {
+          failedSourceIdsRef.current.clear();
           setAvailableSources(normalizedSources);
           setSelectedSourceId(initialSource.id);
           setStreamType(initialSource.type);
@@ -199,8 +203,33 @@ if (!safeTmdbId) {
     const handleEnded = () => { void saveProgress(video, true); };
     const handleSourceError = () => {
       setLoading(false);
-      setError(language === 'ar' ? 'تعذر تشغيل هذا المصدر.' : 'This source could not be played.');
+      handlePlaybackFailure();
     };
+    const handlePlaybackFailure = () => {
+      if (availableSources.length <= 1) {
+        setLoading(false);
+        setError(language === 'ar' ? 'تعذر تشغيل مصدر الفيديو.' : 'The video source could not be played.');
+        return;
+      }
+
+      failedSourceIdsRef.current.add(selectedSourceId);
+      const nextSource =
+        availableSources.find((source) => source.id !== selectedSourceId && !failedSourceIdsRef.current.has(source.id)) ||
+        availableSources.find((source) => source.id !== selectedSourceId);
+
+      if (!nextSource) {
+        setLoading(false);
+        setError(language === 'ar' ? 'تعذر تشغيل جميع المصادر المتاحة.' : 'All available playback sources failed.');
+        return;
+      }
+
+      setLoading(true);
+      setError('');
+      setSelectedSourceId(nextSource.id);
+      setStreamType(nextSource.type);
+      setStreamUrl(nextSource.url);
+    };
+
     const handleError = () => {
       setLoading(false);
       setError(language === 'ar' ? 'تعذر تشغيل مصدر الفيديو.' : 'The video source could not be played.');
@@ -211,14 +240,14 @@ if (!safeTmdbId) {
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('pause', handlePause);
     video.addEventListener('ended', handleEnded);
-    video.addEventListener('error', streamType === 'dash' ? handleSourceError : handleError);
+    video.addEventListener('error', handlePlaybackFailure);
 
     if (streamType === 'mp4') {
       video.src = streamUrl;
       video.load();
     } else if (streamType === 'dash') {
       setLoading(false);
-      setError(language === 'ar' ? 'مصدر DASH غير مدعوم في المشغل الحالي.' : 'DASH sources are not supported by the current player.');
+      handlePlaybackFailure();
     } else if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
@@ -230,8 +259,7 @@ if (!safeTmdbId) {
       hls.on(Hls.Events.MANIFEST_PARSED, () => setLoading(false));
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
-          setLoading(false);
-          setError(language === 'ar' ? 'تعذر تشغيل مصدر الفيديو.' : 'The video source could not be played.');
+          handlePlaybackFailure();
         }
       });
       hls.loadSource(streamUrl);
@@ -250,7 +278,7 @@ if (!safeTmdbId) {
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('ended', handleEnded);
-      video.removeEventListener('error', streamType === 'dash' ? handleSourceError : handleError);
+      video.removeEventListener('error', handlePlaybackFailure);
       hlsRef.current?.destroy();
       hlsRef.current = null;
       video.removeAttribute('src');
@@ -305,7 +333,7 @@ if (!safeTmdbId) {
 
         <div className="pointer-events-none absolute top-3 start-3 z-20 flex items-center gap-2">
           <span className="rounded-full bg-black/70 backdrop-blur px-3 py-1 text-[10px] font-semibold text-white border border-white/10">
-            ezvidapi HLS
+            Movyza {streamType.toUpperCase()} · {availableSources.find((source) => source.id === selectedSourceId)?.provider || 'Source'}
           </span>
           <span className="rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[10px] text-slate-300 border border-white/10">
             مشغل Movyza
@@ -314,7 +342,7 @@ if (!safeTmdbId) {
 
         <div className="pointer-events-none absolute bottom-3 end-3 z-20 flex items-center gap-2 rounded-full bg-black/60 backdrop-blur px-3 py-1 text-[10px] text-emerald-300 border border-white/10">
           <CheckCircle2 className="w-3 h-3" />
-          <span>TMDB ← ezvidapi</span>
+          <span>TMDB ← Movyza</span>
         </div>
       </div>
 
@@ -327,13 +355,13 @@ if (!safeTmdbId) {
             </h3>
             <p className="text-[11px] text-slate-400">
               {language === 'ar'
-                ? 'يتم جلب رابط HLS مباشر من ezvidapi وتشغيله داخل مشغل Movyza.'
-                : 'Movyza resolves the HLS stream server-side, then plays it locally.'}
+                ? 'يتم حل مصدر التشغيل من خادم Movyza وتشغيل المصدر المختار داخل المشغل.'
+                : 'Movyza resolves the playback source server-side, then plays the selected source locally.'}
             </p>
           </div>
         </div>
 
-        {availableSources.length > 1 && (
+        {availableSources.length > 0 && (
           <div className="mb-3 rounded-2xl border border-amber-400/20 bg-white/[0.03] p-3">
             <label className="mb-2 block text-xs font-bold text-white">
               {language === 'ar' ? 'مصدر التشغيل' : 'Playback source'}
