@@ -171,7 +171,7 @@ async function movieDto(row: any) {
   const [genres, cast, sources] = await Promise.all([
     adminSupabase.from('movie_genres').select('genres(id,name_ar,name_en,slug)').eq('movie_id', row.id),
     adminSupabase.from('movie_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('movie_id', row.id).order('cast_order'),
-    adminSupabase.from('playback_sources').select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,undefined').eq('content_type', 'movie').eq('content_id', row.id).eq('is_working', true),
+    adminSupabase.from('playback_sources').select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name,enabled)').eq('content_type', 'movie').eq('content_id', row.id).eq('is_working', true),
   ]);
   return {
     id: row.id, type: 'movie',
