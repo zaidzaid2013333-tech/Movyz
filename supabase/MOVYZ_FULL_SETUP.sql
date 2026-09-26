@@ -626,3 +626,15 @@ commit;
 notify pgrst, 'reload schema';
 
 -- End of Movyz database setup.
+
+
+-- ============================================================
+-- supabase/migrations/202609260005_remove_credential_providers.sql
+-- ============================================================
+update public.providers
+set enabled = false,
+    status = 'offline',
+    updated_at = now()
+where key in ('nhdapi', 'egybest');
+
+notify pgrst, 'reload schema';
