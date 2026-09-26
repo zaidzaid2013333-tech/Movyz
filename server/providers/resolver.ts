@@ -5,33 +5,8 @@ import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
 const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'embed']);
 
-function ezvidEmbedSource(
-  contentType: 'movie' | 'episode',
-  contentId: string,
-  context: ProviderContext,
-) {
-  if (!context.tmdbId) return null;
-
-  const url = contentType === 'movie'
-    ? `https://ezvidapi.com/embed/movie/${context.tmdbId}`
-    : `https://ezvidapi.com/embed/tv/${context.tmdbId}/${Number(context.seasonNumber || 1)}/${Number(context.episodeNumber || 1)}`;
-
-  return {
-    id: `ezvidapi-embed-${contentId}`,
-    type: 'embed' as const,
-    quality: 'auto',
-    language: 'und',
-    label: 'ezVidAPI Embed',
-    labelEn: 'ezVidAPI Embed',
-    url,
-    isWorking: true,
-    provider: 'ezVidAPI',
-    providerKey: 'ezvidapi',
-  };
-}
-
 export const PROVIDER_PRIORITY: Record<string, number> = {
-  ezvidapi: 1,
+  tmdbembed: 1,
   faselhd: 20,
 };
 
@@ -314,25 +289,6 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
     }
   }
 
-  if (!allResolvedSources.length) {
-    const fallback = ezvidEmbedSource(contentType, contentId, context);
-    if (fallback) {
-      try {
-        const universal = await resolveUniversalSource(fallback.url, { timeoutMs: Math.min(timeoutMs, 7_000) });
-        return [{
-          ...fallback,
-          type: universal.type,
-          url: universal.url,
-          quality: universal.quality || fallback.quality,
-          label: universal.type === 'embed' ? fallback.label : universal.label,
-          labelEn: universal.type === 'embed' ? fallback.labelEn : universal.label,
-        }];
-      } catch (error) {
-        console.warn('[playback-resolver] fallback conversion failed', error instanceof Error ? error.message : error);
-      }
-      return [fallback];
-    }
-  }
 
   return allResolvedSources;
 }
