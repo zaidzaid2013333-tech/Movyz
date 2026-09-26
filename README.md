@@ -13,11 +13,10 @@ TMDB is used for catalog metadata. Playback URLs are resolved server-side by reg
 ## Playback
 
 The current production playback path:
-1. The player asks `/api/v1/playback/sources` for the movie or episode UUID.
-2. Movyz reuses a valid cached source when available.
-3. If no valid cache exists, the provider registry resolves an enabled provider.
-4. The current built-in providers are VidZee first and ezvidAPI fallback, with provider discovery and source normalization on the server.
-5. The player supports HLS and MP4, source switching, and automatic failover when another returned source is available.
+1. The player asks `/api/v1/watch/:mediaType/:tmdbId` for direct movie/series playback.
+2. Watch playback reads only valid cached rows from `playback_sources`.
+3. Sources are filtered to HTTPS HLS, MP4, or DASH URLs and only active/working rows are returned.
+4. The legacy provider resolver remains available separately for source management and compatibility.
 
 Playback sources are external URLs; video files are not hosted by the frontend.
 
