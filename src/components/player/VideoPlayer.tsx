@@ -36,7 +36,7 @@ type StreamType = 'hls' | 'mp4' | 'dash';
 type PlaybackSource = {
   id: string;
   url: string;
-  type: StreamType;
+  type: StreamType | 'embed';
   quality: string;
   language: string;
   label: string;
