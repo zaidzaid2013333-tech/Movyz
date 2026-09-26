@@ -1,4 +1,4 @@
-name: Movyz TMDB Sync
+name: Movyz TMDB Sync — Hardened
 
 on:
   schedule:
@@ -50,8 +50,16 @@ jobs:
           node-version: 22
 
       # The repository currently has no package-lock.json, so npm ci/cache cannot be used.
+      - name: Configure npm resilience
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set audit false
+          npm config set fund false
+
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Validate required secrets
         run: |
@@ -63,13 +71,25 @@ jobs:
       - name: Sync TMDB catalog
         env:
           TMDB_PAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.pages || '1' }}
-        run: npx tsx scripts/run-tmdb-sync.ts catalog "$TMDB_PAGES"
+        run: |
+          for attempt in 1 2 3; do
+            echo "Catalog sync attempt $attempt/3"
+            npx tsx scripts/run-tmdb-sync.ts catalog "$TMDB_PAGES" && exit 0
+            test "$attempt" -lt 3 && sleep 15
+          done
+          exit 1
 
       - name: Sync TMDB episodes
         if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.sync_episodes }}
         env:
           SERIES_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.series_limit || '10' }}
-        run: npx tsx scripts/run-tmdb-sync.ts episodes "$SERIES_LIMIT"
+        run: |
+          for attempt in 1 2 3; do
+            echo "Episode sync attempt $attempt/3"
+            npx tsx scripts/run-tmdb-sync.ts episodes "$SERIES_LIMIT" && exit 0
+            test "$attempt" -lt 3 && sleep 15
+          done
+          exit 1
 
       - name: Verify synchronized catalog
         run: npx tsx scripts/verify-tmdb-sync.ts
