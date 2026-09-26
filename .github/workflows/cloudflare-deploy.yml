@@ -114,6 +114,9 @@ jobs:
           node <<'NODE'
           (async () => {
             const urls = [
+              'https://faselhd.io/',
+              'https://www.faselhd.io/',
+              'https://faselhd.io/?s=The%20Shawshank%20Redemption',
               'https://faselhd.tech/',
               'https://www.faselhd.tech/',
               'https://faselhd.tech/?s=The%20Shawshank%20Redemption',
