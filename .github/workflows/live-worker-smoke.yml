@@ -11,97 +11,38 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Verify deployed API and VidRift playback target
+      - name: Verify deployed API and current playback resolver
         run: |
           node <<'NODE'
           const base = 'https://movyz-api.sameranede.workers.dev';
           const headers = {'Accept':'application/json'};
 
           const getJson = async (path, timeout = 20000) => {
-            const r = await fetch(base + path, {
-              headers,
-              redirect: 'follow',
-              signal: AbortSignal.timeout(timeout),
-            });
-            const body = await r.text();
-            console.log(path, 'HTTP', r.status, body.slice(0, 1200));
-            if (!r.ok) {
-              throw new Error(path + ' -> HTTP ' + r.status + ' ' + body.slice(0, 600));
-            }
+            const response = await fetch(base + path, { headers, redirect: 'follow', signal: AbortSignal.timeout(timeout) });
+            const body = await response.text();
+            console.log(path, 'HTTP', response.status, body.slice(0, 1600));
+            if (!response.ok) throw new Error(path + ' -> HTTP ' + response.status + ' ' + body.slice(0, 800));
             return JSON.parse(body);
           };
 
           const health = await getJson('/health', 15000);
-          if (!health?.success) throw new Error('Worker health check failed');
+          if (!health?.success || health?.data?.status !== 'ok') throw new Error('Worker health check failed');
 
           const catalog = await getJson('/api/v1/movies?search=Interstellar&page=1&limit=5');
-          const items = Array.isArray(catalog?.data)
-            ? catalog.data
-            : catalog?.data?.items ?? catalog?.data?.movies ?? catalog?.movies ?? [];
-          if (!Array.isArray(items) || !items.length) {
-            throw new Error('Catalog returned no Interstellar result');
-          }
+          const items = Array.isArray(catalog?.data) ? catalog.data : catalog?.data?.items ?? catalog?.data?.movies ?? [];
+          if (!Array.isArray(items) || !items.length) throw new Error('Catalog returned no Interstellar result');
 
-          const movie = items.find((item) =>
-            /interstellar/i.test(String(item?.titleEn || item?.title || ''))
-          ) || items[0];
-
+          const movie = items.find((item) => /interstellar/i.test(String(item?.titleEn || item?.title || ''))) || items[0];
           const tmdbId = Number(movie?.tmdbId || movie?.tmdb_id || 0);
-          if (!Number.isInteger(tmdbId) || tmdbId <= 0) {
-            throw new Error('Catalog movie has no valid TMDB id: ' + JSON.stringify(movie).slice(0, 900));
-          }
+          if (!Number.isInteger(tmdbId) || tmdbId <= 0) throw new Error('Catalog movie has no valid TMDB id: ' + JSON.stringify(movie).slice(0, 1200));
 
-          const embedUrl =
-            'https://embed.vidrift.net/embed/movie/' +
-            encodeURIComponent(String(tmdbId)) +
-            '?title=' + encodeURIComponent(String(movie?.titleEn || 'Interstellar')) +
-            '&brand=Movyza';
-
-          // VidRift explicitly serves /embed/* to framed browsers and may return
-          // 403 to plain programmatic fetches. Simulate an iframe navigation.
-          const embed = await fetch(embedUrl, {
-            method: 'GET',
-            headers: {
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36',
-              'Referer': base + '/',
-              'Sec-Fetch-Dest': 'iframe',
-              'Sec-Fetch-Mode': 'navigate',
-              'Sec-Fetch-Site': 'cross-site',
-            },
-            redirect: 'follow',
-            signal: AbortSignal.timeout(20000),
-          });
-
-          const embedBody = await embed.text();
-          console.log('VIDRIFT', JSON.stringify({
-            tmdbId,
-            status: embed.status,
-            finalUrl: embed.url,
-            type: embed.headers.get('content-type'),
-            sample: embedBody.slice(0, 500),
-          }));
-
-          const embedType = (embed.headers.get('content-type') || '').toLowerCase();
-          const iframeChallenge =
-            embed.status === 403 &&
-            embedType.includes('text/html') &&
-            /Just a moment|Cloudflare|cf-chl/i.test(embedBody);
-
-          const iframeReady =
-            embed.ok &&
-            embedType.includes('text/html') &&
-            /VidRift|vidrift/i.test(embedBody);
-
-          if (!iframeReady && !iframeChallenge) {
-            throw new Error('VidRift iframe target is unavailable: HTTP ' + embed.status);
-          }
+          const playback = await getJson('/api/v1/playback/ezvidapi?type=movie&tmdbId=' + encodeURIComponent(String(tmdbId)), 30000);
+          const streamUrl = String(playback?.data?.stream_url || '');
+          const streamType = String(playback?.data?.type || '');
+          if (!streamUrl || !/^https:\/\//i.test(streamUrl)) throw new Error('Playback resolver returned no HTTPS stream: ' + JSON.stringify(playback).slice(0, 1600));
+          if (!['hls','mp4','dash'].includes(streamType)) throw new Error('Playback resolver returned unsupported type: ' + streamType);
+          if (streamType === 'hls' && !/\.m3u8(?:$|[?#])/i.test(streamUrl)) throw new Error('Playback resolver marked stream as HLS but URL is not m3u8');
 
           console.log('LIVE_PLAYBACK_TARGET=PASS');
-          console.log('PASSED_MOVIE', JSON.stringify({
-            id: movie?.id,
-            title: movie?.titleEn || movie?.title,
-            tmdbId,
-            embedUrl,
-          }).slice(0, 2500));
+          console.log('PASSED_MOVIE', JSON.stringify({ id: movie?.id, title: movie?.titleEn || movie?.title, tmdbId, streamType, streamHost: new URL(streamUrl).host }));
           NODE
