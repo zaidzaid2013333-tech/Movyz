@@ -159,7 +159,19 @@ export function createStreamFlixAdapter() {
     if (!bases.length) return [];
     if (kind === 'movie') {
       if (!match.movielink) return [];
-      return bases.map((base, index) => { const url = `${base}${match.movielink}`; return { provider: 'streamflix', type: inferPlaybackType(url) || 'mp4', url, providerReference: String(context.tmdbId), quality: inferQuality('', url), language: 'und', label: `StreamFlix${index ? ` Mirror ${index + 1}` : ''}` }; });
+      return bases.flatMap((base, index) => {
+        const url = `${base}${match.movielink}`;
+        if (/\\.(mkv|avi|webm|mov)(?:\\?|$)/i.test(url)) return [];
+        return [{
+          provider: 'streamflix',
+          type: inferPlaybackType(url) || 'mp4',
+          url,
+          providerReference: String(context.tmdbId),
+          quality: inferQuality('', url),
+          language: 'und',
+          label: `StreamFlix${index ? ` Mirror ${index + 1}` : ''}`,
+        }];
+      });
     }
     if (context.seasonNumber == null || context.episodeNumber == null || !match.moviekey) return [];
     const episodeIndex = context.episodeNumber - 1;
@@ -168,7 +180,19 @@ export function createStreamFlixAdapter() {
     if (!episodeResponse.ok) throw new Error(`StreamFlix episodes returned ${episodeResponse.status}`);
     const episodes = await episodeResponse.json() as Record<string, any>;
     const episode = episodes[String(episodeIndex)] ?? episodes[String(context.episodeNumber)]; if (!episode?.link) return [];
-    return bases.map((base, index) => { const url = `${base}${episode.link}`; return { provider: 'streamflix', type: inferPlaybackType(url) || 'mp4', url, providerReference: `${context.tmdbId}:${context.seasonNumber}:${context.episodeNumber}`, quality: inferQuality('', url), language: 'und', label: `StreamFlix${index ? ` Mirror ${index + 1}` : ''}` }; });
+    return bases.flatMap((base, index) => {
+      const url = `${base}${episode.link}`;
+      if (/\\.(mkv|avi|webm|mov)(?:\\?|$)/i.test(url)) return [];
+      return [{
+        provider: 'streamflix',
+        type: inferPlaybackType(url) || 'mp4',
+        url,
+        providerReference: `${context.tmdbId}:${context.seasonNumber}:${context.episodeNumber}`,
+        quality: inferQuality('', url),
+        language: 'und',
+        label: `StreamFlix${index ? ` Mirror ${index + 1}` : ''}`,
+      }];
+    });
   };
   return {
     key: 'streamflix', name: 'StreamFlix', enabled: true, requiresMapping: false,
