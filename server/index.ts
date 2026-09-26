@@ -15,7 +15,7 @@ registerBuiltInProviders();
 
 app.disable('x-powered-by');
 
-app.use(async (req, res, next) => {
+app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   const origin = req.headers.get('origin');
   const allow = (process.env.CORS_ORIGINS || '').split(',').map((x) => x.trim()).filter(Boolean);
   if (origin && (allow.length === 0 || allow.includes(origin))) res.setHeader('access-control-allow-origin', origin);
