@@ -3,6 +3,19 @@
   "name": "movyz-api",
   "main": "worker.ts",
   "compatibility_date": "2026-09-26",
-  "compatibility_flags": ["nodejs_compat"],
-  "observability": { "enabled": true }
+  "compatibility_flags": [
+    "nodejs_compat",
+    "nodejs_compat_populate_process_env"
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "secrets": {
+    "required": [
+      "SUPABASE_URL",
+      "SUPABASE_ANON_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "TMDB_API_READ_ACCESS_TOKEN"
+    ]
+  }
 }
