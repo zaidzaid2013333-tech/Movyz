@@ -31,6 +31,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   backdropUrl,
   tmdbId,
   seasonNumber,
+  currentEpisode,
   episodeNumber,
   allSeasons,
   onSelectEpisode,
