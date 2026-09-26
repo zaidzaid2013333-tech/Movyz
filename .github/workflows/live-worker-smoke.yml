@@ -63,5 +63,5 @@ jobs:
           }
 
           console.log('LIVE_WORKER_PLAYBACK=PASS');
-          console.log('PASSED_MOVIE', JSON.stringify({movie, vidzee, stream:{status:stream.status,type,url:stream.url}}).slice(0,3000));
+          console.log('PASSED_MOVIE', JSON.stringify({movie, sources:newProviders.map(s => ({provider:s.provider,url:s.url,type:s.type,quality:s.quality}))}).slice(0,3000));
           NODE
