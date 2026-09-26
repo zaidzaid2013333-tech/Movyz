@@ -161,7 +161,7 @@ export function createStreamFlixAdapter() {
       if (!match.movielink) return [];
       return bases.flatMap((base, index) => {
         const url = `${base}${match.movielink}`;
-        if (/\\.(mkv|avi|webm|mov)(?:\\?|$)/i.test(url)) return [];
+        if (/\.(mkv|avi|webm|mov)(?:\?|$)/i.test(url)) return [];
         return [{
           provider: 'streamflix',
           type: inferPlaybackType(url) || 'mp4',
@@ -182,7 +182,7 @@ export function createStreamFlixAdapter() {
     const episode = episodes[String(episodeIndex)] ?? episodes[String(context.episodeNumber)]; if (!episode?.link) return [];
     return bases.flatMap((base, index) => {
       const url = `${base}${episode.link}`;
-      if (/\\.(mkv|avi|webm|mov)(?:\\?|$)/i.test(url)) return [];
+      if (/\.(mkv|avi|webm|mov)(?:\?|$)/i.test(url)) return [];
       return [{
         provider: 'streamflix',
         type: inferPlaybackType(url) || 'mp4',
