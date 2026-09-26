@@ -139,7 +139,8 @@ jobs:
             throw new Error('Dedicated playback fixture returned no Arabic subtitle track');
           }
 
-          const subtitleResponse = await fetch(String(subtitle.url), {
+          const subtitleUrl = new URL(String(subtitle.url), base).toString();
+          const subtitleResponse = await fetch(subtitleUrl, {
             headers: { Accept: 'text/vtt, text/plain;q=0.9, */*;q=0.8' },
             redirect: 'follow',
             signal: AbortSignal.timeout(20000),
@@ -169,6 +170,7 @@ jobs:
             sourceHttpStatus: media.status,
             contentType,
             subtitleLanguage: subtitle.language,
+            subtitleUrl,
             subtitleHttpStatus: subtitleResponse.status,
             subtitleContentType: subtitleType,
           }));

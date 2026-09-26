@@ -485,6 +485,9 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
 
     if (sourceError) throw sourceError;
 
+    const requestOrigin = `${req.protocol || 'https'}://${req.get('host')}`;
+    const subtitleProxyBase = new URL(`${api}/subtitles/proxy`, requestOrigin).toString();
+
     const seen = new Set<string>();
     const sources = (rows || [])
       .filter((source: any) => {
@@ -511,7 +514,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
         providerReference: source.provider_reference || undefined,
         subtitleTracks: source.subtitle_url
           ? [{
-              url: `${api}/subtitles/proxy?url=${encodeURIComponent(source.subtitle_url)}`,
+              url: `${subtitleProxyBase}?url=${encodeURIComponent(source.subtitle_url)}`,
               type: String(source.subtitle_type || 'vtt').toLowerCase(),
               language: source.subtitle_language || 'und',
               label: source.subtitle_label_ar || source.subtitle_label_en || 'Subtitles',
