@@ -218,9 +218,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           ? contentId
           : (currentEpisode?.id || contentId);
 
-        const response = await MovyzaApi.getPlaybackSources(
-          isMovie ? 'movie' : 'episode',
-          playbackContentId,
+        const response = await MovyzaApi.getWatchSources(
+          safeTmdbId,
+          isMovie ? 'movie' : 'series',
+          seasonNumber,
+          episodeNumber,
         );
 
         const normalized: PlaybackSource[] = (response.data || [])

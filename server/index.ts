@@ -323,6 +323,66 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   }
 }));
 
+
+app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
+  const parsed = z.object({
+    mediaType: z.enum(['movie', 'series']),
+    tmdbId: z.coerce.number().int().positive(),
+    season: z.coerce.number().int().min(0).max(99).optional(),
+    episode: z.coerce.number().int().min(1).max(999).optional(),
+  }).safeParse({
+    mediaType: req.params.mediaType,
+    tmdbId: req.params.tmdbId,
+    season: req.query.season,
+    episode: req.query.episode,
+  });
+
+  if (!parsed.success) {
+    return fail(res, 400, 'INVALID_WATCH_QUERY', 'Invalid watch parameters');
+  }
+
+  const { mediaType, tmdbId, season, episode } = parsed.data;
+  if (mediaType === 'series' && (season == null || episode == null)) {
+    return fail(res, 400, 'EPISODE_REQUIRED', 'Season and episode are required for series playback');
+  }
+
+  const adapter = getProvider('tmdbembed');
+  if (!adapter?.enabled) {
+    return fail(res, 503, 'WATCH_PROVIDER_UNAVAILABLE', 'The watch provider is not configured');
+  }
+
+  try {
+    const resolved = mediaType === 'movie'
+      ? await adapter.resolveMovie({ tmdbId })
+      : await adapter.resolveEpisode({ tmdbId, seasonNumber: season, episodeNumber: episode });
+
+    const sources = (resolved || [])
+      .filter((source) => ['hls', 'mp4', 'dash'].includes(source.type) && typeof source.url === 'string' && /^https:\/\//i.test(source.url))
+      .map((source, index) => ({
+        id: `tmdbembed-${source.type}-${source.quality || 'auto'}-${index}`,
+        type: source.type,
+        quality: source.quality || 'auto',
+        language: source.language || 'und',
+        label: source.label || 'TMDB Embed API',
+        labelEn: source.label || 'TMDB Embed API',
+        url: source.url,
+        isWorking: true,
+        provider: source.provider || 'TMDB Embed API',
+        providerKey: 'tmdbembed',
+        providerReference: source.providerReference || undefined,
+      }));
+
+    if (!sources.length) {
+      return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No direct playable sources are available for this title');
+    }
+
+    return ok(res, sources);
+  } catch (error) {
+    console.error('[watch-sources]', error instanceof Error ? error.message : error);
+    return fail(res, 502, 'WATCH_PROVIDER_FAILED', 'Unable to resolve watch sources');
+  }
+}));
+
 app.get(`${api}/playback/sources`, asyncRoute(async (req, res) => {
   const parsed = z.object({
     contentType: z.enum(['movie', 'episode']),

@@ -86,6 +86,19 @@ export const MovyzaApi = {
       cast: { name: string; nameEn: string; worksCount: number; avatarUrl: string }[];
     }>(`/search?q=${encodeURIComponent(search)}`),
 
+  getWatchSources: (
+    tmdbId: number,
+    contentType: 'movie' | 'series',
+    seasonNumber?: number,
+    episodeNumber?: number,
+  ) => request<import('../types').PlaybackSource[]>(
+    `/watch/${contentType}/${encodeURIComponent(String(tmdbId))}${query({
+      season: contentType === 'series' ? seasonNumber : undefined,
+      episode: contentType === 'series' ? episodeNumber : undefined,
+    })}`,
+  ),
+
+  // Backward-compatible legacy endpoint; the Watch page does not use it.
   getPlaybackSources: (contentType: 'movie' | 'episode', contentId: string) =>
     request<import('../types').PlaybackSource[]>(`/playback/sources${query({ contentType, contentId })}`),
 
