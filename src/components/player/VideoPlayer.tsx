@@ -395,11 +395,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onError={(playbackError) => {
               console.warn('[movyza-player] source error', playbackError);
-              // Never leave the user looking at a broken raw player. Move
-              // immediately to the official ezVidAPI embed fallback.
+              // Try the next resolved source first. Only after every source
+              // fails do we fall back to an embedded source.
               setStreamUrl('');
               setError('');
-              setFallbackEmbedUrl(fallbackUrl);
               setLoading(true);
               moveToNextSource();
             }}
@@ -450,7 +449,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <div className="pointer-events-none absolute start-3 top-3 z-40 flex items-center gap-2">
           <span className="movyza-player-badge rounded-full px-3 py-1 text-[10px] font-semibold text-white backdrop-blur border">
             {fallbackEmbedUrl
-              ? 'EZVIDAPI FALLBACK'
+              ? 'MOVYZA · EMBED MODE'
               : `MOVYZA · ${streamType.toUpperCase()}`}
           </span>
           <span className="rounded-full border border-white/10 bg-black/65 px-2.5 py-1 text-[10px] text-slate-300 backdrop-blur">
@@ -462,7 +461,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <CheckCircle2 className="h-3 w-3" />
           <span>
             {fallbackEmbedUrl
-              ? 'Movyza → ezvidapi'
+              ? 'Movyza → embedded source'
               : currentLabel || 'Movyza → direct stream'}
           </span>
         </div>
@@ -478,11 +477,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <p className="text-[11px] text-slate-400">
               {fallbackEmbedUrl
                 ? language === 'ar'
-                  ? 'الـAPI أعاد fallback رسمي من ezVidAPI بعد تعذر الحصول على رابط خام.'
-                  : 'Movyza API returned the official ezVidAPI fallback after raw stream resolution failed.'
+                  ? 'المصدر لا يوفّر رابط فيديو مباشرًا، لذلك يتم تشغيله داخل إطار Movyza بدل ترك المستخدم خارج صفحة المشاهدة.'
+                  : 'This source did not expose a direct stream, so Movyza keeps it inside the watch surface.'
                 : language === 'ar'
-                  ? 'الرابط يأتي من API تاع Movyza ويتشغل مباشرة داخل Player الجاهز.'
-                  : 'Movyza API returns the source URL and the ready-made player plays it directly.'}
+                  ? 'Movyza يحاول تحويل المصدر إلى HLS أو MP4 أو DASH أولًا، ثم يستخدم وضع Embed عند الحاجة.'
+                  : 'Movyza tries to resolve HLS, MP4, or DASH first, then falls back to embedded playback when needed.'}
             </p>
           </div>
         </div>
@@ -528,12 +527,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
             <div className="mb-2 flex items-center gap-2 text-xs font-bold text-white">
               <span>⚡</span>
-              {language === 'ar' ? 'تشغيل خام' : 'Raw playback'}
+              {language === 'ar' ? 'تشغيل موحّد' : 'Universal playback'}
             </div>
             <p className="text-[11px] leading-relaxed text-slate-400">
               {language === 'ar'
-                ? 'HLS وMP4 وDASH كلها تدخل للمشغل بنفس واجهة Movyza.'
-                : 'HLS, MP4, and DASH sources use the same Movyza player UI.'}
+                ? 'HLS وMP4 وDASH تشغل مباشرة، والمصادر التي لا تكشف رابطًا خامًا تبقى داخل واجهة المشاهدة نفسها.'
+                : 'HLS, MP4, and DASH play directly; sources without an exposed stream stay inside the same watch surface.'}
             </p>
           </div>
 
