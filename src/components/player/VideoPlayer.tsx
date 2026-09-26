@@ -464,7 +464,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             setCurrentTime(videoRef.current.currentTime);
           }
         }}
-        onWaiting={() => setIsLoading(true)}
+        onWaiting={() => {
+          setIsLoading(true);
+          if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+          sourceFailoverTimerRef.current = setTimeout(() => {
+            handleSourceError();
+          }, 10_000);
+        }}
         onPlaying={() => {
           if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
           sourceFailoverTimerRef.current = null;
