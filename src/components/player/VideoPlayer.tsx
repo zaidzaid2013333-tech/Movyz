@@ -539,7 +539,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         <div className="pointer-events-none absolute start-3 top-3 z-40 flex items-center gap-2">
           <span className="movyza-player-badge rounded-full px-3 py-1 text-[10px] font-semibold text-white backdrop-blur border">
-`MOVYZA · ${streamType.toUpperCase()}`
+{`MOVYZA · ${streamType.toUpperCase()}`}
           </span>
           <span className="rounded-full border border-white/10 bg-black/65 px-2.5 py-1 text-[10px] text-slate-300 backdrop-blur">
             {language === 'ar' ? 'مشغل Movyza' : 'Movyza Player'}
