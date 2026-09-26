@@ -95,6 +95,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const subtitleTracks = currentSource?.subtitleTracks || [];
   const subtitleEnabled = subtitleTracks.length > 0;
 
+  const showPreferredSubtitleTrack = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const tracks = Array.from(video.textTracks).filter(
+      (track) => track.kind === 'subtitles' || track.kind === 'captions',
+    );
+
+    if (!tracks.length) return;
+
+    const preferred =
+      tracks.find((track) => String(track.language).toLowerCase().startsWith('ar')) ||
+      tracks[0];
+
+    for (const track of tracks) {
+      track.mode = track === preferred ? 'showing' : 'disabled';
+    }
+
+    subtitleAutoShownRef.current = true;
+  };
+
   const currentLabel = useMemo(() => {
     const source = sources.find((item) => item.id === selectedSourceId);
     return source ? [source.provider, source.quality, source.type.toUpperCase()].filter(Boolean).join(' · ') : '';
@@ -350,17 +371,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     <div className="movyza-player-root relative w-full bg-black" dir="rtl">
       <style>{`
         .movyza-player video::cue {
-          font-size: 205%;
+          font-size: 30px;
           line-height: 1.3;
           font-family: Arial, "Noto Sans Arabic", "Noto Sans", sans-serif;
           font-weight: 700;
           color: #fff;
           background: rgba(0, 0, 0, 0.72);
-          text-shadow: 0 2px 4px rgba(0,0,0,.95);
+          text-shadow:
+            0 2px 4px rgba(0, 0, 0, .98),
+            0 0 3px rgba(0, 0, 0, 1);
+          white-space: pre-line;
         }
         @media (max-width: 640px) {
           .movyza-player video::cue {
-            font-size: 185%;
+            font-size: 22px;
           }
         }
       `}</style>
@@ -380,21 +404,35 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
             }}
             onTextTracksChange={(tracks) => {
-              if (subtitleAutoShownRef.current) return;
               const preferredTrack =
-                tracks.find((track) => track.kind === 'subtitles' && String(track.language).toLowerCase() === 'ar') ||
-                tracks.find((track) => track.kind === 'subtitles');
+                tracks.find(
+                  (track) =>
+                    (track.kind === 'subtitles' || track.kind === 'captions') &&
+                    String(track.language).toLowerCase().startsWith('ar'),
+                ) ||
+                tracks.find(
+                  (track) => track.kind === 'subtitles' || track.kind === 'captions',
+                );
+
               if (preferredTrack) {
-                preferredTrack.mode = 'showing';
+                tracks.forEach((track) => {
+                  if (track.kind === 'subtitles' || track.kind === 'captions') {
+                    track.mode = track === preferredTrack ? 'showing' : 'disabled';
+                  }
+                });
                 subtitleAutoShownRef.current = true;
+              } else {
+                showPreferredSubtitleTrack();
               }
             }}
             onCanPlay={() => {
               setLoading(false);
               setError('');
+              showPreferredSubtitleTrack();
               void restoreProgress();
             }}
             onLoadedMetadata={() => {
+              showPreferredSubtitleTrack();
               void restoreProgress();
             }}
             onTimeUpdate={() => {
@@ -420,6 +458,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             onPlaying={() => {
               setLoading(false);
               setError('');
+              showPreferredSubtitleTrack();
             }}
           >
             <MediaProvider>
@@ -433,7 +472,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   lang={track.language}
                   language={track.language}
                   type={track.type}
-                  default={track.default === true}
+                  default={
+                    track.default === true ||
+                    track.url ===
+                      (subtitleTracks.find((item) =>
+                        String(item.language).toLowerCase().startsWith('ar'),
+                      )?.url || subtitleTracks[0]?.url)
+                  }
                 />
               ))}
             </MediaProvider>
