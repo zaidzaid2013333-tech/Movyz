@@ -5,9 +5,10 @@ import type { NormalizedPlaybackSource, ProviderContext } from './types';
 const VALID_TYPES = new Set(['hls', 'mp4', 'dash']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
-  streamprovider: 1,
-  tmdbembed: 10,
-  faselhd: 20,
+  'moviebox-api': 1,
+  streamprovider: 10,
+  tmdbembed: 20,
+  faselhd: 30,
 };
 
 function providerPriority(key: string) {
