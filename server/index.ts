@@ -1413,4 +1413,6 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   return fail(res, 500, 'INTERNAL_ERROR', 'Internal server error');
 });
 
-export function startServer() {\n  app.listen(port, () => console.log(`Movyz API listening on port ${port}`));\n}
+export function startServer() {
+  app.listen(port, () => console.log(`Movyz API listening on port ${port}`));
+}
