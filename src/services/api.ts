@@ -79,14 +79,6 @@ export const MovyzaApi = {
   getSeriesById: (id: string) =>
     request<{ series: Series; similar: Series[] }>(`/series/${encodeURIComponent(id)}`),
 
-  getWatchSources: (contentId: string, episodeId?: string, options?: { refresh?: boolean; excludeProviders?: string[] }) => {
-    const params: Record<string, string> = {};
-    if (episodeId) params.episodeId = episodeId;
-    if (options?.refresh) params.refresh = '1';
-    if (options?.excludeProviders?.length) params.excludeProvider = options.excludeProviders.join(',');
-    return request<PlaybackSource[]>(`/watch/${encodeURIComponent(contentId)}/sources${query(params)}`);
-  },
-
   searchCatalog: (search: string) =>
     request<{
       movies: Movie[];
@@ -193,9 +185,6 @@ export const MovyzaApi = {
 
   syncTmdbEpisodes: (seriesLimit = 10) => request<{ syncedCount: number; message: string }>('/admin/sync/tmdb/episodes', { method: 'POST', body: JSON.stringify({ seriesLimit }) }),
 
-
-  getWatchTarget: (contentId: string, contentType: 'movie' | 'episode' = 'movie') =>
-    request<any>(`/watch/${encodeURIComponent(contentId)}?type=${contentType}`),
 
   getAdminMovies: (params?: { page?: number; limit?: number; search?: string }) =>
     request<Movie[]>(`/admin/movies${query(params || {})}`),
