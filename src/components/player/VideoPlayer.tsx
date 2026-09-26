@@ -38,6 +38,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const hlsRef = useRef<Hls | null>(null);
   const [streamUrl, setStreamUrl] = useState('');
   const [streamType, setStreamType] = useState<'hls' | 'mp4' | 'dash'>('hls');
+  const [availableSources, setAvailableSources] = useState<Array<{ id: string; url: string; type: 'hls' | 'mp4' | 'dash'; quality: string; language: string; label: string; provider: string }>>([]);
+  const [selectedSourceId, setSelectedSourceId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const progressLoadedRef = useRef(false);
@@ -78,7 +80,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     let cancelled = false;
 
     const loadStream = async () => {
-      if (!safeTmdbId) {
+      const handleSourceChange = (sourceId: string) => {
+    const source = availableSources.find((item) => item.id === sourceId);
+    if (!source) return;
+    setSelectedSourceId(source.id);
+    setStreamType(source.type);
+    setStreamUrl(source.url);
+    setError('');
+  };
+
+  if (!safeTmdbId) {
         setStreamUrl('');
       setStreamType('hls');
         setError(language === 'ar' ? 'معرّف TMDB غير متاح لهذا العنوان.' : 'TMDB id is unavailable for this title.');
@@ -90,6 +101,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setError('');
       setStreamUrl('');
       setStreamType('hls');
+      setAvailableSources([]);
+      setSelectedSourceId('');
       progressLoadedRef.current = false;
 
       try {
@@ -102,16 +115,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }),
         });
 
-        const resolvedUrl = response.data.stream_url;
-        const resolvedType = response.data.type === 'mp4' || response.data.type === 'dash' ? response.data.type : 'hls';
+        const normalizedSources = Array.isArray(response.data.sources) && response.data.sources.length
+          ? response.data.sources.map((source) => ({ ...source, type: source.type === 'mp4' || source.type === 'dash' ? source.type : 'hls' as const }))
+          : [{ id: '0', url: response.data.stream_url, type: response.data.type, quality: response.data.quality, language: response.data.language, label: response.data.provider, provider: response.data.provider }];
+        const initialSource = normalizedSources.find((source) => source.url === response.data.stream_url) || normalizedSources[0];
 
-        if (!resolvedUrl) {
-          throw new Error('No HLS stream returned');
+        if (!initialSource?.url) {
+          throw new Error('No playable stream returned');
         }
 
         if (!cancelled) {
-          setStreamType(resolvedType);
-          setStreamUrl(resolvedUrl);
+          setAvailableSources(normalizedSources);
+          setSelectedSourceId(initialSource.id);
+          setStreamType(initialSource.type);
+          setStreamUrl(initialSource.url);
         }
       } catch (err) {
         if (!cancelled) {
@@ -160,6 +177,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleTimeUpdate = () => { void saveProgress(video); };
     const handlePause = () => { void saveProgress(video, true); };
     const handleEnded = () => { void saveProgress(video, true); };
+    const handleSourceError = () => {
+      setLoading(false);
+      setError(language === 'ar' ? 'تعذر تشغيل هذا المصدر.' : 'This source could not be played.');
+    };
     const handleError = () => {
       setLoading(false);
       setError(language === 'ar' ? 'تعذر تشغيل مصدر الفيديو.' : 'The video source could not be played.');
@@ -170,7 +191,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('pause', handlePause);
     video.addEventListener('ended', handleEnded);
-    video.addEventListener('error', handleError);
+    video.addEventListener('error', streamType === 'dash' ? handleSourceError : handleError);
 
     if (streamType === 'mp4') {
       video.src = streamUrl;
@@ -209,7 +230,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('ended', handleEnded);
-      video.removeEventListener('error', handleError);
+      video.removeEventListener('error', streamType === 'dash' ? handleSourceError : handleError);
       hlsRef.current?.destroy();
       hlsRef.current = null;
       video.removeAttribute('src');
@@ -291,6 +312,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </p>
           </div>
         </div>
+
+        {availableSources.length > 1 && (
+          <div className="mb-3 rounded-2xl border border-amber-400/20 bg-white/[0.03] p-3">
+            <label className="mb-2 block text-xs font-bold text-white">
+              {language === 'ar' ? 'مصدر التشغيل' : 'Playback source'}
+            </label>
+            <select
+              value={selectedSourceId}
+              onChange={(event) => handleSourceChange(event.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-[#10131d] px-3 py-2 text-xs text-white outline-none"
+            >
+              {availableSources.map((source) => (
+                <option key={source.id} value={source.id}>
+                  {[source.label || source.provider, source.quality, source.language].filter(Boolean).join(' · ')}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
