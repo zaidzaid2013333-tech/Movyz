@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { Episode, Season, WatchProgress, ContentType } from '../../types';
 import { MovyzaApi } from '../../services/api';
@@ -39,6 +39,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const { language } = useLanguage();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const resumeRef = useRef<WatchProgress | null>(null);
+  const [sourcePanel, setSourcePanel] = useState<{ panel: string; options: Array<{ option: string; value: string; label: string; group?: string }> } | null>(null);
 
   const isMovie = contentType === 'movie';
   const safeTmdbId = Number(tmdbId || 0);
@@ -51,6 +52,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const params = new URLSearchParams({
       title: isMovie ? title : `${title} · S${seasonNumber} E${episodeNumber}`,
       brand: 'Movyza',
+      mobileSheets: 'true',
     });
     return `${VIDRIFT_ORIGIN}${path}?${params.toString()}`;
   }, [episodeNumber, isMovie, safeTmdbId, seasonNumber, title]);
@@ -67,6 +69,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== VIDRIFT_ORIGIN || !event.data) return;
       const data = event.data;
+
+      if (data.type === 'vidrift:mobile-panel' && Array.isArray(data.options)) {
+        const options = data.options.filter((item: any) => item && typeof item.option === 'string' && typeof item.value === 'string');
+        setSourcePanel({ panel: String(data.panel || 'source'), options });
+        return;
+      }
 
       if (data.type === 'vidrift:progress') {
         const position = Math.floor(Number(data.currentTime || 0));
@@ -192,7 +200,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }
 
   return (
-    <div className="relative w-full aspect-video bg-black overflow-hidden">
+    <div className="relative w-full bg-black overflow-visible">\n      <div className="relative w-full aspect-video overflow-hidden">
       <iframe
         ref={iframeRef}
         src={embedUrl}
