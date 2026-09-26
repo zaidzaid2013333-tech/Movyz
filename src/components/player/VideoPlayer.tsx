@@ -26,6 +26,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   title,
   titleEn,
   posterUrl,
+  backdropUrl,
   tmdbId,
   contentType,
   seasonNumber,
@@ -36,6 +37,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [streamUrl, setStreamUrl] = useState('');
+  const [streamType, setStreamType] = useState<'hls' | 'mp4' | 'dash'>('hls');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const progressLoadedRef = useRef(false);
@@ -78,6 +80,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const loadStream = async () => {
       if (!safeTmdbId) {
         setStreamUrl('');
+      setStreamType('hls');
         setError(language === 'ar' ? 'معرّف TMDB غير متاح لهذا العنوان.' : 'TMDB id is unavailable for this title.');
         setLoading(false);
         return;
@@ -86,6 +89,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setLoading(true);
       setError('');
       setStreamUrl('');
+      setStreamType('hls');
+      progressLoadedRef.current = false;
 
       try {
         const response = await MovyzaApi.resolveEzvidApi({
@@ -98,12 +103,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         });
 
         const resolvedUrl = response.data.stream_url;
+        const resolvedType = response.data.type === 'mp4' || response.data.type === 'dash' ? response.data.type : 'hls';
 
         if (!resolvedUrl) {
           throw new Error('No HLS stream returned');
         }
 
-        if (!cancelled) setStreamUrl(resolvedUrl);
+        if (!cancelled) {
+          setStreamType(resolvedType);
+          setStreamUrl(resolvedUrl);
+        }
       } catch (err) {
         if (!cancelled) {
           setLoading(false);
@@ -163,7 +172,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     video.addEventListener('ended', handleEnded);
     video.addEventListener('error', handleError);
 
-    if (Hls.isSupported()) {
+    if (streamType === 'mp4') {
+      video.src = streamUrl;
+      video.load();
+    } else if (streamType === 'dash') {
+      setLoading(false);
+      setError(language === 'ar' ? 'مصدر DASH غير مدعوم في المشغل الحالي.' : 'DASH sources are not supported by the current player.');
+    } else if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
@@ -200,7 +215,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeAttribute('src');
       video.load();
     };
-  }, [language, streamUrl]);
+  }, [language, streamUrl, streamType, contentId, currentEpisode?.id]);
 
   if (!safeTmdbId) {
     return (
@@ -285,8 +300,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
             <p className="text-[11px] leading-relaxed text-slate-400">
               {language === 'ar'
-                ? 'الإصدار الحالي يستخدم vidsrc داخل ezvidapi كمصدر HLS.'
-                : 'The current integration uses vidsrc through ezvidapi for HLS playback.'}
+                ? 'المشغل يختار مصدر التشغيل المتاح، ويفضل HLS عندما يكون متوفرًا.'
+                : 'The player selects a playable source and prefers HLS when available.'}
             </p>
           </div>
 
