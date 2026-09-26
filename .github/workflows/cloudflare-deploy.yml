@@ -347,6 +347,12 @@ jobs:
 
           const watch = await get('/api/v1/watch/movie/278?provider=faselhd', 20000);
           if (!watch.response.ok) {
+            try {
+              const probe = await get('/api/debug/fasel-browser?url=' + encodeURIComponent('https://www.faselhd.tech/'), 60000);
+              console.log('BROWSER_PROBE_RESULT=' + JSON.stringify(probe.json).slice(0, 9000));
+            } catch (probeError) {
+              console.log('BROWSER_PROBE_ERROR=' + String(probeError));
+            }
             throw new Error(
               'Dedicated playback fixture failed: HTTP ' +
               watch.response.status +
