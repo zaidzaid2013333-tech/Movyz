@@ -1,11 +1,6 @@
 name: Movyz TMDB Sync
 
 on:
-  # Temporary one-shot trigger: this commit starts the first TMDB sync run.
-  # It will be removed after the diagnostic run.
-  push:
-    paths:
-      - ".github/workflows/tmdb-sync.yml"
   workflow_dispatch:
     inputs:
       pages:
