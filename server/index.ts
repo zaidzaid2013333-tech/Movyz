@@ -11,7 +11,7 @@ import { getProvider } from './providers/registry';
 import { PROVIDER_PRIORITY, resolvePlaybackSources } from './providers/resolver';
 import { registerBuiltInProviders } from './providers/bootstrap';
 
-const app = express();
+export const app = express();
 const port = Number(process.env.PORT || 8787);
 const api = '/api/v1';
 
@@ -1414,4 +1414,4 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   return fail(res, 500, 'INTERNAL_ERROR', 'Internal server error');
 });
 
-app.listen(port, () => console.log(`Movyz API listening on port ${port}`));
+export function startServer() {\n  app.listen(port, () => console.log(`Movyz API listening on port ${port}`));\n}
