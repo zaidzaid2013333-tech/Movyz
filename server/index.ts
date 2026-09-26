@@ -52,6 +52,16 @@ const sourceDto = (s: any) => ({
   provider: s.providers?.name || 'Provider',
   providerKey: String(s.providers?.key || '').toLowerCase() || undefined,
   providerReference: s.provider_reference || undefined,
+  subtitleTracks: s.subtitle_url
+    ? [{
+        url: s.subtitle_url,
+        type: String(s.subtitle_type || 'vtt').toLowerCase(),
+        language: s.subtitle_language || 'und',
+        label: s.subtitle_label_ar || s.subtitle_label_en || 'Subtitles',
+        labelEn: s.subtitle_label_en || s.subtitle_label_ar || 'Subtitles',
+        default: s.subtitle_default !== false,
+      }]
+    : [],
 });
 
 const genreDto = (g: any) => ({
@@ -303,6 +313,51 @@ app.get(`${api}/playback/proxy`, asyncRoute(async (req, res) => {
   }
 }));
 
+app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
+  const rawUrl = typeof req.query.url === 'string' ? req.query.url : '';
+  let target: URL;
+
+  try {
+    target = new URL(rawUrl);
+  } catch {
+    return fail(res, 400, 'INVALID_SUBTITLE_URL', 'Invalid subtitle URL');
+  }
+
+  if (
+    target.protocol !== 'https:' ||
+    target.hostname !== 'commons.wikimedia.org' ||
+    target.pathname !== '/w/api.php' ||
+    target.searchParams.get('action') !== 'timedtext'
+  ) {
+    return fail(res, 403, 'SUBTITLE_URL_NOT_ALLOWED', 'Subtitle URL is not allowed');
+  }
+
+  try {
+    const upstream = await fetch(target.toString(), {
+      headers: {
+        Accept: 'text/vtt, text/plain;q=0.9, */*;q=0.8',
+      },
+      redirect: 'follow',
+    });
+
+    if (!upstream.ok) {
+      return fail(res, 502, 'SUBTITLE_FETCH_FAILED', `Wikimedia subtitle request failed (${upstream.status})`);
+    }
+
+    const body = await upstream.text();
+    const responseHeaders = new Headers({
+      'content-type': 'text/vtt; charset=utf-8',
+      'cache-control': 'public, max-age=3600',
+      'access-control-allow-origin': '*',
+      'x-content-type-options': 'nosniff',
+    });
+
+    return new Response(body, { status: 200, headers: responseHeaders });
+  } catch (error) {
+    return fail(res, 502, 'SUBTITLE_PROXY_FAILED', error instanceof Error ? error.message : 'Subtitle proxy failed');
+  }
+}));
+
 app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   const parsed = z.object({
     url: z.string().trim().url().max(4096),
@@ -411,7 +466,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     const now = new Date().toISOString();
     const { data: rows, error: sourceError } = await adminSupabase
       .from('playback_sources')
-      .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name)')
+      .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,subtitle_url,subtitle_type,subtitle_language,subtitle_label_ar,subtitle_label_en,subtitle_default,providers(key,name)')
       .eq('content_type', contentType)
       .eq('content_id', contentId)
       .eq('is_working', true)
@@ -443,6 +498,16 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
         provider: source.providers?.name || 'Movyza',
         providerKey: String(source.providers?.key || '').toLowerCase() || undefined,
         providerReference: source.provider_reference || undefined,
+        subtitleTracks: source.subtitle_url
+          ? [{
+              url: \`${api}/subtitles/proxy?url=${encodeURIComponent(source.subtitle_url)}\`,
+              type: String(source.subtitle_type || 'vtt').toLowerCase(),
+              language: source.subtitle_language || 'und',
+              label: source.subtitle_label_ar || source.subtitle_label_en || 'Subtitles',
+              labelEn: source.subtitle_label_en || source.subtitle_label_ar || 'Subtitles',
+              default: source.subtitle_default !== false,
+            }]
+          : [],
       }));
 
     if (!sources.length) {
