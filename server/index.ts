@@ -324,7 +324,7 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 }));
 
 
-app.get(\`\${api}/watch/:mediaType/:tmdbId\`, asyncRoute(async (req, res) => {
+app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   const parsed = z.object({
     mediaType: z.enum(['movie', 'series']),
     tmdbId: z.coerce.number().int().positive(),
@@ -415,7 +415,7 @@ app.get(\`\${api}/watch/:mediaType/:tmdbId\`, asyncRoute(async (req, res) => {
       .eq('content_type', contentType)
       .eq('content_id', contentId)
       .eq('is_working', true)
-      .or(\`expires_at.is.null,expires_at.gt.\${now}\`);
+      .or(`expires_at.is.null,expires_at.gt.${now}`);
 
     if (sourceError) throw sourceError;
 
@@ -424,9 +424,9 @@ app.get(\`\${api}/watch/:mediaType/:tmdbId\`, asyncRoute(async (req, res) => {
       .filter((source: any) => {
         const type = String(source.source_type || '').toLowerCase();
         if (!['hls', 'mp4', 'dash'].includes(type)) return false;
-        if (typeof source.url !== 'string' || !/^https:\\/\\//i.test(source.url.trim())) return false;
+        if (typeof source.url !== 'string' || !/^https:\/\//i.test(source.url.trim())) return false;
 
-        const key = \`\${type}|\${source.url.trim()}\`;
+        const key = `${type}|${source.url.trim()}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
