@@ -121,13 +121,14 @@ export function extractPlaybackCandidates(payload: unknown): ExtractedCandidate[
   return output;
 }
 
-export async function fetchJsonOrText(url: string, timeoutMs = 8_000) {
+export async function fetchJsonOrText(url: string, timeoutMs = 8_000, requestHeaders: Record<string, string> = {}) {
   const response = await fetchWithTimeout(url, {
     method: 'GET',
     timeoutMs,
     headers: {
       Accept: 'application/json,text/plain,*/*',
       'User-Agent': 'Movyza/1.0',
+      ...requestHeaders,
     },
   });
 
