@@ -15,12 +15,12 @@ export async function requireAuth(req:AuthenticatedRequest,res:HttpResponse,next
     req.userId=user.id; req.role=profile.role; req.supabase=client; next();
   }catch(e){next(e)}
 }
-export function requireAdmin(req:AuthenticatedRequest,res:Response,next:NextFunction){
+export function requireAdmin(req:AuthenticatedRequest,res:HttpResponse,next:NextFunction){
   if(req.role!=='ADMIN'&&req.role!=='OWNER') return res.status(403).json({success:false,error:{code:'FORBIDDEN',message:'Admin permission required'}});
   next();
 }
 
-export function requireOwner(req:AuthenticatedRequest,res:Response,next:NextFunction){
+export function requireOwner(req:AuthenticatedRequest,res:HttpResponse,next:NextFunction){
   if(req.role!=='OWNER') return res.status(403).json({success:false,error:{code:'OWNER_ONLY',message:'Owner permission required'}});
   next();
 }
