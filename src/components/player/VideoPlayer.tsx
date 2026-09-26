@@ -211,6 +211,12 @@ if (!safeTmdbId) {
     const handleLoadedMetadata = () => { void restoreProgress(); };
     const handlePlaybackFailure = () => {
       if (availableSources.length <= 1) {
+        if (!fallbackEmbedUrl) {
+          setFallbackEmbedUrl(buildFallbackEmbedUrl());
+          setLoading(true);
+          setError('');
+          return;
+        }
         setLoading(false);
         setError(language === 'ar' ? 'تعذر تشغيل مصدر الفيديو.' : 'The video source could not be played.');
         return;
@@ -238,11 +244,6 @@ if (!safeTmdbId) {
       setSelectedSourceId(nextSource.id);
       setStreamType(nextSource.type);
       setStreamUrl(nextSource.url);
-    };
-
-    const handleError = () => {
-      setLoading(false);
-      setError(language === 'ar' ? 'تعذر تشغيل مصدر الفيديو.' : 'The video source could not be played.');
     };
 
     video.addEventListener('canplay', handleCanPlay);
@@ -288,6 +289,7 @@ if (!safeTmdbId) {
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('ended', handleEnded);
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('error', handlePlaybackFailure);
       hlsRef.current?.destroy();
       hlsRef.current = null;
