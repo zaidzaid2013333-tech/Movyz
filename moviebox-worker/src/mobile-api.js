@@ -505,7 +505,7 @@ async function fetchResourcePage(subjectId, se, ep, resolution, page) {
   return requestMobile(
     RESOURCE_PATH,
     "GET",
-    { subjectId, se, ep, resolution, page, perPage: 10 },
+    { subjectId, se, ep, resolution, page, perPage: 10, pageSize: 10 },
   );
 }
 
@@ -518,7 +518,7 @@ export async function mobileStreams(subjectId, se = 0, ep = 0) {
     while (page <= 100) {
       try {
         const data = await fetchResourcePage(subjectId, se, ep, resolution, page);
-        const list = Array.isArray(data?.list) ? data.list : [];
+        const list = Array.isArray(data?.list) ? data.list : Array.isArray(data?.items) ? data.items : Array.isArray(data?.resources) ? data.resources : [];
         for (const item of list) {
           if (item?.resourceId && item?.resourceLink) {
             seen.set(String(item.resourceId), item);
