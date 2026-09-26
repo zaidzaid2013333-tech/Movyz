@@ -7,6 +7,16 @@ import {
 } from '../http';
 
 const DEFAULT_HOSTS = [
+  'https://faselhd.vip',
+  'https://www.faselhd.vip',
+  'https://faselhd.one',
+  'https://www.faselhd.one',
+  'https://faselhd.ac',
+  'https://www.faselhd.ac',
+  'https://faselhd.live',
+  'https://www.faselhd.live',
+  'https://faselhd.pro',
+  'https://www.faselhd.pro',
   'https://faselhd.express',
   'https://www.faselhd.express',
   'https://web31818x.faselhdx.bid',
@@ -224,6 +234,19 @@ function isBlockedHtml(html: string) {
     sample.includes('cloudflare')
   );
 }
+function looksLikeFaselSite(html: string) {
+  const lower = html.toLowerCase();
+  const markers = [
+    'faselhd',
+    'فاصل',
+    'postdiv',
+    'posterimg',
+    'player_iframe',
+    'episodes',
+    'serverslist',
+  ];
+  return markers.filter((marker) => lower.includes(marker)).length >= 2;
+}
 
 async function getHtml(url: string, timeoutMs: number, referer?: string) {
   const response = await fetchWithTimeout(url, {
@@ -360,7 +383,7 @@ async function resolveHost(timeoutMs: number) {
   for (const host of DEFAULT_HOSTS) {
     try {
       const result = await getHtml(host + '/', Math.min(timeoutMs, 7000));
-      if (result) return new URL(result.finalUrl).origin;
+      if (result && looksLikeFaselSite(result.html)) return new URL(result.finalUrl).origin;
     } catch {
       // Keep trying the next known host.
     }
