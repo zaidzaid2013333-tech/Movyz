@@ -1,9 +1,8 @@
 import { adminSupabase } from '../supabase';
 import { getProvider } from './registry';
-import { resolveUniversalSource } from './universal-resolver';
 import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
-const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'embed']);
+const VALID_TYPES = new Set(['hls', 'mp4', 'dash']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
   streamprovider: 1,
@@ -108,28 +107,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   });
 
   if (usableCached.length) {
-    const cachedOutput = [];
-    for (const source of usableCached) {
-      const dto = sourceDto(source);
-      if (dto.type === 'embed' && dto.url) {
-        try {
-          const universal = await resolveUniversalSource(dto.url, { timeoutMs: Math.min(timeoutMs, 7_000) });
-          cachedOutput.push({
-            ...dto,
-            type: universal.type,
-            url: universal.url,
-            quality: universal.quality || dto.quality,
-            label: universal.type === 'embed' ? dto.label : universal.label,
-            labelEn: universal.type === 'embed' ? dto.labelEn : universal.label,
-          });
-        } catch {
-          cachedOutput.push(dto);
-        }
-      } else {
-        cachedOutput.push(dto);
-      }
-    }
-    return cachedOutput;
+    return usableCached.map(sourceDto);
   }
 
   const [{ data: providers, error: providersError }, { data: mappings, error: mappingsError }] = await Promise.all([
@@ -187,16 +165,6 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
         if (!url || !VALID_TYPES.has(type)) continue;
         if (source.expiresAt && Number.isFinite(Date.parse(source.expiresAt)) && new Date(source.expiresAt) <= new Date()) continue;
 
-        if (type === 'embed') {
-          try {
-            const universal = await resolveUniversalSource(url, { timeoutMs: Math.min(timeoutMs, 7_000) });
-            url = universal.url;
-            type = universal.type;
-          } catch (error) {
-            console.warn('[playback-resolver] universal embed conversion failed', provider.key, error instanceof Error ? error.message : error);
-          }
-        }
-
         if (!url || !VALID_TYPES.has(type)) continue;
 
         resolved.push({
@@ -205,7 +173,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
           url,
           quality: source.quality || 'auto',
           language: source.language || 'und',
-          label: type === 'embed' ? (source.label || provider.name) : (source.label || provider.name),
+          label: source.label || provider.name,
           providerId: provider.id,
           providerName: provider.name,
           providerLatencyMs: latencyMs,
@@ -231,7 +199,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
         unique.set([source.providerId, contentType, source.type, source.url].join('|'), source);
       }
 
-      const persistable = [...unique.values()].filter((source) => source.type !== 'embed');
+      const persistable = [...unique.values()];
       const rows = persistable.map((source) => ({
         provider_id: source.providerId,
         content_type: contentType,
