@@ -4,14 +4,9 @@ import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } from './auth';
 import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
-import { getProvider } from './providers/registry';
-import { PROVIDER_PRIORITY, resolvePlaybackSources } from './providers/resolver';
-import { registerBuiltInProviders } from './providers/bootstrap';
 
 export const app = new MiniApp();
 const api = '/api/v1';
-
-registerBuiltInProviders();
 
 app.disable('x-powered-by');
 
@@ -62,6 +57,7 @@ const genreDto = (g: any) => ({
 
 const movieCardDto = (row: any, genres: any[] = []) => ({
   id: row.id,
+  tmdbId: Number(row.tmdb_id || 0),
   type: 'movie',
   title: row.title_ar,
   titleEn: row.title_en || row.title_ar,
@@ -89,6 +85,7 @@ const movieCardDto = (row: any, genres: any[] = []) => ({
 
 const seriesCardDto = (row: any, genres: any[] = []) => ({
   id: row.id,
+  tmdbId: Number(row.tmdb_id || 0),
   type: 'series',
   title: row.title_ar,
   titleEn: row.title_en || row.title_ar,
@@ -148,13 +145,12 @@ async function batchSeriesGenres(ids: string[]) {
 }
 
 async function movieDto(row: any) {
-  const [genres, cast, sources] = await Promise.all([
+  const [genres, cast] = await Promise.all([
     adminSupabase.from('movie_genres').select('genres(id,name_ar,name_en,slug)').eq('movie_id', row.id),
     adminSupabase.from('movie_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('movie_id', row.id).order('cast_order'),
-    adminSupabase.from('playback_sources').select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name,enabled)').eq('content_type', 'movie').eq('content_id', row.id).eq('is_working', true),
   ]);
   return {
-    id: row.id, type: 'movie',
+    id: row.id, tmdbId: Number(row.tmdb_id || 0), type: 'movie',
     title: row.title_ar, titleEn: row.title_en || row.title_ar,
     originalTitle: row.original_title || row.title_en || row.title_ar,
     year: row.release_date ? Number(String(row.release_date).slice(0, 4)) : 0,
@@ -171,7 +167,7 @@ async function movieDto(row: any) {
       character: x.character_ar || '', characterEn: x.character_en || '',
       avatarUrl: x.people.avatar_url || '',
     })),
-    sources: (sources.data || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date()).map(sourceDto),
+    sources: [],
     isFeatured: !!row.featured, isTrending: !!row.trending, isPopular: !!row.popular,
     addedAt: row.created_at, ageRating: row.age_rating || '',
   } as any;
@@ -197,7 +193,7 @@ async function seriesDto(row: any) {
     posterUrl: s.poster_url || '', overview: s.overview_ar || '',
     airDate: s.air_date || '', episodesCount: (episodes.data || []).filter((e: any) => e.season_id === s.id).length,
     episodes: (episodes.data || []).filter((e: any) => e.season_id === s.id).map((e: any) => ({
-      id: e.id, seriesId: row.id, seasonNumber: s.season_number, episodeNumber: e.episode_number,
+      id: e.id, seriesId: row.id, tmdbId: Number(e.tmdb_id || 0), seasonNumber: s.season_number, episodeNumber: e.episode_number,
       title: e.name_ar || e.name_en || `الحلقة ${e.episode_number}`,
       titleEn: e.name_en || e.name_ar || `Episode ${e.episode_number}`,
       overview: e.overview_ar || '', overviewEn: e.overview_en || e.overview_ar || '',
@@ -207,7 +203,7 @@ async function seriesDto(row: any) {
   }));
 
   return {
-    id: row.id, type: 'series',
+    id: row.id, tmdbId: Number(row.tmdb_id || 0), type: 'series',
     title: row.title_ar, titleEn: row.title_en || row.title_ar,
     originalTitle: row.original_title || row.title_en || row.title_ar,
     startYear: row.first_air_date ? Number(String(row.first_air_date).slice(0, 4)) : 0,
@@ -373,142 +369,55 @@ app.get(`${api}/episodes/:id`, asyncRoute(async (req, res) => {
   });
 }));
 
-app.get(`${api}/watch/:id/stream`, asyncRoute(async (req, res) => {
-  const parsed = z.enum(['movie', 'episode']).default('movie').safeParse(req.query.type);
-  if (!parsed.success) return fail(res, 400, 'INVALID_CONTENT_TYPE', 'Invalid content type');
-
-  const sources = await resolvePlaybackSources(parsed.data, req.params.id);
-  if (!sources.length) return fail(res, 404, 'NO_PLAYABLE_SOURCE', 'No playable source is currently available');
-
-  const selected =
-    sources.find((source: any) => String(source.providerKey || '').toLowerCase() === 'moviebox-api') ||
-    sources[0];
-
-  let target: string;
-  try {
-    const url = new URL(String(selected.url || '').trim());
-    if (url.protocol !== 'https:') throw new Error('invalid protocol');
-    target = url.toString();
-  } catch {
-    return fail(res, 502, 'INVALID_PLAYBACK_SOURCE', 'Resolved playback source is invalid');
-  }
-
-  return new Response(null, {
-    status: 302,
-    headers: {
-      Location: target,
-      'Cache-Control': 'no-store',
-      'Access-Control-Allow-Origin': '*',
-    },
-  });
-}));
-
-app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
-  const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : null;
-  const type = episodeId ? 'episode' : 'movie';
-  const contentId = episodeId || req.params.id;
-  const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
-  const excludedProviders = typeof req.query.excludeProvider === 'string'
-    ? req.query.excludeProvider.split(',').map((value) => value.trim()).filter(Boolean)
-    : [];
-
-  const { data, error } = await adminSupabase
-    .from('playback_sources')
-    .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name,enabled,success_rate,latency_ms)')
-    .eq('content_type', type)
-    .eq('content_id', contentId)
-    .eq('is_working', true);
-
-  if (error) return fail(res, 500, 'SOURCES_QUERY_FAILED', 'Unable to load playback sources');
-
-  const valid = (data || [])
-    .filter((x: any) => x.providers?.enabled !== false && (!x.expires_at || new Date(x.expires_at) > new Date()))
-    .filter((x: any) => {
-      const key = String(x.providers?.key || '').toLowerCase();
-      return !excludedProviders.some((value) => value.toLowerCase() === key);
-    })
-    .sort((a: any, b: any) => {
-      const pa = PROVIDER_PRIORITY[a.providers?.key] ?? 100;
-      const pb = PROVIDER_PRIORITY[b.providers?.key] ?? 100;
-      if (pa !== pb) return pa - pb;
-      const rateDiff = Number(b.providers?.success_rate ?? -1) - Number(a.providers?.success_rate ?? -1);
-      if (rateDiff) return rateDiff;
-      return Number(a.providers?.latency_ms ?? Number.MAX_SAFE_INTEGER) - Number(b.providers?.latency_ms ?? Number.MAX_SAFE_INTEGER);
-    });
-
-  if (valid.length && !refresh) {
-    return ok(res, valid.map(sourceDto));
-  }
-
-  try {
-    const resolved = await resolvePlaybackSources(type, contentId, excludedProviders);
-    if (resolved.length) return ok(res, resolved);
-  } catch (error) {
-    console.error('Provider resolution failed:', error);
-  }
-
-  if (valid.length) return ok(res, valid.map(sourceDto));
-  return ok(res, []);
-}));
-
-
-app.get(`${api}` + '/watch/:id', asyncRoute(async (req, res) => {
-  const contentType = z.enum(['movie','episode']).default('movie').parse(req.query.type);
+app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
+  const contentType = z.enum(['movie', 'episode']).default('movie').parse(req.query.type);
   const id = req.params.id;
 
   if (contentType === 'movie') {
-    const { data, error } = await adminSupabase.from('movies').select('*').eq('id', id).eq('status', 'published').maybeSingle();
+    const { data, error } = await adminSupabase
+      .from('movies')
+      .select('*')
+      .eq('id', id)
+      .eq('status', 'published')
+      .maybeSingle();
     if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
-    const detail = await movieDto(data);
-    const { data: rows } = await adminSupabase
-      .from('playback_sources')
-      .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name)')
-      .eq('content_type', 'movie').eq('content_id', id).eq('is_working', true);
-    let sources = (rows || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date()).map(sourceDto);
-    if (!sources.length) {
-      try {
-        sources = await resolvePlaybackSources('movie', id);
-      } catch (error) {
-        console.error('Provider resolution failed:', error);
-      }
-    }
-    return ok(res, { contentType, id, content: detail, sources });
+    return ok(res, {
+      contentType,
+      id,
+      tmdbId: Number(data.tmdb_id || 0),
+      content: await movieDto(data),
+    });
   }
 
-  const { data: episode, error: episodeError } = await adminSupabase
+  const { data: episode, error } = await adminSupabase
     .from('episodes')
-    .select('*,seasons(id,season_number,series_id,series:series_id(id,title_ar,title_en,status))')
-    .eq('id', id).maybeSingle();
+    .select('*,seasons(id,season_number,series_id,series:series_id(id,title_ar,title_en,original_title,status,tmdb_id,poster_url,backdrop_url))')
+    .eq('id', id)
+    .maybeSingle();
   const series = episode?.seasons?.series;
-  if (episodeError || !episode || !series || series.status !== 'published') {
+  if (error || !episode || !series || series.status !== 'published') {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
   }
 
-  const { data: rows } = await adminSupabase
-    .from('playback_sources')
-    .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name)')
-    .eq('content_type', 'episode').eq('content_id', id).eq('is_working', true);
-  let sources = (rows || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date()).map(sourceDto);
-  if (!sources.length) {
-    try {
-      sources = await resolvePlaybackSources('episode', id);
-    } catch (error) {
-      console.error('Provider resolution failed:', error);
-    }
-  }
-
   return ok(res, {
-    contentType, id,
+    contentType,
+    id,
+    tmdbId: Number(series.tmdb_id || 0),
     content: {
-      id: episode.id, seriesId: series.id,
-      seriesTitle: series.title_ar, seriesTitleEn: series.title_en || series.title_ar,
-      seasonNumber: episode.seasons.season_number, episodeNumber: episode.episode_number,
+      id: episode.id,
+      seriesId: series.id,
+      seriesTitle: series.title_ar,
+      seriesTitleEn: series.title_en || series.title_ar,
+      seasonNumber: episode.seasons.season_number,
+      episodeNumber: episode.episode_number,
       title: episode.name_ar || episode.name_en || ('الحلقة ' + episode.episode_number),
       titleEn: episode.name_en || episode.name_ar || ('Episode ' + episode.episode_number),
-      overview: episode.overview_ar || '', overviewEn: episode.overview_en || episode.overview_ar || '',
-      stillUrl: episode.still_url || '', duration: Number(episode.runtime_minutes || 0), airDate: episode.air_date || '',
+      overview: episode.overview_ar || '',
+      overviewEn: episode.overview_en || episode.overview_ar || '',
+      stillUrl: episode.still_url || '',
+      duration: Number(episode.runtime_minutes || 0),
+      airDate: episode.air_date || '',
     },
-    sources,
   });
 }));
 
@@ -1285,51 +1194,6 @@ app.delete(`${api}/admin/sources/:id`, requireAuth, requireAdmin, asyncRoute(asy
 
   await writeAudit(req.userId!, 'delete_playback_source', data.content_type, data.content_id, { sourceId: data.id });
   return ok(res, { deleted: true });
-}));
-
-app.post(`${api}/admin/providers/:id/test`, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
-  const { data, error } = await adminSupabase
-    .from('providers')
-    .select('*')
-    .eq('id', req.params.id)
-    .maybeSingle();
-
-  if (error || !data) return fail(res, 404, 'PROVIDER_NOT_FOUND', 'Provider not found');
-
-  const adapter = getProvider(data.key);
-  if (!adapter || !adapter.enabled) {
-    return fail(res, 409, 'PROVIDER_ADAPTER_NOT_CONFIGURED', 'Provider adapter is not configured');
-  }
-
-  const started = Date.now();
-  try {
-    const health = await adapter.health();
-    const latencyMs = Date.now() - started;
-    await adminSupabase
-      .from('providers')
-      .update({
-        status: health.status,
-        latency_ms: latencyMs,
-        success_rate: health.status === 'healthy' ? 100 : health.status === 'degraded' ? 50 : 0,
-        last_checked_at: new Date().toISOString(),
-      })
-      .eq('id', data.id);
-
-    return ok(res, {
-      id: data.id,
-      name: data.name,
-      adapterName: data.adapter_name,
-      type: 'api',
-      status: health.status,
-      latencyMs,
-      successRate: health.status === 'healthy' ? 100 : health.status === 'degraded' ? 50 : 0,
-      lastChecked: new Date().toISOString(),
-      activeSources: 0,
-      message: health.message || '',
-    });
-  } catch (error) {
-    return fail(res, 502, 'PROVIDER_HEALTH_CHECK_FAILED', error instanceof Error ? error.message : 'Provider health check failed');
-  }
 }));
 
 app.get(`${api}/admin/providers`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
