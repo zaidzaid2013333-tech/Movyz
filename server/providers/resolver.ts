@@ -8,8 +8,9 @@ export const PROVIDER_PRIORITY: Record<string, number> = {
   // Primary order: FaselHD → EzVid → StreamProvider.
   // Credential-dependent providers are intentionally excluded.
   faselhd: 0,
-  ezvidapi: 1,
-  streamprovider: 2,
+  streamflix: 1,
+  ezvidapi: 2,
+  streamprovider: 3,
 };
 
 function providerPriority(key: string) {
