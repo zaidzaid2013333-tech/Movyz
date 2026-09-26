@@ -1,5 +1,3 @@
-import { mobileSearch, mobileDetail, mobileSeasons, mobileStreams } from "./mobile-api.js";
-
 /**
  * MovieBox API — Cloudflare Worker
  *
@@ -12,6 +10,9 @@ import { mobileSearch, mobileDetail, mobileSeasons, mobileStreams } from "./mobi
  * metadata endpoint. Reusing it avoids the current 429 RESOURCE_EXHAUSTED
  * response seen on unauthenticated H5 subject/search requests.
  */
+
+const SUPABASE_MOVIEBOX_URL =
+  "https://btrjguegbmusijsyylwl.supabase.co/functions/v1/movyz-moviebox";
 
 const BASE_URL = "https://moviebox.pk";
 const H5_API = "https://h5-api.aoneroom.com";
@@ -647,6 +648,31 @@ async function handleRankingSectionByName(name) {
   return json({ results: matched });
 }
 
+async function fetchSupabaseMovieBox(path, query = new URLSearchParams()) {
+  const target = new URL(path, SUPABASE_MOVIEBOX_URL + "/");
+  for (const [key, value] of query.entries()) target.searchParams.set(key, value);
+
+  const response = await fetch(target.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    redirect: "follow",
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  const raw = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Supabase MovieBox resolver HTTP ${response.status}: ${raw.replace(/\\s+/g, " ").slice(0, 700)}`,
+    );
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error("Supabase MovieBox resolver returned invalid JSON");
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════
 // GET /search/suggest  and  GET /search
 // ══════════════════════════════════════════════════════════════════
@@ -670,8 +696,11 @@ async function handleSearch(params) {
   const q = params.get("q");
   if (!q) return json({ error: "q parameter required" }, 400);
 
-  const result = await mobileSearch(q);
-  return json(result);
+  return json(
+    await fetchSupabaseMovieBox("/search", new URLSearchParams({ q })),
+  );
+}
+
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -680,11 +709,11 @@ async function handleSearch(params) {
 // ══════════════════════════════════════════════════════════════════
 
 async function handleDetail(slug) {
-  const metadata = await mobileDetail(slug);
-  return json({
-    slug: String(slug),
-    metadata,
-  });
+  return json(
+    await fetchSupabaseMovieBox(`/detail/${encodeURIComponent(String(slug))}`),
+  );
+}
+
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -692,41 +721,11 @@ async function handleDetail(slug) {
 // ══════════════════════════════════════════════════════════════════
 
 async function handleEpisodes(slug) {
-  const subjectId = String(slug);
-  const seasonsData = await mobileSeasons(subjectId);
-  if (!seasonsData.length) {
-    return json({
-      slug: subjectId,
-      message: "No seasons/episodes found. This might be a movie.",
-      seasons: [],
-    });
-  }
+  return json(
+    await fetchSupabaseMovieBox(`/episodes/${encodeURIComponent(String(slug))}`),
+  );
+}
 
-  const seasons = seasonsData.map((season) => {
-    const episodeCount = Number(season.episode_count || 0);
-    const episodes = [];
-    for (let i = 1; i <= episodeCount; i++) {
-      episodes.push({
-        name: `Episode ${i}`,
-        ep: i,
-        se: season.season,
-        watch_url: `/watch/${encodeURIComponent(subjectId)}?detail_path=${encodeURIComponent(subjectId)}&se=${season.season}&ep=${i}`,
-        stream_api_url: `/api/stream/${encodeURIComponent(subjectId)}?detail_path=${encodeURIComponent(subjectId)}&se=${season.season}&ep=${i}`,
-      });
-    }
-    return {
-      season: season.season,
-      episode_count: episodeCount,
-      episodes,
-    };
-  });
-
-  return json({
-    slug: subjectId,
-    subject_id: subjectId,
-    total_seasons: seasons.length,
-    seasons,
-  });
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -734,89 +733,86 @@ async function handleEpisodes(slug) {
 // ══════════════════════════════════════════════════════════════════
 
 async function handleStreamApi(subjectId, params) {
-  const detailPath = params.get("detail_path") || subjectId;
-  const se = Number(params.get("se") || "0");
-  const ep = Number(params.get("ep") || "0");
+  const query = new URLSearchParams();
+  query.set("detail_path", params.get("detail_path") || subjectId);
+  query.set("se", params.get("se") || "0");
+  query.set("ep", params.get("ep") || "0");
 
-  const streams = await mobileStreams(String(subjectId), se, ep);
-  const formatted = streams
-    .map((stream) => ({
-      resolution: stream.resolution ? `${stream.resolution}p` : "Unknown",
-      format: "mp4",
-      url: stream.url,
-      size_bytes: stream.size_bytes,
-      id: stream.id,
-      captions: stream.captions || [],
-    }))
-    .sort((a, b) => (parseInt(b.resolution) || 0) - (parseInt(a.resolution) || 0));
+  return json(
+    await fetchSupabaseMovieBox(
+      `/api/stream/${encodeURIComponent(String(subjectId))}`,
+      query,
+    ),
+  );
+}
 
-  return json({
-    subject_id: String(subjectId),
-    detail_path: detailPath,
-    season: se,
-    episode: ep,
-    stream_domain: null,
-    count: formatted.length,
-    sources: formatted,
-    subtitles: formatted.flatMap((stream) => stream.captions || []),
-  });
 }
 
 async function handleWatch(subjectId, params, request) {
-  const detailPath = params.get("detail_path") || subjectId;
-  const se = Number(params.get("se") || "0");
-  const ep = Number(params.get("ep") || "0");
-  const resolution = Number(params.get("resolution") || "0");
+  const query = new URLSearchParams();
+  query.set("detail_path", params.get("detail_path") || subjectId);
+  query.set("se", params.get("se") || "0");
+  query.set("ep", params.get("ep") || "0");
 
-  const streams = await mobileStreams(String(subjectId), se, ep);
-  if (!streams.length) return json({ error: "No streams found" }, 404);
+  const payload = await fetchSupabaseMovieBox(
+    `/api/stream/${encodeURIComponent(String(subjectId))}`,
+    query,
+  );
+  const sources = Array.isArray(payload?.sources) ? payload.sources : [];
+  if (!sources.length) return json({ error: "No streams found" }, 404);
 
-  let stream = resolution > 0
-    ? streams.find((item) => Number(item.resolution) === resolution)
+  const requestedResolution = Number(params.get("resolution") || "0");
+  let source = requestedResolution > 0
+    ? sources.find((item) => Number.parseInt(String(item.resolution), 10) === requestedResolution)
     : null;
-  if (!stream) stream = streams[0];
+  if (!source) source = sources[0];
 
-  const streamUrl = stream?.url;
-  if (!streamUrl) return json({ error: "Stream URL is empty" }, 404);
+  if (!source?.url) return json({ error: "Stream URL is empty" }, 404);
 
-  const cdnHeaders = {
+  const rangeHeader = request.headers.get("Range");
+  const headers = {
     Accept: "*/*",
     "User-Agent": UA,
     Referer: "https://moviebox.pk/",
   };
-  const rangeHeader = request.headers.get("Range");
-  if (rangeHeader) cdnHeaders.Range = rangeHeader;
+  if (rangeHeader) headers.Range = rangeHeader;
 
-  const vidResp = await fetch(streamUrl, {
-    headers: cdnHeaders,
+  const video = await fetch(source.url, {
+    headers,
     redirect: "follow",
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(20_000),
   });
 
-  if (vidResp.status !== 200 && vidResp.status !== 206 && vidResp.status !== 416) {
-    const errBody = await vidResp.text();
+  if (![200, 206, 416].includes(video.status)) {
+    const body = await video.text();
     return json(
-      { error: `CDN returned ${vidResp.status}`, detail: errBody.slice(0, 300), stage: "watch" },
+      {
+        error: `CDN returned ${video.status}`,
+        detail: body.slice(0, 300),
+        stage: "watch",
+      },
       502,
     );
   }
 
-  const respHeaders = new Headers(CORS);
-  respHeaders.set("Accept-Ranges", "bytes");
-  respHeaders.set("Content-Type", vidResp.headers.get("Content-Type") || "video/mp4");
-  respHeaders.set("Cache-Control", "no-store");
-  respHeaders.set("X-Stream-Resolution", `${stream.resolution || 0}p`);
-
+  const responseHeaders = new Headers(CORS);
+  responseHeaders.set("Accept-Ranges", "bytes");
+  responseHeaders.set(
+    "Content-Type",
+    video.headers.get("Content-Type") || "video/mp4",
+  );
+  responseHeaders.set("Cache-Control", "no-store");
   for (const name of ["Content-Length", "Content-Range"]) {
-    const value = vidResp.headers.get(name);
-    if (value) respHeaders.set(name, value);
+    const value = video.headers.get(name);
+    if (value) responseHeaders.set(name, value);
   }
 
-  return new Response(vidResp.body, {
-    status: vidResp.status,
-    headers: respHeaders,
+  return new Response(video.body, {
+    status: video.status,
+    headers: responseHeaders,
   });
 }
+
 
 // ══════════════════════════════════════════════════════════════════
 // Helpers
