@@ -106,19 +106,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       progressLoadedRef.current = false;
 
       try {
-        const response = await MovyzaApi.resolveEzvidApi({
-          type: isMovie ? 'movie' : 'episode',
-          tmdbId: safeTmdbId,
-          ...(isMovie ? {} : {
-            season: Number(seasonNumber || 1),
-            episode: Number(episodeNumber || 1),
-          }),
-        });
-
-        const normalizedSources = Array.isArray(response.data.sources) && response.data.sources.length
-          ? response.data.sources.map((source) => ({ ...source, type: source.type === 'mp4' || source.type === 'dash' ? source.type : 'hls' as const }))
-          : [{ id: '0', url: response.data.stream_url, type: response.data.type, quality: response.data.quality, language: response.data.language, label: response.data.provider, provider: response.data.provider }];
-        const initialSource = normalizedSources.find((source) => source.url === response.data.stream_url) || normalizedSources[0];
+        const playbackContentId = isMovie ? contentId : (currentEpisode?.id || contentId);
+        const response = await MovyzaApi.getPlaybackSources(isMovie ? 'movie' : 'episode', playbackContentId);
+        const normalizedSources = (response.data || []).filter((source) => source.url).map((source) => ({
+          id: source.id,
+          url: source.url,
+          type: source.type,
+          quality: source.quality,
+          language: source.language,
+          label: source.label || source.provider,
+          provider: source.provider,
+        }));
+        const initialSource = normalizedSources.find((source) => source.type === 'hls') || normalizedSources[0];
 
         if (!initialSource?.url) {
           throw new Error('No playable stream returned');
@@ -135,8 +134,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           setLoading(false);
           setError(
             language === 'ar'
-              ? 'تعذر الحصول على رابط الفيديو من ezvidapi حاليًا.'
-              : 'ezvidapi did not return a playable video stream.'
+              ? 'تعذر العثور على مصدر تشغيل صالح حاليًا.'
+              : 'No playable video source is currently available.'
           );
           console.error('[ezvidapi]', err);
         }
@@ -340,8 +339,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
             <p className="text-[11px] leading-relaxed text-slate-400">
               {language === 'ar'
-                ? 'المشغل يختار مصدر التشغيل المتاح، ويفضل HLS عندما يكون متوفرًا.'
-                : 'The player selects a playable source and prefers HLS when available.'}
+                ? 'تظهر هنا المصادر التي أعادها نظام التشغيل في Movyza ويمكن تبديلها مباشرة.'
+                : 'Available playback sources are returned by Movyza and can be switched directly.'}
             </p>
           </div>
 
