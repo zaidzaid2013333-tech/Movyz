@@ -2,6 +2,7 @@ import type { NormalizedPlaybackSource, ProviderAdapter, ProviderContext } from 
 import { fetchWithTimeout, inferPlaybackType, inferQuality } from '../http';
 
 const H5_API = 'https://h5-api.aoneroom.com';
+const DEFAULT_MOVIEBOX_API = 'https://movyz-moviebox.sameranede.workers.dev';
 const DEFAULT_STREAM_DOMAIN = 'https://123movienow.cc';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
@@ -91,7 +92,15 @@ async function chooseMatch(context: ProviderContext, timeoutMs: number, baseUrl:
   const queries = [...new Set([context.title, context.originalTitle].map((value) => String(value || '').trim()).filter(Boolean))];
   const all: SearchItem[] = [];
   for (const query of queries) {
-    try { all.push(...(baseUrl ? await searchViaMovieBoxApi(baseUrl, query, timeoutMs) : await searchViaH5(query, timeoutMs))); } catch { continue; }
+    try {
+      all.push(...await searchViaMovieBoxApi(baseUrl, query, timeoutMs));
+    } catch {
+      try {
+        all.push(...await searchViaH5(query, timeoutMs));
+      } catch {
+        continue;
+      }
+    }
   }
   const unique = new Map<string, SearchItem>();
   for (const item of all) {
@@ -193,20 +202,23 @@ export function createMovieBoxApiAdapter(): ProviderAdapter {
   const timeoutMs = Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000);
   const resolve = async (context: ProviderContext, kind: 'movie' | 'episode'): Promise<NormalizedPlaybackSource[]> => {
     if (!context.tmdbId || !context.title) return [];
-    const baseUrl = env('MOVIEBOX_API_BASE_URL').replace(/\/+$/, '');
-    const proxyPlayback = env('MOVIEBOX_PROXY_PLAYBACK').toLowerCase() === 'true' && !!baseUrl;
+    const baseUrl = env('MOVIEBOX_API_BASE_URL', DEFAULT_MOVIEBOX_API).replace(/\/+$/, '');
+    const proxyPlayback = env('MOVIEBOX_PROXY_PLAYBACK', 'true').toLowerCase() === 'true';
 
-    const match = await chooseMatch(context, timeoutMs, baseUrl); if (!match) return [];
-    const subjectId = baseUrl ? await getSubjectIdFromMovieBoxApi(baseUrl, match.slug, timeoutMs) : await getSubjectIdFromH5(match.slug, timeoutMs);
-    if (!subjectId) return [];
+    const match = await chooseMatch(context, timeoutMs, baseUrl);
+    const subjectId = await getSubjectIdFromMovieBoxApi(baseUrl, match.slug, timeoutMs);
+    if (!subjectId) throw new Error('MovieBox detail returned no subject id for ' + match.slug);
 
     const season = kind === 'episode' ? Number(context.seasonNumber || 0) : 0;
     const episode = kind === 'episode' ? Number(context.episodeNumber || 0) : 0;
-    const streams = baseUrl
-      ? await fetchStreamsViaMovieBoxApi(baseUrl, subjectId, match.slug, season, episode, timeoutMs)
-      : await fetchStreamsViaH5(subjectId, match.slug, season, episode, timeoutMs);
+    let streams: any[];
+    try {
+      streams = await fetchStreamsViaMovieBoxApi(baseUrl, subjectId, match.slug, season, episode, timeoutMs);
+    } catch (error) {
+      streams = await fetchStreamsViaH5(subjectId, match.slug, season, episode, timeoutMs);
+    }
 
-    return (Array.isArray(streams) ? streams : []).flatMap((stream: any, index: number): NormalizedPlaybackSource[] => {
+    const normalized = (Array.isArray(streams) ? streams : []).flatMap((stream: any, index: number): NormalizedPlaybackSource[] => {
       const rawUrl = streamUrl(stream);
       if (!rawUrl || !/^https:\/\//i.test(rawUrl)) return [];
 
@@ -231,6 +243,18 @@ export function createMovieBoxApiAdapter(): ProviderAdapter {
           : (quality && quality !== 'auto' ? 'MovieBox ' + quality : 'MovieBox'),
       }];
     });
+
+    if (!normalized.length) {
+      const sample = (Array.isArray(streams) ? streams : []).slice(0, 6).map((stream: any) => ({
+        id: stream?.id ?? null,
+        format: stream?.format ?? stream?.type ?? null,
+        resolution: stream?.resolutions ?? stream?.resolution ?? null,
+        hasUrl: Boolean(streamUrl(stream)),
+      }));
+      throw new Error('MovieBox returned no playable sources: ' + JSON.stringify(sample));
+    }
+
+    return normalized;
   };
 
   return {
