@@ -6,26 +6,6 @@ const DEFAULT_PROVIDER = 'vidsrc';
 // host is reserved for the iframe embed URLs used by the frontend fallback.
 const DEFAULT_ORIGINS = ['https://api.ezvidapi.com'];
 
-function providerKeys(payload: unknown): string[] {
-  const found = new Set<string>();
-  const visit = (value: unknown, depth = 0): void => {
-    if (depth > 5 || value == null) return;
-    if (Array.isArray(value)) {
-      value.forEach((item) => visit(item, depth + 1));
-      return;
-    }
-    if (typeof value !== 'object') return;
-    const object = value as Record<string, unknown>;
-    for (const field of ['key', 'slug', 'provider', 'providerKey', 'id']) {
-      const candidate = object[field];
-      if (typeof candidate === 'string' && /^[a-z0-9_-]{2,40}$/i.test(candidate)) found.add(candidate.toLowerCase());
-    }
-    for (const field of ['providers', 'data', 'results', 'items']) visit(object[field], depth + 1);
-  };
-  visit(payload);
-  return [...found];
-}
-
 export function createEzvidApiAdapter(): ProviderAdapter {
   const timeoutMs = Math.max(2_000, Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000));
   const origins = (process.env.EZVIDAPI_ORIGINS || DEFAULT_ORIGINS.join(','))
@@ -39,35 +19,34 @@ export function createEzvidApiAdapter(): ProviderAdapter {
     if (kind === 'episode' && (context.seasonNumber == null || context.episodeNumber == null)) return [];
 
     let lastError: unknown;
+    const provider = configuredProvider || DEFAULT_PROVIDER;
+
     for (const origin of origins) {
-      const providers = new Set<string>([configuredProvider]);
+      const url = kind === 'movie'
+        ? origin + '/movie/' + encodeURIComponent(provider) + '/' + context.tmdbId
+        : origin + '/tv/' + encodeURIComponent(provider) + '/' + context.tmdbId + '?season=' + context.seasonNumber + '&episode=' + context.episodeNumber;
+
       try {
-        const url = kind === 'movie'
-          ? origin + '/movie/' + encodeURIComponent(provider) + '/' + context.tmdbId
-          : origin + '/tv/' + encodeURIComponent(provider) + '/' + context.tmdbId + '?season=' + context.seasonNumber + '&episode=' + context.episodeNumber;
-        try {
-          const payload = await fetchJsonOrText(url, timeoutMs, { Referer: 'https://ezvidapi.com/' });
-          const candidates = resolveSourcesFromPayload(payload, { language: 'und', label: 'ezvidAPI ' + provider })
-            .flatMap((source) => {
-              // ezvidapi's documented JSON endpoint returns an HLS playlist URL.
-              // Prefer the explicit/type or URL inference, but safely default to HLS
-              // when the upstream omits the type and signs the URL without ".m3u8".
-              const type = inferPlaybackType(source.url, source.type) || 'hls';
-              return [{
-                provider: 'ezvidapi',
-                type,
-                url: source.url,
-                providerReference: source.providerReference || String(context.tmdbId),
-                quality: source.quality || inferQuality(source.label, source.url),
-                language: source.language || 'und',
-                label: source.label || ('ezvidAPI ' + provider),
-                expiresAt: source.expiresAt,
-              } satisfies NormalizedPlaybackSource];
-            });
-          if (candidates.length) return candidates;
-        } catch (error) {
-          lastError = error;
-        }
+        const payload = await fetchJsonOrText(url, timeoutMs, { Referer: 'https://ezvidapi.com/' });
+        const candidates = resolveSourcesFromPayload(payload, { language: 'und', label: 'ezvidAPI ' + provider })
+          .flatMap((source) => {
+            // ezvidapi documents these JSON endpoints as returning an HLS stream.
+            const type = inferPlaybackType(source.url, source.type) || 'hls';
+            return [{
+              provider: 'ezvidapi',
+              type,
+              url: source.url,
+              providerReference: source.providerReference || String(context.tmdbId),
+              quality: source.quality || inferQuality(source.label, source.url),
+              language: source.language || 'und',
+              label: source.label || ('ezvidAPI ' + provider),
+              expiresAt: source.expiresAt,
+            } satisfies NormalizedPlaybackSource];
+          });
+
+        if (candidates.length) return candidates;
+      } catch (error) {
+        lastError = error;
       }
     }
 
