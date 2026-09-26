@@ -30,12 +30,15 @@ jobs:
             try { return JSON.parse(body); } catch { return body; }
           };
 
-          const data = await get('https://core.vidzee.wtf/streams/movie/550?e=0');
-          console.log('PAYLOAD', JSON.stringify(data).slice(0,1500));
-
-          if (!data || typeof data.url !== 'string' || !/^https?:\/\//i.test(data.url)) {
-            throw new Error('VidZee did not return a direct stream URL');
+          const servers = ['dcloud','tik','ipcloud','v6:Hindi'];
+          let data = null;
+          for (const server of servers) {
+            try {
+              const candidate = await get('https://core.vidzee.wtf/streams/movie/550?s=' + encodeURIComponent(server) + '&e=0');
+              if (candidate && typeof candidate.url === 'string' && /^https?:\/\//i.test(candidate.url)) { data = candidate; console.log('SELECTED_SERVER', server); break; }
+            } catch (error) { console.log('SERVER_FAILED', server, String(error)); }
           }
+          if (!data) throw new Error('VidZee did not return a direct stream URL from any configured server');
 
           const r = await fetch(data.url, {
             headers: {...headers, Range:'bytes=0-1023'},
