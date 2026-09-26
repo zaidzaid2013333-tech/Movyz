@@ -3,6 +3,7 @@ import Hls from 'hls.js';
 import { CheckCircle2, Loader2, Settings2, Subtitles } from 'lucide-react';
 import { Episode, Season, ContentType } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
+import { MovyzaApi } from '../../services/api';
 
 interface VideoPlayerProps {
   contentId: string;
@@ -20,32 +21,6 @@ interface VideoPlayerProps {
   onNavigateBack: () => void;
 }
 
-const EZVIDAPI_API_ORIGIN = 'https://api.ezvidapi.com';
-
-type EzvidApiResponse = {
-  stream_url?: string;
-  url?: string;
-  hls?: string;
-  streamUrl?: string;
-  data?: {
-    stream_url?: string;
-    url?: string;
-    hls?: string;
-    streamUrl?: string;
-  };
-};
-
-function extractStreamUrl(payload: EzvidApiResponse) {
-  return payload.stream_url
-    || payload.streamUrl
-    || payload.url
-    || payload.hls
-    || payload.data?.stream_url
-    || payload.data?.streamUrl
-    || payload.data?.url
-    || payload.data?.hls
-    || '';
-}
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   title,
@@ -82,20 +57,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setStreamUrl('');
 
       try {
-        const url = isMovie
-          ? `${EZVIDAPI_API_ORIGIN}/movie/vidsrc/${safeTmdbId}`
-          : `${EZVIDAPI_API_ORIGIN}/tv/vidsrc/${safeTmdbId}?season=${Number(seasonNumber || 1)}&episode=${Number(episodeNumber || 1)}`;
-
-        const response = await fetch(url, {
-          headers: { Accept: 'application/json' },
+        const response = await MovyzaApi.resolveEzvidApi({
+          type: isMovie ? 'movie' : 'episode',
+          tmdbId: safeTmdbId,
+          ...(isMovie ? {} : {
+            season: Number(seasonNumber || 1),
+            episode: Number(episodeNumber || 1),
+          }),
         });
 
-        if (!response.ok) {
-          throw new Error(`ezvidapi HTTP ${response.status}`);
-        }
-
-        const payload = await response.json() as EzvidApiResponse;
-        const resolvedUrl = extractStreamUrl(payload);
+        const resolvedUrl = response.data.stream_url;
 
         if (!resolvedUrl) {
           throw new Error('No HLS stream returned');
@@ -188,8 +159,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   return (
     <div className="relative w-full bg-black overflow-visible" dir="rtl">
-      <link rel="preconnect" href={EZVIDAPI_API_ORIGIN} />
-      <link rel="dns-prefetch" href={EZVIDAPI_API_ORIGIN} />
 
       <div className="relative w-full aspect-video overflow-hidden bg-black">
         <video
@@ -248,7 +217,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <p className="text-[11px] text-slate-400">
               {language === 'ar'
                 ? 'يتم جلب رابط HLS مباشر من ezvidapi وتشغيله داخل مشغل Movyza.'
-                : 'Movyza fetches a direct HLS stream from ezvidapi and plays it locally.'}
+                : 'Movyza resolves the HLS stream server-side, then plays it locally.'}
             </p>
           </div>
         </div>
