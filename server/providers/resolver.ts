@@ -5,12 +5,12 @@ import type { NormalizedPlaybackSource, ProviderContext } from './types';
 const VALID_TYPES = new Set(['hls', 'mp4', 'dash']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
-  // Primary order: NHD → EgyBest → FaselHD → EzVid → StreamProvider.
+  // Primary order: FaselHD → NHD → EgyBest → EzVid → StreamProvider.
   // A provider that is disabled, missing credentials/mapping, times out, or
   // returns no valid HLS/MP4/DASH source is skipped automatically.
-  nhdapi: 0,
-  egybest: 1,
-  faselhd: 2,
+  faselhd: 0,
+  nhdapi: 1,
+  egybest: 2,
   ezvidapi: 3,
   streamprovider: 4,
 };
