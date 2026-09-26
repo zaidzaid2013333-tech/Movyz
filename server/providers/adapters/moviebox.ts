@@ -2,7 +2,7 @@ import type { NormalizedPlaybackSource, ProviderAdapter, ProviderContext } from 
 import { fetchWithTimeout, inferPlaybackType, inferQuality } from '../http';
 
 const H5_API = 'https://h5-api.aoneroom.com';
-const DEFAULT_MOVIEBOX_API = 'https://movyz-moviebox-source.sameranede.workers.dev';
+const DEFAULT_MOVIEBOX_API = '';
 const DEFAULT_STREAM_DOMAIN = 'https://123movienow.cc';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
@@ -94,15 +94,18 @@ async function chooseMatch(context: ProviderContext, timeoutMs: number, baseUrl:
   const all: SearchItem[] = [];
   const failures: string[] = [];
   for (const query of queries) {
-    try {
-      all.push(...await searchViaMovieBoxApi(baseUrl, query, timeoutMs));
-    } catch (error) {
-      failures.push(error instanceof Error ? error.message : 'dedicated worker search failed');
+    if (baseUrl) {
       try {
-        all.push(...await searchViaH5(query, timeoutMs));
-      } catch (fallbackError) {
-        failures.push(fallbackError instanceof Error ? fallbackError.message : 'H5 search failed');
+        all.push(...await searchViaMovieBoxApi(baseUrl, query, timeoutMs));
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : 'dedicated worker search failed');
       }
+    }
+
+    try {
+      all.push(...await searchViaH5(query, timeoutMs));
+    } catch (fallbackError) {
+      failures.push(fallbackError instanceof Error ? fallbackError.message : 'H5 search failed');
     }
   }
   if (!all.length && failures.length) throw new Error('MovieBox search failed for "' + context.title + '": ' + failures.join(' | '));
@@ -212,11 +215,14 @@ function streamType(stream: any, rawUrl: string) {
 }
 
 export function createMovieBoxApiAdapter(): ProviderAdapter {
-  const timeoutMs = Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000);
+  const timeoutMs = Math.max(
+    8_000,
+    Number(process.env.MOVYZA_MOVIEBOX_TIMEOUT_MS || process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 20_000),
+  );
   const resolve = async (context: ProviderContext, kind: 'movie' | 'episode'): Promise<NormalizedPlaybackSource[]> => {
     if (!context.tmdbId || !context.title) return [];
     const baseUrl = env('MOVIEBOX_API_BASE_URL', DEFAULT_MOVIEBOX_API).replace(/\/+$/, '');
-    const proxyPlayback = env('MOVIEBOX_PROXY_PLAYBACK', 'true').toLowerCase() === 'true';
+    const proxyPlayback = Boolean(baseUrl) && env('MOVIEBOX_PROXY_PLAYBACK', 'true').toLowerCase() === 'true';
 
     const match = await chooseMatch(context, timeoutMs, baseUrl);
     if (!match) throw new Error('MovieBox match resolution returned no result');
@@ -226,16 +232,20 @@ export function createMovieBoxApiAdapter(): ProviderAdapter {
     const season = kind === 'episode' ? Number(context.seasonNumber || 0) : 0;
     const episode = kind === 'episode' ? Number(context.episodeNumber || 0) : 0;
     let streams: any[];
-    try {
-      streams = await fetchStreamsViaMovieBoxApi(baseUrl, subjectId, match.slug, season, episode, timeoutMs);
-    } catch (error) {
-      const workerError = error instanceof Error ? error.message : 'dedicated worker stream failed';
+    if (baseUrl) {
       try {
-        streams = await fetchStreamsViaH5(subjectId, match.slug, season, episode, timeoutMs);
-      } catch (fallbackError) {
-        const h5Error = fallbackError instanceof Error ? fallbackError.message : 'H5 stream failed';
-        throw new Error('MovieBox stream failed for subject ' + subjectId + ': ' + workerError + ' | ' + h5Error);
+        streams = await fetchStreamsViaMovieBoxApi(baseUrl, subjectId, match.slug, season, episode, timeoutMs);
+      } catch (error) {
+        const workerError = error instanceof Error ? error.message : 'dedicated worker stream failed';
+        try {
+          streams = await fetchStreamsViaH5(subjectId, match.slug, season, episode, timeoutMs);
+        } catch (fallbackError) {
+          const h5Error = fallbackError instanceof Error ? fallbackError.message : 'H5 stream failed';
+          throw new Error('MovieBox stream failed for subject ' + subjectId + ': ' + workerError + ' | ' + h5Error);
+        }
       }
+    } else {
+      streams = await fetchStreamsViaH5(subjectId, match.slug, season, episode, timeoutMs);
     }
 
     const normalized = (Array.isArray(streams) ? streams : []).flatMap((stream: any, index: number): NormalizedPlaybackSource[] => {
