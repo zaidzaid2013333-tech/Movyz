@@ -1,8 +1,14 @@
 import { adminSupabase } from '../server/supabase';
 import { resolvePlaybackSources } from '../server/providers/resolver';
 import { registerBuiltInProviders } from '../server/providers/bootstrap';
+import { getProvider } from '../server/providers/registry';
 
 registerBuiltInProviders();
+
+const vidzee = getProvider('vidzee');
+if (!vidzee) throw new Error('VidZee adapter not registered');
+const known = await vidzee.resolveMovie({ tmdbId: 550 });
+console.log(JSON.stringify({ knownTmdbId: 550, sourceCount: known.length, types: known.map((s: any) => s.type) }));
 
 const limit = Math.min(Math.max(Number(process.env.PLAYBACK_LIMIT || 20), 1), 100);
 
