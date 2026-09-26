@@ -281,7 +281,7 @@ async function findEpisodePage(host: string, context: ProviderContext, timeoutMs
     if (best && best.score >= 900) break;
   }
 
-  return best?.url ?? null;
+  return best ? best.url : null;
 }
 
 async function resolveDirectFromPage(pageUrl: string, timeoutMs: number): Promise<string[]> {
