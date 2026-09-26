@@ -78,7 +78,7 @@ export function createFaselHdAdapter() {
   // The public FaselHD API resolves a TMDB/content id itself and returns
   // playable links from /movie/:id and /tv/:id/episode/:episodeNumber.
   // No project-side API key or provider_mapping is required.
-  const baseUrl = (process.env.FASELHD_API_BASE_URL || 'https://faselhdapi.onrender.com').trim().replace(/\/$/, '');
+  const baseUrl = (process.env.FASELHD_API_BASE_URL || '').trim().replace(/\/$/, '');
   const timeoutMs = Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000);
 
   const resolvePayload = async (url: string, context: ProviderContext) => {
@@ -107,14 +107,15 @@ export function createFaselHdAdapter() {
     name: 'FaselHD',
     enabled: true,
     requiresMapping: false,
-    resolveMovie: (context: ProviderContext) => context.tmdbId
+    resolveMovie: (context: ProviderContext) => baseUrl && context.tmdbId
       ? resolvePayload(`${baseUrl}/movie/${encodeURIComponent(context.tmdbId)}`, context)
       : Promise.resolve([]),
-    resolveEpisode: (context: ProviderContext) => context.tmdbId && context.episodeNumber != null
+    resolveEpisode: (context: ProviderContext) => baseUrl && context.tmdbId && context.episodeNumber != null
       ? resolvePayload(`${baseUrl}/tv/${encodeURIComponent(context.tmdbId)}/episode/${encodeURIComponent(context.episodeNumber)}`, context)
       : Promise.resolve([]),
     health: async () => {
       const started = Date.now();
+      if (!baseUrl) return { status: 'degraded' as const, latencyMs: 0, message: 'No FaselHD API base URL configured' };
       try {
         await fetchJsonOrText(`${baseUrl}/discover/movies?page=1&pageSize=1`, Math.min(timeoutMs, 5_000));
         return { status: 'healthy' as const, latencyMs: Date.now() - started };
