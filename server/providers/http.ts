@@ -105,14 +105,14 @@ export function extractPlaybackCandidates(payload: unknown): ExtractedCandidate[
       : typeof value.expires_at === 'string' ? value.expires_at
       : undefined;
 
-    for (const key of ['url', 'stream_url', 'streamUrl', 'video_url', 'videoUrl', 'file', 'directLink', 'src']) {
+    for (const key of ['url', 'stream_url', 'streamUrl', 'stream', 'video_url', 'videoUrl', 'hls_url', 'hlsUrl', 'm3u8', 'file', 'directLink', 'source', 'src']) {
       const raw = value[key];
       if (typeof raw === 'string') {
         add({ url: raw, type: explicitType, quality, language, label, providerReference, expiresAt });
       }
     }
 
-    for (const key of ['sources', 'streams', 'data', 'results', 'links', 'directLink']) {
+    for (const key of ['sources', 'streams', 'data', 'result', 'response', 'results', 'links', 'playlist', 'directLink']) {
       if (key in value) visit(value[key], depth + 1);
     }
   };
