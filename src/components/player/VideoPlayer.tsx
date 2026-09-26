@@ -19,7 +19,7 @@ interface VideoPlayerProps {
   onNavigateBack: () => void;
 }
 
-const VIDAPI_ORIGIN = 'https://vidapi.qzz.io';
+const EZVIDAPI_ORIGIN = 'https://ezvidapi.com';
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   contentType,
@@ -39,8 +39,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!safeTmdbId) return '';
 
     return isMovie
-      ? `${VIDAPI_ORIGIN}/movie/${safeTmdbId}?autoplay=true`
-      : `${VIDAPI_ORIGIN}/tv/${safeTmdbId}/${Number(seasonNumber || 1)}/${Number(episodeNumber || 1)}?autoplay=true`;
+      ? `${EZVIDAPI_ORIGIN}/embed/movie/${safeTmdbId}?autoplay=true`
+      : `${EZVIDAPI_ORIGIN}/embed/tv/${safeTmdbId}/${Number(seasonNumber || 1)}/${Number(episodeNumber || 1)}?autoplay=true`;
   }, [episodeNumber, isMovie, safeTmdbId, seasonNumber]);
 
   useEffect(() => {
@@ -59,7 +59,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   return (
     <div className="relative w-full bg-black overflow-visible" dir="rtl">
-      <link rel="preconnect" href={VIDAPI_ORIGIN} />
+      <link rel="preconnect" href={EZVIDAPI_ORIGIN} />
       <link rel="dns-prefetch" href={VIDAPI_ORIGIN} />
 
       <div className="relative w-full aspect-video overflow-hidden">
@@ -88,7 +88,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         <div className="pointer-events-none absolute top-3 start-3 z-10 flex items-center gap-2">
           <span className="rounded-full bg-black/70 backdrop-blur px-3 py-1 text-[10px] font-semibold text-white border border-white/10">
-            VidApi
+            ezvidapi
           </span>
           <span className="rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[10px] text-slate-300 border border-white/10">
             مشغل خارجي
@@ -97,7 +97,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         <div className="pointer-events-none absolute bottom-3 end-3 z-10 flex items-center gap-2 rounded-full bg-black/60 backdrop-blur px-3 py-1 text-[10px] text-emerald-300 border border-white/10">
           <CheckCircle2 className="w-3 h-3" />
-          <span>TMDB ← VidApi</span>
+          <span>TMDB ← ezvidapi</span>
         </div>
       </div>
 
@@ -110,8 +110,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </h3>
             <p className="text-[11px] text-slate-400">
               {language === 'ar'
-                ? 'VidApi يوفّر مشغلًا خارجيًا؛ توفر الفيديو يعتمد على المصدر.'
-                : 'VidApi provides an external player; video availability depends on the source.'}
+                ? 'ezvidapi يوفّر مشغلًا خارجيًا؛ توفر الفيديو يعتمد على المصدر.'
+                : 'ezvidapi provides an external player; video availability depends on the source.'}
             </p>
           </div>
         </div>
@@ -124,7 +124,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
             <p className="text-[11px] leading-relaxed text-slate-400">
               {language === 'ar'
-                ? 'يعتمد توفر التشغيل على الفيلم أو الحلقة والمصادر التي يوفّرها VidApi.'
+                ? 'يعتمد توفر التشغيل على الفيلم أو الحلقة والمصادر التي يوفّرها ezvidapi.'
                 : 'Playback availability depends on the title and the provider servers.'}
             </p>
           </div>
