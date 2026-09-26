@@ -81,7 +81,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     () =>
       isMovie &&
       safeTmdbId === 10331 &&
-      sources.some((source) => source.providerKey === 'wikimedia_commons_nlotd'),
+      sources.some((source) => source.url.includes('upload.wikimedia.org') && source.url.includes('Night_of_the_Living_Dead')),
     [isMovie, safeTmdbId, sources],
   );
 
