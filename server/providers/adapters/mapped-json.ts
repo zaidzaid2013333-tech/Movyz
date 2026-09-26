@@ -75,17 +75,58 @@ export function createMappedJsonAdapter(config: MappedJsonConfig): ProviderAdapt
 }
 
 export function createFaselHdAdapter() {
-  const baseUrl = process.env.FASELHD_API_BASE_URL?.trim();
-  if (!baseUrl) return null;
+  // The public FaselHD API resolves a TMDB/content id itself and returns
+  // playable links from /movie/:id and /tv/:id/episode/:episodeNumber.
+  // No project-side API key or provider_mapping is required.
+  const baseUrl = (process.env.FASELHD_API_BASE_URL || 'https://faselhdapi.onrender.com').trim().replace(/\/$/, '');
+  const timeoutMs = Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000);
 
-  return createMappedJsonAdapter({
+  const resolvePayload = async (url: string, context: ProviderContext) => {
+    const payload = await fetchJsonOrText(url, timeoutMs);
+    return resolveSourcesFromPayload(payload, {
+      language: 'ar',
+      label: 'FaselHD',
+    }).flatMap((source): NormalizedPlaybackSource[] => {
+      const type = inferPlaybackType(source.url, source.type);
+      if (!type) return [];
+      return [{
+        provider: 'faselhd',
+        type,
+        url: source.url,
+        providerReference: String(context.tmdbId ?? ''),
+        quality: source.quality || inferQuality(source.label, source.url),
+        language: source.language || 'ar',
+        label: source.label || 'FaselHD',
+        expiresAt: source.expiresAt,
+      }];
+    });
+  };
+
+  return {
     key: 'faselhd',
     name: 'FaselHD',
-    baseUrl: `${baseUrl.replace(/\/$/, '')}/directlink?id={{providerId}}`,
-    timeoutMs: Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000),
-    language: 'ar',
-    requiresMapping: true,
-  });
+    enabled: true,
+    requiresMapping: false,
+    resolveMovie: (context: ProviderContext) => context.tmdbId
+      ? resolvePayload(`${baseUrl}/movie/${encodeURIComponent(context.tmdbId)}`, context)
+      : Promise.resolve([]),
+    resolveEpisode: (context: ProviderContext) => context.tmdbId && context.episodeNumber != null
+      ? resolvePayload(`${baseUrl}/tv/${encodeURIComponent(context.tmdbId)}/episode/${encodeURIComponent(context.episodeNumber)}`, context)
+      : Promise.resolve([]),
+    health: async () => {
+      const started = Date.now();
+      try {
+        await fetchJsonOrText(`${baseUrl}/discover/movies?page=1&pageSize=1`, Math.min(timeoutMs, 5_000));
+        return { status: 'healthy' as const, latencyMs: Date.now() - started };
+      } catch (error) {
+        return {
+          status: 'offline' as const,
+          latencyMs: Date.now() - started,
+          message: error instanceof Error ? error.message : 'FaselHD health check failed',
+        };
+      }
+    },
+  } satisfies ProviderAdapter;
 }
 
 
