@@ -67,8 +67,8 @@ jobs:
       - name: Deploy Movyz
         run: npx wrangler deploy --secrets-file .env.production
 
-      # Watch API contract verification intentionally allows an empty source table during rollout.
-      - name: Verify deployed Watch API contract
+      # Watch API must pass against the dedicated public-domain playback fixture.
+      - name: Verify deployed Watch API playback
         run: |
           node <<'NODE'
           const base = 'https://movyz-api.sameranede.workers.dev';
@@ -79,7 +79,7 @@ jobs:
               signal: AbortSignal.timeout(timeout),
             });
             const body = await response.text();
-            console.log(path, 'HTTP', response.status, body.slice(0, 1800));
+            console.log(path, 'HTTP', response.status, body.slice(0, 2200));
             let json = null;
             try { json = JSON.parse(body); } catch {}
             return { response, json };
@@ -90,45 +90,57 @@ jobs:
             throw new Error('Worker health check failed');
           }
 
-          const catalog = await get('/api/v1/movies?page=1&limit=1', 20000);
-          const items = Array.isArray(catalog.json?.data)
-            ? catalog.json.data
-            : catalog.json?.data?.items ?? catalog.json?.data?.movies ?? [];
-          if (!Array.isArray(items) || !items.length) throw new Error('Published movie catalog is empty');
-
-          const movie = items[0];
-          const tmdbId = Number(movie?.tmdbId || movie?.tmdb_id || 0);
-          if (!Number.isInteger(tmdbId) || tmdbId <= 0) {
-            throw new Error('First published movie has no valid TMDB id: ' + JSON.stringify(movie).slice(0, 1200));
-          }
-
-          const watch = await get('/api/v1/watch/movie/' + encodeURIComponent(String(tmdbId)), 20000);
-          if (watch.response.status === 404 && watch.json?.error?.code === 'WATCH_SOURCES_NOT_FOUND') {
-            console.log('WATCH_API=PASS (contract verified; no source is configured for the first movie)');
-            process.exit(0);
-          }
-
+          const watch = await get('/api/v1/watch/movie/10331', 20000);
           if (!watch.response.ok) {
-            throw new Error('Watch API failed: HTTP ' + watch.response.status + ' ' + JSON.stringify(watch.json).slice(0, 1200));
+            throw new Error(
+              'Dedicated playback fixture failed: HTTP ' +
+              watch.response.status +
+              ' ' +
+              JSON.stringify(watch.json).slice(0, 1600),
+            );
           }
 
           const sources = Array.isArray(watch.json?.data) ? watch.json.data : [];
-          if (!sources.length) throw new Error('Watch API returned success without sources');
+          if (!sources.length) throw new Error('Dedicated playback fixture returned no sources');
 
-          const source = sources[0];
-          if (!/^https:\/\//i.test(String(source?.url || ''))) {
-            throw new Error('Watch API returned a non-HTTPS source');
-          }
-          if (!['hls', 'mp4', 'dash', 'webm'].includes(String(source?.type || ''))) {
-            throw new Error('Watch API returned an unsupported direct type: ' + String(source?.type));
+          const source = sources.find((item) => ['hls', 'mp4', 'dash', 'webm'].includes(String(item?.type || '')));
+          if (!source) throw new Error('Dedicated playback fixture returned no supported direct source');
+
+          if (!/^https:\/\//i.test(String(source.url || ''))) {
+            throw new Error('Dedicated playback fixture returned a non-HTTPS source');
           }
 
-          console.log('WATCH_API=PASS');
+          if (!['hls', 'mp4', 'dash', 'webm'].includes(String(source.type || ''))) {
+            throw new Error('Dedicated playback fixture returned an unsupported direct type: ' + String(source.type));
+          }
+
+          const media = await fetch(source.url, {
+            method: 'GET',
+            headers: {
+              Range: 'bytes=0-1023',
+              'User-Agent': 'MOVYZA-playback-verifier/1.0',
+            },
+            redirect: 'follow',
+            signal: AbortSignal.timeout(30000),
+          });
+
+          const contentType = String(media.headers.get('content-type') || '').toLowerCase();
+          if (!(media.status === 200 || media.status === 206)) {
+            throw new Error('Direct source health check failed: HTTP ' + media.status);
+          }
+
+          if (!contentType.includes('video/') && !contentType.includes('application/octet-stream')) {
+            throw new Error('Direct source returned unexpected content-type: ' + contentType);
+          }
+
+          console.log('WATCH_PLAYBACK=PASS');
           console.log(JSON.stringify({
-            tmdbId,
+            fixtureTmdbId: 10331,
             provider: source.provider,
             type: source.type,
-            host: new URL(source.url).host,
+            sourceHost: new URL(source.url).host,
+            sourceHttpStatus: media.status,
+            contentType,
           }));
           NODE
 
