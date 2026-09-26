@@ -127,7 +127,7 @@ export const MovyzaApi = {
       }),
     }),
 
-  reportIssue: (report: Omit<StreamReport, 'id' | 'reportedAt' | 'status'>) =>
+  reportIssue: (report: Omit<StreamReport, 'id' | 'reportedAt' | 'status'> & { contentType: 'movie' | 'episode' }) =>
     request<StreamReport>('/reports', {
       method: 'POST',
       body: JSON.stringify(report),
