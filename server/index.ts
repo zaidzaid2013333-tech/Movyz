@@ -374,6 +374,10 @@ app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
   const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : null;
   const type = episodeId ? 'episode' : 'movie';
   const contentId = episodeId || req.params.id;
+  const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+  const excludedProviders = typeof req.query.excludeProvider === 'string'
+    ? req.query.excludeProvider.split(',').map((value) => value.trim()).filter(Boolean)
+    : [];
 
   const { data, error } = await adminSupabase
     .from('playback_sources')
@@ -386,6 +390,10 @@ app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
 
   const valid = (data || [])
     .filter((x: any) => x.providers?.enabled !== false && (!x.expires_at || new Date(x.expires_at) > new Date()))
+    .filter((x: any) => {
+      const key = String(x.providers?.key || '').toLowerCase();
+      return !excludedProviders.some((value) => value.toLowerCase() === key);
+    })
     .sort((a: any, b: any) => {
       const pa = PROVIDER_PRIORITY[a.providers?.key] ?? 100;
       const pb = PROVIDER_PRIORITY[b.providers?.key] ?? 100;
@@ -395,17 +403,18 @@ app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
       return Number(a.providers?.latency_ms ?? Number.MAX_SAFE_INTEGER) - Number(b.providers?.latency_ms ?? Number.MAX_SAFE_INTEGER);
     });
 
-  if (valid.length) {
+  if (valid.length && !refresh) {
     return ok(res, valid.map(sourceDto));
   }
 
   try {
-    const resolved = await resolvePlaybackSources(type, contentId);
+    const resolved = await resolvePlaybackSources(type, contentId, excludedProviders);
     if (resolved.length) return ok(res, resolved);
   } catch (error) {
     console.error('Provider resolution failed:', error);
   }
 
+  if (valid.length) return ok(res, valid.map(sourceDto));
   return ok(res, []);
 }));
 
