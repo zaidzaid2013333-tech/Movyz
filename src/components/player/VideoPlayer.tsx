@@ -131,6 +131,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     onSelectEpisode,
     posterUrl,
     currentEpisode?.id,
+    currentEpisode?.id,
     seasonNumber,
     title,
     titleEn,
