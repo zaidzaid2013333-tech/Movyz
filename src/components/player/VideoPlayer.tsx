@@ -60,7 +60,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div className="relative w-full bg-black overflow-visible" dir="rtl">
       <link rel="preconnect" href={VIDSRC_ORIGIN} />
-      <link rel="dns-prefetch" href={VIDLUX_ORIGIN} />
+      <link rel="dns-prefetch" href={VIDSRC_ORIGIN} />
 
       <div className="relative w-full aspect-video overflow-hidden">
         {!iframeLoaded && (
@@ -97,7 +97,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         <div className="pointer-events-none absolute bottom-3 end-3 z-10 flex items-center gap-2 rounded-full bg-black/60 backdrop-blur px-3 py-1 text-[10px] text-emerald-300 border border-white/10">
           <CheckCircle2 className="w-3 h-3" />
-          <span>TMDB ← VidLux</span>
+          <span>TMDB ← VidSrc</span>
         </div>
       </div>
 
@@ -110,8 +110,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </h3>
             <p className="text-[11px] text-slate-400">
               {language === 'ar'
-                ? 'VidLux يدير المصادر تلقائيًا ويبدّل بينها عند الحاجة.'
-                : 'VidLux manages sources automatically and falls back when needed.'}
+                ? 'VidSrc يوفّر مشغلًا خارجيًا؛ توفر الفيديو يعتمد على المصدر.'
+                : 'VidSrc provides an external player; video availability depends on the source.'}
             </p>
           </div>
         </div>
@@ -124,8 +124,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
             <p className="text-[11px] leading-relaxed text-slate-400">
               {language === 'ar'
-                ? 'المشغل يملك عدة مصادر ويحوّل تلقائيًا للمصدر البديل عند فشل المصدر الحالي.'
-                : 'The player has multiple sources and can fall back automatically when a source fails.'}
+                ? 'يعتمد توفر التشغيل على الفيلم أو الحلقة وخوادم المصدر.'
+                : 'Playback availability depends on the title and the provider servers.'}
             </p>
           </div>
 
