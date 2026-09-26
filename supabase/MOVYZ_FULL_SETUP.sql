@@ -575,7 +575,7 @@ where j.id in (select id from ranked where rn > 1);
 
 drop index if exists sync_jobs_one_running_idx;
 create unique index if not exists sync_jobs_one_running_idx
-  on public.sync_jobs(provider, job_type)
+  on public.sync_jobs(provider)
   where status = 'running';
 
 create index if not exists sync_jobs_stage_idx
