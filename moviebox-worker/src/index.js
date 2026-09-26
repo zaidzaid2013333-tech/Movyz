@@ -241,64 +241,64 @@ export default {
 
     try {
       // ── Home ──────────────────────────────────────────────
-      if (p === "/") return handleRoot();
-      if (p === "/home") return handleHome();
-      if (p === "/home/sections") return handleHomeSections();
-      if (p === "/home/banner") return handleHomeBanner();
-      if (p === "/home/trending") return handleHomeFilter("trending now", "popular movie");
-      if (p === "/home/hot") return handleHomeFilter("hot");
-      if (p === "/home/cinema") return handleHomeFilter("cinema", "popular series");
+      if (p === "/") return await handleRoot();
+      if (p === "/home") return await handleHome();
+      if (p === "/home/sections") return await handleHomeSections();
+      if (p === "/home/banner") return await handleHomeBanner();
+      if (p === "/home/trending") return await handleHomeFilter("trending now", "popular movie");
+      if (p === "/home/hot") return await handleHomeFilter("hot");
+      if (p === "/home/cinema") return await handleHomeFilter("cinema", "popular series");
 
       // ── Home section by name ──────────────────────────────
       let m = p.match(/^\/home\/section\/(.+)$/);
-      if (m) return handleHomeSectionByName(decodeURIComponent(m[1]));
+      if (m) return await handleHomeSectionByName(decodeURIComponent(m[1]));
 
       // ── Movies ────────────────────────────────────────────
-      if (p === "/movies") return handleCategory("movie");
+      if (p === "/movies") return await handleCategory("movie");
       m = p.match(/^\/movies\/sections$/);
-      if (m) return handleCategorySections("movie");
+      if (m) return await handleCategorySections("movie");
       m = p.match(/^\/movies\/section\/(.+)$/);
-      if (m) return handleCategorySectionByName("movie", decodeURIComponent(m[1]));
+      if (m) return await handleCategorySectionByName("movie", decodeURIComponent(m[1]));
 
       // ── TV Series ─────────────────────────────────────────
-      if (p === "/tv-series") return handleCategory("tv-series");
+      if (p === "/tv-series") return await handleCategory("tv-series");
       m = p.match(/^\/tv-series\/sections$/);
-      if (m) return handleCategorySections("tv-series");
+      if (m) return await handleCategorySections("tv-series");
       m = p.match(/^\/tv-series\/section\/(.+)$/);
-      if (m) return handleCategorySectionByName("tv-series", decodeURIComponent(m[1]));
+      if (m) return await handleCategorySectionByName("tv-series", decodeURIComponent(m[1]));
 
       // ── Animation ─────────────────────────────────────────
-      if (p === "/animation") return handleCategory("animated-series");
+      if (p === "/animation") return await handleCategory("animated-series");
       m = p.match(/^\/animation\/sections$/);
-      if (m) return handleCategorySections("animated-series");
+      if (m) return await handleCategorySections("animated-series");
       m = p.match(/^\/animation\/section\/(.+)$/);
-      if (m) return handleCategorySectionByName("animated-series", decodeURIComponent(m[1]));
+      if (m) return await handleCategorySectionByName("animated-series", decodeURIComponent(m[1]));
 
       // ── Ranking ───────────────────────────────────────────
-      if (p === "/ranking") return handleRanking();
+      if (p === "/ranking") return await handleRanking();
       m = p.match(/^\/ranking\/sections$/);
-      if (m) return handleRankingSections();
+      if (m) return await handleRankingSections();
       m = p.match(/^\/ranking\/section\/(.+)$/);
-      if (m) return handleRankingSectionByName(decodeURIComponent(m[1]));
+      if (m) return await handleRankingSectionByName(decodeURIComponent(m[1]));
 
       // ── Search ────────────────────────────────────────────
-      if (p === "/search/suggest") return handleSearchSuggest(url.searchParams);
-      if (p === "/search") return handleSearch(url.searchParams);
+      if (p === "/search/suggest") return await handleSearchSuggest(url.searchParams);
+      if (p === "/search") return await handleSearch(url.searchParams);
 
       // ── Detail ────────────────────────────────────────────
       m = p.match(/^\/detail\/(.+)$/);
-      if (m) return handleDetail(decodeURIComponent(m[1]));
+      if (m) return await handleDetail(decodeURIComponent(m[1]));
 
       // ── Episodes ──────────────────────────────────────────
       m = p.match(/^\/episodes\/(.+)$/);
-      if (m) return handleEpisodes(decodeURIComponent(m[1]));
+      if (m) return await handleEpisodes(decodeURIComponent(m[1]));
 
       // ── Streaming ─────────────────────────────────────────
       m = p.match(/^\/api\/stream\/(\d+)$/);
-      if (m) return handleStreamApi(m[1], url.searchParams);
+      if (m) return await handleStreamApi(m[1], url.searchParams);
 
       m = p.match(/^\/watch\/(\d+)$/);
-      if (m) return handleWatch(m[1], url.searchParams, request);
+      if (m) return await handleWatch(m[1], url.searchParams, request);
 
       return json({ error: "Not found" }, 404);
     } catch (err) {
@@ -961,6 +961,22 @@ async function handleWatch(subjectId, params, request) {
 // ══════════════════════════════════════════════════════════════════
 // Helpers
 // ══════════════════════════════════════════════════════════════════
+
+async function upstreamFailure(stage, response) {
+  let snippet = "";
+  try {
+    snippet = (await response.text()).replace(/\\s+/g, " ").slice(0, 500);
+  } catch {}
+  return json(
+    {
+      error: `MovieBox upstream request failed`,
+      stage,
+      upstreamStatus: response.status,
+      responseSnippet: snippet || null,
+    },
+    502,
+  );
+}
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body, null, 2), {
