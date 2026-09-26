@@ -181,3 +181,38 @@
   outline: 2px solid #e5a950;
   outline-offset: 2px;
 }
+
+
+/* Movyza branded Vidstack player */
+.movyza-player {
+  --media-slider-track-fill-bg: var(--accent-gold);
+  --media-slider-track-bg: rgba(255, 255, 255, 0.18);
+  --media-menu-bg: rgba(8, 10, 15, 0.98);
+  --media-menu-border: rgba(229, 169, 80, 0.16);
+  --media-focus-color: var(--accent-gold);
+  --media-controls-color: #f8fafc;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.movyza-player [data-media-button],
+.movyza-player [data-media-menu-button] {
+  transition: color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.movyza-player [data-media-button]:hover,
+.movyza-player [data-media-menu-button]:hover {
+  color: var(--accent-gold-hover);
+}
+
+.movyza-player-shell {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 18px 55px rgba(0, 0, 0, 0.28);
+}
+
+.movyza-player-badge {
+  background: rgba(8, 10, 15, 0.76);
+  border-color: rgba(229, 169, 80, 0.26);
+  box-shadow: 0 0 24px rgba(229, 169, 80, 0.08);
+}
