@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, Settings2, Subtitles } from 'lucide-react';
 import { Episode, Season, WatchProgress, ContentType } from '../../types';
 import { MovyzaApi } from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
@@ -22,6 +22,13 @@ interface VideoPlayerProps {
 
 const VIDRIFT_ORIGIN = 'https://embed.vidrift.net';
 
+type VidRiftOption = {
+  option: string;
+  value: string;
+  label: string;
+  group?: string;
+};
+
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   contentId,
   contentType,
@@ -39,7 +46,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const { language } = useLanguage();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const resumeRef = useRef<WatchProgress | null>(null);
-  const [sourcePanel, setSourcePanel] = useState<{ panel: string; options: Array<{ option: string; value: string; label: string; group?: string }> } | null>(null);
+  const [panels, setPanels] = useState<Record<string, VidRiftOption[]>>({});
 
   const isMovie = contentType === 'movie';
   const safeTmdbId = Number(tmdbId || 0);
@@ -63,7 +70,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (active) resumeRef.current = res.data;
     }).catch(() => {});
     return () => { active = false; };
-  }, [contentId, isMovie, episodeNumber, seasonNumber]);
+  }, [contentId, isMovie, episodeNumber, seasonNumber, currentEpisode?.id]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -71,17 +78,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const data = event.data;
 
       if (data.type === 'vidrift:mobile-panel' && Array.isArray(data.options)) {
-        const options = data.options.filter((item: any) => item && typeof item.option === 'string' && typeof item.value === 'string');
-        setSourcePanel({ panel: String(data.panel || 'source'), options });
+        const options = data.options.filter((item: any) =>
+          item && typeof item.option === 'string' && typeof item.value === 'string'
+        );
+        const panel = String(data.panel || 'source');
+        setPanels((current) => ({ ...current, [panel]: options }));
         return;
       }
 
+      // Keep playback progress/resume handling independent from the external controls.
       if (data.type === 'vidrift:progress') {
         const position = Math.floor(Number(data.currentTime || 0));
         const duration = Math.floor(Number(data.duration || 0));
         if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) return;
 
-        const progress: WatchProgress = {
+        MovyzaApi.saveWatchProgress({
           contentId,
           contentType,
           title,
@@ -96,8 +107,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           percentage: Math.floor((position / duration) * 100),
           lastWatchedAt: new Date().toISOString(),
           completed: position / duration > 0.92,
-        };
-        MovyzaApi.saveWatchProgress(progress).catch(() => {});
+        }).catch(() => {});
       }
 
       if (data.type === 'vidrift:ended') {
@@ -150,11 +160,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     currentEpisode?.id,
     onSelectEpisode,
     posterUrl,
-    currentEpisode?.id,
-    currentEpisode?.id,
     seasonNumber,
     title,
     titleEn,
+    allSeasons,
   ]);
 
   useEffect(() => {
@@ -173,12 +182,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (contentType === 'series' && seasonNumber && episodeNumber && allSeasons) {
         const season = allSeasons.find((item) => item.seasonNumber === seasonNumber);
         const hasNext = season?.episodes.some((episode) => episode.episodeNumber === episodeNumber + 1);
-        const next = hasNext
-          ? { season: seasonNumber, episode: episodeNumber + 1 }
-          : null;
         frame.contentWindow?.postMessage({
           type: 'vidrift:nextup-info',
-          next,
+          next: hasNext ? { season: seasonNumber, episode: episodeNumber + 1 } : null,
         }, VIDRIFT_ORIGIN);
       }
     };
@@ -189,7 +195,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       frame.removeEventListener('load', sendResumeAndNextUp);
       window.clearTimeout(timer);
     };
-  }, [allSeasons, contentType, episodeNumber, seasonNumber, resumeRef.current, embedUrl]);
+  }, [allSeasons, contentType, episodeNumber, seasonNumber, embedUrl]);
+
+  const sendOption = (item: VidRiftOption) => {
+    iframeRef.current?.contentWindow?.postMessage({
+      type: 'vidrift:mobile-option',
+      option: item.option,
+      value: item.value,
+    }, VIDRIFT_ORIGIN);
+  };
+
+  const subtitleOptions = (panels.subtitles || []).filter((item) => {
+    const text = `${item.label} ${item.value}`.toLowerCase();
+    return /arabic|العربية|العربي|ar[-_]?\w*/i.test(text);
+  });
+
+  const qualityOptions = panels.quality || panels.qualities || panels.settings || [];
+  const sourceOptions = panels.source || [];
 
   if (!embedUrl) {
     return (
@@ -200,7 +222,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }
 
   return (
-    <div className="relative w-full bg-black overflow-visible">
+    <div className="relative w-full bg-black overflow-visible" dir="rtl">
       <div className="relative w-full aspect-video overflow-hidden">
         <iframe
           ref={iframeRef}
@@ -213,47 +235,76 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         />
         <div className="pointer-events-none absolute top-3 start-3 z-10 flex items-center gap-2">
           <span className="rounded-full bg-black/70 backdrop-blur px-3 py-1 text-[10px] font-semibold text-white border border-white/10">VidRift</span>
-          <span className="rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[10px] text-slate-300 border border-white/10">
-            {language === 'ar' ? 'مشغل خارجي' : 'External player'}
-          </span>
+          <span className="rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[10px] text-slate-300 border border-white/10">مشغل خارجي</span>
         </div>
         <div className="pointer-events-none absolute bottom-3 end-3 z-10 flex items-center gap-2 rounded-full bg-black/60 backdrop-blur px-3 py-1 text-[10px] text-emerald-300 border border-white/10">
           <CheckCircle2 className="w-3 h-3" />
-          <span>TMDB → VidRift</span>
+          <span>TMDB ← VidRift</span>
         </div>
       </div>
-      {sourcePanel && (
-        <section className="w-full border-t border-white/10 bg-[#0b0d13] p-3 sm:p-4" aria-label={language === 'ar' ? 'اختيار مصدر التشغيل' : 'Playback source selection'}>
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <div className="min-w-0">
-              <h3 className="text-sm font-bold text-white">{language === 'ar' ? 'اختيار السيرفر' : 'Choose a server'}</h3>
-              <p className="text-[11px] text-slate-400">{language === 'ar' ? 'اختر المصدر من هنا بدل القائمة داخل المشغل.' : 'Choose a source here instead of inside the player.'}</p>
+
+      <section className="w-full border-t border-white/10 bg-[#0b0d13] p-3 sm:p-4" aria-label="إعدادات التشغيل">
+        <div className="flex items-center gap-2 mb-3">
+          <Settings2 className="w-4 h-4 text-amber-300" />
+          <div>
+            <h3 className="text-sm font-bold text-white">إعدادات المشاهدة</h3>
+            <p className="text-[11px] text-slate-400">التحكم في السيرفر والترجمة والجودة من هنا، خارج المشغل.</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+            <div className="flex items-center gap-2 mb-2 text-xs font-bold text-white">
+              <span>🎬</span> السيرفرات
             </div>
-            <button type="button" onClick={() => setSourcePanel(null)} className="shrink-0 rounded-lg px-3 py-1.5 text-xs text-slate-300 bg-white/5 hover:bg-white/10">
-              {language === 'ar' ? 'إغلاق' : 'Close'}
-            </button>
+            {sourceOptions.length ? (
+              <div className="flex flex-wrap gap-2">
+                {sourceOptions.map((item, index) => (
+                  <button key={`source-${item.value}-${index}`} onClick={() => sendOption(item)} className="rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-400/20">
+                    {item.label || item.value}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-500">ستظهر السيرفرات هنا عند توفرها.</p>
+            )}
           </div>
-          <div className="flex flex-wrap gap-2">
-            {sourcePanel.options.map((item, index) => (
-              <button
-                key={`${item.option}-${item.value}-${index}`}
-                type="button"
-                onClick={() => {
-                  iframeRef.current?.contentWindow?.postMessage({
-                    type: 'vidrift:mobile-option',
-                    option: item.option,
-                    value: item.value,
-                  }, VIDRIFT_ORIGIN);
-                  setSourcePanel(null);
-                }}
-                className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-500/20"
-              >
-                {item.label || item.value}
-              </button>
-            ))}
+
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+            <div className="flex items-center gap-2 mb-2 text-xs font-bold text-white">
+              <Subtitles className="w-4 h-4" /> الترجمة
+            </div>
+            {subtitleOptions.length ? (
+              <div className="flex flex-wrap gap-2">
+                {subtitleOptions.map((item, index) => (
+                  <button key={`sub-${item.value}-${index}`} onClick={() => sendOption(item)} className="rounded-xl border border-sky-400/25 bg-sky-400/10 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-400/20">
+                    {item.label || 'العربية'}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-500">إذا كانت العربية متاحة من VidRift ستظهر هنا تلقائيًا.</p>
+            )}
           </div>
-        </section>
-      )}
+
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+            <div className="flex items-center gap-2 mb-2 text-xs font-bold text-white">
+              <span>⚙️</span> الجودة
+            </div>
+            {qualityOptions.length ? (
+              <div className="flex flex-wrap gap-2">
+                {qualityOptions.map((item, index) => (
+                  <button key={`quality-${item.value}-${index}`} onClick={() => sendOption(item)} className="rounded-xl border border-violet-400/25 bg-violet-400/10 px-3 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-400/20">
+                    {item.label || item.value}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-500">ستظهر الجودات التي يرسلها VidRift هنا.</p>
+            )}
+          </div>
+        </div>
+      </section>
     </div>
   );
 };
