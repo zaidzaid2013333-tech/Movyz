@@ -9,32 +9,47 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Test StreamFlix public endpoints
+      - name: Test VidZee direct stream API
         run: |
           node <<'NODE'
           const headers = {
             'User-Agent': 'Mozilla/5.0 (compatible; Movyz-Smoke/1.0)',
-            'Accept': 'application/json, */*'
+            'Accept': 'application/json, */*',
+            'Referer': 'https://player.vidzee.wtf/'
           };
+
           const get = async (url) => {
-            const r = await fetch(url, {headers, redirect:'follow', signal:AbortSignal.timeout(20000)});
-            const text = await r.text();
-            console.log(url, 'HTTP', r.status, 'TYPE', r.headers.get('content-type') || '');
-            if (!r.ok) throw new Error(url + ' -> HTTP ' + r.status + ' ' + text.slice(0,300));
-            try { return JSON.parse(text); } catch { return text; }
+            const r = await fetch(url, {
+              headers,
+              redirect: 'follow',
+              signal: AbortSignal.timeout(20000)
+            });
+            const body = await r.text();
+            console.log('API', url, 'HTTP', r.status, 'TYPE', r.headers.get('content-type') || '');
+            if (!r.ok) throw new Error(url + ' -> HTTP ' + r.status + ' ' + body.slice(0,300));
+            try { return JSON.parse(body); } catch { return body; }
           };
-          const data = await get('https://api.streamflix.app/data.json');
-          const config = await get('https://api.streamflix.app/config/config-streamflixapp.json');
-          const items = Array.isArray(data?.data) ? data.data : [];
-          const bases = [...new Set((Array.isArray(config?.download) ? config.download : []).filter(v => typeof v === 'string' && v.startsWith('https://')))];
-          console.log('ITEMS', items.length, 'BASES', bases.length);
-          if (!items.length || !bases.length) throw new Error('Empty StreamFlix catalog/config');
-          const match = items.find(x => x?.movielink);
-          if (!match) throw new Error('No movie link found');
-          const url = bases[0] + match.movielink;
-          console.log('TEST_TMDB', match.tmdb, 'TITLE', match.moviename);
-          console.log('STREAM_URL', url);
-          const r = await fetch(url, {headers:{...headers,Range:'bytes=0-1'},redirect:'follow',signal:AbortSignal.timeout(20000)});
-          console.log('STREAM_HTTP', r.status, 'FINAL_URL', r.url, 'TYPE', r.headers.get('content-type') || '');
-          if (!(r.ok || r.status === 206 || r.status === 416)) throw new Error('Stream URL failed HTTP '+r.status);
+
+          const data = await get('https://core.vidzee.wtf/streams/movie/550?e=0');
+          console.log('PAYLOAD', JSON.stringify(data).slice(0,1500));
+
+          if (!data || typeof data.url !== 'string' || !/^https?:\/\//i.test(data.url)) {
+            throw new Error('VidZee did not return a direct stream URL');
+          }
+
+          const r = await fetch(data.url, {
+            headers: {...headers, Range:'bytes=0-1023'},
+            redirect: 'follow',
+            signal: AbortSignal.timeout(20000)
+          });
+
+          console.log('STREAM', 'HTTP', r.status, 'FINAL_URL', r.url, 'TYPE', r.headers.get('content-type') || '', 'LENGTH', r.headers.get('content-length') || '');
+
+          const type = (r.headers.get('content-type') || '').toLowerCase();
+          const playable = type.includes('mpegurl') || type.includes('video/') || /\.m3u8(?:$|\?)/i.test(r.url) || r.status === 206 || r.status === 416;
+
+          if (!r.ok && r.status !== 206 && r.status !== 416) throw new Error('VidZee stream URL returned HTTP ' + r.status);
+          if (!playable) throw new Error('VidZee returned a non-playable response');
+
+          console.log('VIDZEE_SMOKE=PASS');
           NODE
