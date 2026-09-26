@@ -1,3 +1,5 @@
+import { mobileSearch, mobileDetail, mobileSeasons, mobileStreams } from "./mobile-api.js";
+
 /**
  * MovieBox API — Cloudflare Worker
  *
@@ -225,7 +227,7 @@ const CORS = {
   "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
   "Access-Control-Allow-Headers": "Range, Content-Type",
   "Access-Control-Expose-Headers":
-    "Content-Length, Content-Range, Accept-Ranges, X-Stream-Resolution",
+    "Content-Length, Content-Range, Accept-Ranges, Content-Type, X-Stream-Resolution",
 };
 
 // ══════════════════════════════════════════════════════════════════
@@ -668,65 +670,20 @@ async function handleSearch(params) {
   const q = params.get("q");
   if (!q) return json({ error: "q parameter required" }, 400);
 
-  const resp = await fetchH5("/wefeed-h5api-bff/subject/search", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ keyword: q, perPage: 30, page: 1 }),
-  });
-  if (!resp.ok) return upstreamFailure("search", resp);
-
-  let body;
-  try { body = await resp.json(); } catch { return json({ error: "MovieBox search returned invalid JSON", stage: "search" }, 502); }
-  const items = body?.data?.items || body?.data?.subjects || body?.items || [];
-  if (!Array.isArray(items)) return json({ error: "MovieBox search returned an unexpected response", stage: "search" }, 502);
-
-  const movies = items.map((s) => ({
-    name: s.title || s.name || "",
-    year: s.releaseDate || s.year || null,
-    poster_url: s.cover?.url || s.poster?.url || null,
-    url: s.detailPath ? `${BASE_URL}/detail/${s.detailPath}` : null,
-    slug: s.detailPath || s.slug || null,
-    badge: s.corner || null,
-    blurhash: s.cover?.blurHash || null,
-  })).filter((movie) => movie.slug && movie.name);
-
-  return json({ query: q, count: movies.length, movies });
+  const result = await mobileSearch(q);
+  return json(result);
 }
 
+// ══════════════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════════════
 // GET /detail/{slug}  — full metadata from the H5 detail API
 // ══════════════════════════════════════════════════════════════════
 
 async function handleDetail(slug) {
-  const resp = await fetchH5(`/wefeed-h5api-bff/detail?detailPath=${encodeURIComponent(slug)}`);
-  if (!resp.ok) return upstreamFailure("detail", resp);
-
-  let body;
-  try { body = await resp.json(); } catch { return json({ error: "MovieBox detail returned invalid JSON", stage: "detail" }, 502); }
-  const data = body?.data || {};
-  const resource = data.resource || {};
-  const subject = data.subject || resource.subject || resource || data;
-  const subjectId = subject.subjectId || subject.id || data.subjectId || data.subject_id || resource.id;
-  if (!subjectId) return json({ error: "MovieBox detail returned no subject ID", stage: "detail" }, 502);
-
+  const metadata = await mobileDetail(slug);
   return json({
-    slug,
-    metadata: {
-      id: String(subjectId),
-      title: subject.title || data.title || "",
-      description: subject.description || data.description || null,
-      release_date: subject.releaseDate || data.releaseDate || null,
-      duration: subject.duration || data.duration || null,
-      genre: subject.genre || data.genre || [],
-      country: subject.countryName || data.countryName || null,
-      imdb_rating: subject.imdbRatingValue || data.imdbRatingValue || null,
-      poster: subject.cover?.url || data.cover?.url || null,
-      badge: subject.corner || data.corner || null,
-      dubs: subject.dubs || data.dubs || [],
-      top_cast: data.stars || subject.stars || [],
-      seasons: resource.seasons || data.seasons || [],
-      user_reviews: [],
-    },
+    slug: String(slug),
+    metadata,
   });
 }
 
@@ -735,52 +692,40 @@ async function handleDetail(slug) {
 // ══════════════════════════════════════════════════════════════════
 
 async function handleEpisodes(slug) {
-  const resp = await fetchH5(`/wefeed-h5api-bff/detail?detailPath=${encodeURIComponent(slug)}`);
-  if (!resp.ok) return upstreamFailure("detail", resp);
-  const body = await resp.json();
-  const data = body?.data || {};
-  const resource = data.resource || {};
-  const seasonsData = resource.seasons || [];
-
-  // MovieBox API detail returns nested list structures, let's find subjectId in resource or data
-  const subjectId = data.subject?.subjectId || data.subjectId || resource.id || null;
-
+  const subjectId = String(slug);
+  const seasonsData = await mobileSeasons(subjectId);
   if (!seasonsData.length) {
     return json({
-      slug,
+      slug: subjectId,
       message: "No seasons/episodes found. This might be a movie.",
-      seasons: []
+      seasons: [],
     });
   }
 
-  const seasons = seasonsData.map((s) => {
-    const epCount = s.maxEp || 0;
+  const seasons = seasonsData.map((season) => {
+    const episodeCount = Number(season.episode_count || 0);
     const episodes = [];
-    for (let i = 1; i <= epCount; i++) {
+    for (let i = 1; i <= episodeCount; i++) {
       episodes.push({
         name: `Episode ${i}`,
         ep: i,
-        se: s.se,
-        watch_url: subjectId 
-          ? `/watch/${subjectId}?detail_path=${slug}&se=${s.se}&ep=${i}` 
-          : null,
-        stream_api_url: subjectId 
-          ? `/api/stream/${subjectId}?detail_path=${slug}&se=${s.se}&ep=${i}` 
-          : null
+        se: season.season,
+        watch_url: `/watch/${encodeURIComponent(subjectId)}?detail_path=${encodeURIComponent(subjectId)}&se=${season.season}&ep=${i}`,
+        stream_api_url: `/api/stream/${encodeURIComponent(subjectId)}?detail_path=${encodeURIComponent(subjectId)}&se=${season.season}&ep=${i}`,
       });
     }
     return {
-      season: s.se,
-      episode_count: epCount,
-      episodes
+      season: season.season,
+      episode_count: episodeCount,
+      episodes,
     };
   });
 
   return json({
-    slug,
+    slug: subjectId,
     subject_id: subjectId,
     total_seasons: seasons.length,
-    seasons
+    seasons,
   });
 }
 
@@ -788,172 +733,85 @@ async function handleEpisodes(slug) {
 // GET /api/stream/{subject_id}  — raw stream URLs
 // ══════════════════════════════════════════════════════════════════
 
-async function discoverDomain() {
-  try {
-    const resp = await fetchH5(
-      "/wefeed-h5api-bff/media-player/get-domain",
-      { headers: { "X-Client-Type": "h5" } }
-    );
-    if (resp.ok) {
-      const d = await resp.json();
-      return (d.data || DEFAULT_DOMAIN).replace(/\/+$/, "");
-    }
-  } catch {}
-  return DEFAULT_DOMAIN;
-}
-
-async function fetchStreams(domain, subjectId, detailPath, se, ep) {
-  const playUrl = `${domain}/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${se}&ep=${ep}&detailPath=${detailPath}`;
-  const resp = await fetch(playUrl, {
-    headers: h5Headers({
-      Referer: `${domain}/spa/videoPlayPage/movies/${detailPath}`,
-      Origin: domain,
-    }),
-    redirect: "follow",
-  });
-  if (!resp.ok) {
-    const detail = (await resp.text()).replace(/\s+/g, " ").slice(0, 300);
-    throw new Error(`MovieBox stream failed: HTTP ${resp.status}${detail ? ` ${detail}` : ""}`);
-  }
-  let body;
-  try { body = await resp.json(); } catch { throw new Error("MovieBox stream returned invalid JSON"); }
-  const streams = body?.data?.streams || body?.data?.sources || body?.streams || body?.sources || [];
-  if (!Array.isArray(streams)) throw new Error("MovieBox stream returned an unexpected response");
-  return streams;
-}
-
 async function handleStreamApi(subjectId, params) {
-  const detailPath = params.get("detail_path");
-  if (!detailPath) return json({ error: "detail_path is required" }, 400);
-  const se = params.get("se") || "0";
-  const ep = params.get("ep") || "0";
+  const detailPath = params.get("detail_path") || subjectId;
+  const se = Number(params.get("se") || "0");
+  const ep = Number(params.get("ep") || "0");
 
-  const domain = await discoverDomain();
-  const streams = await fetchStreams(domain, subjectId, detailPath, se, ep);
-
-  if (!streams.length) return json({ error: "No streams found" }, 404);
-
+  const streams = await mobileStreams(String(subjectId), se, ep);
   const formatted = streams
-    .map((s) => ({
-      resolution: s.resolutions ? `${s.resolutions}p` : "Unknown",
-      format: s.format || null,
-      url: s.url,
-      size_bytes: s.size || null,
-      id: s.id || null,
+    .map((stream) => ({
+      resolution: stream.resolution ? `${stream.resolution}p` : "Unknown",
+      format: "mp4",
+      url: stream.url,
+      size_bytes: stream.size_bytes,
+      id: stream.id,
+      captions: stream.captions || [],
     }))
-    .sort((a, b) => {
-      const ra = parseInt(a.resolution) || 0;
-      const rb = parseInt(b.resolution) || 0;
-      return rb - ra;
-    });
-
-  // Fetch subtitles (only EN requested)
-  let subtitles = [];
-  const streamId = streams[0]?.id;
-  if (streamId) {
-    try {
-      const capUrl = `${H5_API}/wefeed-h5api-bff/subject/caption?subjectId=${subjectId}&id=${streamId}&detailPath=${detailPath}`;
-      const capResp = await fetchH5(capUrl.replace(H5_API, ""));
-      if (capResp.ok) {
-        const capBody = await capResp.json();
-        const subs = capBody?.data?.subtitles || [];
-        subtitles = subs
-          .filter((s) => s.lan === "en" || s.lanName?.toLowerCase().includes("english"))
-          .map((s) => ({
-            language: s.lanName || "English",
-            url: s.url,
-          }));
-      } else {
-        console.error("Caption API error:", await capResp.text());
-      }
-    } catch (err) {
-      console.error("Subtitle fetch failed:", err);
-    }
-  }
+    .sort((a, b) => (parseInt(b.resolution) || 0) - (parseInt(a.resolution) || 0));
 
   return json({
-    subject_id: subjectId,
+    subject_id: String(subjectId),
     detail_path: detailPath,
-    season: parseInt(se),
-    episode: parseInt(ep),
-    stream_domain: domain,
+    season: se,
+    episode: ep,
+    stream_domain: null,
     count: formatted.length,
     sources: formatted,
-    subtitles,
+    subtitles: formatted.flatMap((stream) => stream.captions || []),
   });
 }
 
-// ══════════════════════════════════════════════════════════════════
-// GET /watch/{subject_id}  — zero-buffer video streaming
-// ══════════════════════════════════════════════════════════════════
-
 async function handleWatch(subjectId, params, request) {
-  const detailPath = params.get("detail_path");
-  if (!detailPath) return json({ error: "detail_path is required" }, 400);
-  const se = params.get("se") || "0";
-  const ep = params.get("ep") || "0";
-  const resolution = parseInt(params.get("resolution") || "0", 10);
+  const detailPath = params.get("detail_path") || subjectId;
+  const se = Number(params.get("se") || "0");
+  const ep = Number(params.get("ep") || "0");
+  const resolution = Number(params.get("resolution") || "0");
 
-  const domain = await discoverDomain();
-  const streams = await fetchStreams(domain, subjectId, detailPath, se, ep);
+  const streams = await mobileStreams(String(subjectId), se, ep);
   if (!streams.length) return json({ error: "No streams found" }, 404);
 
-  // Pick resolution
-  let stream;
-  if (resolution > 0) {
-    stream =
-      streams.find((s) => parseInt(s.resolutions) === resolution) ||
-      streams[streams.length - 1];
-  } else {
-    stream = streams.sort(
-      (a, b) => parseInt(b.resolutions) - parseInt(a.resolutions)
-    )[0];
-  }
+  let stream = resolution > 0
+    ? streams.find((item) => Number(item.resolution) === resolution)
+    : null;
+  if (!stream) stream = streams[0];
 
-  const streamUrl = stream.url;
+  const streamUrl = stream?.url;
   if (!streamUrl) return json({ error: "Stream URL is empty" }, 404);
 
-  // Build CDN headers
   const cdnHeaders = {
-    Referer: `${domain}/`,
-    Origin: domain,
     Accept: "*/*",
     "User-Agent": UA,
+    Referer: "https://moviebox.pk/",
   };
-
-  // Forward Range header for seeking
   const rangeHeader = request.headers.get("Range");
-  if (rangeHeader) cdnHeaders["Range"] = rangeHeader;
+  if (rangeHeader) cdnHeaders.Range = rangeHeader;
 
   const vidResp = await fetch(streamUrl, {
     headers: cdnHeaders,
     redirect: "follow",
+    signal: AbortSignal.timeout(20000),
   });
 
-  if (vidResp.status !== 200 && vidResp.status !== 206) {
+  if (vidResp.status !== 200 && vidResp.status !== 206 && vidResp.status !== 416) {
     const errBody = await vidResp.text();
     return json(
-      { error: `CDN returned ${vidResp.status}`, detail: errBody.slice(0, 200) },
-      vidResp.status
+      { error: `CDN returned ${vidResp.status}`, detail: errBody.slice(0, 300), stage: "watch" },
+      502,
     );
   }
 
-  // Response headers
   const respHeaders = new Headers(CORS);
   respHeaders.set("Accept-Ranges", "bytes");
-  respHeaders.set(
-    "Content-Type",
-    vidResp.headers.get("Content-Type") || "video/mp4"
-  );
-  respHeaders.set("X-Stream-Resolution", `${stream.resolutions}p`);
+  respHeaders.set("Content-Type", vidResp.headers.get("Content-Type") || "video/mp4");
   respHeaders.set("Cache-Control", "no-store");
+  respHeaders.set("X-Stream-Resolution", `${stream.resolution || 0}p`);
 
-  const cl = vidResp.headers.get("Content-Length");
-  if (cl) respHeaders.set("Content-Length", cl);
-  const cr = vidResp.headers.get("Content-Range");
-  if (cr) respHeaders.set("Content-Range", cr);
+  for (const name of ["Content-Length", "Content-Range"]) {
+    const value = vidResp.headers.get(name);
+    if (value) respHeaders.set(name, value);
+  }
 
-  // Pipe ReadableStream straight through — ZERO buffering
   return new Response(vidResp.body, {
     status: vidResp.status,
     headers: respHeaders,
