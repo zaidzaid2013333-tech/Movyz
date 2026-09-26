@@ -112,6 +112,7 @@ jobs:
       - name: Diagnose direct Fasel upstream API
         run: |
           node <<'NODE'
+          (async () => {
           const fs = require('fs');
           const code = fs.readFileSync('server/providers/adapters/faselhd.ts', 'utf8');
           const token = code.match(/const FASELHD_UPSTREAM_TOKEN = '([^']+)'/)?.[1];
@@ -197,6 +198,7 @@ jobs:
           for (const id of [10331, candidate?.id, candidate?.tmdbId, candidate?.tmdb_id].filter(Boolean).slice(0, 4)) {
             try { await getContent(id); } catch (error) { console.log('CONTENT_ERROR', id, String(error)); }
           }
+          })();
           NODE
 
       # Watch API must pass against the dedicated public-domain playback fixture.
