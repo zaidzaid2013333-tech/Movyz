@@ -1,6 +1,8 @@
 name: Provider smoke test
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
