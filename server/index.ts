@@ -530,11 +530,48 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       }));
 
     if (!sources.length) {
+      // Cache-first is preferred, but a missing/expired cache must never make
+      // an otherwise resolvable title unplayable. Fall back to the live
+      // provider resolver and persist its usable direct sources for the next
+      // request.
+      const resolved = await resolvePlaybackSources(contentType, contentId);
+
+      const fallbackSources = (resolved || [])
+        .filter((source: any) =>
+          ['hls', 'mp4', 'dash', 'webm'].includes(String(source?.type || '').toLowerCase()) &&
+          typeof source?.url === 'string' &&
+          /^https:\/\//i.test(source.url),
+        )
+        .map((source: any, index: number) => ({
+          id: source.id || [source.providerKey || source.provider || 'resolver', source.type, index].join('-'),
+          type: String(source.type).toLowerCase(),
+          quality: source.quality || 'auto',
+          language: source.language || 'und',
+          label: source.label || source.provider || 'Source',
+          labelEn: source.labelEn || source.label || source.provider || 'Source',
+          url: source.url,
+          isWorking: source.isWorking !== false,
+          provider: source.provider || 'Movyza',
+          providerKey: source.providerKey,
+          providerReference: source.providerReference,
+          subtitleTracks: Array.isArray(source.subtitleTracks)
+            ? source.subtitleTracks
+            : [],
+        }));
+
+      if (fallbackSources.length) {
+        return ok(res, fallbackSources, {
+          source: 'live_provider_resolver',
+          contentType,
+          contentId,
+        });
+      }
+
       return fail(
         res,
         404,
         'WATCH_SOURCES_NOT_FOUND',
-        'No direct playable sources are configured for this title',
+        'No direct playable sources are currently available for this title',
       );
     }
 
