@@ -8,13 +8,18 @@ type MappedJsonConfig = {
   timeoutMs: number;
   language: string;
   requiresMapping?: boolean;
+  moviePath?: string;
+  episodePath?: string;
 };
 
 export function createMappedJsonAdapter(config: MappedJsonConfig): ProviderAdapter {
   const resolve = async (context: ProviderContext) => {
     if (!context.providerId) return [];
 
-    const url = materializeTemplate(config.baseUrl, {
+    const template = context.seasonNumber != null && context.episodeNumber != null
+      ? (config.episodePath || config.baseUrl)
+      : (config.moviePath || config.baseUrl);
+    const url = materializeTemplate(template, {
       providerId: context.providerId,
       tmdbId: context.tmdbId,
       season: context.seasonNumber,
