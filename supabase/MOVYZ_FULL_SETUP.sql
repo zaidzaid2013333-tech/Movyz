@@ -638,3 +638,21 @@ set enabled = false,
 where key in ('nhdapi', 'egybest');
 
 notify pgrst, 'reload schema';
+
+-- StreamFlix provider (credential-free) + enforce disabled credential providers.
+insert into public.providers (key,name,adapter_name,enabled,status)
+values ('streamflix','StreamFlix','streamflix',true,'unknown')
+on conflict (key) do update set
+  name = excluded.name,
+  adapter_name = excluded.adapter_name,
+  enabled = true,
+  updated_at = now();
+
+update public.providers
+set enabled = false,
+    status = 'offline',
+    updated_at = now()
+where key in ('nhdapi','egybest');
+
+notify pgrst, 'reload schema';
+
