@@ -278,8 +278,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 </span>
                 <p className="text-[11px] leading-relaxed">
                   {language === 'ar'
-                    ? 'التشغيل يتم عبر YapGrid اعتمادًا على معرّف TMDB. العربية مضبوطة كلغة الترجمة الافتراضية، والسيرفرات يمكن تبديلها من إعدادات المشاهدة.'
-                    : 'Playback is powered by YapGrid using the TMDB id. Arabic is requested as the default subtitle language, and servers can be switched from the watch settings.'}
+                    ? 'التشغيل يتم عبر VidLux اعتمادًا على معرّف TMDB. المشغل يدعم عدة مصادر مع التحويل التلقائي، وتتوفر الترجمة العربية عندما تكون متاحة للمصدر.'
+                    : 'Playback is powered by VidLux using the TMDB id. The player supports multiple sources with automatic fallback, and Arabic subtitles are available when provided by the source.'}
                 </p>
               </div>
             </div>
