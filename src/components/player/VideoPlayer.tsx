@@ -42,6 +42,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [selectedSourceId, setSelectedSourceId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [reportMessage, setReportMessage] = useState('');
   const progressLoadedRef = useRef(false);
   const lastSavedAtRef = useRef(0);
   const saveProgress = async (video: HTMLVideoElement, force = false) => {
@@ -87,6 +88,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setStreamType(source.type);
     setStreamUrl(source.url);
     setError('');
+  };
+
+
+  const handleReportSource = async () => {
+    const playbackContentId = isMovie ? contentId : (currentEpisode?.id || contentId);
+    if (!selectedSourceId) return;
+    try {
+      await MovyzaApi.reportIssue({
+        contentId: playbackContentId,
+        contentType: isMovie ? 'movie' : 'episode',
+        contentTitle: isMovie ? title : (currentEpisode?.title || title),
+        sourceId: selectedSourceId,
+        issueType: 'broken_source',
+        description: language === 'ar' ? 'المصدر الحالي لا يعمل.' : 'The selected playback source is not working.',
+      });
+      setReportMessage(language === 'ar' ? 'تم إرسال البلاغ.' : 'Report sent.');
+    } catch {
+      setReportMessage(language === 'ar' ? 'سجّل الدخول أولًا لإرسال البلاغ.' : 'Sign in to send a report.');
+    }
+    setTimeout(() => setReportMessage(''), 3000);
   };
 
 
@@ -329,6 +350,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={() => { void handleReportSource(); }}
+              className="mt-2 rounded-xl border border-red-400/20 bg-red-400/10 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-400/15"
+            >
+              {language === 'ar' ? 'الإبلاغ عن المصدر' : 'Report source'}
+            </button>
+            {reportMessage && <div className="mt-2 text-[11px] text-slate-300">{reportMessage}</div>}
           </div>
         )}
 
