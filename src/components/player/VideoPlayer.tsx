@@ -43,6 +43,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [selectedSourceId, setSelectedSourceId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [fallbackEmbedUrl, setFallbackEmbedUrl] = useState('');
   const [reportMessage, setReportMessage] = useState('');
   const failedSourceIdsRef = useRef<Set<string>>(new Set());
   const progressLoadedRef = useRef(false);
@@ -127,6 +128,7 @@ if (!safeTmdbId) {
       setStreamType('hls');
       setAvailableSources([]);
       setSelectedSourceId('');
+      setFallbackEmbedUrl('');
       failedSourceIdsRef.current.clear();
       progressLoadedRef.current = false;
 
@@ -157,13 +159,16 @@ if (!safeTmdbId) {
         }
       } catch (err) {
         if (!cancelled) {
-          setLoading(false);
-          setError(
-            language === 'ar'
-              ? 'تعذر العثور على مصدر تشغيل صالح حاليًا.'
-              : 'No playable video source is currently available.'
-          );
-          console.error('[ezvidapi]', err);
+          const fallbackUrl = isMovie
+            ? `https://ezvidapi.com/embed/movie/${safeTmdbId}`
+            : `https://ezvidapi.com/embed/tv/${safeTmdbId}/${Number(seasonNumber || 1)}/${Number(episodeNumber || 1)}`;
+
+          setFallbackEmbedUrl(fallbackUrl);
+          setLoading(true);
+          setError('');
+          setAvailableSources([]);
+          setSelectedSourceId('');
+          console.warn('[ezvidapi] direct HLS resolver failed; falling back to official embed', err);
         }
       }
     };
@@ -177,7 +182,7 @@ if (!safeTmdbId) {
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !streamUrl) return;
+    if (fallbackEmbedUrl || !video || !streamUrl) return;
 
     setLoading(true);
     setError('');
@@ -285,7 +290,7 @@ if (!safeTmdbId) {
       video.removeAttribute('src');
       video.load();
     };
-  }, [language, streamUrl, streamType, contentId, currentEpisode?.id]);
+  }, [fallbackEmbedUrl, language, streamUrl, streamType, contentId, currentEpisode?.id]);
 
   if (!safeTmdbId) {
     return (
@@ -301,15 +306,29 @@ if (!safeTmdbId) {
     <div className="relative w-full bg-black overflow-visible" dir="rtl">
 
       <div className="relative w-full aspect-video overflow-hidden bg-black">
-        <video
-          ref={videoRef}
-          controls
-          playsInline
-          preload="metadata"
-          poster={posterUrl || undefined}
-          className="absolute inset-0 w-full h-full bg-black object-contain"
-          aria-label={isMovie ? title : titleEn || title}
-        />
+        {fallbackEmbedUrl ? (
+          <iframe
+            key={fallbackEmbedUrl}
+            src={fallbackEmbedUrl}
+            title={isMovie ? title : titleEn || title}
+            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            allowFullScreen
+            referrerPolicy="strict-origin-when-cross-origin"
+            loading="eager"
+            onLoad={() => setLoading(false)}
+            className="absolute inset-0 w-full h-full border-0 bg-black"
+          />
+        ) : (
+          <video
+            ref={videoRef}
+            controls
+            playsInline
+            preload="metadata"
+            poster={posterUrl || undefined}
+            className="absolute inset-0 w-full h-full bg-black object-contain"
+            aria-label={isMovie ? title : titleEn || title}
+          />
+        )}
 
         {(loading || error) && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80">
@@ -334,7 +353,7 @@ if (!safeTmdbId) {
 
         <div className="pointer-events-none absolute top-3 start-3 z-20 flex items-center gap-2">
           <span className="rounded-full bg-black/70 backdrop-blur px-3 py-1 text-[10px] font-semibold text-white border border-white/10">
-            Movyza {streamType.toUpperCase()} · {availableSources.find((source) => source.id === selectedSourceId)?.provider || 'Source'}
+            {fallbackEmbedUrl ? 'ezvidapi EMBED' : `Movyza ${streamType.toUpperCase()} · ${availableSources.find((source) => source.id === selectedSourceId)?.provider || 'Source'}`}
           </span>
           <span className="rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[10px] text-slate-300 border border-white/10">
             مشغل Movyza
@@ -343,7 +362,7 @@ if (!safeTmdbId) {
 
         <div className="pointer-events-none absolute bottom-3 end-3 z-20 flex items-center gap-2 rounded-full bg-black/60 backdrop-blur px-3 py-1 text-[10px] text-emerald-300 border border-white/10">
           <CheckCircle2 className="w-3 h-3" />
-          <span>TMDB ← Movyza</span>
+          <span>{fallbackEmbedUrl ? 'TMDB ← ezvidapi embed' : 'TMDB ← Movyza'}</span>
         </div>
       </div>
 
@@ -356,8 +375,12 @@ if (!safeTmdbId) {
             </h3>
             <p className="text-[11px] text-slate-400">
               {language === 'ar'
-                ? 'يتم حل مصدر التشغيل من خادم Movyza وتشغيل المصدر المختار داخل المشغل.'
-                : 'Movyza resolves the playback source server-side, then plays the selected source locally.'}
+                ? (fallbackEmbedUrl
+                    ? 'تعذر حل HLS المباشر مؤقتًا، لذلك تم التحويل تلقائيًا إلى مشغل ezvidapi الرسمي.'
+                    : 'يتم حل مصدر التشغيل من خادم Movyza وتشغيل المصدر المختار داخل المشغل.')
+                : (fallbackEmbedUrl
+                    ? 'Direct HLS resolution failed temporarily, so Movyza switched to the official ezvidapi player.'
+                    : 'Movyza resolves the playback source server-side, then plays the selected source locally.')}
             </p>
           </div>
         </div>
