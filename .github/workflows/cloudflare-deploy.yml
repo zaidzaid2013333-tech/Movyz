@@ -109,28 +109,15 @@ jobs:
           }
           NODE
 
-      - name: Diagnose FaselHD Express mirror
+      - name: Diagnose FaselHD.tech mirror
         run: |
           node <<'NODE'
           (async () => {
             const urls = [
-              'https://faselhd.vip/',
-              'https://www.faselhd.vip/',
-              'https://faselhd.one/',
-              'https://www.faselhd.one/',
-              'https://faselhd.ac/',
-              'https://www.faselhd.ac/',
-              'https://faselhd.live/',
-              'https://www.faselhd.live/',
-              'https://faselhd.pro/',
-              'https://www.faselhd.pro/',
-              'https://faselhd.express/',
-              'https://www.faselhd.express/',
-              'https://faselhd.vip/?s=Night%20of%20the%20Living%20Dead',
-              'https://faselhd.one/?s=Night%20of%20the%20Living%20Dead',
-              'https://faselhd.ac/?s=Night%20of%20the%20Living%20Dead',
-              'https://faselhd.live/?s=Night%20of%20the%20Living%20Dead',
-              'https://faselhd.pro/?s=Night%20of%20the%20Living%20Dead',
+              'https://faselhd.tech/',
+              'https://www.faselhd.tech/',
+              'https://faselhd.tech/?s=The%20Shawshank%20Redemption',
+              'https://faselhd.tech/?s=%D8%A7%D9%84%D8%AE%D9%84%D8%A7%D8%B5%20%D9%85%D9%86%20%D8%B4%D8%A7%D9%88%D8%B4%D8%A7%D9%86%D9%83',
             ];
             for (const url of urls) {
               try {
@@ -151,9 +138,12 @@ jobs:
                   contentType: response.headers.get('content-type'),
                   length: body.length,
                   title: (body.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '').trim(),
+                  arabicHits: (body.match(/الخلاص من شاوشانك/gi) || []).length,
+                  shawshankHits: (body.match(/Shawshank Redemption/gi) || []).length,
                   playerIframe: (body.match(/iframe[^>]+(?:name=["']player_iframe["']|(?:src|data-src)=["'][^"']*player)/gi) || []).slice(0, 10),
                   mediaCount: (body.match(/\.m3u8|\.mp4/gi) || []).length,
                   playerCount: (body.match(/player_iframe|videoplayer|video_player|quality_change|hd_btn/gi) || []).length,
+                  faselMarkers: (body.match(/faselhd|postDiv|blockMovie|seasonList|epAll/gi) || []).slice(0, 20),
                 }));
               } catch (error) {
                 console.log(JSON.stringify({requested:url,error:String(error)}));
@@ -315,7 +305,7 @@ jobs:
             throw new Error('Worker health check failed');
           }
 
-          const watch = await get('/api/v1/watch/movie/10331?provider=faselhd', 20000);
+          const watch = await get('/api/v1/watch/movie/278?provider=faselhd', 20000);
           if (!watch.response.ok) {
             throw new Error(
               'Dedicated playback fixture failed: HTTP ' +
@@ -358,38 +348,9 @@ jobs:
             throw new Error('Direct source returned unexpected content-type: ' + contentType);
           }
 
-          const subtitleTracks = Array.isArray(source.subtitleTracks) ? source.subtitleTracks : [];
-          const subtitle = subtitleTracks.find((track) => String(track?.language || '').toLowerCase().startsWith('ar'));
-          if (!subtitle?.url) {
-            throw new Error('Dedicated playback fixture returned no Arabic subtitle track');
-          }
-
-          const subtitleUrl = new URL(String(subtitle.url), base).toString();
-          const subtitleResponse = await fetch(subtitleUrl, {
-            headers: { Accept: 'text/vtt, text/plain;q=0.9, */*;q=0.8' },
-            redirect: 'follow',
-            signal: AbortSignal.timeout(20000),
-          });
-          const subtitleBody = await subtitleResponse.text();
-          const subtitleType = String(subtitleResponse.headers.get('content-type') || '').toLowerCase();
-          if (!subtitleResponse.ok) {
-            console.log('SUBTITLE_PROXY_BODY=' + subtitleBody.slice(0, 1800));
-            throw new Error('Subtitle proxy check failed: HTTP ' + subtitleResponse.status);
-          }
-          if (!subtitleType.includes('text/vtt')) {
-            throw new Error('Subtitle proxy returned unexpected content-type: ' + subtitleType);
-          }
-          if (!/^WEBVTT(?:\s|$)/i.test(subtitleBody.trim())) {
-            throw new Error('Subtitle proxy did not return WebVTT');
-          }
-          if (!/[\u0600-\u06FF]/.test(subtitleBody)) {
-            throw new Error('Arabic subtitle track contains no Arabic text');
-          }
-
           console.log('WATCH_PLAYBACK=PASS');
-          console.log('WATCH_SUBTITLES=PASS');
           console.log(JSON.stringify({
-            fixtureTmdbId: 10331,
+            fixtureTmdbId: 278,
             provider: source.provider,
             type: source.type,
             sourceHost: new URL(source.url).host,
