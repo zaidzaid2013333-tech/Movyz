@@ -381,11 +381,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <style>{`
         .movyza-player .vds-captions {
           --media-cue-font-size: clamp(
-            22px,
-            calc(var(--media-height) / 100 * 6.5),
-            54px
+            24px,
+            calc(var(--media-height) / 100 * 7),
+            60px
           );
-          --media-cue-line-height: 1.25;
+          --media-cue-line-height: 1.22;
           --media-cue-color: #fff;
           --media-cue-bg-color: rgba(0, 0, 0, 0.72);
         }
