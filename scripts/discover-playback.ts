@@ -182,7 +182,8 @@ async function main() {
     .eq('key', 'vidzee')
     .maybeSingle();
 
-  if (provider.error || !provider.data?.id || !provider.data.enabled) {
+  const vidzeeProvider = provider.data;
+  if (provider.error || !vidzeeProvider?.id || !vidzeeProvider.enabled) {
     throw new Error('VidZee provider is not registered/enabled in Supabase');
   }
 
@@ -210,7 +211,7 @@ async function main() {
           .select('id')
           .eq('content_type', 'movie')
           .eq('content_id', existing.data.id)
-          .eq('provider_id', provider.data.id)
+          .eq('provider_id', vidzeeProvider.id)
           .eq('is_working', true)
           .limit(1);
 
@@ -242,7 +243,7 @@ async function main() {
       const movieId = existing.data?.id || await syncMovieCandidate(candidate.ar, candidate.en);
 
       const rows = sources.map((source) => ({
-        provider_id: provider.data.id,
+        provider_id: vidzeeProvider.id,
         content_type: 'movie',
         content_id: movieId,
         source_type: source.type,
