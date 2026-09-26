@@ -148,6 +148,7 @@ jobs:
           const subtitleBody = await subtitleResponse.text();
           const subtitleType = String(subtitleResponse.headers.get('content-type') || '').toLowerCase();
           if (!subtitleResponse.ok) {
+            console.log('SUBTITLE_PROXY_BODY=' + subtitleBody.slice(0, 1800));
             throw new Error('Subtitle proxy check failed: HTTP ' + subtitleResponse.status);
           }
           if (!subtitleType.includes('text/vtt')) {

@@ -336,11 +336,15 @@ app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
     const upstream = await fetch(target.toString(), {
       headers: {
         Accept: 'text/vtt, text/plain;q=0.9, */*;q=0.8',
+        'Accept-Language': 'ar,en;q=0.8',
+        'User-Agent': 'MOVYZA/1.0 (subtitle proxy; https://movyza.app)',
       },
       redirect: 'follow',
     });
 
     if (!upstream.ok) {
+      const upstreamBody = (await upstream.text()).slice(0, 1200);
+      console.error('[subtitle-proxy-upstream]', upstream.status, upstreamBody);
       return fail(res, 502, 'SUBTITLE_FETCH_FAILED', `Wikimedia subtitle request failed (${upstream.status})`);
     }
 
@@ -365,7 +369,8 @@ app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
 
     return new Response(vttBody, { status: 200, headers: responseHeaders });
   } catch (error) {
-    return fail(res, 502, 'SUBTITLE_PROXY_FAILED', error instanceof Error ? error.message : 'Subtitle proxy failed');
+    console.error('[subtitle-proxy]', error instanceof Error ? error.message : error);
+    return fail(res, 502, 'SUBTITLE_PROXY_FAILED', 'Subtitle proxy failed');
   }
 }));
 
