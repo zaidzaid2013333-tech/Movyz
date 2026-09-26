@@ -27,7 +27,7 @@ const LIMIT = Math.min(Math.max(Number(process.env.COVERAGE_LIMIT || 120), 1), 2
 const CONCURRENCY = Math.min(Math.max(Number(process.env.COVERAGE_CONCURRENCY || 5), 1), 8);
 
 const ANCHOR_IDS = [
-  550,      // Fight Club — known working through VidZee smoke tests.
+  550,      // Fight Club — playback anchor.
   157336,   // Interstellar
   27205,    // Inception
   680,      // Pulp Fiction
@@ -184,6 +184,10 @@ async function main() {
   if (!enabledKeys.has('moviebox-api') && !enabledKeys.has('ezvidapi')) {
     throw new Error('MovieBox API and ezVidAPI are not enabled in Supabase');
   }
+
+  const candidates = await fetchLists();
+
+  const summary = { candidates: candidates.length, playable: 0, synced: 0, sources: 0, failed: 0, skipped: 0 };
 
   await mapWithConcurrency(candidates, async (candidate) => {
     const tmdbId = candidate.en.id;
