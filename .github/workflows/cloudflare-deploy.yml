@@ -114,9 +114,23 @@ jobs:
           node <<'NODE'
           (async () => {
             const urls = [
+              'https://faselhd.vip/',
+              'https://www.faselhd.vip/',
+              'https://faselhd.one/',
+              'https://www.faselhd.one/',
+              'https://faselhd.ac/',
+              'https://www.faselhd.ac/',
+              'https://faselhd.live/',
+              'https://www.faselhd.live/',
+              'https://faselhd.pro/',
+              'https://www.faselhd.pro/',
               'https://faselhd.express/',
               'https://www.faselhd.express/',
-              'https://faselhd.express/?s=Night%20of%20the%20Living%20Dead',
+              'https://faselhd.vip/?s=Night%20of%20the%20Living%20Dead',
+              'https://faselhd.one/?s=Night%20of%20the%20Living%20Dead',
+              'https://faselhd.ac/?s=Night%20of%20the%20Living%20Dead',
+              'https://faselhd.live/?s=Night%20of%20the%20Living%20Dead',
+              'https://faselhd.pro/?s=Night%20of%20the%20Living%20Dead',
             ];
             for (const url of urls) {
               try {
