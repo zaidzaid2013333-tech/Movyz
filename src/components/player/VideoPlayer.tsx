@@ -30,6 +30,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   contentType,
   seasonNumber,
   episodeNumber,
+  currentEpisode,
 }) => {
   const { language } = useLanguage();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -37,6 +38,36 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [streamUrl, setStreamUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const progressLoadedRef = useRef(false);
+  const lastSavedAtRef = useRef(0);
+  const saveProgress = async (video: HTMLVideoElement, force = false) => {
+    const duration = Number.isFinite(video.duration) ? Math.floor(video.duration) : 0;
+    const position = Math.floor(video.currentTime || 0);
+    if (duration <= 0 || position < 0) return;
+    const now = Date.now();
+    if (!force && now - lastSavedAtRef.current < 8000) return;
+    lastSavedAtRef.current = now;
+    try {
+      await MovyzaApi.saveWatchProgress({
+        contentId,
+        contentType,
+        title,
+        titleEn,
+        posterUrl,
+        backdropUrl: '',
+        episodeId: currentEpisode?.id,
+        seasonNumber,
+        episodeNumber,
+        positionSeconds: position,
+        durationSeconds: duration,
+        percentage: Math.min(100, Math.floor((position / duration) * 100)),
+        lastWatchedAt: new Date().toISOString(),
+        completed: position >= Math.max(0, duration - 10),
+      });
+    } catch {
+      // Progress is best-effort and should never block playback.
+    }
+  };
 
   const isMovie = contentType === 'movie';
   const safeTmdbId = Number(tmdbId || 0);
@@ -104,12 +135,32 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     hlsRef.current = null;
 
     const handleCanPlay = () => setLoading(false);
+    const restoreProgress = async () => {
+      if (progressLoadedRef.current) return;
+      progressLoadedRef.current = true;
+      try {
+        const result = await MovyzaApi.getWatchProgress(contentId, currentEpisode?.id);
+        const progress = result.data;
+        if (progress && progress.positionSeconds > 5 && Number.isFinite(video.duration) && progress.positionSeconds < video.duration - 5) {
+          video.currentTime = progress.positionSeconds;
+        }
+      } catch {
+        // Guests or expired sessions simply start from the beginning.
+      }
+    };
+    const handleTimeUpdate = () => { void saveProgress(video); };
+    const handlePause = () => { void saveProgress(video, true); };
+    const handleEnded = () => { void saveProgress(video, true); };
     const handleError = () => {
       setLoading(false);
       setError(language === 'ar' ? 'تعذر تشغيل مصدر الفيديو.' : 'The video source could not be played.');
     };
 
     video.addEventListener('canplay', handleCanPlay);
+    video.addEventListener('loadedmetadata', () => { void restoreProgress(); });
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('ended', handleEnded);
     video.addEventListener('error', handleError);
 
     if (Hls.isSupported()) {
@@ -138,7 +189,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
 
     return () => {
+      void saveProgress(video, true);
       video.removeEventListener('canplay', handleCanPlay);
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      video.removeEventListener('pause', handlePause);
+      video.removeEventListener('ended', handleEnded);
       video.removeEventListener('error', handleError);
       hlsRef.current?.destroy();
       hlsRef.current = null;
