@@ -15,9 +15,6 @@ const HOST_POOL = [
 ];
 
 const API_HOST_QUERY = "api.inmoviebox.com";
-const DEFAULT_GUEST_TOKEN =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjcwNjU5NDg0MTAyMTM4MTYyMzIsInV0cCI6MSwiZXhwIjoxNzkxNzMyMjMzLCJpYXQiOjE3ODM5NTU5Mzl9.7iyEzTj4vWAbOF0oXwNnZ0p3Nc1QaO6K9eMiGFyVfGs";
-const DEFAULT_GUEST_EXP_MS = 1791732233000;
 const SECRET_KEY_B64 = "76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O";
 const VERSION_CODE = 50020126;
 const VERSION_NAME = "4.0.02";
@@ -35,8 +32,8 @@ const RESOURCE_PATH = "/wefeed-mobile-bff/subject-api/resource";
 const RESOLUTIONS = [360, 480, 720, 1080];
 const REQUEST_TIMEOUT_MS = 12000;
 
-let authToken = DEFAULT_GUEST_TOKEN;
-let authExpiresAt = DEFAULT_GUEST_EXP_MS;
+let authToken = null;
+let authExpiresAt = 0;
 let bootstrapPromise = null;
 let clientInfo = null;
 let deviceId = null;
