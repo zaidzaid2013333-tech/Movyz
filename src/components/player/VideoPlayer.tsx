@@ -19,7 +19,7 @@ interface VideoPlayerProps {
   onNavigateBack: () => void;
 }
 
-const VIDLUX_ORIGIN = 'https://vidlux.xyz';
+const VIDSRC_ORIGIN = 'https://vidsrc.sh';
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   contentType,
@@ -39,8 +39,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!safeTmdbId) return '';
 
     return isMovie
-      ? `${VIDLUX_ORIGIN}/embed/movie/${safeTmdbId}`
-      : `${VIDLUX_ORIGIN}/embed/tv/${safeTmdbId}/${Number(seasonNumber || 1)}/${Number(episodeNumber || 1)}`;
+      ? `${VIDSRC_ORIGIN}/embed/movie/${safeTmdbId}?autoplay=1&ds_lang=ar,en`
+      : `${VIDSRC_ORIGIN}/embed/tv/${safeTmdbId}/${Number(seasonNumber || 1)}/${Number(episodeNumber || 1)}?autoplay=1&ds_lang=ar,en`;
   }, [episodeNumber, isMovie, safeTmdbId, seasonNumber]);
 
   useEffect(() => {
@@ -59,7 +59,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   return (
     <div className="relative w-full bg-black overflow-visible" dir="rtl">
-      <link rel="preconnect" href={VIDLUX_ORIGIN} />
+      <link rel="preconnect" href={VIDSRC_ORIGIN} />
       <link rel="dns-prefetch" href={VIDLUX_ORIGIN} />
 
       <div className="relative w-full aspect-video overflow-hidden">
@@ -88,7 +88,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         <div className="pointer-events-none absolute top-3 start-3 z-10 flex items-center gap-2">
           <span className="rounded-full bg-black/70 backdrop-blur px-3 py-1 text-[10px] font-semibold text-white border border-white/10">
-            VidLux
+            VidSrc
           </span>
           <span className="rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[10px] text-slate-300 border border-white/10">
             مشغل خارجي
