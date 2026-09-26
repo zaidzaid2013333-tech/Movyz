@@ -132,6 +132,12 @@ async function resolveUpstreamVideoId(videoId: string, timeoutMs: number): Promi
     }
   }
 
+  if (!urls.size) {
+    for (const raw of playlist.match(/https?:\/\/[^\s"'<>]+\.m3u8(?:\?[^\s"'<>]*)?/gi) || []) {
+      if (/^https:\/\//i.test(raw)) urls.set(raw, inferQuality('', raw));
+    }
+  }
+
   return [...urls.entries()].map(([url]) => url);
 }
 
