@@ -31,7 +31,7 @@ interface VideoPlayerProps {
   onNavigateBack: () => void;
 }
 
-type StreamType = 'hls' | 'mp4' | 'dash';
+type StreamType = 'hls' | 'mp4' | 'dash' | 'webm';
 
 type PlaybackSource = {
   id: string;
@@ -229,7 +229,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           .filter(
             (source) =>
               Boolean(source.url) &&
-              ['hls', 'mp4', 'dash'].includes(source.type),
+              ['hls', 'mp4', 'dash', 'webm'].includes(source.type),
           )
           .map((source, index) => ({
             id:
@@ -251,6 +251,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           normalized.find((source) => source.type === 'hls') ||
           normalized.find((source) => source.type === 'dash') ||
           normalized.find((source) => source.type === 'mp4') ||
+          normalized.find((source) => source.type === 'webm') ||
           normalized[0];
 
         if (!cancelled) {
@@ -300,7 +301,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ? { src: streamUrl, type: 'application/x-mpegurl' as const }
       : streamType === 'dash'
         ? { src: streamUrl, type: 'application/dash+xml' as const }
-        : { src: streamUrl, type: 'video/mp4' as const }
+        : streamType === 'webm'
+          ? { src: streamUrl, type: 'video/webm' as const }
+          : { src: streamUrl, type: 'video/mp4' as const }
     : undefined;
 
   if (!safeTmdbId) {
@@ -426,8 +429,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </h3>
             <p className="text-[11px] text-slate-400">
               {language === 'ar'
-                ? 'يتم تشغيل HLS أو MP4 أو DASH مباشرة داخل مشغل Movyza فقط.'
-                : 'Movyza plays HLS, MP4, or DASH directly inside the native player.'}
+                ? 'يتم تشغيل HLS أو MP4 أو DASH أو WEBM مباشرة داخل مشغل Movyza فقط.'
+                : 'Movyza plays HLS, MP4, DASH, or WEBM directly inside the native player.'}
             </p>
           </div>
         </div>
@@ -477,8 +480,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
             <p className="text-[11px] leading-relaxed text-slate-400">
               {language === 'ar'
-                ? 'HLS وMP4 وDASH تشغّل مباشرة داخل مشغل Movyza.'
-                : 'HLS, MP4, and DASH play directly inside the Movyza player.'}
+                ? 'HLS وMP4 وDASH وWEBM تشغّل مباشرة داخل مشغل Movyza.'
+                : 'HLS, MP4, DASH, and WEBM play directly inside the Movyza player.'}
             </p>
           </div>
 
