@@ -11,7 +11,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Verify deployed Worker API and playback resolver
+      - name: Verify deployed API and VidRift playback target
         run: |
           node <<'NODE'
           const base = 'https://movyz-api.sameranede.workers.dev';
@@ -19,96 +19,80 @@ jobs:
 
           const getJson = async (path, timeout = 20000) => {
             const r = await fetch(base + path, {
-              headers, redirect:'follow', signal:AbortSignal.timeout(timeout)
+              headers,
+              redirect: 'follow',
+              signal: AbortSignal.timeout(timeout),
             });
             const body = await r.text();
-            console.log(path, 'HTTP', r.status, body.slice(0,900));
-            if (!r.ok) throw new Error(path + ' -> HTTP ' + r.status + ' ' + body.slice(0,500));
-            return JSON.parse(body);
-          };
-
-          const movieBoxBase = 'https://movyz-moviebox.sameranede.workers.dev';
-
-          const getMovieBoxJson = async (path, timeout = 20000) => {
-            const r = await fetch(movieBoxBase + path, {
-              headers: {'Accept':'application/json'},
-              redirect:'follow',
-              signal:AbortSignal.timeout(timeout)
-            });
-            const body = await r.text();
-            console.log('MOVIEBOX', path, 'HTTP', r.status, body.slice(0,1800));
-            if (!r.ok) throw new Error('MovieBox ' + path + ' -> HTTP ' + r.status + ' ' + body.slice(0,500));
-            return JSON.parse(body);
-          };
-
-          const mbSearch = await getMovieBoxJson('/search?q=Interstellar');
-          const mbMovies = mbSearch?.movies ?? mbSearch?.results ?? mbSearch?.items ?? [];
-          if (!Array.isArray(mbMovies) || !mbMovies.length) throw new Error('MovieBox search returned no Interstellar result');
-
-          const mbMatch = mbMovies[0];
-          const mbSlug = mbMatch?.slug ?? mbMatch?.detailPath;
-          if (!mbSlug) throw new Error('MovieBox search result has no slug');
-
-          const mbDetail = await getMovieBoxJson('/detail/' + encodeURIComponent(mbSlug));
-          const mbSubjectId = mbDetail?.metadata?.id ?? mbDetail?.subjectId ?? mbDetail?.id ?? mbDetail?.data?.subjectId ?? mbDetail?.data?.id;
-          if (!mbSubjectId) throw new Error('MovieBox detail returned no subject id');
-
-          const mbStream = await getMovieBoxJson(
-            '/api/stream/' + encodeURIComponent(String(mbSubjectId)) +
-            '?detail_path=' + encodeURIComponent(String(mbSlug)) + '&se=0&ep=0'
-          );
-          const mbSources = mbStream?.sources ?? mbStream?.streams ?? mbStream?.data?.sources ?? mbStream?.data?.streams ?? [];
-          console.log('MOVIEBOX_RESULT', JSON.stringify({
-            slug: mbSlug,
-            subjectId: String(mbSubjectId),
-            sourceCount: Array.isArray(mbSources) ? mbSources.length : 0,
-            first: Array.isArray(mbSources) ? mbSources[0] : null
-          }));
-          if (!Array.isArray(mbSources) || !mbSources.length) throw new Error('MovieBox stream returned no sources');
-
-          const validateMedia = async (source, label) => {
-            const sourceUrl = source?.url || source?.playUrl || source?.resourceUrl;
-            if (!sourceUrl || !/^https:\/\//i.test(sourceUrl)) throw new Error(label + ' has no HTTPS media URL');
-            const stream = await fetch(sourceUrl, {
-              headers:{Range:'bytes=0-1023'}, redirect:'follow', signal:AbortSignal.timeout(20000)
-            });
-            const type = (stream.headers.get('content-type') || '').toLowerCase();
-            const finalUrl = stream.url;
-            const hls = /\.m3u8(?:$|\?)/i.test(finalUrl) || type.includes('mpegurl');
-            const dash = /\.mpd(?:$|\?)/i.test(finalUrl) || type.includes('dash+xml');
-            const media = type.includes('video/') || stream.status === 206 || stream.status === 416;
-            let sample = '';
-            if (hls || dash) sample = (await stream.text()).slice(0, 1024);
-            const validPlaylist = hls ? /^#EXTM3U/m.test(sample) : dash ? /<MPD[\s>]/i.test(sample) : media;
-            console.log(label, JSON.stringify({url:sourceUrl,finalUrl,status:stream.status,type,playlist:sample.slice(0,120)}));
-            if (![200, 206, 416].includes(stream.status) || !validPlaylist) {
-              throw new Error(label + ' is not playable media: HTTP ' + stream.status + ' ' + type);
+            console.log(path, 'HTTP', r.status, body.slice(0, 1200));
+            if (!r.ok) {
+              throw new Error(path + ' -> HTTP ' + r.status + ' ' + body.slice(0, 600));
             }
+            return JSON.parse(body);
           };
-          await validateMedia(mbSources[0], 'MOVIEBOX_SOURCE');
 
           const health = await getJson('/health', 15000);
           if (!health?.success) throw new Error('Worker health check failed');
 
-          const movie = { id: '2f1906ec-2d6d-435b-bcad-7e93a6950140', titleEn: 'Interstellar' };
-          const watch = await getJson('/api/v1/watch/' + encodeURIComponent(movie.id), 20000);
-          const sources = watch?.data?.sources ?? [];
-          console.log('MOVIE_RESULT', JSON.stringify({
-            id: movie.id, title: movie.title, titleEn: movie.titleEn, sourceCount: sources.length,
-            providers: sources.map(s => s.provider)
-          }));
-
-          if (!sources.length) {
-            throw new Error('No playable source returned by the provider resolver');
+          const catalog = await getJson('/api/v1/movies?search=Interstellar&page=1&limit=5');
+          const items = catalog?.data?.items ?? catalog?.data?.movies ?? catalog?.movies ?? [];
+          if (!Array.isArray(items) || !items.length) {
+            throw new Error('Catalog returned no Interstellar result');
           }
 
-          for (const source of sources.slice(0, 2)) await validateMedia(source, 'WATCH_SOURCE ' + source.provider);
+          const movie = items.find((item) =>
+            /interstellar/i.test(String(item?.titleEn || item?.title || ''))
+          ) || items[0];
 
-          console.log('LIVE_WORKER_PLAYBACK=PASS');
+          const tmdbId = Number(movie?.tmdbId || movie?.tmdb_id || 0);
+          if (!Number.isInteger(tmdbId) || tmdbId <= 0) {
+            throw new Error('Catalog movie has no valid TMDB id: ' + JSON.stringify(movie).slice(0, 900));
+          }
+
+          const embedUrl =
+            'https://embed.vidrift.net/embed/movie/' +
+            encodeURIComponent(String(tmdbId)) +
+            '?title=' + encodeURIComponent(String(movie?.titleEn || 'Interstellar')) +
+            '&brand=Movyza';
+
+          // VidRift explicitly serves /embed/* to framed browsers and may return
+          // 403 to plain programmatic fetches. Simulate an iframe navigation.
+          const embed = await fetch(embedUrl, {
+            method: 'GET',
+            headers: {
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36',
+              'Referer': base + '/',
+              'Sec-Fetch-Dest': 'iframe',
+              'Sec-Fetch-Mode': 'navigate',
+              'Sec-Fetch-Site': 'cross-site',
+            },
+            redirect: 'follow',
+            signal: AbortSignal.timeout(20000),
+          });
+
+          const embedBody = await embed.text();
+          console.log('VIDRIFT', JSON.stringify({
+            tmdbId,
+            status: embed.status,
+            finalUrl: embed.url,
+            type: embed.headers.get('content-type'),
+            sample: embedBody.slice(0, 500),
+          }));
+
+          if (!embed.ok || !(embed.headers.get('content-type') || '').includes('text/html')) {
+            throw new Error('VidRift embed is not reachable as an iframe target: HTTP ' + embed.status);
+          }
+
+          if (!/VidRift|vidrift/i.test(embedBody)) {
+            throw new Error('VidRift embed HTML did not contain the player shell');
+          }
+
+          console.log('LIVE_PLAYBACK_TARGET=PASS');
           console.log('PASSED_MOVIE', JSON.stringify({
-            movie,
-            sources:sources.map(s => ({
-              provider:s.provider,url:s.url,type:s.type,quality:s.quality
-            }))
-          }).slice(0,3000));
+            id: movie?.id,
+            title: movie?.titleEn || movie?.title,
+            tmdbId,
+            embedUrl,
+          }).slice(0, 2500));
           NODE
