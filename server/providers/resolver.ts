@@ -78,7 +78,17 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   if (mappingsError) throw new Error('Unable to load provider mappings');
 
   const mappingByProvider = new Map((mappings || []).map((mapping: any) => [mapping.provider_id, mapping]));
+  const priority = new Map([
+    ['egybest', 0],
+    ['faselhd', 1],
+    ['ezvidapi', 2],
+    ['nhdapi', 3],
+    ['streamprovider', 4],
+  ]);
   const orderedProviders = [...(providers || [])].sort((a: any, b: any) => {
+    const pa = priority.get(a.key) ?? 100;
+    const pb = priority.get(b.key) ?? 100;
+    if (pa !== pb) return pa - pb;
     const rateDiff = Number(b.success_rate ?? -1) - Number(a.success_rate ?? -1);
     return rateDiff || Number(a.latency_ms ?? Number.MAX_SAFE_INTEGER) - Number(b.latency_ms ?? Number.MAX_SAFE_INTEGER);
   });
