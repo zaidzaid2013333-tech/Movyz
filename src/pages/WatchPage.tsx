@@ -73,7 +73,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
         setCurrentEpisode(episode);
         if (episode) {
-          // VidRift resolves playback from the series TMDB id and episode numbers.
+          // YapGrid resolves playback from the series TMDB id and episode numbers.
         }
         setLoading(false);
       } else {
@@ -278,8 +278,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 </span>
                 <p className="text-[11px] leading-relaxed">
                   {language === 'ar'
-                    ? 'التشغيل يتم عبر VidRift اعتمادًا على معرّف TMDB. عند فتح اختيار المصدر على الهاتف، ستظهر خيارات السيرفرات أسفل المشغل لتسهيل الوصول إليها.'
-                    : 'Playback is powered by VidRift using the TMDB id. On mobile, source choices appear in a panel below the player when opened.'}
+                    ? 'التشغيل يتم عبر YapGrid اعتمادًا على معرّف TMDB. العربية مضبوطة كلغة الترجمة الافتراضية، والسيرفرات يمكن تبديلها من إعدادات المشاهدة.'
+                    : 'Playback is powered by YapGrid using the TMDB id. Arabic is requested as the default subtitle language, and servers can be switched from the watch settings.'}
                 </p>
               </div>
             </div>
