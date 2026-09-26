@@ -103,6 +103,7 @@ export function createEgyBestAdapter() {
     baseUrl,
     moviePath: `${baseUrl}${moviePath}`,
     episodePath: `${baseUrl}${episodePath}`,
+    timeoutMs: Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000),
     language: 'ar',
     requiresMapping: true,
     headers: {
