@@ -177,12 +177,12 @@ async function main() {
   const providerRows = await adminSupabase
     .from('providers')
     .select('key,enabled')
-    .in('key', ['moviebox-api', 'ezvidapi']);
+    .in('key', ['ezvidapi', 'faselhd']);
 
   if (providerRows.error) throw new Error('Unable to load playback providers');
   const enabledKeys = new Set((providerRows.data || []).filter((row: any) => row.enabled).map((row: any) => row.key));
-  if (!enabledKeys.has('moviebox-api') && !enabledKeys.has('ezvidapi')) {
-    throw new Error('MovieBox API and ezVidAPI are not enabled in Supabase');
+  if (!enabledKeys.has('ezvidapi') && !enabledKeys.has('faselhd')) {
+    throw new Error('No configured playback provider is enabled in Supabase');
   }
 
   const candidates = await fetchLists();
