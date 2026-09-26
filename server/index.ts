@@ -373,6 +373,36 @@ app.get(`${api}/episodes/:id`, asyncRoute(async (req, res) => {
   });
 }));
 
+app.get(`${api}/watch/:id/stream`, asyncRoute(async (req, res) => {
+  const parsed = z.enum(['movie', 'episode']).default('movie').safeParse(req.query.type);
+  if (!parsed.success) return fail(res, 400, 'INVALID_CONTENT_TYPE', 'Invalid content type');
+
+  const sources = await resolvePlaybackSources(parsed.data, req.params.id);
+  if (!sources.length) return fail(res, 404, 'NO_PLAYABLE_SOURCE', 'No playable source is currently available');
+
+  const selected =
+    sources.find((source: any) => String(source.providerKey || '').toLowerCase() === 'moviebox-api') ||
+    sources[0];
+
+  let target: string;
+  try {
+    const url = new URL(String(selected.url || '').trim());
+    if (url.protocol !== 'https:') throw new Error('invalid protocol');
+    target = url.toString();
+  } catch {
+    return fail(res, 502, 'INVALID_PLAYBACK_SOURCE', 'Resolved playback source is invalid');
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: target,
+      'Cache-Control': 'no-store',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+}));
+
 app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
   const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : null;
   const type = episodeId ? 'episode' : 'movie';
