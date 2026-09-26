@@ -80,6 +80,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const isMovie = contentType === 'movie';
   const safeTmdbId = Number(tmdbId || 0);
 
+  const buildFallbackEmbedUrl = () =>
+    isMovie
+      ? `https://ezvidapi.com/embed/movie/${safeTmdbId}`
+      : `https://ezvidapi.com/embed/tv/${safeTmdbId}/${Number(seasonNumber || 1)}/${Number(episodeNumber || 1)}`;
+
   const handleSourceChange = (sourceId: string) => {
     const source = availableSources.find((item) => item.id === sourceId);
     if (!source) return;
@@ -159,11 +164,7 @@ if (!safeTmdbId) {
         }
       } catch (err) {
         if (!cancelled) {
-          const fallbackUrl = isMovie
-            ? `https://ezvidapi.com/embed/movie/${safeTmdbId}`
-            : `https://ezvidapi.com/embed/tv/${safeTmdbId}/${Number(seasonNumber || 1)}/${Number(episodeNumber || 1)}`;
-
-          setFallbackEmbedUrl(fallbackUrl);
+          setFallbackEmbedUrl(buildFallbackEmbedUrl());
           setLoading(true);
           setError('');
           setAvailableSources([]);
@@ -207,10 +208,7 @@ if (!safeTmdbId) {
     const handleTimeUpdate = () => { void saveProgress(video); };
     const handlePause = () => { void saveProgress(video, true); };
     const handleEnded = () => { void saveProgress(video, true); };
-    const handleSourceError = () => {
-      setLoading(false);
-      handlePlaybackFailure();
-    };
+    const handleLoadedMetadata = () => { void restoreProgress(); };
     const handlePlaybackFailure = () => {
       if (availableSources.length <= 1) {
         setLoading(false);
@@ -224,6 +222,12 @@ if (!safeTmdbId) {
         availableSources.find((source) => source.id !== selectedSourceId);
 
       if (!nextSource) {
+        if (!fallbackEmbedUrl) {
+          setFallbackEmbedUrl(buildFallbackEmbedUrl());
+          setLoading(true);
+          setError('');
+          return;
+        }
         setLoading(false);
         setError(language === 'ar' ? 'تعذر تشغيل جميع المصادر المتاحة.' : 'All available playback sources failed.');
         return;
@@ -242,10 +246,10 @@ if (!safeTmdbId) {
     };
 
     video.addEventListener('canplay', handleCanPlay);
-    video.addEventListener('loadedmetadata', () => { void restoreProgress(); });
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('pause', handlePause);
     video.addEventListener('ended', handleEnded);
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('error', handlePlaybackFailure);
 
     if (streamType === 'mp4') {
@@ -316,6 +320,10 @@ if (!safeTmdbId) {
             referrerPolicy="strict-origin-when-cross-origin"
             loading="eager"
             onLoad={() => setLoading(false)}
+            onError={() => {
+              setLoading(false);
+              setError(language === 'ar' ? 'تعذر تحميل مشغل ezvidapi.' : 'The ezvidapi player could not be loaded.');
+            }}
             className="absolute inset-0 w-full h-full border-0 bg-black"
           />
         ) : (
