@@ -7,12 +7,14 @@
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
-    "server": "tsx server/index.ts",
-    "server:dev": "tsx watch server/index.ts",
+    "server": "tsx server/node.ts",
+    "server:dev": "tsx watch server/node.ts",
     "start": "tsx server/index.ts",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "test": "tsx --test server/providers/http.test.ts server/providers/tmdb-hls.test.ts server/providers/mapped-json.test.ts"
+    "test": "tsx --test server/providers/http.test.ts server/providers/tmdb-hls.test.ts server/providers/mapped-json.test.ts",
+    "cf:deploy": "wrangler deploy",
+    "cf:dev": "wrangler dev"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -43,6 +45,8 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
-    "@types/cors": "^2.8.19"
+    "@types/cors": "^2.8.19",
+    "@cloudflare/workers-types": "^4.20260926.0",
+    "wrangler": "^4.44.0"
   }
 }
