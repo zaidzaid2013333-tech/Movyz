@@ -78,7 +78,29 @@ jobs:
             }));
           }
 
-          const selected = json.sources[0];
+          const selected = json.sources.find(s => String(s.resolution) === '480p') || json.sources[json.sources.length - 1];
+          const selectedUrl = selected.url;
+          const originUrl = new URL(selectedUrl).origin;
+          const direct = await fetch(selectedUrl, {
+            headers: {
+              Range: 'bytes=0-1023',
+              Referer: originUrl + '/',
+              Origin: originUrl,
+              Accept: '*/*',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36'
+            },
+            redirect: 'follow'
+          });
+          const directBody = await direct.arrayBuffer();
+          console.log('DIRECT_STATUS=' + direct.status);
+          console.log('DIRECT_CONTENT_TYPE=' + (direct.headers.get('content-type') || ''));
+          console.log('DIRECT_CONTENT_RANGE=' + (direct.headers.get('content-range') || ''));
+          console.log('DIRECT_ACCEPT_RANGES=' + (direct.headers.get('accept-ranges') || ''));
+          console.log('DIRECT_BYTES=' + directBody.byteLength);
+          if (![200,206].includes(direct.status) || !directBody.byteLength) {
+            throw new Error('Raw CDN URL is not directly readable');
+          }
+
           const watch = new URL('/watch/' + subjectId, base);
           watch.searchParams.set('detail_path', detailPath);
           watch.searchParams.set('se', '1');
@@ -95,8 +117,11 @@ jobs:
           console.log('WATCH_CONTENT_LENGTH=' + (resp.headers.get('content-length') || ''));
           const body = new Uint8Array(await resp.arrayBuffer());
           console.log('WATCH_BYTES=' + body.byteLength);
-
-          if (![200,206].includes(resp.status)) throw new Error('Watch endpoint failed');
+          const watchText = body.byteLength < 4096 ? new TextDecoder().decode(body) : '';
+          if (![200,206].includes(resp.status)) {
+            console.log('WATCH_ERROR_BODY=' + watchText);
+            throw new Error('Watch endpoint failed');
+          }
           if (!body.length) throw new Error('Watch endpoint returned an empty body');
 
           const ct = (resp.headers.get('content-type') || '').toLowerCase();
