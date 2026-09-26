@@ -1,0 +1,69 @@
+name: Movyz TMDB Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      pages:
+        description: "TMDB catalog pages to sync (1-3)"
+        required: true
+        default: "1"
+        type: choice
+        options: ["1","2","3"]
+      sync_episodes:
+        description: "Sync episodes after catalog"
+        required: true
+        default: true
+        type: boolean
+      series_limit:
+        description: "Maximum series to expand into episodes (1-25)"
+        required: true
+        default: "10"
+        type: choice
+        options: ["5","10","15","20","25"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-tmdb-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      MOVYZA_PROVIDER_TIMEOUT_MS: "8000"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install
+
+      - name: Validate required secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "Missing SUPABASE_URL"; exit 1)
+          test -n "$SUPABASE_ANON_KEY" || (echo "Missing SUPABASE_ANON_KEY"; exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY"; exit 1)
+          test -n "$TMDB_API_READ_ACCESS_TOKEN" || (echo "Missing TMDB_API_READ_ACCESS_TOKEN"; exit 1)
+
+      - name: Sync TMDB catalog
+        env:
+          TMDB_PAGES: ${{ inputs.pages }}
+        run: npx tsx scripts/run-tmdb-sync.ts catalog "$TMDB_PAGES"
+
+      - name: Sync TMDB episodes
+        if: ${{ inputs.sync_episodes }}
+        env:
+          SERIES_LIMIT: ${{ inputs.series_limit }}
+        run: npx tsx scripts/run-tmdb-sync.ts episodes "$SERIES_LIMIT"
+
+      - name: Verify synchronized catalog
+        run: npx tsx scripts/verify-tmdb-sync.ts
