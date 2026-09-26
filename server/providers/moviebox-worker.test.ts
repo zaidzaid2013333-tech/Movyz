@@ -126,7 +126,7 @@ test("MovieBox worker authenticates with the mobile API and normalizes search", 
     }]);
     assert.equal(calls.length, 2);
     assert.match(calls[0]!, /tab-operating\?host=api\.inmoviebox\.com&page=1&pageSize=24&tabId=1/);
-    assert.match(calls[1]!, /subject-api\/search$/);
+    assert.match(calls[1]!, /subject-api\/search\?host=api\.inmoviebox\.com$/);
   } finally {
     globalThis.fetch = originalFetch;
   }
