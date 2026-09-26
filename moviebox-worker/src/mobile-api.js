@@ -14,18 +14,18 @@ const HOST_POOL = [
   "https://api6sg.aoneroom.com",
 ];
 
-const API_HOST_QUERY = "apig.inmoviebox.com";
+const API_HOST_QUERY = "api.inmoviebox.com";
 const DEFAULT_GUEST_TOKEN =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjcwNjU5NDg0MTAyMTM4MTYyMzIsInV0cCI6MSwiZXhwIjoxNzkxNzMyMjMzLCJpYXQiOjE3ODM5NTU5Mzl9.7iyEzTj4vWAbOF0oXwNnZ0p3Nc1QaO6K9eMiGFyVfGs";
 const DEFAULT_GUEST_EXP_MS = 1791732233000;
 const SECRET_KEY_B64 = "76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O";
 const VERSION_CODE = 50020126;
 const VERSION_NAME = "4.0.02";
-const ANDROID_VERSION = "14";
-const ANDROID_BUILD = "UP1A.231005.007";
+const ANDROID_VERSION = "12";
+const ANDROID_BUILD = "SP2A.220505.002";
 const DEVICE_MODEL = "Pixel 6";
 const DEVICE_BRAND = "Google";
-const USER_AGENT = "MovieBox/4.0.02 (Android 14; Pixel 6)";
+const USER_AGENT = "MovieBoxPro/16.2.1 (Android 12; Pixel 6)";
 
 const BOOTSTRAP_PATH = "/wefeed-mobile-bff/tab-operating";
 const SEARCH_PATH = "/wefeed-mobile-bff/subject-api/search";
@@ -266,7 +266,7 @@ function usableAuthToken() {
 
 function buildHeaders(method, url, body, bearerToken) {
   const accept = "application/json";
-  const contentType = "application/json;charset=UTF-8";
+  const contentType = body !== null ? "application/json;charset=UTF-8" : "application/json";
   const timestamp = Date.now();
   const origin = new URL(url).origin;
 
@@ -275,7 +275,7 @@ function buildHeaders(method, url, body, bearerToken) {
     Accept: accept,
     "Content-Type": contentType,
     Referer: `${origin}/`,
-    "X-M-Version": VERSION_NAME,
+    "X-M-Version": "16.2.1",
     "X-Sign-Version": "2.0",
     "X-Client-Token": generateClientToken(timestamp),
     "x-tr-signature": generateSignature(method, accept, contentType, url, body, timestamp),
@@ -401,7 +401,7 @@ async function requestOnce(host, path, method, params, body, bearerToken) {
 
 async function requestMobile(path, method = "GET", params, body) {
   let bearer = await bootstrapAuthToken();
-  let lastFailure = "all MovieBox mobile hosts failed";
+  const failures = [];
   let authFailureSeen = false;
 
   for (const host of HOST_POOL) {
@@ -409,9 +409,9 @@ async function requestMobile(path, method = "GET", params, body) {
       const result = await requestOnce(host, path, method, params, body, bearer);
       if (result.ok) return result.parsed.data ?? null;
       if (result.authFailure) authFailureSeen = true;
-      lastFailure = `${host} HTTP ${result.status}${result.raw ? " " + result.raw.replace(/\s+/g, " ").slice(0, 220) : ""}`;
+      failures.push(`${host} HTTP ${result.status}${result.raw ? " " + result.raw.replace(/\s+/g, " ").slice(0, 240) : ""}`);
     } catch (error) {
-      lastFailure = `${host}: ${error instanceof Error ? error.message : String(error)}`;
+      failures.push(`${host}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -421,156 +421,26 @@ async function requestMobile(path, method = "GET", params, body) {
     resetClientIdentity();
     bearer = await bootstrapAuthToken();
 
+    const retryFailures = [];
     for (const host of HOST_POOL) {
       try {
         const result = await requestOnce(host, path, method, params, body, bearer);
         if (result.ok) return result.parsed.data ?? null;
-        lastFailure = `${host} HTTP ${result.status}${result.raw ? " " + result.raw.replace(/\s+/g, " ").slice(0, 220) : ""}`;
+        retryFailures.push(`${host} HTTP ${result.status}${result.raw ? " " + result.raw.replace(/\s+/g, " ").slice(0, 240) : ""}`);
       } catch (error) {
-        lastFailure = `${host}: ${error instanceof Error ? error.message : String(error)}`;
+        retryFailures.push(`${host}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+    throw new Error(`MovieBox mobile request failed after auth refresh for ${path}: ${retryFailures.join(" | ")}`);
   }
 
-  throw new Error(`MovieBox mobile request failed for ${path}: ${lastFailure}`);
+  throw new Error(`MovieBox mobile request failed for ${path}: ${failures.join(" | ")}`);
 }
 
-function mapSearchItem(item) {
-  const subjectId = item?.subjectId;
-  return {
-    name: item?.title || item?.name || "",
-    year: item?.releaseDate || null,
-    poster_url: item?.cover?.url || item?.thumbnail || null,
-    url: subjectId != null ? `https://moviebox.pk/detail/${encodeURIComponent(String(subjectId))}` : null,
-    slug: subjectId != null ? String(subjectId) : null,
-    badge: item?.corner || null,
-    blurhash: item?.cover?.blurHash || null,
-  };
-}
-
-export async function mobileSearch(query) {
-  const data = await requestMobile(
-    SEARCH_PATH,
-    "POST",
-    undefined,
-    {
-      keyword: query,
-      q: query,
-      page: 1,
-      pageSize: 30,
-      type: 0,
-    },
-  );
-  const items = Array.isArray(data?.items) ? data.items : [];
-  return {
-    query,
-    count: items.length,
-    movies: items.map(mapSearchItem).filter((item) => item.slug && item.name),
-  };
-}
-
-export async function mobileDetail(subjectId) {
-  const data = await requestMobile(DETAIL_PATH, "GET", { subjectId });
-  if (!data?.subjectId) throw new Error(`MovieBox detail returned no subject id for ${subjectId}`);
-  return {
-    id: String(data.subjectId),
-    title: data.title || "",
-    description: data.description || null,
-    release_date: data.releaseDate || null,
-    duration: data.duration || null,
-    genre: data.genre || [],
-    country: data.countryName || null,
-    imdb_rating: data.imdbRatingValue || null,
-    poster: data.cover?.url || null,
-    badge: data.corner || null,
-    dubs: data.dubs || [],
-    top_cast: data.staffList || [],
-    has_resource: Boolean(data.hasResource),
-    language: data.language || null,
-  };
-}
-
-export async function mobileSeasons(subjectId) {
-  const data = await requestMobile(SEASON_PATH, "GET", { subjectId });
-  const seasons = Array.isArray(data?.seasons) ? data.seasons : [];
-  return seasons.map((season) => ({
-    season: Number(season.se || 0),
-    episode_count: Number(season.maxEp || 0),
-    episodes_available: Array.isArray(season.resolutions) && season.resolutions.length
-      ? Math.max(...season.resolutions.map((resolution) => Number(resolution.epNum || 0)))
-      : Number(season.maxEp || 0),
-  }));
-}
-
-async function fetchResourcePage(subjectId, se, ep, resolution, page) {
-  return requestMobile(
-    RESOURCE_PATH,
-    "GET",
-    { subjectId, se, ep, resolution, page, perPage: 10 },
-  );
-}
-
-export async function mobileStreams(subjectId, se = 0, ep = 0) {
-  const seen = new Map();
-  const failures = [];
-
-  for (const resolution of RESOLUTIONS) {
-    let page = 1;
-    while (page <= 100) {
-      try {
-        const data = await fetchResourcePage(subjectId, se, ep, resolution, page);
-        const list = Array.isArray(data?.list) ? data.list : [];
-
-        for (const item of list) {
-          if (item?.resourceId && item?.resourceLink) {
-            seen.set(String(item.resourceId), item);
-          }
-        }
-
-        if (!data?.pager?.hasMore) break;
-        page++;
-      } catch (error) {
-        failures.push(error instanceof Error ? error.message : String(error));
-        break;
-      }
-    }
-  }
-
-  const items = [...seen.values()].sort(
-    (a, b) => Number(b.resolution || 0) - Number(a.resolution || 0),
-  );
-
-  if (!items.length) {
-    throw new Error(
-      `MovieBox returned no resources for subject ${subjectId} se=${se} ep=${ep}${failures.length ? ": " + failures.join(" | ").slice(0, 700) : ""}`,
-    );
-  }
-
-  return items.map((item) => ({
-    id: String(item.resourceId),
-    resolution: Number(item.resolution || 0),
-    format: "mp4",
-    url: String(item.resourceLink),
-    size_bytes: item.size ? Number(item.size) || null : null,
-    size: item.size || null,
-    title: item.title || null,
-    se: Number(item.se ?? se),
-    ep: Number(item.ep ?? ep),
-    captions: Array.isArray(item.extCaptions)
-      ? item.extCaptions
-          .map((caption) => ({
-            language: caption.lanName || caption.lan || "und",
-            language_code: caption.lan || null,
-            url: caption.url || null,
-          }))
-          .filter((caption) => caption.url)
-      : [],
-  }));
-}
 
 export function __resetMobileAuthForTests() {
-  authToken = DEFAULT_GUEST_TOKEN;
-  authExpiresAt = DEFAULT_GUEST_EXP_MS;
+  authToken = null;
+  authExpiresAt = 0;
   bootstrapPromise = null;
   resetClientIdentity();
 }
