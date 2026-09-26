@@ -100,3 +100,20 @@ export function createStreamProviderAdapter() {
     healthUrl: process.env.STREAMPROVIDER_HEALTH_URL || undefined,
   });
 }
+
+
+export function createNhdApiAdapter() {
+  const key = process.env.NHD_API_KEY?.trim();
+  if (!key) return null;
+
+  return createTmdbHlsAdapter({
+    key: 'nhdapi',
+    name: 'NHD API',
+    movieUrl: process.env.NHD_MOVIE_URL_TEMPLATE || 'https://nhdapi.com/movie/{{tmdbId}}?key={{key}}',
+    episodeUrl: process.env.NHD_TV_URL_TEMPLATE || 'https://nhdapi.com/tv/{{tmdbId}}/{{season}}/{{episode}}?key={{key}}',
+    timeoutMs,
+    language: 'und',
+    templateValues: { key },
+    healthUrl: process.env.NHD_HEALTH_URL || undefined,
+  });
+}
