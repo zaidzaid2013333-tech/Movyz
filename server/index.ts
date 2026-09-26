@@ -651,12 +651,13 @@ app.post(`${api}/watch/:id/progress`, requireAuth, asyncRoute(async (req: Authen
 
 app.post(`${api}/reports`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {
   const body = z.object({
-    contentId: z.string().uuid(), contentTitle: z.string().max(300),
-    sourceId: z.string().uuid(), issueType: z.string().max(80), description: z.string().max(2000),
+    contentId: z.string().uuid(), contentType: z.enum(['movie', 'episode']),
+    contentTitle: z.string().max(300), sourceId: z.string().uuid(),
+    issueType: z.string().max(80), description: z.string().max(2000),
   }).safeParse(req.body);
   if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid report payload');
   const { data, error } = await req.supabase!.from('reports').insert({
-    user_id: req.userId!, content_id: body.data.contentId, content_type: 'movie',
+    user_id: req.userId!, content_id: body.data.contentId, content_type: body.data.contentType,
     source_id: body.data.sourceId, issue_type: body.data.issueType, description: body.data.description,
   }).select('*').single();
   if (error) return fail(res, 500, 'REPORT_WRITE_FAILED', 'Unable to submit report');
