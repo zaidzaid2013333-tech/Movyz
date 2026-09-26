@@ -1,9 +1,9 @@
-import type {NextFunction,Request,Response} from 'express';
+import type {NextFunction,HttpRequest,HttpResponse} from './mini-http';
 import {createUserClient} from './supabase';
 
-export interface AuthenticatedRequest extends Request { userId?:string; role?:'USER'|'ADMIN'|'OWNER'; supabase?:ReturnType<typeof createUserClient>; }
+export interface AuthenticatedRequest extends HttpRequest { userId?:string; role?:'USER'|'ADMIN'|'OWNER'; supabase?:ReturnType<typeof createUserClient>; }
 
-export async function requireAuth(req:AuthenticatedRequest,res:Response,next:NextFunction){
+export async function requireAuth(req:AuthenticatedRequest,res:HttpResponse,next:NextFunction){
   try{
     const h=req.header('authorization');
     if(!h?.startsWith('Bearer ')) return res.status(401).json({success:false,error:{code:'UNAUTHENTICATED',message:'Authentication required'}});
