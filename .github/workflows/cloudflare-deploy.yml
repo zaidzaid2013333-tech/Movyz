@@ -67,6 +67,7 @@ jobs:
       - name: Deploy Movyz
         run: npx wrangler deploy --secrets-file .env.production
 
+      # Watch API contract verification intentionally allows an empty source table during rollout.
       - name: Verify deployed Watch API contract
         run: |
           node <<'NODE'
