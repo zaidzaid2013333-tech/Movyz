@@ -377,14 +377,20 @@ app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
 
   const { data, error } = await adminSupabase
     .from('playback_sources')
-    .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)')
+    .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name,enabled,success_rate,latency_ms)')
     .eq('content_type', type)
     .eq('content_id', contentId)
     .eq('is_working', true);
 
   if (error) return fail(res, 500, 'SOURCES_QUERY_FAILED', 'Unable to load playback sources');
 
-  const valid = (data || []).filter((x: any) => x.providers?.enabled !== false && (!x.expires_at || new Date(x.expires_at) > new Date()));
+  const valid = (data || [])
+    .filter((x: any) => x.providers?.enabled !== false && (!x.expires_at || new Date(x.expires_at) > new Date()))
+    .sort((a: any, b: any) => {
+      const rateDiff = Number(b.providers?.success_rate ?? -1) - Number(a.providers?.success_rate ?? -1);
+      if (rateDiff) return rateDiff;
+      return Number(a.providers?.latency_ms ?? Number.MAX_SAFE_INTEGER) - Number(b.providers?.latency_ms ?? Number.MAX_SAFE_INTEGER);
+    });
 
   if (valid.length) {
     return ok(res, valid.map(sourceDto));
