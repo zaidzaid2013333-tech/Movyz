@@ -39,8 +39,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!safeTmdbId) return '';
 
     return isMovie
-      ? `${EZVIDAPI_ORIGIN}/embed/movie/${safeTmdbId}?autoplay=true`
-      : `${EZVIDAPI_ORIGIN}/embed/tv/${safeTmdbId}/${Number(seasonNumber || 1)}/${Number(episodeNumber || 1)}?autoplay=true`;
+      ? `${EZVIDAPI_ORIGIN}/embed/movie/${safeTmdbId}?provider=vidsrc&autoplay=true`
+      : `${EZVIDAPI_ORIGIN}/embed/tv/${safeTmdbId}/${Number(seasonNumber || 1)}/${Number(episodeNumber || 1)}?provider=vidsrc&autoplay=true`;
   }, [episodeNumber, isMovie, safeTmdbId, seasonNumber]);
 
   useEffect(() => {
