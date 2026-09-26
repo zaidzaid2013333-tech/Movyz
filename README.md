@@ -14,7 +14,7 @@ The frontend never talks directly to TMDB or provider implementations.
 ## Local development
 
 1. Copy .env.example to .env.
-2. Create the Supabase project and apply supabase/migrations/202609250001_initial_movyz_schema.sql.
+2. Create the Supabase project and run `supabase/MOVYZ_FULL_SETUP.sql`. If you already ran the older setup successfully, run `supabase/migrations/202609260004_pre_sync_hardening.sql` once instead.
 3. Fill Supabase server/browser credentials.
 4. Start the API with npm run server:dev.
 5. Start Vite with npm run dev.
