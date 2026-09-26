@@ -50,12 +50,18 @@ jobs:
       - name: Validate Cloudflare configuration
         run: npx wrangler deploy --dry-run
 
-      - name: Sync required Worker secrets
+      - name: Prepare deployment secrets
         run: |
-          printf '%s' "$SUPABASE_URL" | npx wrangler secret put SUPABASE_URL
-          printf '%s' "$SUPABASE_ANON_KEY" | npx wrangler secret put SUPABASE_ANON_KEY
-          printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-          printf '%s' "$TMDB_API_READ_ACCESS_TOKEN" | npx wrangler secret put TMDB_API_READ_ACCESS_TOKEN
+          {
+            printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"
+            printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_ANON_KEY"
+            printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
+            printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
+          } > .env.production
 
       - name: Deploy Movyz
-        run: npx wrangler deploy
+        run: npx wrangler deploy --secrets-file .env.production
+
+      - name: Remove temporary secrets file
+        if: always()
+        run: rm -f .env.production
