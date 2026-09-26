@@ -1,6 +1,4 @@
-import express, { type NextFunction, type Request, type Response } from 'express';
-import helmet from 'helmet';
-import cors from 'cors';
+import { MiniApp, type NextFunction, type HttpRequest, type HttpResponse } from './mini-http';
 import { z } from 'zod';
 import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
@@ -10,45 +8,25 @@ import { getProvider } from './providers/registry';
 import { PROVIDER_PRIORITY, resolvePlaybackSources } from './providers/resolver';
 import { registerBuiltInProviders } from './providers/bootstrap';
 
-export const app = express();
-const port = Number(process.env.PORT || 8787);
+export const app = new MiniApp();
 const api = '/api/v1';
 
 registerBuiltInProviders();
 
 app.disable('x-powered-by');
-app.use(helmet());
-app.use(cors({
-  origin: (origin, callback) => {
-    const allow = (process.env.CORS_ORIGINS || '').split(',').map((x) => x.trim()).filter(Boolean);
-    if (!origin || allow.length === 0 || allow.includes(origin)) return callback(null, true);
-    callback(new Error('Origin not allowed'));
-  },
-}));
+
 app.use(async (req, res, next) => {
-  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
-  const contentType = req.headers['content-type'] || '';
-  if (!contentType.toLowerCase().includes('application/json')) {
-    req.body = {};
-    return next();
-  }
-
-  try {
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      const size = chunks.reduce((total, part) => total + part.length, 0);
-      if (size > 1024 * 1024) {
-        return fail(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds 1MB');
-      }
-    }
-
-    const raw = Buffer.concat(chunks).toString('utf8').trim();
-    req.body = raw ? JSON.parse(raw) : {};
-    return next();
-  } catch {
-    return fail(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
-  }
+  const origin = req.headers.get('origin');
+  const allow = (process.env.CORS_ORIGINS || '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (origin && (allow.length === 0 || allow.includes(origin))) res.setHeader('access-control-allow-origin', origin);
+  res.setHeader('access-control-allow-credentials', 'true');
+  res.setHeader('access-control-allow-headers', 'Authorization, Content-Type');
+  res.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('referrer-policy', 'strict-origin-when-cross-origin');
+  res.setHeader('x-frame-options', 'SAMEORIGIN');
+  if (req.method === 'OPTIONS') return res.status(204).send();
+  return next();
 });
 
 const catalogQuery = z.object({
@@ -1431,12 +1409,9 @@ app.post(`${api}/admin/sync/tmdb`, requireAuth, requireAdmin, asyncRoute(async (
   }
 }));
 
-app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+app.use((err: any, _req: HttpRequest, res: HttpResponse, _next: NextFunction) => {
   console.error(err);
-  if (res.headersSent) return;
+
   return fail(res, 500, 'INTERNAL_ERROR', 'Internal server error');
 });
 
-export function startServer() {
-  app.listen(port, () => console.log(`Movyz API listening on port ${port}`));
-}
