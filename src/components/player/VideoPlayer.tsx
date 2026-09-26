@@ -74,6 +74,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const failedSourceIdsRef = useRef<Set<string>>(new Set());
   const lastSavedAtRef = useRef(0);
   const progressLoadedRef = useRef(false);
+  const subtitleAutoShownRef = useRef(false);
 
   const [sources, setSources] = useState<PlaybackSource[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState('');
@@ -322,7 +323,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => {
     progressLoadedRef.current = false;
-  }, [streamUrl]);
+    subtitleAutoShownRef.current = false;
+  }, [streamUrl, selectedSourceId]);
 
   const playerSource = streamUrl
     ? streamType === 'hls'
@@ -349,7 +351,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <div className="movyza-player-shell relative aspect-video w-full overflow-hidden bg-black">
         {playerSource ? (
           <MediaPlayer
+            key={`movyza-player-${selectedSourceId}-${subtitleTracks.map((track) => `${track.language}:${track.url}`).join('|')}`}
             className="movyza-player absolute inset-0 h-full w-full"
+            load="eager"
             title={isMovie ? title : titleEn || title}
             src={playerSource}
             playsInline
@@ -357,6 +361,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             onProviderSetup={(provider) => {
               if (isVideoProvider(provider)) {
                 videoRef.current = provider.video;
+              }
+            }}
+            onTextTracksChange={(tracks) => {
+              if (subtitleAutoShownRef.current) return;
+              const preferredTrack =
+                tracks.find((track) => track.kind === 'subtitles' && track.language === 'ar') ||
+                tracks.find((track) => track.kind === 'subtitles');
+              if (preferredTrack) {
+                preferredTrack.mode = 'showing';
+                subtitleAutoShownRef.current = true;
               }
             }}
             onCanPlay={() => {
@@ -396,13 +410,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               {subtitleTracks.map((track) => (
                 <Track
                   key={`${selectedSourceId}-${track.language}-${track.url}`}
+                  id={`subtitle-${selectedSourceId}-${track.language}`}
                   src={track.url}
                   kind="subtitles"
                   label={track.label}
                   lang={track.language}
                   language={track.language}
                   type={track.type}
-                  default={track.default}
+                  default={track.default === true}
                 />
               ))}
             </MediaProvider>

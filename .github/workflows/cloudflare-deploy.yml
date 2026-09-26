@@ -133,7 +133,34 @@ jobs:
             throw new Error('Direct source returned unexpected content-type: ' + contentType);
           }
 
+          const subtitleTracks = Array.isArray(source.subtitleTracks) ? source.subtitleTracks : [];
+          const subtitle = subtitleTracks.find((track) => String(track?.language || '').toLowerCase().startsWith('ar'));
+          if (!subtitle?.url) {
+            throw new Error('Dedicated playback fixture returned no Arabic subtitle track');
+          }
+
+          const subtitleResponse = await fetch(String(subtitle.url), {
+            headers: { Accept: 'text/vtt, text/plain;q=0.9, */*;q=0.8' },
+            redirect: 'follow',
+            signal: AbortSignal.timeout(20000),
+          });
+          const subtitleBody = await subtitleResponse.text();
+          const subtitleType = String(subtitleResponse.headers.get('content-type') || '').toLowerCase();
+          if (!subtitleResponse.ok) {
+            throw new Error('Subtitle proxy check failed: HTTP ' + subtitleResponse.status);
+          }
+          if (!subtitleType.includes('text/vtt')) {
+            throw new Error('Subtitle proxy returned unexpected content-type: ' + subtitleType);
+          }
+          if (!/^WEBVTT(?:\\s|$)/i.test(subtitleBody.trim())) {
+            throw new Error('Subtitle proxy did not return WebVTT');
+          }
+          if (!/[\\u0600-\\u06FF]/.test(subtitleBody)) {
+            throw new Error('Arabic subtitle track contains no Arabic text');
+          }
+
           console.log('WATCH_PLAYBACK=PASS');
+          console.log('WATCH_SUBTITLES=PASS');
           console.log(JSON.stringify({
             fixtureTmdbId: 10331,
             provider: source.provider,
@@ -141,6 +168,9 @@ jobs:
             sourceHost: new URL(source.url).host,
             sourceHttpStatus: media.status,
             contentType,
+            subtitleLanguage: subtitle.language,
+            subtitleHttpStatus: subtitleResponse.status,
+            subtitleContentType: subtitleType,
           }));
           NODE
 

@@ -344,7 +344,18 @@ app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
       return fail(res, 502, 'SUBTITLE_FETCH_FAILED', `Wikimedia subtitle request failed (${upstream.status})`);
     }
 
-    const body = await upstream.text();
+    const body = (await upstream.text()).replace(/^\\uFEFF/, '').trim();
+    const isWebVtt = /^WEBVTT(?:\\s|$)/i.test(body);
+    const hasSrtCue = /(?:^|\\n)\\s*\\d+\\s*\\n\\s*\\d{2}:\\d{2}:\\d{2}[,.]\\d{3}\\s*-->\\s*\\d{2}:\\d{2}:\\d{2}[,.]\\d{3}/.test(body);
+
+    if (!body || (!isWebVtt && !hasSrtCue)) {
+      return fail(res, 502, 'SUBTITLE_FORMAT_INVALID', 'Wikimedia returned an invalid timed-text payload');
+    }
+
+    const vttBody = isWebVtt
+      ? body
+      : `WEBVTT\\n\\n${body.replace(/(\\d{2}:\\d{2}:\\d{2}),(\\d{3})/g, '$1.$2')}\n`;
+
     const responseHeaders = new Headers({
       'content-type': 'text/vtt; charset=utf-8',
       'cache-control': 'public, max-age=3600',
@@ -352,7 +363,7 @@ app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
       'x-content-type-options': 'nosniff',
     });
 
-    return new Response(body, { status: 200, headers: responseHeaders });
+    return new Response(vttBody, { status: 200, headers: responseHeaders });
   } catch (error) {
     return fail(res, 502, 'SUBTITLE_PROXY_FAILED', error instanceof Error ? error.message : 'Subtitle proxy failed');
   }
