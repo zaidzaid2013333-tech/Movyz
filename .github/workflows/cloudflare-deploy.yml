@@ -52,33 +52,6 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Verify VidZee upstream before deploy
-        run: |
-          node <<'NODE'
-          const servers = ['dcloud', 'tik', 'ipcloud', 'v6:Hindi'];
-          let passed = false;
-          const results = [];
-          for (const server of servers) {
-            const url = 'https://core.vidzee.wtf/streams/movie/157336?s=' + encodeURIComponent(server) + '&e=0';
-            try {
-              const response = await fetch(url, { headers: { Accept: 'application/json', Referer: 'https://player.vidzee.wtf/', Origin: 'https://player.vidzee.wtf' }, redirect: 'follow', signal: AbortSignal.timeout(12000) });
-              const body = await response.text();
-              results.push({ server, status: response.status, body: body.slice(0, 400) });
-              if (response.ok) {
-                try {
-                  const payload = JSON.parse(body);
-                  const raw = payload?.url || payload?.stream_url || payload?.streamUrl || payload?.data?.url || '';
-                  if (/^https:\/\//i.test(String(raw)) && /\.m3u8(?:$|[?#])/i.test(String(raw))) { passed = true; break; }
-                } catch {}
-              }
-            } catch (error) {
-              results.push({ server, error: error instanceof Error ? error.message : String(error) });
-            }
-          }
-          console.log(JSON.stringify(results));
-          if (!passed) throw new Error('VidZee upstream returned no playable HLS source for the test title');
-          console.log('VIDZEE_UPSTREAM=PASS');
-          NODE
       - name: Validate Cloudflare configuration
         run: npx wrangler deploy --dry-run
 
@@ -90,7 +63,7 @@ jobs:
             printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
             printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
             printf 'EZVIDAPI_PROVIDER=%s\n' 'vidsrc'
-            printf 'EZVIDAPI_ORIGINS=%s\n' 'https://ezvidapi.com,https://api.ezvidapi.com'
+            printf 'EZVIDAPI_ORIGINS=%s\n' 'https://api.ezvidapi.com'
           } > .env.production
 
       - name: Deploy Movyz
@@ -118,6 +91,11 @@ jobs:
           const tmdbId = Number(movie?.tmdbId || movie?.tmdb_id || 0);
           if (!contentId || !/^[0-9a-f-]{36}$/i.test(contentId)) throw new Error('First published movie has no valid UUID: ' + JSON.stringify(movie).slice(0, 1200));
           if (!Number.isInteger(tmdbId) || tmdbId <= 0) throw new Error('First published movie has no valid TMDB id: ' + JSON.stringify(movie).slice(0, 1200));
+          const directApi = await getJson('/api/v1/playback/ezvidapi?type=movie&tmdbId=' + encodeURIComponent(String(tmdbId)), 30000);
+          const directStream = directApi?.data?.stream_url;
+          if (!/^https:\/\//i.test(String(directStream || ''))) throw new Error('ezvidAPI direct resolver returned no HTTPS stream');
+          if (String(directApi?.data?.type || '') !== 'hls') throw new Error('ezvidAPI direct resolver did not classify the stream as HLS');
+
           const playback = await getJson('/api/v1/playback/sources?contentType=movie&contentId=' + encodeURIComponent(contentId), 30000);
           const sources = Array.isArray(playback?.data) ? playback.data : [];
           if (!sources.length) throw new Error('Playback resolver returned no playable sources for movie ' + contentId);
@@ -127,8 +105,9 @@ jobs:
           if (!source?.url || (!validDirect && !validProxy)) throw new Error('Playback resolver returned an invalid source: ' + JSON.stringify(source).slice(0, 1600));
           if (!['hls','mp4','dash'].includes(String(source.type))) throw new Error('Playback resolver returned unsupported type: ' + String(source.type));
           if (String(source.type) === 'hls' && !validProxy && !/\.m3u8(?:$|[?#])/i.test(String(source.url))) throw new Error('HLS source does not point to an m3u8 URL');
+          const host = validDirect ? new URL(source.url).host : 'movyz-proxy';
           console.log('LIVE_PLAYBACK_TARGET=PASS');
-          console.log(JSON.stringify({ contentId, tmdbId, provider: source.provider, type: source.type, host: new URL(source.url).host }));
+          console.log(JSON.stringify({ contentId, tmdbId, provider: source.provider, type: source.type, host }));
           NODE
 
       - name: Remove temporary secrets file
