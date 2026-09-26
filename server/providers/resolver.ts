@@ -1,8 +1,9 @@
 import { adminSupabase } from '../supabase';
 import { getProvider } from './registry';
+import { resolveUniversalSource } from './universal-resolver';
 import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
-const VALID_TYPES = new Set(['hls', 'mp4', 'dash']);
+const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'embed']);
 
 function ezvidEmbedSource(
   contentType: 'movie' | 'episode',
@@ -125,11 +126,32 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   const usableCached = (cachedSources || []).filter((source: any) => {
     const key = String(source.providers?.key || '').toLowerCase();
     const name = String(source.providers?.name || '').trim().toLowerCase().replace(/\s+/g, '');
-    return !excluded.has(key) && !excluded.has(name) && ['ezvidapi', 'faselhd'].includes(key);
+    return !excluded.has(key) && !excluded.has(name) && VALID_TYPES.has(String(source.source_type || '').toLowerCase());
   });
 
   if (usableCached.length) {
-    return usableCached.map(sourceDto);
+    const cachedOutput = [];
+    for (const source of usableCached) {
+      const dto = sourceDto(source);
+      if (dto.type === 'embed' && dto.url) {
+        try {
+          const universal = await resolveUniversalSource(dto.url, { timeoutMs: Math.min(timeoutMs, 7_000) });
+          cachedOutput.push({
+            ...dto,
+            type: universal.type,
+            url: universal.url,
+            quality: universal.quality || dto.quality,
+            label: universal.type === 'embed' ? dto.label : universal.label,
+            labelEn: universal.type === 'embed' ? dto.labelEn : universal.label,
+          });
+        } catch {
+          cachedOutput.push(dto);
+        }
+      } else {
+        cachedOutput.push(dto);
+      }
+    }
+    return cachedOutput;
   }
 
   const [{ data: providers, error: providersError }, { data: mappings, error: mappingsError }] = await Promise.all([
@@ -182,16 +204,30 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
       }> = [];
 
       for (const source of rawSources || []) {
-        const url = normalizeUrl(source.url, provider.key);
-        if (!url || !VALID_TYPES.has(source.type)) continue;
+        let url = normalizeUrl(source.url, provider.key);
+        let type = source.type;
+        if (!url || !VALID_TYPES.has(type)) continue;
         if (source.expiresAt && Number.isFinite(Date.parse(source.expiresAt)) && new Date(source.expiresAt) <= new Date()) continue;
+
+        if (type === 'embed') {
+          try {
+            const universal = await resolveUniversalSource(url, { timeoutMs: Math.min(timeoutMs, 7_000) });
+            url = universal.url;
+            type = universal.type;
+          } catch (error) {
+            console.warn('[playback-resolver] universal embed conversion failed', provider.key, error instanceof Error ? error.message : error);
+          }
+        }
+
+        if (!url || !VALID_TYPES.has(type)) continue;
 
         resolved.push({
           ...source,
+          type,
           url,
           quality: source.quality || 'auto',
           language: source.language || 'und',
-          label: source.label || provider.name,
+          label: type === 'embed' ? (source.label || provider.name) : (source.label || provider.name),
           providerId: provider.id,
           providerName: provider.name,
           providerLatencyMs: latencyMs,
@@ -217,7 +253,8 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
         unique.set([source.providerId, contentType, source.type, source.url].join('|'), source);
       }
 
-      const rows = [...unique.values()].map((source) => ({
+      const persistable = [...unique.values()].filter((source) => source.type !== 'embed');
+      const rows = persistable.map((source) => ({
         provider_id: source.providerId,
         content_type: contentType,
         content_id: contentId,
@@ -277,7 +314,22 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
 
   if (!allResolvedSources.length) {
     const fallback = ezvidEmbedSource(contentType, contentId, context);
-    if (fallback) return [fallback];
+    if (fallback) {
+      try {
+        const universal = await resolveUniversalSource(fallback.url, { timeoutMs: Math.min(timeoutMs, 7_000) });
+        return [{
+          ...fallback,
+          type: universal.type,
+          url: universal.url,
+          quality: universal.quality || fallback.quality,
+          label: universal.type === 'embed' ? fallback.label : universal.label,
+          labelEn: universal.type === 'embed' ? fallback.labelEn : universal.labelEn,
+        }];
+      } catch (error) {
+        console.warn('[playback-resolver] fallback conversion failed', error instanceof Error ? error.message : error);
+      }
+      return [fallback];
+    }
   }
 
   return allResolvedSources;
