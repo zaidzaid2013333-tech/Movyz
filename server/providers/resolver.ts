@@ -76,7 +76,7 @@ async function getContext(contentType: 'movie' | 'episode', contentId: string): 
   return { tmdbId: series.tmdb_id, seasonNumber: season.season_number, episodeNumber: episode.episode_number };
 }
 
-export async function resolvePlaybackSources(contentType: 'movie' | 'episode', contentId: string) {
+export async function resolvePlaybackSources(contentType: 'movie' | 'episode', contentId: string, excludedProviders: string[] = []) {
   const context = await getContext(contentType, contentId);
   if (!context) return [];
 
@@ -98,11 +98,14 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
     return rateDiff || Number(a.latency_ms ?? Number.MAX_SAFE_INTEGER) - Number(b.latency_ms ?? Number.MAX_SAFE_INTEGER);
   });
 
+  const excluded = new Set(excludedProviders.map((value) => value.trim().toLowerCase()).filter(Boolean));
   const timeoutMs = Math.max(2_000, Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000));
 
   // True fallback: call providers in fixed priority order and stop at the first
   // provider that returns at least one validated playable source.
   for (const provider of orderedProviders) {
+    if (excluded.has(provider.key.toLowerCase()) || excluded.has(String(provider.name || '').trim().toLowerCase().replace(/\s+/g, ''))) continue;
+
     const adapter = getProvider(provider.key);
     if (!adapter?.enabled) continue;
 
