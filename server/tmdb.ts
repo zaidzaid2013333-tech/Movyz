@@ -347,7 +347,7 @@ async function syncSeasonEpisodes(seriesId: string, seasonId: string, tmdbId: nu
     .eq('season_id', seasonId);
   if (existingError) throw new Error(`Failed to inspect episodes for season ${seasonNumber}: ${existingError.message}`);
 
-  const keepIds = new Set(incoming.map((episode) => episode.tmdb_id));
+  const keepIds = new Set(incoming.map((episode: { tmdb_id: number }) => episode.tmdb_id));
   const staleIds = (existing || []).filter((episode: any) => episode.tmdb_id && !keepIds.has(episode.tmdb_id)).map((episode: any) => episode.id);
   if (staleIds.length) {
     const { error: staleError } = await adminSupabase.from('episodes').delete().in('id', staleIds);
