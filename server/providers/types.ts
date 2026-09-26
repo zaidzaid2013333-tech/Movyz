@@ -22,6 +22,7 @@ export interface ProviderAdapter {
   key: string;
   name: string;
   enabled: boolean;
+  requiresMapping?: boolean;
   resolveMovie(context: ProviderContext): Promise<NormalizedPlaybackSource[]>;
   resolveEpisode(context: ProviderContext): Promise<NormalizedPlaybackSource[]>;
   health(): Promise<{ status: 'healthy' | 'degraded' | 'offline'; latencyMs: number; message?: string }>;
