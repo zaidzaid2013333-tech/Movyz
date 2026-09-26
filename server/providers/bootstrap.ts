@@ -1,6 +1,6 @@
 import { getProvider, registerProvider } from './registry';
 import { createEzvidApiAdapter, createNhdApiAdapter, createStreamProviderAdapter } from './adapters/tmdb-hls';
-import { createFaselHdAdapter } from './adapters/mapped-json';
+import { createEgyBestAdapter, createFaselHdAdapter } from './adapters/mapped-json';
 
 let bootstrapped = false;
 
@@ -9,10 +9,11 @@ export function registerBuiltInProviders() {
   bootstrapped = true;
 
   for (const adapter of [
+    createEgyBestAdapter(),
+    createFaselHdAdapter(),
     createEzvidApiAdapter(),
     createNhdApiAdapter(),
     createStreamProviderAdapter(),
-    createFaselHdAdapter(),
   ]) {
     if (adapter && !getProvider(adapter.key)) registerProvider(adapter);
   }
