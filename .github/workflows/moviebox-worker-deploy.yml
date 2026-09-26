@@ -39,7 +39,7 @@ jobs:
       - name: Verify MovieBox Worker playback API
         run: |
           node <<'NODE'
-          const base = 'https://movyz-moviebox-source.sameranede.workers.dev';
+          const base = 'https://movyz-moviebox.sameranede.workers.dev';
           const getJson = async (path, timeout = 30000) => {
             const response = await fetch(base + path, {
               headers: { Accept: 'application/json' },

@@ -100,6 +100,10 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   if (cachedSourcesError) throw new Error('Unable to load cached playback sources');
 
   const timeoutMs = Math.max(2_000, Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000));
+  const movieBoxTimeoutMs = Math.max(
+    timeoutMs,
+    Number(process.env.MOVYZA_MOVIEBOX_TIMEOUT_MS || 20_000),
+  );
 
   const usableCached = (cachedSources || []).filter((source: any) => {
     const key = String(source.providers?.key || '').toLowerCase();
@@ -149,7 +153,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
         contentType === 'movie'
           ? adapter.resolveMovie({ ...context, providerId: mapping?.provider_content_id })
           : adapter.resolveEpisode({ ...context, providerId: mapping?.provider_content_id }),
-        timeoutMs,
+        provider.key === 'moviebox-api' ? movieBoxTimeoutMs : timeoutMs,
         `Provider ${provider.key} timed out`,
       );
 

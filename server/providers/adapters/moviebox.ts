@@ -126,9 +126,20 @@ async function chooseMatch(context: ProviderContext, timeoutMs: number, baseUrl:
   return slug ? { slug, item: best.item, score: best.score } : null;
 }
 async function getSubjectIdFromMovieBoxApi(baseUrl: string, slug: string, timeoutMs: number) {
-  const detail = await fetchJson<any>(baseUrl + '/detail/' + encodeURIComponent(slug), timeoutMs, {}, { Accept: 'application/json', 'User-Agent': USER_AGENT });
-  const subjectId = detail?.metadata?.id || detail?.subjectId || detail?.id;
-  return subjectId != null ? String(subjectId) : '';
+  try {
+    const detail = await fetchJson<any>(
+      baseUrl + '/detail/' + encodeURIComponent(slug),
+      timeoutMs,
+      {},
+      { Accept: 'application/json', 'User-Agent': USER_AGENT },
+    );
+    const subjectId = detail?.metadata?.id || detail?.subjectId || detail?.id;
+    if (subjectId != null) return String(subjectId);
+  } catch {
+    // Dedicated worker can be unavailable; fall back to the H5 detail API.
+  }
+
+  return getSubjectIdFromH5(slug, timeoutMs);
 }
 
 async function getSubjectIdFromH5(slug: string, timeoutMs: number) {
