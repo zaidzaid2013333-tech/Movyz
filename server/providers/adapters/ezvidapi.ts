@@ -2,7 +2,9 @@ import type { NormalizedPlaybackSource, ProviderAdapter, ProviderContext } from 
 import { fetchJsonOrText, inferPlaybackType, inferQuality, resolveSourcesFromPayload } from '../http';
 
 const DEFAULT_PROVIDER = 'vidsrc';
-const DEFAULT_ORIGINS = ['https://ezvidapi.com', 'https://api.ezvidapi.com'];
+// JSON/HLS endpoints are served from api.ezvidapi.com. The ezvidapi.com
+// host is reserved for the iframe embed URLs used by the frontend fallback.
+const DEFAULT_ORIGINS = ['https://api.ezvidapi.com'];
 
 function providerKeys(payload: unknown): string[] {
   const found = new Set<string>();
@@ -40,13 +42,6 @@ export function createEzvidApiAdapter(): ProviderAdapter {
     for (const origin of origins) {
       const providers = new Set<string>([configuredProvider]);
       try {
-        const listed = await fetchJsonOrText(origin + '/list', Math.min(timeoutMs, 8_000), { Referer: 'https://ezvidapi.com/' });
-        for (const key of providerKeys(listed)) providers.add(key);
-      } catch (error) {
-        lastError = error;
-      }
-
-      for (const provider of providers) {
         const url = kind === 'movie'
           ? origin + '/movie/' + encodeURIComponent(provider) + '/' + context.tmdbId
           : origin + '/tv/' + encodeURIComponent(provider) + '/' + context.tmdbId + '?season=' + context.seasonNumber + '&episode=' + context.episodeNumber;
@@ -54,8 +49,10 @@ export function createEzvidApiAdapter(): ProviderAdapter {
           const payload = await fetchJsonOrText(url, timeoutMs, { Referer: 'https://ezvidapi.com/' });
           const candidates = resolveSourcesFromPayload(payload, { language: 'und', label: 'ezvidAPI ' + provider })
             .flatMap((source) => {
-              const type = inferPlaybackType(source.url, source.type);
-              if (!type) return [];
+              // ezvidapi's documented JSON endpoint returns an HLS playlist URL.
+              // Prefer the explicit/type or URL inference, but safely default to HLS
+              // when the upstream omits the type and signs the URL without ".m3u8".
+              const type = inferPlaybackType(source.url, source.type) || 'hls';
               return [{
                 provider: 'ezvidapi',
                 type,
@@ -88,7 +85,9 @@ export function createEzvidApiAdapter(): ProviderAdapter {
     health: async () => {
       const started = Date.now();
       try {
-        await fetchJsonOrText(origins[0] + '/list', Math.min(timeoutMs, 5_000), { Referer: 'https://ezvidapi.com/' });
+        const provider = configuredProvider || DEFAULT_PROVIDER;
+        const probeUrl = origins[0] + '/movie/' + encodeURIComponent(provider) + '/157336';
+        await fetchJsonOrText(probeUrl, Math.min(timeoutMs, 8_000), { Referer: 'https://ezvidapi.com/' });
         return { status: 'healthy' as const, latencyMs: Date.now() - started };
       } catch (error) {
         return {
