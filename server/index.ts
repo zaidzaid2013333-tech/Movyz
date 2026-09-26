@@ -7,6 +7,7 @@ import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
 import { getProvider } from './providers/registry';
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolvePlaybackSources } from './providers/resolver';
+import { resolveUniversalSource } from './providers/universal-resolver';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -299,6 +300,26 @@ app.get(`${api}/playback/proxy`, asyncRoute(async (req, res) => {
     return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
   } catch (error) {
     return fail(res, 502, 'VIDZEE_PROXY_FAILED', error instanceof Error ? error.message : 'VidZee proxy failed');
+  }
+}));
+
+app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
+  const parsed = z.object({
+    url: z.string().trim().url().max(4096),
+  }).safeParse(req.query);
+
+  if (!parsed.success) return fail(res, 400, 'INVALID_RESOLVE_QUERY', 'A valid HTTPS source URL is required');
+
+  try {
+    const source = await resolveUniversalSource(parsed.data.url);
+    return ok(res, {
+      ...source,
+      mode: source.type === 'embed' ? 'embed' : 'direct',
+      requested_url: parsed.data.url,
+    });
+  } catch (error) {
+    console.error('[universal-playback-resolve]', error instanceof Error ? error.message : error);
+    return fail(res, 422, 'UNIVERSAL_RESOLVE_FAILED', error instanceof Error ? error.message : 'Unable to resolve source');
   }
 }));
 
