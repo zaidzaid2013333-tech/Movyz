@@ -348,6 +348,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   return (
     <div className="movyza-player-root relative w-full bg-black" dir="rtl">
+      <style>{`
+        .movyza-player video::cue {
+          font-size: 165%;
+          line-height: 1.35;
+          font-family: Arial, "Noto Sans Arabic", "Noto Sans", sans-serif;
+          font-weight: 700;
+          color: #fff;
+          background: rgba(0, 0, 0, 0.72);
+          text-shadow: 0 2px 4px rgba(0,0,0,.95);
+        }
+        @media (max-width: 640px) {
+          .movyza-player video::cue {
+            font-size: 145%;
+          }
+        }
+      `}</style>
       <div className="movyza-player-shell relative aspect-video w-full overflow-hidden bg-black">
         {playerSource ? (
           <MediaPlayer
