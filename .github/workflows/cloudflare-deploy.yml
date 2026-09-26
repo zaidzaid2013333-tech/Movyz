@@ -62,6 +62,17 @@ jobs:
       - name: Deploy Movyz
         run: npx wrangler deploy --secrets-file .env.production
 
+      - name: Smoke test production API
+        env:
+          WORKER_URL: https://movyz-api.sameranede.workers.dev
+        run: |
+          set -e
+          for path in             "/health"             "/api/v1/home"             "/api/v1/movies?page=1&limit=1"; do
+            echo "===== $path ====="
+            curl --fail-with-body --silent --show-error               --retry 3 --retry-delay 2 --max-time 30               "$WORKER_URL$path"
+            echo
+          done
+
       - name: Remove temporary secrets file
         if: always()
         run: rm -f .env.production
