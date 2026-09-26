@@ -10,6 +10,7 @@ type MappedJsonConfig = {
   requiresMapping?: boolean;
   moviePath?: string;
   episodePath?: string;
+  headers?: Record<string, string>;
 };
 
 export function createMappedJsonAdapter(config: MappedJsonConfig): ProviderAdapter {
@@ -26,7 +27,7 @@ export function createMappedJsonAdapter(config: MappedJsonConfig): ProviderAdapt
       episode: context.episodeNumber,
     });
 
-    const payload = await fetchJsonOrText(url, config.timeoutMs);
+    const payload = await fetchJsonOrText(url, config.timeoutMs, config.headers);
     return resolveSourcesFromPayload(payload, {
       language: config.language,
       label: config.name,
@@ -89,15 +90,23 @@ export function createFaselHdAdapter() {
 
 
 export function createEgyBestAdapter() {
-  const baseUrl = process.env.EGYBEST_API_BASE_URL?.trim();
-  if (!baseUrl) return null;
+  const baseUrl = process.env.EGYBEST_API_BASE_URL?.trim().replace(/\/$/, '');
+  const accessToken = process.env.EGYBEST_ACCESS_TOKEN?.trim();
+  if (!baseUrl || !accessToken) return null;
+
+  const moviePath = process.env.EGYBEST_MOVIE_PATH || '/dls?url={{providerId}}&v=2';
+  const episodePath = process.env.EGYBEST_EPISODE_PATH || '/dls?url={{providerId}}&v=2';
+
   return createMappedJsonAdapter({
     key: 'egybest',
     name: 'EgyBest',
     baseUrl,
-    moviePath: process.env.EGYBEST_MOVIE_PATH || '/movie/{{providerId}}',
-    episodePath: process.env.EGYBEST_EPISODE_PATH || '/tv/{{providerId}}/{{season}}/{{episode}}',
+    moviePath: `${baseUrl}${moviePath}`,
+    episodePath: `${baseUrl}${episodePath}`,
     language: 'ar',
     requiresMapping: true,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
   });
 }
