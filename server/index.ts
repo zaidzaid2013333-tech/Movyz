@@ -1247,6 +1247,37 @@ app.delete(`${api}/admin/sources/:id`, requireAuth, requireAdmin, asyncRoute(asy
   return ok(res, { deleted: true });
 }));
 
+app.post(`${api}/admin/providers/:id/test`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const { data: provider, error: providerError } = await adminSupabase
+    .from('providers')
+    .select('id,key,name,enabled,status')
+    .eq('id', req.params.id)
+    .maybeSingle();
+
+  if (providerError) return fail(res, 500, 'PROVIDER_QUERY_FAILED', 'Unable to load provider');
+  if (!provider) return fail(res, 404, 'PROVIDER_NOT_FOUND', 'Provider not found');
+
+  const adapter = getProvider(provider.key);
+  const started = Date.now();
+
+  if (!adapter || !adapter.enabled) {
+    const message = 'Provider adapter is not registered';
+    await adminSupabase.from('providers').update({ status: 'offline', latency_ms: Date.now() - started, last_checked_at: new Date().toISOString() }).eq('id', provider.id);
+    return ok(res, { id: provider.id, key: provider.key, name: provider.name, status: 'offline', latencyMs: Date.now() - started, message });
+  }
+
+  try {
+    const health = await adapter.health();
+    const latencyMs = Date.now() - started;
+    await adminSupabase.from('providers').update({ status: health.status, latency_ms: latencyMs, last_checked_at: new Date().toISOString() }).eq('id', provider.id);
+    return ok(res, { id: provider.id, key: provider.key, name: provider.name, status: health.status, latencyMs, message: health.message || undefined });
+  } catch (error) {
+    const latencyMs = Date.now() - started;
+    const message = error instanceof Error ? error.message : 'Provider health check failed';
+    await adminSupabase.from('providers').update({ status: 'offline', latency_ms: latencyMs, last_checked_at: new Date().toISOString() }).eq('id', provider.id);
+    return ok(res, { id: provider.id, key: provider.key, name: provider.name, status: 'offline', latencyMs, message });
+  }
+}));
 app.get(`${api}/admin/providers`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
   const { data, error } = await adminSupabase.from('providers').select('*').order('name');
   if (error) return fail(res, 500, 'PROVIDERS_QUERY_FAILED', 'Unable to load providers');
