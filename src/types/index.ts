@@ -19,7 +19,7 @@ export interface CastMember {
 
 export interface PlaybackSource {
   id: string;
-  type: 'hls' | 'mp4' | 'dash';
+  type: 'hls' | 'mp4' | 'dash' | 'embed';
   quality: '1080p' | '720p' | '480p' | '4k' | 'auto';
   language: string;
   label: string; // e.g., 'سيرفر سريع (Akamai CDN)'

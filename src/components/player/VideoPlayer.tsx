@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { MediaPlayer, MediaProvider, isVideoProvider } from '@vidstack/react';
+import {
+  MediaPlayer,
+  MediaProvider,
+  isVideoProvider,
+} from '@vidstack/react';
 import {
   defaultLayoutIcons,
   DefaultVideoLayout,
@@ -32,11 +36,12 @@ type StreamType = 'hls' | 'mp4' | 'dash';
 type PlaybackSource = {
   id: string;
   url: string;
-  type: StreamType;
+  type: StreamType | 'embed';
   quality: string;
   language: string;
   label: string;
   provider: string;
+  providerKey?: string;
 };
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -63,6 +68,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [streamType, setStreamType] = useState<StreamType>('hls');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [fallbackEmbedUrl, setFallbackEmbedUrl] = useState('');
   const [reportMessage, setReportMessage] = useState('');
 
   const isMovie = contentType === 'movie';
@@ -70,10 +76,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const currentLabel = useMemo(() => {
     const source = sources.find((item) => item.id === selectedSourceId);
-    return source
-      ? [source.provider, source.quality, source.type.toUpperCase()].filter(Boolean).join(' · ')
-      : '';
+    return source ? [source.provider, source.quality, source.type.toUpperCase()].filter(Boolean).join(' · ') : '';
   }, [selectedSourceId, sources]);
+
+  const fallbackUrl = useMemo(() => (
+    isMovie
+      ? `https://ezvidapi.com/embed/movie/${safeTmdbId}`
+      : `https://ezvidapi.com/embed/tv/${safeTmdbId}/${Number(seasonNumber || 1)}/${Number(episodeNumber || 1)}`
+  ), [isMovie, safeTmdbId, seasonNumber, episodeNumber]);
 
   const saveProgress = async (video: HTMLVideoElement, force = false) => {
     const duration = Number.isFinite(video.duration) ? Math.floor(video.duration) : 0;
@@ -102,7 +112,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         completed: position >= Math.max(0, duration - 10),
       });
     } catch {
-      // Best effort.
+      // Watch progress is best-effort.
     }
   };
 
@@ -125,39 +135,53 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         video.currentTime = progress.positionSeconds;
       }
     } catch {
-      // Guest / expired session.
+      // Guests and expired sessions start from the beginning.
     }
   };
 
   const selectSource = (source: PlaybackSource) => {
     failedSourceIdsRef.current.delete(source.id);
     setSelectedSourceId(source.id);
+    setError('');
+    setLoading(true);
+
+    if (source.type === 'embed') {
+      setStreamUrl('');
+      setFallbackEmbedUrl(source.url);
+      return;
+    }
+
+    setFallbackEmbedUrl('');
     setStreamType(source.type);
     setStreamUrl(source.url);
-    setLoading(true);
-    setError('');
   };
 
   const moveToNextSource = () => {
-    if (selectedSourceId) {
-      failedSourceIdsRef.current.add(selectedSourceId);
-    }
+    const current = selectedSourceId;
+    if (current) failedSourceIdsRef.current.add(current);
 
     const next = sources.find(
       (source) => !failedSourceIdsRef.current.has(source.id),
     );
 
-    if (!next) {
-      setLoading(false);
-      setError(
-        language === 'ar'
-          ? 'تعذر تشغيل جميع مصادر الفيديو.'
-          : 'All playback sources failed.',
-      );
+    if (next) {
+      selectSource(next);
       return;
     }
 
-    selectSource(next);
+    if (!fallbackEmbedUrl) {
+      setFallbackEmbedUrl(fallbackUrl);
+      setLoading(true);
+      setError('');
+      return;
+    }
+
+    setLoading(false);
+    setError(
+      language === 'ar'
+        ? 'تعذر تشغيل جميع مصادر الفيديو.'
+        : 'All playback sources failed.',
+    );
   };
 
   const handleReportSource = async () => {
@@ -180,7 +204,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setReportMessage(
         language === 'ar'
           ? 'سجّل الدخول أولًا لإرسال البلاغ.'
-          : 'Sign in to send the report.',
+          : 'Sign in to send a report.',
       );
     }
 
@@ -206,6 +230,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setSources([]);
       setSelectedSourceId('');
       setStreamUrl('');
+      setFallbackEmbedUrl('');
       setStreamType('hls');
       failedSourceIdsRef.current.clear();
       progressLoadedRef.current = false;
@@ -221,15 +246,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         );
 
         const normalized: PlaybackSource[] = (response.data || [])
-          .filter((source) =>
-            Boolean(source.url) &&
-            source.type !== 'embed' &&
-            ['hls', 'mp4', 'dash'].includes(source.type),
-          )
+          .filter((source) => Boolean(source.url))
           .map((source, index) => ({
-            id: source.id || `${source.provider || 'source'}-${source.type}-${index}`,
+            id:
+              source.id ||
+              `${source.provider || 'source'}-${source.type}-${index}`,
             url: source.url,
-            type: source.type as StreamType,
+            type: source.type,
             quality: source.quality || 'auto',
             language: source.language || 'und',
             label: source.label || source.provider || 'Source',
@@ -237,7 +260,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }));
 
         if (!normalized.length) {
-          throw new Error('No direct stream returned');
+          throw new Error('No playable stream returned');
         }
 
         const initial =
@@ -249,8 +272,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (!cancelled) {
           setSources(normalized);
           setSelectedSourceId(initial.id);
-          setStreamType(initial.type);
-          setStreamUrl(initial.url);
+
+          if (initial.type === 'embed') {
+            // Embed-only response is valid: use it directly instead of
+            // mounting an empty/broken raw player behind an error overlay.
+            setStreamUrl('');
+            setFallbackEmbedUrl(initial.url);
+            setLoading(true);
+          } else {
+            setStreamType(initial.type);
+            setStreamUrl(initial.url);
+            setFallbackEmbedUrl('');
+          }
         }
       } catch (loadError) {
         if (cancelled) return;
@@ -259,12 +292,43 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setSources([]);
         setSelectedSourceId('');
         setStreamUrl('');
-        setLoading(false);
-        setError(
-          language === 'ar'
-            ? 'لم يتم العثور على مصدر فيديو صالح حاليًا.'
-            : 'No playable video source is currently available.',
-        );
+        setFallbackEmbedUrl('');
+        setLoading(true);
+        setError('');
+
+        try {
+          const universal = await MovyzaApi.resolvePlaybackSource(fallbackUrl);
+          if (cancelled) return;
+
+          const fallbackSource: PlaybackSource = {
+            id: 'universal-fallback',
+            url: universal.data.url,
+            type: universal.data.type,
+            quality: universal.data.quality || 'auto',
+            language: 'und',
+            label: universal.data.label || 'Universal source',
+            provider: 'Movyza Universal Resolver',
+          };
+
+          setSources([fallbackSource]);
+          setSelectedSourceId(fallbackSource.id);
+
+          if (fallbackSource.type === 'embed') {
+            setStreamUrl('');
+            setFallbackEmbedUrl(fallbackSource.url);
+          } else {
+            setStreamType(fallbackSource.type);
+            setStreamUrl(fallbackSource.url);
+            setFallbackEmbedUrl('');
+          }
+          return;
+        } catch (resolveError) {
+          console.warn('[movyza-player] universal fallback unavailable', resolveError);
+          if (cancelled) return;
+          setFallbackEmbedUrl(fallbackUrl);
+          setLoading(true);
+          setError('');
+        }
       }
     };
 
@@ -281,6 +345,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     safeTmdbId,
     seasonNumber,
     episodeNumber,
+    fallbackUrl,
   ]);
 
   useEffect(() => {
@@ -308,7 +373,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div className="movyza-player-root relative w-full bg-black" dir="rtl">
       <div className="movyza-player-shell relative aspect-video w-full overflow-hidden bg-black">
-        {playerSource ? (
+        {fallbackEmbedUrl ? (
+          <iframe
+            key={fallbackEmbedUrl}
+            src={fallbackEmbedUrl}
+            title={isMovie ? title : titleEn || title}
+            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            allowFullScreen
+            referrerPolicy="strict-origin-when-cross-origin"
+            loading="eager"
+            onLoad={() => setLoading(false)}
+            onError={() => {
+              setLoading(false);
+              setError(
+                language === 'ar'
+                  ? 'تعذر تحميل المصدر المضمّن.'
+                  : 'The embedded source could not be loaded.',
+              );
+            }}
+            className="absolute inset-0 h-full w-full border-0 bg-black"
+          />
+        ) : playerSource ? (
           <MediaPlayer
             className="movyza-player absolute inset-0 h-full w-full"
             title={isMovie ? title : titleEn || title}
@@ -342,6 +427,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onError={(playbackError) => {
               console.warn('[movyza-player] source error', playbackError);
+              // Try the next resolved source first. Only after every source
+              // fails do we fall back to an embedded source.
               setStreamUrl('');
               setError('');
               setLoading(true);
@@ -373,7 +460,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="absolute inset-0 bg-black" />
         )}
 
-        {(loading || error) && (
+        {(loading || error) && !fallbackEmbedUrl && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/65 pointer-events-none">
             <div className="flex flex-col items-center gap-3 px-6 text-center">
               {loading && !error && (
@@ -384,14 +471,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   </span>
                 </>
               )}
-              {error && <span className="text-sm text-red-300">{error}</span>}
+              {error && (
+                <span className="text-sm text-red-300">{error}</span>
+              )}
             </div>
           </div>
         )}
 
         <div className="pointer-events-none absolute start-3 top-3 z-40 flex items-center gap-2">
           <span className="movyza-player-badge rounded-full px-3 py-1 text-[10px] font-semibold text-white backdrop-blur border">
-            {`MOVYZA · ${streamType.toUpperCase()}`}
+            {fallbackEmbedUrl
+              ? 'MOVYZA · EMBED MODE'
+              : `MOVYZA · ${streamType.toUpperCase()}`}
           </span>
           <span className="rounded-full border border-white/10 bg-black/65 px-2.5 py-1 text-[10px] text-slate-300 backdrop-blur">
             {language === 'ar' ? 'مشغل Movyza' : 'Movyza Player'}
@@ -400,7 +491,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         <div className="pointer-events-none absolute bottom-3 end-3 z-40 flex items-center gap-2 rounded-full border border-white/10 bg-black/65 px-3 py-1 text-[10px] text-emerald-300 backdrop-blur">
           <CheckCircle2 className="h-3 w-3" />
-          <span>{currentLabel || 'Movyza → direct stream'}</span>
+          <span>
+            {fallbackEmbedUrl
+              ? 'Movyza → embedded source'
+              : currentLabel || 'Movyza → direct stream'}
+          </span>
         </div>
       </div>
 
@@ -412,9 +507,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               {language === 'ar' ? 'مشغل Movyza' : 'Movyza Player'}
             </h3>
             <p className="text-[11px] text-slate-400">
-              {language === 'ar'
-                ? 'يعمل المشغل فقط مع مصادر HLS أو MP4 أو DASH التي يوفّرها نظام التشغيل في Movyza.'
-                : 'The player accepts only HLS, MP4, or DASH streams returned by Movyza playback services.'}
+              {fallbackEmbedUrl
+                ? language === 'ar'
+                  ? 'المصدر لا يوفّر رابط فيديو مباشرًا، لذلك يتم تشغيله داخل إطار Movyza بدل ترك المستخدم خارج صفحة المشاهدة.'
+                  : 'This source did not expose a direct stream, so Movyza keeps it inside the watch surface.'
+                : language === 'ar'
+                  ? 'Movyza يحاول تحويل المصدر إلى HLS أو MP4 أو DASH أولًا، ثم يستخدم وضع Embed عند الحاجة.'
+                  : 'Movyza tries to resolve HLS, MP4, or DASH first, then falls back to embedded playback when needed.'}
             </p>
           </div>
         </div>
@@ -435,7 +534,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             >
               {sources.map((source) => (
                 <option key={source.id} value={source.id}>
-                  {[source.label, source.quality, source.type.toUpperCase(), source.language !== 'und' ? source.language : '']
+                  {[source.label, source.quality, source.type === 'embed' ? 'EMBED' : source.type.toUpperCase(), source.language !== 'und' ? source.language : '']
                     .filter(Boolean)
                     .join(' · ')}
                 </option>
@@ -460,12 +559,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
             <div className="mb-2 flex items-center gap-2 text-xs font-bold text-white">
               <span>⚡</span>
-              {language === 'ar' ? 'تشغيل موحّد' : 'Unified playback'}
+              {language === 'ar' ? 'تشغيل موحّد' : 'Universal playback'}
             </div>
             <p className="text-[11px] leading-relaxed text-slate-400">
               {language === 'ar'
-                ? 'يتم تشغيل المصادر المباشرة داخل مشغل Movyza فقط.'
-                : 'Direct sources are played inside the native Movyza player.'}
+                ? 'HLS وMP4 وDASH تشغل مباشرة، والمصادر التي لا تكشف رابطًا خامًا تبقى داخل واجهة المشاهدة نفسها.'
+                : 'HLS, MP4, and DASH play directly; sources without an exposed stream stay inside the same watch surface.'}
             </p>
           </div>
 

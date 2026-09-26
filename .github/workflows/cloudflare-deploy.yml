@@ -62,6 +62,8 @@ jobs:
             printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_ANON_KEY"
             printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
             printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
+            printf 'EZVIDAPI_PROVIDER=%s\n' 'vidsrc'
+            printf 'EZVIDAPI_ORIGINS=%s\n' 'https://api.ezvidapi.com'
           } > .env.production
 
       - name: Deploy Movyz
@@ -95,10 +97,11 @@ jobs:
           const source = sources[0];
           const validDirect = /^https:\/\//i.test(String(source?.url || ''));
           const validProxy = /^\/api\/v1\/playback\/proxy\?url=/.test(String(source?.url || ''));
-          if (!source?.url || (!validDirect && !validProxy)) throw new Error('Playback resolver returned an invalid source: ' + JSON.stringify(source).slice(0, 1600));
+          const validEmbed = /^https:\/\/ezvidapi\.com\/embed\//i.test(String(source?.url || ''));
+          if (!source?.url || (!validDirect && !validProxy && !validEmbed)) throw new Error('Playback resolver returned an invalid source: ' + JSON.stringify(source).slice(0, 1600));
           if (!['hls','mp4','dash','embed'].includes(String(source.type))) throw new Error('Playback resolver returned unsupported type: ' + String(source.type));
           if (String(source.type) === 'hls' && !validProxy && !/\.m3u8(?:$|[?#])/i.test(String(source.url))) throw new Error('HLS source does not point to an m3u8 URL');
-          const host = validDirect ? new URL(source.url).host : 'movyz-proxy';
+          const host = validDirect ? new URL(source.url).host : (validEmbed ? new URL(source.url).host : 'movyz-proxy');
           console.log('LIVE_PLAYBACK_TARGET=PASS');
           console.log(JSON.stringify({ contentId, tmdbId, provider: source.provider, type: source.type, host }));
           NODE

@@ -341,6 +341,64 @@ app.get(`${api}/playback/sources`, asyncRoute(async (req, res) => {
   }
 }));
 
+app.get(`${api}/playback/ezvidapi`, asyncRoute(async (req, res) => {
+  const parsed = z.object({
+    type: z.enum(['movie', 'episode']).default('movie'),
+    tmdbId: z.coerce.number().int().positive(),
+    season: z.coerce.number().int().positive().optional(),
+    episode: z.coerce.number().int().positive().optional(),
+  }).safeParse(req.query);
+
+  if (!parsed.success) return fail(res, 400, 'INVALID_PLAYBACK_QUERY', 'Invalid playback parameters');
+
+  const { type, tmdbId, season, episode } = parsed.data;
+  if (type === 'episode' && (season == null || episode == null)) {
+    return fail(res, 400, 'EPISODE_PARAMS_REQUIRED', 'Season and episode are required');
+  }
+
+  const provider = getProvider('ezvidapi');
+  if (!provider) return fail(res, 503, 'PROVIDER_UNAVAILABLE', 'ezvidAPI provider is not registered');
+
+  try {
+    const sources = type === 'movie'
+      ? await provider.resolveMovie({ tmdbId })
+      : await provider.resolveEpisode({ tmdbId, seasonNumber: season, episodeNumber: episode });
+
+    const playableSources = (sources || []).filter((source) => Boolean(source.url));
+    const stream = playableSources.find((source) => source.type === 'hls') || playableSources[0];
+    if (!stream?.url) return fail(res, 502, 'EZVIDAPI_STREAM_UNAVAILABLE', 'ezvidAPI did not return a playable stream');
+
+    return ok(res, {
+      stream_url: stream.url,
+      type: stream.type,
+      quality: stream.quality,
+      language: stream.language,
+      provider: stream.provider,
+      provider_reference: stream.providerReference || null,
+      expires_at: stream.expiresAt || null,
+      sources: playableSources.map((source, index) => ({
+        id: String(index),
+        url: source.url,
+        type: source.type,
+        quality: source.quality,
+        language: source.language,
+        label: source.label,
+        provider: source.provider,
+        provider_reference: source.providerReference || null,
+      })),
+    });
+  } catch (error) {
+    console.error('[ezvidapi] playback resolution failed', {
+      type,
+      tmdbId,
+      season,
+      episode,
+      error: error instanceof Error ? error.message : error,
+    });
+    return fail(res, 502, 'EZVIDAPI_STREAM_UNAVAILABLE', 'ezvidAPI request failed');
+  }
+}));
+
 app.get('/health', asyncRoute(async (_req, res) => {
   const { error } = await adminSupabase.from('genres').select('id').limit(1);
   if (error) return fail(res, 503, 'DATABASE_UNAVAILABLE', 'Database check failed');
