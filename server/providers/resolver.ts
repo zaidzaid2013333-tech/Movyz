@@ -94,7 +94,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   const usableCached = (cachedSources || []).filter((source: any) => {
     const key = String(source.providers?.key || '').toLowerCase();
     const name = String(source.providers?.name || '').trim().toLowerCase().replace(/\s+/g, '');
-    return !excluded.has(key) && !excluded.has(name);
+    return !excluded.has(key) && !excluded.has(name) && ['ezvidapi', 'faselhd'].includes(key);
   });
 
   if (usableCached.length) {
