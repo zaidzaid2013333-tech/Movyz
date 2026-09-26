@@ -41,10 +41,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [selectedServer, setSelectedServer] = useState<ServerId>('x');
   const [iframeLoaded, setIframeLoaded] = useState(false);
 
-  useEffect(() => {
-    setIframeLoaded(false);
-  }, [embedUrl]);
-
   const isMovie = contentType === 'movie';
   const safeTmdbId = Number(tmdbId || 0);
 
@@ -59,12 +55,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       autoplay: '1',
       server: selectedServer,
       lang: 'ar',
+      cc_load_policy: '1',
       title: isMovie ? title : `${title} · S${seasonNumber} E${episodeNumber}`,
       theme: 'dark',
     });
 
     return `${YAPGRID_ORIGIN}${path}?${params.toString()}`;
   }, [episodeNumber, isMovie, safeTmdbId, seasonNumber, selectedServer, title]);
+
+  useEffect(() => {
+    setIframeLoaded(false);
+  }, [embedUrl]);
 
   if (!embedUrl) {
     return (
