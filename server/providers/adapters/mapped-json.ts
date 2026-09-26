@@ -7,10 +7,11 @@ type MappedJsonConfig = {
   baseUrl: string;
   timeoutMs: number;
   language: string;
+  requiresMapping?: boolean;
 };
 
 export function createMappedJsonAdapter(config: MappedJsonConfig): ProviderAdapter {
-  const resolve = async (context: ProviderContext, kind: 'movie' | 'episode') => {
+  const resolve = async (context: ProviderContext) => {
     if (!context.providerId) return [];
 
     const url = materializeTemplate(config.baseUrl, {
@@ -21,29 +22,32 @@ export function createMappedJsonAdapter(config: MappedJsonConfig): ProviderAdapt
     });
 
     const payload = await fetchJsonOrText(url, config.timeoutMs);
-    const sources = resolveSourcesFromPayload(payload, {
+    return resolveSourcesFromPayload(payload, {
       language: config.language,
       label: config.name,
+    }).flatMap((source): NormalizedPlaybackSource[] => {
+      const type = inferPlaybackType(source.url, source.type);
+      if (!type) return [];
+      return [{
+        provider: config.key,
+        type,
+        url: source.url,
+        providerReference: context.providerId,
+        quality: source.quality || inferQuality(source.label, source.url),
+        language: source.language || config.language,
+        label: source.label || config.name,
+        expiresAt: source.expiresAt,
+      }];
     });
-
-    return sources.map((source): NormalizedPlaybackSource => ({
-      provider: config.key,
-      type: inferPlaybackType(source.url, source.type),
-      url: source.url,
-      providerReference: context.providerId,
-      quality: source.quality || inferQuality(source.label, source.url),
-      language: source.language || config.language,
-      label: source.label || config.name,
-      expiresAt: source.expiresAt,
-    }));
   };
 
   return {
     key: config.key,
     name: config.name,
     enabled: true,
-    resolveMovie: (context) => resolve(context, 'movie'),
-    resolveEpisode: (context) => resolve(context, 'episode'),
+    requiresMapping: config.requiresMapping === true,
+    resolveMovie: resolve,
+    resolveEpisode: resolve,
     health: async () => {
       const healthUrl = process.env[`MOVYZA_${config.key.toUpperCase()}_HEALTH_URL`];
       if (!healthUrl) {
@@ -52,10 +56,7 @@ export function createMappedJsonAdapter(config: MappedJsonConfig): ProviderAdapt
       const started = Date.now();
       try {
         await fetchJsonOrText(healthUrl, Math.min(config.timeoutMs, 5_000));
-        return {
-          status: 'healthy' as const,
-          latencyMs: Date.now() - started,
-        };
+        return { status: 'healthy' as const, latencyMs: Date.now() - started };
       } catch (error) {
         return {
           status: 'offline' as const,
@@ -77,5 +78,6 @@ export function createFaselHdAdapter() {
     baseUrl: `${baseUrl.replace(/\/$/, '')}/directlink?id={{providerId}}`,
     timeoutMs: Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000),
     language: 'ar',
+    requiresMapping: true,
   });
 }
