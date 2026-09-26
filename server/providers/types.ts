@@ -2,6 +2,9 @@ export type PlaybackKind = 'hls' | 'mp4' | 'dash';
 
 export interface ProviderContext {
   tmdbId?: number;
+  title?: string;
+  originalTitle?: string;
+  releaseYear?: number;
   providerId?: string;
   seasonNumber?: number;
   episodeNumber?: number;
