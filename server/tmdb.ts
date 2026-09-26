@@ -124,13 +124,22 @@ async function startJob(jobType: string, pages: number) {
   const stale = (runningJobs || []).filter((job: any) => job.created_at && job.created_at < staleBefore);
   if (stale.length) {
     const staleIds = stale.map((job: any) => job.id);
-    const { error } = await adminSupabase.from('sync_jobs').update({
+    let staleUpdate = await adminSupabase.from('sync_jobs').update({
       status: 'failed',
       stage: 'failed',
       error: 'Marked failed automatically because the worker was stale for more than 2 hours.',
       finished_at: new Date().toISOString(),
     }).in('id', staleIds);
-    if (error) throw new Error('Unable to close stale sync jobs: ' + error.message);
+
+    if (staleUpdate.error?.code === 'PGRST204') {
+      staleUpdate = await adminSupabase.from('sync_jobs').update({
+        status: 'failed',
+        error: 'Marked failed automatically because the worker was stale for more than 2 hours.',
+        finished_at: new Date().toISOString(),
+      }).in('id', staleIds);
+    }
+
+    if (staleUpdate.error) throw new Error('Unable to close stale sync jobs: ' + staleUpdate.error.message);
   }
 
   const active = (runningJobs || []).filter((job: any) => !stale.some((item: any) => item.id === job.id));
@@ -138,7 +147,7 @@ async function startJob(jobType: string, pages: number) {
     throw new Error(`A TMDB sync is already running (${active[0].job_type || 'unknown'} job ${active[0].id})`);
   }
 
-  const { data: job, error } = await adminSupabase.from('sync_jobs').insert({
+  let result = await adminSupabase.from('sync_jobs').insert({
     provider: 'tmdb',
     job_type: jobType,
     status: 'running',
@@ -148,18 +157,34 @@ async function startJob(jobType: string, pages: number) {
     details: {},
   }).select('id').single();
 
-  if (error || !job) {
-    const detail = error
-      ? `${error.code || 'unknown'}: ${error.message}${error.details ? ` (${error.details})` : ''}`
+  if (result.error?.code === 'PGRST204') {
+    result = await adminSupabase.from('sync_jobs').insert({
+      provider: 'tmdb',
+      job_type: jobType,
+      status: 'running',
+      pages,
+      started_at: new Date().toISOString(),
+    }).select('id').single();
+  }
+
+  if (result.error || !result.data) {
+    const detail = result.error
+      ? `${result.error.code || 'unknown'}: ${result.error.message}${result.error.details ? ` (${result.error.details})` : ''}`
       : 'No job row returned';
     throw new Error('Unable to start sync job: ' + detail);
   }
-  return job as SyncJob;
+  return result.data as SyncJob;
 }
 
 async function updateJob(jobId: string, patch: Record<string, unknown>) {
-  const { error } = await adminSupabase.from('sync_jobs').update(patch).eq('id', jobId);
-  if (error) console.error('Failed to update sync job', jobId, error.message);
+  let result = await adminSupabase.from('sync_jobs').update(patch).eq('id', jobId);
+  if (result.error?.code === 'PGRST204') {
+    const fallback = { ...patch };
+    delete fallback.stage;
+    delete fallback.details;
+    result = await adminSupabase.from('sync_jobs').update(fallback).eq('id', jobId);
+  }
+  if (result.error) console.error('Failed to update sync job', jobId, result.error.message);
 }
 
 async function finishJob(jobId: string, status: 'succeeded' | 'failed', counts: Partial<Counts>, error?: unknown) {
