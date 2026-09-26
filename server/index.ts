@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } from './auth';
+import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolvePlaybackSources } from './providers/resolver';
