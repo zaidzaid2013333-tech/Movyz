@@ -44,12 +44,6 @@ type PlaybackSource = {
   providerKey?: string;
 };
 
-const streamMime: Record<StreamType, string> = {
-  hls: 'application/x-mpegurl',
-  mp4: 'video/mp4',
-  dash: 'application/dash+xml',
-};
-
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   contentId,
   title,
@@ -148,11 +142,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const selectSource = (source: PlaybackSource) => {
     failedSourceIdsRef.current.delete(source.id);
     setSelectedSourceId(source.id);
-    setStreamType(source.type);
-    setStreamUrl(source.url);
-    setFallbackEmbedUrl('');
     setError('');
     setLoading(true);
+
+    if (source.type === 'embed') {
+      setStreamUrl('');
+      setFallbackEmbedUrl(source.url);
+      return;
+    }
+
+    setFallbackEmbedUrl('');
+    setStreamType(source.type);
+    setStreamUrl(source.url);
   };
 
   const moveToNextSource = () => {
@@ -265,13 +266,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const initial =
           normalized.find((source) => source.type === 'hls') ||
           normalized.find((source) => source.type === 'dash') ||
+          normalized.find((source) => source.type === 'mp4') ||
           normalized[0];
 
         if (!cancelled) {
           setSources(normalized);
           setSelectedSourceId(initial.id);
-          setStreamType(initial.type);
-          setStreamUrl(initial.url);
+
+          if (initial.type === 'embed') {
+            setStreamUrl('');
+            setFallbackEmbedUrl(initial.url);
+          } else {
+            setStreamType(initial.type);
+            setStreamUrl(initial.url);
+            setFallbackEmbedUrl('');
+          }
         }
       } catch (loadError) {
         if (cancelled) return;
@@ -458,8 +467,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <p className="text-[11px] text-slate-400">
               {fallbackEmbedUrl
                 ? language === 'ar'
-                  ? 'لم يرجع الـAPI رابطًا خامًا حاليًا، لذلك استُخدم مشغل ezvidapi الرسمي كاحتياط.'
-                  : 'The API did not return a raw stream, so the official ezvidapi embed is used as a fallback.'
+                  ? 'الـAPI أعاد fallback رسمي من ezVidAPI بعد تعذر الحصول على رابط خام.'
+                  : 'Movyza API returned the official ezVidAPI fallback after raw stream resolution failed.'
                 : language === 'ar'
                   ? 'الرابط يأتي من API تاع Movyza ويتشغل مباشرة داخل Player الجاهز.'
                   : 'Movyza API returns the source URL and the ready-made player plays it directly.'}
@@ -483,7 +492,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             >
               {sources.map((source) => (
                 <option key={source.id} value={source.id}>
-                  {[source.label, source.quality, source.type.toUpperCase(), source.language !== 'und' ? source.language : '']
+                  {[source.label, source.quality, source.type === 'embed' ? 'EMBED' : source.type.toUpperCase(), source.language !== 'und' ? source.language : '']
                     .filter(Boolean)
                     .join(' · ')}
                 </option>

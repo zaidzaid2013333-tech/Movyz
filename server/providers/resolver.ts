@@ -4,6 +4,31 @@ import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
 const VALID_TYPES = new Set(['hls', 'mp4', 'dash']);
 
+function ezvidEmbedSource(
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  context: ProviderContext,
+) {
+  if (!context.tmdbId) return null;
+
+  const url = contentType === 'movie'
+    ? `https://ezvidapi.com/embed/movie/${context.tmdbId}`
+    : `https://ezvidapi.com/embed/tv/${context.tmdbId}/${Number(context.seasonNumber || 1)}/${Number(context.episodeNumber || 1)}`;
+
+  return {
+    id: `ezvidapi-embed-${contentId}`,
+    type: 'embed' as const,
+    quality: 'auto',
+    language: 'und',
+    label: 'ezVidAPI Embed',
+    labelEn: 'ezVidAPI Embed',
+    url,
+    isWorking: true,
+    provider: 'ezVidAPI',
+    providerKey: 'ezvidapi',
+  };
+}
+
 export const PROVIDER_PRIORITY: Record<string, number> = {
   ezvidapi: 1,
   faselhd: 20,
@@ -248,6 +273,11 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
         last_checked_at: new Date().toISOString(),
       }).eq('id', provider.id);
     }
+  }
+
+  if (!allResolvedSources.length) {
+    const fallback = ezvidEmbedSource(contentType, contentId, context);
+    if (fallback) return [fallback];
   }
 
   return allResolvedSources;

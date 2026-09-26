@@ -91,21 +91,17 @@ jobs:
           const tmdbId = Number(movie?.tmdbId || movie?.tmdb_id || 0);
           if (!contentId || !/^[0-9a-f-]{36}$/i.test(contentId)) throw new Error('First published movie has no valid UUID: ' + JSON.stringify(movie).slice(0, 1200));
           if (!Number.isInteger(tmdbId) || tmdbId <= 0) throw new Error('First published movie has no valid TMDB id: ' + JSON.stringify(movie).slice(0, 1200));
-          const directApi = await getJson('/api/v1/playback/ezvidapi?type=movie&tmdbId=' + encodeURIComponent(String(tmdbId)), 30000);
-          const directStream = directApi?.data?.stream_url;
-          if (!/^https:\/\//i.test(String(directStream || ''))) throw new Error('ezvidAPI direct resolver returned no HTTPS stream');
-          if (String(directApi?.data?.type || '') !== 'hls') throw new Error('ezvidAPI direct resolver did not classify the stream as HLS');
-
           const playback = await getJson('/api/v1/playback/sources?contentType=movie&contentId=' + encodeURIComponent(contentId), 30000);
           const sources = Array.isArray(playback?.data) ? playback.data : [];
-          if (!sources.length) throw new Error('Playback resolver returned no playable sources for movie ' + contentId);
+          if (!sources.length) throw new Error('Playback resolver returned no playable source for movie ' + contentId);
           const source = sources[0];
           const validDirect = /^https:\/\//i.test(String(source?.url || ''));
           const validProxy = /^\/api\/v1\/playback\/proxy\?url=/.test(String(source?.url || ''));
-          if (!source?.url || (!validDirect && !validProxy)) throw new Error('Playback resolver returned an invalid source: ' + JSON.stringify(source).slice(0, 1600));
-          if (!['hls','mp4','dash'].includes(String(source.type))) throw new Error('Playback resolver returned unsupported type: ' + String(source.type));
+          const validEmbed = /^https:\/\/ezvidapi\.com\/embed\//i.test(String(source?.url || ''));
+          if (!source?.url || (!validDirect && !validProxy && !validEmbed)) throw new Error('Playback resolver returned an invalid source: ' + JSON.stringify(source).slice(0, 1600));
+          if (!['hls','mp4','dash','embed'].includes(String(source.type))) throw new Error('Playback resolver returned unsupported type: ' + String(source.type));
           if (String(source.type) === 'hls' && !validProxy && !/\.m3u8(?:$|[?#])/i.test(String(source.url))) throw new Error('HLS source does not point to an m3u8 URL');
-          const host = validDirect ? new URL(source.url).host : 'movyz-proxy';
+          const host = validDirect ? new URL(source.url).host : (validEmbed ? new URL(source.url).host : 'movyz-proxy');
           console.log('LIVE_PLAYBACK_TARGET=PASS');
           console.log(JSON.stringify({ contentId, tmdbId, provider: source.provider, type: source.type, host }));
           NODE
