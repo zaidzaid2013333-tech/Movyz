@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - tmp/test-moviebox-api
+  pull_request:
+    branches:
+      - main
 
 jobs:
   test-moviebox:
