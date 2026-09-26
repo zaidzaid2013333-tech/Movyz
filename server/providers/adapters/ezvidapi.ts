@@ -61,9 +61,13 @@ export function createEzvidApiAdapter(): ProviderAdapter {
     
     for (const origin of origins) {
       const providers = new Set<string>();
+      const attemptedProviders = new Set<string>();
       if (configured) providers.add(configured);
 
       const tryProvider = async (provider: string): Promise<NormalizedPlaybackSource[]> => {
+        if (attemptedProviders.has(provider)) return [];
+        attemptedProviders.add(provider);
+
         const url = kind === 'movie'
           ? origin + '/movie/' + encodeURIComponent(provider) + '/' + context.tmdbId
           : origin + '/tv/' + encodeURIComponent(provider) + '/' + context.tmdbId + '?season=' + context.seasonNumber + '&episode=' + context.episodeNumber;
