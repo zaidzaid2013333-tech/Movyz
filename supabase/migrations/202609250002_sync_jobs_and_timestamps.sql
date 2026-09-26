@@ -1,7 +1,27 @@
 -- Sync job tracking and timestamp triggers.
--- Safe/idempotent migration for Movyz.
+-- Safe/idempotent migration for Movyz, including partially initialized databases.
 
 begin;
+
+create extension if not exists pgcrypto;
+
+-- Repair/guarantee the authorization helper before any policy references it.
+-- The function is intentionally security-definer so its profile lookup is
+-- evaluated with the function owner's privileges instead of caller RLS.
+create or replace function public.is_admin_or_owner()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $function$
+  select exists (
+    select 1
+    from public.profiles
+    where id = auth.uid()
+      and role in ('ADMIN','OWNER')
+  );
+$function$;
 
 -- Keep provider.updated_at available before its trigger is installed.
 alter table if exists public.providers
@@ -53,35 +73,45 @@ begin
 end;
 $function$;
 
--- Recreate triggers safely.
-drop trigger if exists profiles_updated_at on public.profiles;
-create trigger profiles_updated_at
-before update on public.profiles
-for each row
-execute function public.set_updated_at();
+-- Recreate triggers safely. Skip a table if an earlier/base migration has not
+-- created it yet; the base migration remains responsible for those tables.
+do $trigger$
+begin
+  if to_regclass('public.profiles') is not null then
+    execute 'drop trigger if exists profiles_updated_at on public.profiles';
+    execute 'create trigger profiles_updated_at
+      before update on public.profiles
+      for each row execute function public.set_updated_at()';
+  end if;
 
-drop trigger if exists movies_updated_at on public.movies;
-create trigger movies_updated_at
-before update on public.movies
-for each row
-execute function public.set_updated_at();
+  if to_regclass('public.movies') is not null then
+    execute 'drop trigger if exists movies_updated_at on public.movies';
+    execute 'create trigger movies_updated_at
+      before update on public.movies
+      for each row execute function public.set_updated_at()';
+  end if;
 
-drop trigger if exists series_updated_at on public.series;
-create trigger series_updated_at
-before update on public.series
-for each row
-execute function public.set_updated_at();
+  if to_regclass('public.series') is not null then
+    execute 'drop trigger if exists series_updated_at on public.series';
+    execute 'create trigger series_updated_at
+      before update on public.series
+      for each row execute function public.set_updated_at()';
+  end if;
 
-drop trigger if exists providers_updated_at on public.providers;
-create trigger providers_updated_at
-before update on public.providers
-for each row
-execute function public.set_updated_at();
+  if to_regclass('public.providers') is not null then
+    execute 'drop trigger if exists providers_updated_at on public.providers';
+    execute 'create trigger providers_updated_at
+      before update on public.providers
+      for each row execute function public.set_updated_at()';
+  end if;
 
-drop trigger if exists sync_jobs_updated_at on public.sync_jobs;
-create trigger sync_jobs_updated_at
-before update on public.sync_jobs
-for each row
-execute function public.set_updated_at();
+  if to_regclass('public.sync_jobs') is not null then
+    execute 'drop trigger if exists sync_jobs_updated_at on public.sync_jobs';
+    execute 'create trigger sync_jobs_updated_at
+      before update on public.sync_jobs
+      for each row execute function public.set_updated_at()';
+  end if;
+end
+$trigger$;
 
 commit;
