@@ -81,3 +81,18 @@ export function createFaselHdAdapter() {
     requiresMapping: true,
   });
 }
+
+
+export function createEgyBestAdapter() {
+  const baseUrl = process.env.EGYBEST_API_BASE_URL?.trim();
+  if (!baseUrl) return null;
+  return createMappedJsonAdapter({
+    key: 'egybest',
+    name: 'EgyBest',
+    baseUrl,
+    moviePath: process.env.EGYBEST_MOVIE_PATH || '/movie/{{providerId}}',
+    episodePath: process.env.EGYBEST_EPISODE_PATH || '/tv/{{providerId}}/{{season}}/{{episode}}',
+    language: 'ar',
+    requiresMapping: true,
+  });
+}
