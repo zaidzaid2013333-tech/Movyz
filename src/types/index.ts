@@ -17,16 +17,28 @@ export interface CastMember {
   avatarUrl: string;
 }
 
+export interface PlaybackSubtitleTrack {
+  url: string;
+  type: 'vtt' | 'srt';
+  language: string;
+  label: string;
+  labelEn: string;
+  default?: boolean;
+}
+
 export interface PlaybackSource {
   id: string;
-  type: 'hls' | 'mp4' | 'dash';
-  quality: '1080p' | '720p' | '480p' | '4k' | 'auto';
+  type: 'hls' | 'mp4' | 'dash' | 'webm';
+  quality: string;
   language: string;
   label: string; // e.g., 'سيرفر سريع (Akamai CDN)'
   labelEn: string; // e.g., 'Fast CDN (Primary)'
   url: string;
   isWorking: boolean;
   provider: string; // e.g. 'ArabStream', 'FaselHD Adapter', 'EgyBest Adapter'
+  providerKey?: string;
+  providerReference?: string;
+  subtitleTracks?: PlaybackSubtitleTrack[];
 }
 
 export interface Movie {
