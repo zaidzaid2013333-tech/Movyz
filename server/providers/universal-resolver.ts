@@ -80,7 +80,7 @@ function candidateUrlsFromText(text: string, baseUrl: string) {
   const streamRegex = /(?:https?:\\/\\/[^\\s"'<>\\\\]+|(?:\\/\\/)?[^\\s"'<>\\\\]+)(?:\\.m3u8|\\.mpd|\\.mp4)(?:[?#][^\\s"'<>\\\\]*)?/gi;
   for (const match of text.match(streamRegex) || []) add(match);
 
-  const attributeRegex = /(?:src|data-src|file|url|stream|source|hls|dash)\\s*[:=]\\s*['\`]([^'\`]+)['\`]/gi;
+  const attributeRegex = /(?:src|data-src|file|url|stream|source|hls|dash)\\s*[:=]\\s*["'\`]([^"'\`]+)["'\`]/gi;
   let attributeMatch: RegExpExecArray | null;
   while ((attributeMatch = attributeRegex.exec(text))) add(attributeMatch[1]);
 
@@ -101,7 +101,7 @@ export function extractUniversalCandidates(text: string, baseUrl: string) {
     }
   }
 
-  const iframeRegex = /<(?:iframe|embed)[^>]+(?:src|data-src)\\s*=\\s*['\`]([^'\`]+)['\`]/gi;
+  const iframeRegex = /<(?:iframe|embed)[^>]+(?:src|data-src)\\s*=\\s*["'\`]([^"'\`]+)["'\`]/gi;
   let iframeMatch: RegExpExecArray | null;
   while ((iframeMatch = iframeRegex.exec(text))) {
     const url = normalizeUrl(iframeMatch[1], baseUrl);
