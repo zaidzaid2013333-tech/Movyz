@@ -10,6 +10,45 @@ const BASE_URL = "https://moviebox.ph";
 const H5_API = "https://h5-api.aoneroom.com";
 const DEFAULT_DOMAIN = "https://123movienow.cc";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const H5_TIMEOUT_MS = 12_000;
+
+function h5Headers(extra = {}) {
+  return {
+    Accept: "application/json, text/plain, */*",
+    Origin: BASE_URL,
+    Referer: `${BASE_URL}/`,
+    "User-Agent": UA,
+    "X-Client-Info": '{"timezone":"UTC"}',
+    "X-Request-Lang": "en",
+    ...extra,
+  };
+}
+
+async function fetchH5(path, init = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), H5_TIMEOUT_MS);
+  try {
+    return await fetch(`${H5_API}${path}`, {
+      ...init,
+      headers: h5Headers(init.headers || {}),
+      signal: controller.signal,
+      redirect: "follow",
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function upstreamFailure(stage, response) {
+  let snippet = "";
+  try { snippet = (await response.text()).replace(/\s+/g, " ").slice(0, 300); } catch {}
+  return json({
+    error: `MovieBox ${stage} failed`,
+    stage,
+    upstreamStatus: response.status,
+    responseSnippet: snippet || undefined,
+  }, 502);
+}
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -95,7 +134,9 @@ export default {
 
       return json({ error: "Not found" }, 404);
     } catch (err) {
-      return json({ error: err.message || "Internal error" }, 500);
+      const message = err instanceof Error ? err.message : "Internal error";
+      console.error("MovieBox Worker request failed", p, message);
+      return json({ error: message, stage: "request" }, 502);
     }
   },
 };
@@ -452,152 +493,80 @@ async function handleSearchSuggest(params) {
   const q = params.get("q");
   if (!q) return json({ error: "q parameter required" }, 400);
 
-  const resp = await fetch(
-    `${H5_API}/wefeed-h5api-bff/subject/search-suggest`,
-    {
-      method: "POST",
-      headers: { "User-Agent": UA, "Content-Type": "application/json" },
-      body: JSON.stringify({ keyword: q, perPage: 10 }),
-    }
-  );
-  if (!resp.ok) return json({ error: "Search API failed" }, 502);
-  const body = await resp.json();
-  const items = body?.data?.items || [];
-  return json({
-    query: q,
-    suggestions: items.map((i) => i.word).filter(Boolean),
+  const resp = await fetchH5("/wefeed-h5api-bff/subject/search-suggest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keyword: q, perPage: 10 }),
   });
+  if (!resp.ok) return upstreamFailure("search-suggest", resp);
+  const body = await resp.json();
+  const items = body?.data?.items || body?.items || [];
+  return json({ query: q, suggestions: items.map((i) => i.word).filter(Boolean) });
 }
 
 async function handleSearch(params) {
   const q = params.get("q");
   if (!q) return json({ error: "q parameter required" }, 400);
 
-  const resp = await fetch(
-    `${H5_API}/wefeed-h5api-bff/subject/search`,
-    {
-      method: "POST",
-      headers: { "User-Agent": UA, "Content-Type": "application/json" },
-      body: JSON.stringify({ keyword: q, perPage: 30, page: 1 }),
-    }
-  );
-  if (!resp.ok) return json({ error: "Search API failed" }, 502);
-  const body = await resp.json();
-  const items = body?.data?.items || [];
+  const resp = await fetchH5("/wefeed-h5api-bff/subject/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keyword: q, perPage: 30, page: 1 }),
+  });
+  if (!resp.ok) return upstreamFailure("search", resp);
+
+  let body;
+  try { body = await resp.json(); } catch { return json({ error: "MovieBox search returned invalid JSON", stage: "search" }, 502); }
+  const items = body?.data?.items || body?.data?.subjects || body?.items || [];
+  if (!Array.isArray(items)) return json({ error: "MovieBox search returned an unexpected response", stage: "search" }, 502);
 
   const movies = items.map((s) => ({
-    name: s.title || "",
-    poster_url: s.cover?.url || null,
+    name: s.title || s.name || "",
+    year: s.releaseDate || s.year || null,
+    poster_url: s.cover?.url || s.poster?.url || null,
     url: s.detailPath ? `${BASE_URL}/detail/${s.detailPath}` : null,
-    slug: s.detailPath || null,
+    slug: s.detailPath || s.slug || null,
     badge: s.corner || null,
     blurhash: s.cover?.blurHash || null,
-  }));
+  })).filter((movie) => movie.slug && movie.name);
 
   return json({ query: q, count: movies.length, movies });
 }
 
 // ══════════════════════════════════════════════════════════════════
-// GET /detail/{slug}  — full metadata from NUXT_DATA
+// GET /detail/{slug}  — full metadata from the H5 detail API
 // ══════════════════════════════════════════════════════════════════
 
 async function handleDetail(slug) {
-  const pageUrl = `${BASE_URL}/detail/${slug}`;
-  const resp = await fetch(pageUrl, {
-    headers: { "User-Agent": UA },
-    redirect: "follow",
-  });
-  if (!resp.ok) return json({ error: "Movie not found" }, 404);
-  const html = await resp.text();
+  const resp = await fetchH5(`/wefeed-h5api-bff/detail?detailPath=${encodeURIComponent(slug)}`);
+  if (!resp.ok) return upstreamFailure("detail", resp);
 
-  // Extract __NUXT_DATA__
-  const match = html.match(
-    /<script[^>]+id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/
-  );
-  if (!match) return json({ error: "Could not find NUXT data" }, 500);
-
-  let nuxt;
-  try {
-    nuxt = JSON.parse(match[1]);
-  } catch {
-    return json({ error: "Failed to parse NUXT data" }, 500);
-  }
-  if (!Array.isArray(nuxt)) return json({ error: "Unexpected NUXT format" }, 500);
-
-  // Resolve NUXT references
-  function resolve(index) {
-    if (typeof index !== "number" || index < 0 || index >= nuxt.length) return index;
-    const val = nuxt[index];
-    if (val && typeof val === "object" && !Array.isArray(val)) {
-      const out = {};
-      for (const [k, v] of Object.entries(val)) out[k] = resolve(v);
-      return out;
-    }
-    if (Array.isArray(val)) return val.map(resolve);
-    return val;
-  }
-
-  // Find movie metadata, seasons, cast, reviews
-  let movieDict = null;
-  let seasons = [];
-  let topCast = [];
-  let userReviews = [];
-
-  for (let i = 0; i < nuxt.length; i++) {
-    const resolved = resolve(i);
-    if (!resolved || typeof resolved !== "object" || Array.isArray(resolved)) continue;
-
-    if (resolved.subjectId && resolved.title && resolved.duration && !movieDict) {
-      movieDict = resolved;
-    }
-    if (resolved.seasons) seasons = resolved.seasons;
-    if (resolved.stars) topCast = resolved.stars;
-    if (
-      resolved.items &&
-      Array.isArray(resolved.items) &&
-      resolved.items.some((it) => it && typeof it === "object" && it.content)
-    ) {
-      userReviews = resolved.items;
-    }
-  }
-
-  if (!movieDict) return json({ error: "Could not extract movie metadata" }, 404);
-
-  // Collect stream URLs from raw data
-  const mp4Urls = nuxt.filter((v) => typeof v === "string" && v.includes(".mp4"));
-  const hlsUrls = nuxt.filter(
-    (v) => typeof v === "string" && (v.includes(".m3u8") || v.includes("/m3u8/"))
-  );
+  let body;
+  try { body = await resp.json(); } catch { return json({ error: "MovieBox detail returned invalid JSON", stage: "detail" }, 502); }
+  const data = body?.data || {};
+  const resource = data.resource || {};
+  const subject = data.subject || resource.subject || resource || data;
+  const subjectId = subject.subjectId || subject.id || data.subjectId || data.subject_id || resource.id;
+  if (!subjectId) return json({ error: "MovieBox detail returned no subject ID", stage: "detail" }, 502);
 
   return json({
     slug,
-    source: pageUrl,
     metadata: {
-      id: movieDict.subjectId,
-      title: movieDict.title,
-      description: movieDict.description,
-      release_date: movieDict.releaseDate,
-      duration: movieDict.duration,
-      genre: movieDict.genre,
-      country: movieDict.countryName,
-      imdb_rating: movieDict.imdbRatingValue,
-      poster:
-        movieDict.cover && typeof movieDict.cover === "object"
-          ? movieDict.cover.url
-          : null,
-      badge: movieDict.corner,
-      dubs: movieDict.dubs || [],
-      top_cast: topCast,
-      seasons,
-      user_reviews: userReviews
-        .filter((r) => r && typeof r === "object" && r.content)
-        .map((r) => ({
-          user: r.user?.nickname || null,
-          content: r.content,
-          created_at: r.createdAt || null,
-        })),
+      id: String(subjectId),
+      title: subject.title || data.title || "",
+      description: subject.description || data.description || null,
+      release_date: subject.releaseDate || data.releaseDate || null,
+      duration: subject.duration || data.duration || null,
+      genre: subject.genre || data.genre || [],
+      country: subject.countryName || data.countryName || null,
+      imdb_rating: subject.imdbRatingValue || data.imdbRatingValue || null,
+      poster: subject.cover?.url || data.cover?.url || null,
+      badge: subject.corner || data.corner || null,
+      dubs: subject.dubs || data.dubs || [],
+      top_cast: data.stars || subject.stars || [],
+      seasons: resource.seasons || data.seasons || [],
+      user_reviews: [],
     },
-    streams: { mp4: mp4Urls, hls: hlsUrls },
   });
 }
 
@@ -606,11 +575,8 @@ async function handleDetail(slug) {
 // ══════════════════════════════════════════════════════════════════
 
 async function handleEpisodes(slug) {
-  const resp = await fetch(
-    `${H5_API}/wefeed-h5api-bff/detail?detailPath=${slug}`,
-    { headers: { "User-Agent": UA } }
-  );
-  if (!resp.ok) return json({ error: "Movie/Series not found" }, 404);
+  const resp = await fetchH5(`/wefeed-h5api-bff/detail?detailPath=${encodeURIComponent(slug)}`);
+  if (!resp.ok) return upstreamFailure("detail", resp);
   const body = await resp.json();
   const data = body?.data || {};
   const resource = data.resource || {};
@@ -664,9 +630,9 @@ async function handleEpisodes(slug) {
 
 async function discoverDomain() {
   try {
-    const resp = await fetch(
-      `${H5_API}/wefeed-h5api-bff/media-player/get-domain`,
-      { headers: { "User-Agent": UA, "X-Client-Type": "h5" } }
+    const resp = await fetchH5(
+      "/wefeed-h5api-bff/media-player/get-domain",
+      { headers: { "X-Client-Type": "h5" } }
     );
     if (resp.ok) {
       const d = await resp.json();
@@ -679,17 +645,21 @@ async function discoverDomain() {
 async function fetchStreams(domain, subjectId, detailPath, se, ep) {
   const playUrl = `${domain}/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${se}&ep=${ep}&detailPath=${detailPath}`;
   const resp = await fetch(playUrl, {
-    headers: {
-      accept: "application/json",
-      referer: `${domain}/spa/videoPlayPage/movies/${detailPath}`,
-      "x-client-info": '{"timezone":"Asia/Dhaka"}',
-      cookie: "uuid=d8c3539e-2e46-4000-af20-7046a856e30a",
-      "User-Agent": UA,
-    },
+    headers: h5Headers({
+      Referer: `${domain}/spa/videoPlayPage/movies/${detailPath}`,
+      Origin: domain,
+    }),
+    redirect: "follow",
   });
-  if (!resp.ok) throw new Error(`Play API returned ${resp.status}`);
-  const body = await resp.json();
-  return body?.data?.streams || [];
+  if (!resp.ok) {
+    const detail = (await resp.text()).replace(/\s+/g, " ").slice(0, 300);
+    throw new Error(`MovieBox stream failed: HTTP ${resp.status}${detail ? ` ${detail}` : ""}`);
+  }
+  let body;
+  try { body = await resp.json(); } catch { throw new Error("MovieBox stream returned invalid JSON"); }
+  const streams = body?.data?.streams || body?.data?.sources || body?.streams || body?.sources || [];
+  if (!Array.isArray(streams)) throw new Error("MovieBox stream returned an unexpected response");
+  return streams;
 }
 
 async function handleStreamApi(subjectId, params) {
@@ -724,12 +694,7 @@ async function handleStreamApi(subjectId, params) {
     try {
       const capUrl = `${H5_API}/wefeed-h5api-bff/subject/caption?subjectId=${subjectId}&id=${streamId}&detailPath=${detailPath}`;
       const capResp = await fetch(capUrl, {
-        headers: { 
-          "User-Agent": UA, 
-          accept: "application/json",
-          "x-client-info": '{"timezone":"Asia/Dhaka"}',
-          cookie: "uuid=d8c3539e-2e46-4000-af20-7046a856e30a"
-        },
+        headers: h5Headers({ accept: "application/json" }),
       });
       if (capResp.ok) {
         const capBody = await capResp.json();

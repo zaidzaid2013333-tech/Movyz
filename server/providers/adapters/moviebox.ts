@@ -19,8 +19,6 @@ function h5Headers(extra: Record<string, string> = {}) {
     Referer: 'https://moviebox.pk/',
     ...extra,
   };
-  const authorization = env('MOVIEBOX_AUTHORIZATION');
-  if (authorization) headers.Authorization = authorization;
   return headers;
 }
 
@@ -58,7 +56,10 @@ async function fetchJson<T>(url: string, timeoutMs: number, init: RequestInit = 
     timeoutMs,
   });
   const text = await response.text();
-  if (!response.ok) throw new Error('MovieBox HTTP ' + response.status);
+  if (!response.ok) {
+    const snippet = text.replace(/\s+/g, ' ').slice(0, 240);
+    throw new Error('MovieBox HTTP ' + response.status + (snippet ? ': ' + snippet : ''));
+  }
   try { return JSON.parse(text) as T; } catch { throw new Error('MovieBox returned invalid JSON'); }
 }
 
@@ -91,17 +92,20 @@ async function searchViaH5(query: string, timeoutMs: number): Promise<SearchItem
 async function chooseMatch(context: ProviderContext, timeoutMs: number, baseUrl: string) {
   const queries = [...new Set([context.title, context.originalTitle].map((value) => String(value || '').trim()).filter(Boolean))];
   const all: SearchItem[] = [];
+  const failures: string[] = [];
   for (const query of queries) {
     try {
       all.push(...await searchViaMovieBoxApi(baseUrl, query, timeoutMs));
-    } catch {
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : 'dedicated worker search failed');
       try {
         all.push(...await searchViaH5(query, timeoutMs));
-      } catch {
-        continue;
+      } catch (fallbackError) {
+        failures.push(fallbackError instanceof Error ? fallbackError.message : 'H5 search failed');
       }
     }
   }
+  if (!all.length && failures.length) throw new Error('MovieBox search failed for "' + context.title + '": ' + failures.join(' | '));
   const unique = new Map<string, SearchItem>();
   for (const item of all) {
     const slug = String(item.slug || item.detailPath || '').trim();
@@ -121,7 +125,6 @@ async function chooseMatch(context: ProviderContext, timeoutMs: number, baseUrl:
   const slug = String(best.item.slug || best.item.detailPath || '').trim();
   return slug ? { slug, item: best.item, score: best.score } : null;
 }
-
 async function getSubjectIdFromMovieBoxApi(baseUrl: string, slug: string, timeoutMs: number) {
   const detail = await fetchJson<any>(baseUrl + '/detail/' + encodeURIComponent(slug), timeoutMs, {}, { Accept: 'application/json', 'User-Agent': USER_AGENT });
   const subjectId = detail?.metadata?.id || detail?.subjectId || detail?.id;
@@ -163,7 +166,6 @@ async function fetchStreamsViaH5(subjectId: string, slug: string, season: number
     headers: {
       'Content-Type': 'application/json',
       referer: domain + '/spa/videoPlayPage/movies/' + slug,
-      Cookie: 'uuid=d8c3539e-2e46-4000-af20-7046a856e30a',
       'X-Client-Info': '{"timezone":"Africa/Algiers"}',
     },
   });
@@ -216,7 +218,13 @@ export function createMovieBoxApiAdapter(): ProviderAdapter {
     try {
       streams = await fetchStreamsViaMovieBoxApi(baseUrl, subjectId, match.slug, season, episode, timeoutMs);
     } catch (error) {
-      streams = await fetchStreamsViaH5(subjectId, match.slug, season, episode, timeoutMs);
+      const workerError = error instanceof Error ? error.message : 'dedicated worker stream failed';
+      try {
+        streams = await fetchStreamsViaH5(subjectId, match.slug, season, episode, timeoutMs);
+      } catch (fallbackError) {
+        const h5Error = fallbackError instanceof Error ? fallbackError.message : 'H5 stream failed';
+        throw new Error('MovieBox stream failed for subject ' + subjectId + ': ' + workerError + ' | ' + h5Error);
+      }
     }
 
     const normalized = (Array.isArray(streams) ? streams : []).flatMap((stream: any, index: number): NormalizedPlaybackSource[] => {
