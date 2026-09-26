@@ -4,15 +4,154 @@
  * A complete port of the Python FastAPI to a zero-RAM Cloudflare Worker.
  * All endpoints use the MovieBox backend JSON APIs directly (no HTML scraping).
  * Video streaming pipes ReadableStream straight through — zero buffering.
+ *
+ * H5 auth note:
+ * MovieBox's web H5 API now bootstraps a guest bearer token through the app
+ * metadata endpoint. Reusing it avoids the current 429 RESOURCE_EXHAUSTED
+ * response seen on unauthenticated H5 subject/search requests.
  */
 
-const BASE_URL = "https://moviebox.ph";
+const BASE_URL = "https://moviebox.pk";
 const H5_API = "https://h5-api.aoneroom.com";
 const DEFAULT_DOMAIN = "https://123movienow.cc";
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 const H5_TIMEOUT_MS = 12_000;
+const H5_AUTH_CACHE_KEY = "https://movyz-moviebox.invalid/__h5_auth_token";
 
-function h5Headers(extra = {}) {
+let h5AuthToken = null;
+let h5AuthExpiresAt = 0;
+let h5AuthPromise = null;
+
+async function md5Hex(value) {
+  const data = typeof value === "string" ? new TextEncoder().encode(value) : value;
+  const digest = await crypto.subtle.digest("MD5", data);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function generateClientToken() {
+  const timestamp = String(Date.now());
+  const reversed = timestamp.split("").reverse().join("");
+  return `${timestamp},${await md5Hex(reversed)}`;
+}
+
+function decodeJwtExpSeconds(token) {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const parsed = JSON.parse(atob(padded));
+    return typeof parsed.exp === "number" ? parsed.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractH5AuthToken(response) {
+  const raw = response.headers.get("x-user");
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed?.token === "string" && parsed.token ? parsed.token : null;
+  } catch {
+    return null;
+  }
+}
+
+async function cacheH5AuthToken(token) {
+  const exp = decodeJwtExpSeconds(token) || Math.floor(Date.now() / 1000) + 86_400;
+  h5AuthToken = token;
+  h5AuthExpiresAt = exp * 1000;
+
+  try {
+    const ttl = Math.max(60, Math.floor((h5AuthExpiresAt - Date.now()) / 1000) - 60);
+    await caches.default.put(
+      H5_AUTH_CACHE_KEY,
+      new Response(token, {
+        headers: {
+          "Cache-Control": `public, max-age=${ttl}`,
+          "X-Expires-At": String(exp),
+        },
+      }),
+    );
+  } catch (error) {
+    console.warn("MovieBox H5 auth cache write failed", error);
+  }
+}
+
+async function readCachedH5AuthToken() {
+  if (h5AuthToken && Date.now() < h5AuthExpiresAt - 60_000) {
+    return h5AuthToken;
+  }
+
+  try {
+    const cached = await caches.default.match(H5_AUTH_CACHE_KEY);
+    if (!cached) return null;
+
+    const token = (await cached.text()).trim();
+    const expiresAt = Number(cached.headers.get("X-Expires-At") || 0);
+    if (!token || !expiresAt || Date.now() >= expiresAt * 1000 - 60_000) {
+      return null;
+    }
+
+    h5AuthToken = token;
+    h5AuthExpiresAt = expiresAt * 1000;
+    return token;
+  } catch (error) {
+    console.warn("MovieBox H5 auth cache read failed", error);
+    return null;
+  }
+}
+
+async function bootstrapH5AuthToken() {
+  const response = await fetch(
+    `${H5_API}/wefeed-h5api-bff/app/get-latest-app-pkgs?appName=moviebox`,
+    {
+      headers: {
+        Accept: "application/json",
+        Origin: BASE_URL,
+        Referer: `${BASE_URL}/`,
+        "User-Agent": UA,
+        "X-Client-Info": '{"timezone":"UTC"}',
+        "X-Client-Token": await generateClientToken(),
+        "X-Request-Lang": "en",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(H5_TIMEOUT_MS),
+    },
+  );
+
+  const token = extractH5AuthToken(response);
+  if (!response.ok || !token) {
+    let snippet = "";
+    try {
+      snippet = (await response.text()).replace(/\s+/g, " ").slice(0, 300);
+    } catch {}
+    throw new Error(
+      `MovieBox H5 auth bootstrap failed: HTTP ${response.status}${snippet ? ` ${snippet}` : ""}`,
+    );
+  }
+
+  await cacheH5AuthToken(token);
+  return token;
+}
+
+async function getH5AuthToken() {
+  const cached = await readCachedH5AuthToken();
+  if (cached) return cached;
+
+  if (!h5AuthPromise) {
+    h5AuthPromise = bootstrapH5AuthToken().finally(() => {
+      h5AuthPromise = null;
+    });
+  }
+
+  return h5AuthPromise;
+}
+
+function h5Headers(extra = {}, authToken = null) {
   return {
     Accept: "application/json, text/plain, */*",
     Origin: BASE_URL,
@@ -20,6 +159,7 @@ function h5Headers(extra = {}) {
     "User-Agent": UA,
     "X-Client-Info": '{"timezone":"UTC"}',
     "X-Request-Lang": "en",
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...extra,
   };
 }
@@ -27,27 +167,25 @@ function h5Headers(extra = {}) {
 async function fetchH5(path, init = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), H5_TIMEOUT_MS);
+
   try {
-    return await fetch(`${H5_API}${path}`, {
+    const authToken = await getH5AuthToken();
+    const response = await fetch(`${H5_API}${path}`, {
       ...init,
-      headers: h5Headers(init.headers || {}),
+      headers: h5Headers(init.headers || {}, authToken),
       signal: controller.signal,
       redirect: "follow",
     });
+
+    const rotatedToken = extractH5AuthToken(response);
+    if (rotatedToken && rotatedToken !== authToken) {
+      await cacheH5AuthToken(rotatedToken);
+    }
+
+    return response;
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function upstreamFailure(stage, response) {
-  let snippet = "";
-  try { snippet = (await response.text()).replace(/\s+/g, " ").slice(0, 300); } catch {}
-  return json({
-    error: `MovieBox ${stage} failed`,
-    stage,
-    upstreamStatus: response.status,
-    responseSnippet: snippet || undefined,
-  }, 502);
 }
 
 const CORS = {
@@ -202,9 +340,8 @@ function handleRoot() {
 // ══════════════════════════════════════════════════════════════════
 
 async function fetchHomeData() {
-  const resp = await fetch(
-    `${H5_API}/wefeed-h5api-bff/home?host=moviebox.ph`,
-    { headers: { "User-Agent": UA } }
+  const resp = await fetchH5(
+    "/wefeed-h5api-bff/home?host=moviebox.pk",
   );
   if (!resp.ok) throw new Error(`Home API returned ${resp.status}`);
   const body = await resp.json();
@@ -330,14 +467,8 @@ async function fetchCategoryData(category) {
   };
   const filterType = typeMap[category] || category;
 
-  const resp = await fetch(
-    `${H5_API}/wefeed-h5api-bff/subject/filter?type=${filterType}&page=1&perPage=60`,
-    {
-      headers: {
-        "User-Agent": UA,
-        accept: "application/json",
-      },
-    }
+  const resp = await fetchH5(
+    `/wefeed-h5api-bff/subject/filter?type=${filterType}&page=1&perPage=60`,
   );
 
   if (!resp.ok) throw new Error(`Category API returned ${resp.status}`);
@@ -416,10 +547,7 @@ async function handleCategorySectionByName(category, name) {
 // ══════════════════════════════════════════════════════════════════
 
 async function fetchRankingData() {
-  const resp = await fetch(
-    `${H5_API}/wefeed-h5api-bff/subject/rank-list`,
-    { headers: { "User-Agent": UA, accept: "application/json" } }
-  );
+  const resp = await fetchH5("/wefeed-h5api-bff/subject/rank-list");
   if (!resp.ok) throw new Error(`Ranking API returned ${resp.status}`);
   const body = await resp.json();
   const lists = body?.data || [];
@@ -693,9 +821,7 @@ async function handleStreamApi(subjectId, params) {
   if (streamId) {
     try {
       const capUrl = `${H5_API}/wefeed-h5api-bff/subject/caption?subjectId=${subjectId}&id=${streamId}&detailPath=${detailPath}`;
-      const capResp = await fetch(capUrl, {
-        headers: h5Headers({ accept: "application/json" }),
-      });
+      const capResp = await fetchH5(capUrl.replace(H5_API, ""));
       if (capResp.ok) {
         const capBody = await capResp.json();
         const subs = capBody?.data?.subtitles || [];
