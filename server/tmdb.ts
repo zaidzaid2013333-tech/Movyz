@@ -617,3 +617,8 @@ export async function runTmdbSync(options: { pages?: number } = {}) {
     throw error;
   }
 }
+
+export async function syncMovieCandidate(arMovie: any, enMovie: any) {
+  await assertDatabaseReady();
+  return syncMovie(arMovie, enMovie);
+}
