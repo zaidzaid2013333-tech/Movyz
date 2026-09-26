@@ -215,7 +215,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
               <p className="text-2xl sm:text-3xl font-black text-white font-mono tabular-nums">
                 {stats.totalMovies}
               </p>
-              <span className="text-[11px] text-amber-400">جاهزة للبث المباشر</span>
+              <span className="text-[11px] text-slate-400">محتوى منشور في قاعدة البيانات</span>
             </div>
 
             <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-1">
@@ -223,7 +223,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
               <p className="text-2xl sm:text-3xl font-black text-white font-mono tabular-nums">
                 {stats.totalSeries}
               </p>
-              <span className="text-[11px] text-amber-400">{stats.totalEpisodes} حلقة مفهرسة</span>
+              <span className="text-[11px] text-slate-400">{stats.totalEpisodes} حلقة مفهرسة من قاعدة البيانات</span>
             </div>
 
             <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-1">
@@ -231,7 +231,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
               <p className="text-2xl sm:text-3xl font-black text-emerald-400 font-mono tabular-nums">
                 {stats.streamHealthPct}%
               </p>
-              <span className="text-[11px] text-slate-400">4 مزودات نشطة</span>
+              <span className="text-[11px] text-slate-400">مزودات مفعّلة في قاعدة البيانات</span>
             </div>
 
             <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-1">
@@ -239,7 +239,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
               <p className="text-2xl sm:text-3xl font-black text-white font-mono tabular-nums">
                 {stats.dailyStreamRequests.toLocaleString()}
               </p>
-              <span className="text-[11px] text-emerald-400">Akamai CDN متوازن</span>
+              <span className="text-[11px] text-slate-400">لا توجد إحصائية طلبات بث مسجّلة حاليًا</span>
             </div>
           </div>
 
