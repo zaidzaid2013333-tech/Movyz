@@ -8,6 +8,7 @@ type TmdbHlsConfig = {
   episodeUrl: string;
   timeoutMs: number;
   language: string;
+  templateValues?: Record<string, string | number | undefined>;
   healthUrl?: string;
 };
 
@@ -20,7 +21,7 @@ export function createTmdbHlsAdapter(config: TmdbHlsConfig): ProviderAdapter {
       tmdbId: context.tmdbId,
       season: context.seasonNumber,
       episode: context.episodeNumber,
-      provider: process.env.EZVIDAPI_PROVIDER || 'vidsrc',
+      ...(config.templateValues || {}),
     });
 
     const payload = await fetchJsonOrText(url, config.timeoutMs);
@@ -78,6 +79,7 @@ export function createEzvidApiAdapter() {
     episodeUrl: process.env.EZVIDAPI_TV_URL_TEMPLATE || 'https://ezvidapi.com/tv/{{provider}}/{{tmdbId}}?season={{season}}&episode={{episode}}',
     timeoutMs,
     language: 'und',
+    templateValues: { provider: process.env.EZVIDAPI_PROVIDER || 'vidsrc' },
     healthUrl: process.env.EZVIDAPI_HEALTH_URL || undefined,
   });
 }
