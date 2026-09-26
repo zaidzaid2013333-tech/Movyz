@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyz-cloudflare-production
+  group: ${{ contains(github.event.head_commit.message, 'emergency playback deploy') && format('movyz-cloudflare-emergency-{0}', github.sha) || 'movyz-cloudflare-production' }}
   cancel-in-progress: true
 
 jobs:
