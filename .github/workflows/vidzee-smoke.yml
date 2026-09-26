@@ -12,35 +12,25 @@ jobs:
       - name: Test VidZee API and direct stream
         run: |
           node <<'NODE'
-          const h = {
-            'User-Agent': 'Mozilla/5.0 (compatible; Movyz-Smoke/1.0)',
-            'Accept': 'application/json, */*',
-            'Referer': 'https://player.vidzee.wtf/'
-          };
-          const r = await fetch('https://core.vidzee.wtf/streams/movie/550?e=0', {
-            headers: h, redirect: 'follow', signal: AbortSignal.timeout(20000)
-          });
-          const body = await r.text();
-          console.log('VIDZEE_API_HTTP', r.status);
-          console.log('VIDZEE_API_TYPE', r.headers.get('content-type') || '');
-          console.log('VIDZEE_API_BODY', body.slice(0,2000));
-          if (!r.ok) throw new Error('VidZee API HTTP '+r.status);
-
-          let data;
-          try { data = JSON.parse(body); } catch { throw new Error('VidZee API did not return JSON'); }
-          if (!data.url || !/^https?:\/\//i.test(data.url)) throw new Error('No direct stream URL');
-
-          const s = await fetch(data.url, {
-            headers: {...h, Range:'bytes=0-1023'},
-            redirect:'follow', signal:AbortSignal.timeout(20000)
-          });
-          console.log('VIDZEE_STREAM_HTTP', s.status);
-          console.log('VIDZEE_STREAM_FINAL', s.url);
-          console.log('VIDZEE_STREAM_TYPE', s.headers.get('content-type') || '');
+          const h = {'User-Agent':'Mozilla/5.0 (compatible; Movyz-Smoke/1.0)','Accept':'application/json, */*','Referer':'https://player.vidzee.wtf/'};
+          const servers = ['dcloud','tik','ipcloud','v6:Hindi'];
+          let data = null;
+          for (const server of servers) {
+            const url = 'https://core.vidzee.wtf/streams/movie/550?s='+encodeURIComponent(server)+'&e=0';
+            const r = await fetch(url,{headers:h,redirect:'follow',signal:AbortSignal.timeout(20000)});
+            const body = await r.text();
+            console.log('VIDZEE_API',server,r.status,body.slice(0,500));
+            if (!r.ok) continue;
+            try { const parsed=JSON.parse(body); if (parsed?.url && /^https?:\/\//i.test(parsed.url)) { data=parsed; break; } } catch {}
+          }
+          if (!data?.url) throw new Error('No playable VidZee server returned a direct URL');
+          console.log('VIDZEE_SELECTED',data.url);
+          const s=await fetch(data.url,{headers:{...h,Range:'bytes=0-1023'},redirect:'follow',signal:AbortSignal.timeout(20000)});
+          console.log('VIDZEE_STREAM_HTTP',s.status);
+          console.log('VIDZEE_STREAM_FINAL',s.url);
+          console.log('VIDZEE_STREAM_TYPE',s.headers.get('content-type')||'');
           if (![200,206,416].includes(s.status)) throw new Error('Stream HTTP '+s.status);
           const t=(s.headers.get('content-type')||'').toLowerCase();
-          if (!(t.includes('mpegurl') || t.includes('video/') || /\.m3u8(?:$|\?)/i.test(s.url) || [206,416].includes(s.status))) {
-            throw new Error('Response is not a recognized HLS/video stream');
-          }
+          if (!(t.includes('mpegurl')||t.includes('video/')||/\.m3u8(?:$|\?)/i.test(s.url)||[206,416].includes(s.status))) throw new Error('Unrecognized stream response');
           console.log('VIDZEE_SMOKE=PASS');
           NODE
