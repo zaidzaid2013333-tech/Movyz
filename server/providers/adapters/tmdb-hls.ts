@@ -20,6 +20,7 @@ export function createTmdbHlsAdapter(config: TmdbHlsConfig): ProviderAdapter {
       tmdbId: context.tmdbId,
       season: context.seasonNumber,
       episode: context.episodeNumber,
+      provider: process.env.EZVIDAPI_PROVIDER || 'vidsrc',
     });
 
     const payload = await fetchJsonOrText(url, config.timeoutMs);
@@ -73,10 +74,10 @@ export function createEzvidApiAdapter() {
   return createTmdbHlsAdapter({
     key: 'ezvidapi',
     name: 'ezvidAPI',
-    movieUrl: process.env.EZVIDAPI_MOVIE_URL_TEMPLATE || 'https://ezvidapi.com/movie/{{tmdbId}}',
-    episodeUrl: process.env.EZVIDAPI_TV_URL_TEMPLATE || 'https://ezvidapi.com/tv/{{tmdbId}}?season={{season}}&episode={{episode}}',
+    movieUrl: process.env.EZVIDAPI_MOVIE_URL_TEMPLATE || 'https://ezvidapi.com/movie/{{provider}}/{{tmdbId}}',
+    episodeUrl: process.env.EZVIDAPI_TV_URL_TEMPLATE || 'https://ezvidapi.com/tv/{{provider}}/{{tmdbId}}?season={{season}}&episode={{episode}}',
     timeoutMs,
-    language: 'ar',
+    language: 'und',
     healthUrl: process.env.EZVIDAPI_HEALTH_URL || undefined,
   });
 }
