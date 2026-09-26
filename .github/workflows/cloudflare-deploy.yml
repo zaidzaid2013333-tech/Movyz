@@ -109,6 +109,96 @@ jobs:
           }
           NODE
 
+      - name: Diagnose direct Fasel upstream API
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const code = fs.readFileSync('server/providers/adapters/faselhd.ts', 'utf8');
+          const token = code.match(/const FASELHD_UPSTREAM_TOKEN = '([^']+)'/)?.[1];
+          if (!token) throw new Error('Fasel upstream token is missing from provider source');
+
+          const headers = {
+            Authorization: 'Bearer ' + token,
+            Accept: 'application/json',
+            'User-Agent': 'Movyza-Upstream-Diagnostic/1.0',
+          };
+
+          const postSearch = async (query) => {
+            const response = await fetch('https://netcore.faselhd.pro/api/v1.0/Content/ContentSearch', {
+              method: 'POST',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                data: { pageNumber: 1, data: { searchText: query }, pageSize: 5 },
+              }),
+              signal: AbortSignal.timeout(20000),
+            });
+            const body = await response.text();
+            let json = null;
+            try { json = JSON.parse(body); } catch {}
+            console.log('SEARCH', query, JSON.stringify({
+              httpStatus: response.status,
+              statusCode: json?.statusCode,
+              result: json?.result,
+              body: body.slice(0, 1800),
+            }));
+            return json;
+          };
+
+          const getContent = async (id) => {
+            const response = await fetch(
+              'https://netcore.faselhd.pro/api/v1.0/Content/GetContent?ContentId=' + encodeURIComponent(String(id)),
+              { headers, signal: AbortSignal.timeout(20000) },
+            );
+            const body = await response.text();
+            let json = null;
+            try { json = JSON.parse(body); } catch {}
+            console.log('CONTENT', id, JSON.stringify({
+              httpStatus: response.status,
+              statusCode: json?.statusCode,
+              resultKeys: json?.result && typeof json.result === 'object' ? Object.keys(json.result) : [],
+              result: json?.result ? {
+                postType: json.result.postType,
+                name: json.result.name,
+                videoId: json.result.videoId,
+                episodesCount: Array.isArray(json.result.episodesVideosIds) ? json.result.episodesVideosIds.length : null,
+              } : null,
+              body: body.slice(0, 1800),
+            }));
+            return json;
+          };
+
+          const queries = ['Night of the Living Dead', 'Avengers', 'Avatar'];
+          const searchResults = [];
+          for (const query of queries) {
+            try {
+              const json = await postSearch(query);
+              const result = json?.result;
+              if (Array.isArray(result)) searchResults.push(...result);
+              else if (Array.isArray(result?.data)) searchResults.push(...result.data);
+              else if (Array.isArray(result?.items)) searchResults.push(...result.items);
+            } catch (error) {
+              console.log('SEARCH_ERROR', query, String(error));
+            }
+          }
+
+          const candidate = searchResults.find((item) =>
+            String(item?.title || item?.name || '').toLowerCase().includes('night')
+          ) || searchResults[0];
+
+          if (candidate) {
+            console.log('CANDIDATE', JSON.stringify({
+              keys: Object.keys(candidate),
+              id: candidate.id,
+              tmdbId: candidate.tmdbId || candidate.tmdb_id,
+              title: candidate.title || candidate.name,
+            }));
+          }
+
+          for (const id of [10331, candidate?.id, candidate?.tmdbId, candidate?.tmdb_id].filter(Boolean).slice(0, 4)) {
+            try { await getContent(id); } catch (error) { console.log('CONTENT_ERROR', id, String(error)); }
+          }
+          NODE
+
       # Watch API must pass against the dedicated public-domain playback fixture.
       - name: Verify deployed Watch API playback
         run: |
