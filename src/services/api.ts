@@ -87,7 +87,7 @@ export const MovyzaApi = {
     }>(`/search?q=${encodeURIComponent(search)}`),
 
   resolveEzvidApi: (params: { type: 'movie' | 'episode'; tmdbId: number; season?: number; episode?: number }) =>
-    request<{ stream_url: string; type: string; quality: string; language: string; provider: string }>(
+    request<{ stream_url: string; type: 'hls' | 'mp4' | 'dash'; quality: string; language: string; provider: string; sources: Array<{ id: string; url: string; type: 'hls' | 'mp4' | 'dash'; quality: string; language: string; label: string; provider: string; provider_reference: string | null }> }>(
       `/playback/ezvidapi${query(params)}`,
     ),
 
