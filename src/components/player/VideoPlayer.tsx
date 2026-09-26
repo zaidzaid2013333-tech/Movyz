@@ -55,6 +55,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       autoplay: '1',
       server: selectedServer,
       lang: 'ar',
+      hl: 'ar',
       cc_load_policy: '1',
       title: isMovie ? title : `${title} · S${seasonNumber} E${episodeNumber}`,
       theme: 'dark',
