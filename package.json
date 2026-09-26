@@ -47,7 +47,6 @@
     "typescript": "^7.0.2",
     "@types/cors": "^2.8.19",
     "@cloudflare/workers-types": "^5.20260925.1",
-    "wrangler": "^4.140.0",
-    "@cloudflare/playwright": "^1.3.0"
+    "wrangler": "^4.140.0"
   }
 }
