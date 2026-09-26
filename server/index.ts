@@ -401,6 +401,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     tmdbId: z.coerce.number().int().positive(),
     season: z.coerce.number().int().min(0).max(99).optional(),
     episode: z.coerce.number().int().min(1).max(999).optional(),
+    provider: z.string().trim().toLowerCase().max(64).optional(),
   }).safeParse({
     mediaType: req.params.mediaType,
     tmdbId: req.params.tmdbId,
@@ -412,7 +413,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     return fail(res, 400, 'INVALID_WATCH_QUERY', 'Invalid watch parameters');
   }
 
-  const { mediaType, tmdbId, season, episode } = parsed.data;
+  const { mediaType, tmdbId, season, episode, provider: requestedProvider } = parsed.data;
   if (mediaType === 'series' && (season == null || episode == null)) {
     return fail(res, 400, 'EPISODE_REQUIRED', 'Season and episode are required for series playback');
   }
@@ -499,6 +500,8 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
         const type = String(source.source_type || '').toLowerCase();
         if (!['hls', 'mp4', 'dash', 'webm'].includes(type)) return false;
         if (typeof source.url !== 'string' || !/^https:\/\//i.test(source.url.trim())) return false;
+        const sourceProviderKey = String(source.providers?.key || '').toLowerCase();
+        if (requestedProvider && sourceProviderKey !== requestedProvider) return false;
 
         const key = `${type}|${source.url.trim()}`;
         if (seen.has(key)) return false;
@@ -535,7 +538,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       // an otherwise resolvable title unplayable. Fall back to the live
       // provider resolver and persist its usable direct sources for the next
       // request.
-      const resolved = await resolvePlaybackSources(contentType, contentId);
+      const resolved = await resolvePlaybackSources(contentType, contentId, [], requestedProvider);
 
       const fallbackSources = (resolved || [])
         .filter((source: any) =>
@@ -565,6 +568,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
           source: 'live_provider_resolver',
           contentType,
           contentId,
+          provider: requestedProvider || undefined,
         });
       }
 
