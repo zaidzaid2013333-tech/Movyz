@@ -46,8 +46,8 @@ const sourceDto = (s: any) => {
   const tmdbId = parts[0];
   const kind = parts[1];
   const embedUrl =
-    providerKey === 'vidzee' && /^\\d+$/.test(tmdbId)
-      ? kind === 'episode' && /^\\d+$/.test(parts[2] || '') && /^\\d+$/.test(parts[3] || '')
+    providerKey === 'vidzee' && /^\d+$/.test(tmdbId)
+      ? kind === 'episode' && /^\d+$/.test(parts[2] || '') && /^\d+$/.test(parts[3] || '')
         ? `https://player.vidzee.wtf/embed/tv/${encodeURIComponent(tmdbId)}/${encodeURIComponent(parts[2])}/${encodeURIComponent(parts[3])}`
         : kind === 'movie'
           ? `https://player.vidzee.wtf/embed/movie/${encodeURIComponent(tmdbId)}`
@@ -401,7 +401,7 @@ app.get(`${api}/watch/:id/sources`, asyncRoute(async (req, res) => {
 
   const { data, error } = await adminSupabase
     .from('playback_sources')
-    .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(key,name,enabled,success_rate,latency_ms)')
+    .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name,enabled,success_rate,latency_ms)')
     .eq('content_type', type)
     .eq('content_id', contentId)
     .eq('is_working', true);
