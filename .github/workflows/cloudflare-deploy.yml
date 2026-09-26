@@ -148,6 +148,44 @@ jobs:
           })();
           NODE
 
+      - name: Inspect FaselHD Express routes
+        run: |
+          node <<'NODE'
+          (async () => {
+            const urls = ['https://faselhd.express/','https://www.faselhd.express/'];
+            for (const url of urls) {
+              try {
+                const r = await fetch(url, {
+                  redirect: 'follow',
+                  headers: { 'User-Agent': 'Mozilla/5.0 (Android 13) AppleWebKit/537.36 Chrome/128 Mobile Safari/537.36' },
+                  signal: AbortSignal.timeout(15000),
+                });
+                const html = await r.text();
+                const forms = [...html.matchAll(/<form\b[^>]*>/gi)].map(m => m[0]).slice(0,20);
+                const links = [...html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>/gi)].map(m => m[1]).filter(Boolean).slice(0,120);
+                const scripts = [...html.matchAll(/<script\b[^>]*src\s*=\s*["']([^"']+)["']/gi)].map(m => m[1]).slice(0,30);
+                const interesting = links.filter(v => /movie|film|series|search|فيلم|مسلسل|wp-json|api|episode/i.test(v));
+                console.log(JSON.stringify({
+                  url,
+                  status:r.status,
+                  forms,
+                  interesting,
+                  links:links.slice(0,40),
+                  scripts,
+                  bodyMarkers:{
+                    player_iframe: html.includes('player_iframe'),
+                    episodes: html.includes('epAll'),
+                    postDiv: html.includes('postDiv'),
+                    wordpress: /wordpress/i.test(html),
+                  }
+                }));
+              } catch(e) {
+                console.log(JSON.stringify({url,error:String(e)}));
+              }
+            }
+          })();
+          NODE
+
       - name: Diagnose direct Fasel upstream API
         run: |
           node <<'NODE'
