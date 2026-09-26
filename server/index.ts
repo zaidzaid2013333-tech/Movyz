@@ -908,16 +908,24 @@ app.post(`${api}` + '/admin/sync', requireAuth, requireAdmin, asyncRoute(async (
 }));
 
 app.get(`${api}/admin/stats`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
-  const [m, s, e, p, src] = await Promise.all([
+  const [m, s, e, p, healthy, src] = await Promise.all([
     adminSupabase.from('movies').select('id', { count: 'exact', head: true }).eq('status', 'published'),
     adminSupabase.from('series').select('id', { count: 'exact', head: true }).eq('status', 'published'),
     adminSupabase.from('episodes').select('id', { count: 'exact', head: true }),
     adminSupabase.from('providers').select('id', { count: 'exact', head: true }).eq('enabled', true),
+    adminSupabase.from('providers').select('id', { count: 'exact', head: true }).eq('enabled', true).eq('status', 'healthy'),
     adminSupabase.from('playback_sources').select('id', { count: 'exact', head: true }).eq('is_working', true),
   ]);
+  const activeProviders = p.count || 0;
+  const healthyProviders = healthy.count || 0;
   return ok(res, {
-    totalMovies: m.count || 0, totalSeries: s.count || 0, totalEpisodes: e.count || 0,
-    activeProviders: p.count || 0, streamHealthPct: src.count ? 100 : 0, dailyStreamRequests: 0,
+    totalMovies: m.count || 0,
+    totalSeries: s.count || 0,
+    totalEpisodes: e.count || 0,
+    activeProviders,
+    streamHealthPct: activeProviders ? Math.round((healthyProviders / activeProviders) * 100) : 0,
+    dailyStreamRequests: 0,
+    workingSources: src.count || 0,
   });
 }));
 
