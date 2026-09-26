@@ -64,15 +64,33 @@ jobs:
             sourceCount: Array.isArray(mbSources) ? mbSources.length : 0,
             first: Array.isArray(mbSources) ? mbSources[0] : null
           }));
+          if (!Array.isArray(mbSources) || !mbSources.length) throw new Error('MovieBox stream returned no sources');
+
+          const validateMedia = async (source, label) => {
+            const sourceUrl = source?.url || source?.playUrl || source?.resourceUrl;
+            if (!sourceUrl || !/^https:\/\//i.test(sourceUrl)) throw new Error(label + ' has no HTTPS media URL');
+            const stream = await fetch(sourceUrl, {
+              headers:{Range:'bytes=0-1023'}, redirect:'follow', signal:AbortSignal.timeout(20000)
+            });
+            const type = (stream.headers.get('content-type') || '').toLowerCase();
+            const finalUrl = stream.url;
+            const hls = /\.m3u8(?:$|\?)/i.test(finalUrl) || type.includes('mpegurl');
+            const dash = /\.mpd(?:$|\?)/i.test(finalUrl) || type.includes('dash+xml');
+            const media = type.includes('video/') || stream.status === 206 || stream.status === 416;
+            let sample = '';
+            if (hls || dash) sample = (await stream.text()).slice(0, 1024);
+            const validPlaylist = hls ? /^#EXTM3U/m.test(sample) : dash ? /<MPD[\s>]/i.test(sample) : media;
+            console.log(label, JSON.stringify({url:sourceUrl,finalUrl,status:stream.status,type,playlist:sample.slice(0,120)}));
+            if (![200, 206, 416].includes(stream.status) || !validPlaylist) {
+              throw new Error(label + ' is not playable media: HTTP ' + stream.status + ' ' + type);
+            }
+          };
+          await validateMedia(mbSources[0], 'MOVIEBOX_SOURCE');
 
           const health = await getJson('/health', 15000);
           if (!health?.success) throw new Error('Worker health check failed');
 
-          const movies = await getJson('/api/v1/movies?search=Interstellar&page=1&limit=5');
-          const items = movies?.data?.items ?? movies?.data?.movies ?? movies?.data ?? [];
-          if (!Array.isArray(items) || !items.length) throw new Error('Interstellar is not present in the catalog');
-
-          const movie = items[0];
+          const movie = { id: '2f1906ec-2d6d-435b-bcad-7e93a6950140', titleEn: 'Interstellar' };
           const watch = await getJson('/api/v1/watch/' + encodeURIComponent(movie.id), 20000);
           const sources = watch?.data?.sources ?? [];
           console.log('MOVIE_RESULT', JSON.stringify({
@@ -84,20 +102,7 @@ jobs:
             throw new Error('No playable source returned by the provider resolver');
           }
 
-          for (const source of sources.slice(0, 2)) {
-            const stream = await fetch(source.url, {
-              headers:{Range:'bytes=0-1023'}, redirect:'follow', signal:AbortSignal.timeout(20000)
-            });
-            const type = (stream.headers.get('content-type') || '').toLowerCase();
-            console.log('STREAM', JSON.stringify({
-              provider:source.provider,url:stream.url,status:stream.status,type
-            }));
-            const playable = type.includes('mpegurl') || type.includes('video/') ||
-              /\.m3u8(?:$|\?)/i.test(stream.url) || stream.status === 206 || stream.status === 416;
-            if (!playable) {
-              throw new Error('Source is not playable: ' + source.provider + ' HTTP ' + stream.status + ' ' + type);
-            }
-          }
+          for (const source of sources.slice(0, 2)) await validateMedia(source, 'WATCH_SOURCE ' + source.provider);
 
           console.log('LIVE_WORKER_PLAYBACK=PASS');
           console.log('PASSED_MOVIE', JSON.stringify({

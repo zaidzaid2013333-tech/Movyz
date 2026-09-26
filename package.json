@@ -12,7 +12,7 @@
     "start": "tsx server/index.ts",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "test": "tsx --test server/providers/http.test.ts server/providers/tmdb-hls.test.ts server/providers/mapped-json.test.ts server/providers/moviebox.test.ts",
+    "test": "tsx --test server/providers/http.test.ts server/providers/tmdb-hls.test.ts server/providers/mapped-json.test.ts server/providers/moviebox.test.ts server/providers/moviebox-worker.test.ts",
     "cf:deploy": "wrangler deploy",
     "cf:dev": "wrangler dev"
   },
