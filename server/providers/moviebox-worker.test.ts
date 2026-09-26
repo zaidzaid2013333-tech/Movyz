@@ -118,7 +118,7 @@ test("MovieBox Worker proxies detail and stream requests to Supabase", async () 
     assert.equal(watch.status, 206);
     assert.equal(watch.headers.get("content-type"), "video/mp4");
 
-    assert.equal(calls.length, 3);
+    assert.equal(calls.length, 4);
   } finally {
     globalThis.fetch = originalFetch;
   }
