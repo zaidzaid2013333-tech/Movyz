@@ -111,6 +111,34 @@ async function assertDatabaseReady() {
 }
 
 async function startJob(jobType: string, pages: number) {
+  const staleBefore = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  const { data: runningJobs, error: runningError } = await adminSupabase
+    .from('sync_jobs')
+    .select('id,created_at')
+    .eq('provider', 'tmdb')
+    .eq('job_type', jobType)
+    .eq('status', 'running')
+    .order('created_at', { ascending: true });
+
+  if (runningError) throw new Error('Unable to inspect running sync jobs: ' + runningError.message);
+
+  const stale = (runningJobs || []).filter((job: any) => job.created_at && job.created_at < staleBefore);
+  if (stale.length) {
+    const staleIds = stale.map((job: any) => job.id);
+    const { error } = await adminSupabase.from('sync_jobs').update({
+      status: 'failed',
+      stage: 'failed',
+      error: 'Marked failed automatically because the worker was stale for more than 2 hours.',
+      finished_at: new Date().toISOString(),
+    }).in('id', staleIds);
+    if (error) throw new Error('Unable to close stale sync jobs: ' + error.message);
+  }
+
+  const active = (runningJobs || []).filter((job: any) => !stale.some((item: any) => item.id === job.id));
+  if (active.length) {
+    throw new Error(`A TMDB ${jobType} sync is already running (job ${active[0].id})`);
+  }
+
   const { data: job, error } = await adminSupabase.from('sync_jobs').insert({
     provider: 'tmdb',
     job_type: jobType,
