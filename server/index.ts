@@ -254,7 +254,8 @@ app.get(`${api}/playback/ezvidapi`, asyncRoute(async (req, res) => {
       ? await provider.resolveMovie({ tmdbId })
       : await provider.resolveEpisode({ tmdbId, seasonNumber: season, episodeNumber: episode });
 
-    const stream = sources.find((source) => source.type === 'hls') || sources[0];
+    const playableSources = (sources || []).filter((source) => Boolean(source.url));
+    const stream = playableSources.find((source) => source.type === 'hls') || playableSources[0];
     if (!stream?.url) return fail(res, 502, 'EZVIDAPI_STREAM_UNAVAILABLE', 'ezvidAPI did not return a playable stream');
 
     return ok(res, {
@@ -265,6 +266,16 @@ app.get(`${api}/playback/ezvidapi`, asyncRoute(async (req, res) => {
       provider: stream.provider,
       provider_reference: stream.providerReference || null,
       expires_at: stream.expiresAt || null,
+      sources: playableSources.map((source, index) => ({
+        id: String(index),
+        url: source.url,
+        type: source.type,
+        quality: source.quality,
+        language: source.language,
+        label: source.label,
+        provider: source.provider,
+        provider_reference: source.providerReference || null,
+      })),
     });
   } catch (error) {
     console.error('[ezvidapi] playback resolution failed', {
