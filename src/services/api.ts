@@ -108,6 +108,7 @@ export const MovyzaApi = {
     request<{ removed: boolean }>(`/watchlist/${encodeURIComponent(contentId)}`, { method: 'DELETE' }),
 
   getWatchHistory: () => request<WatchProgress[]>('/history'),
+  clearWatchHistory: () => request<{ cleared: boolean }>('/history', { method: 'DELETE' }),
 
   getWatchProgress: (contentId: string, episodeId?: string) =>
     request<WatchProgress | null>(
