@@ -79,6 +79,28 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   const context = await getContext(contentType, contentId);
   if (!context) return [];
 
+  const excluded = new Set(excludedProviders.map((value) => value.trim().toLowerCase()).filter(Boolean));
+  const now = new Date().toISOString();
+  const { data: cachedSources, error: cachedSourcesError } = await adminSupabase
+    .from('playback_sources')
+    .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name)')
+    .eq('content_type', contentType)
+    .eq('content_id', contentId)
+    .eq('is_working', true)
+    .or('expires_at.is.null,expires_at.gt.' + now);
+
+  if (cachedSourcesError) throw new Error('Unable to load cached playback sources');
+
+  const usableCached = (cachedSources || []).filter((source: any) => {
+    const key = String(source.providers?.key || '').toLowerCase();
+    const name = String(source.providers?.name || '').trim().toLowerCase().replace(/\s+/g, '');
+    return !excluded.has(key) && !excluded.has(name);
+  });
+
+  if (usableCached.length) {
+    return usableCached.map(sourceDto);
+  }
+
   const [{ data: providers, error: providersError }, { data: mappings, error: mappingsError }] = await Promise.all([
     adminSupabase.from('providers').select('id,key,name,enabled,status,latency_ms,success_rate').eq('enabled', true),
     adminSupabase.from('provider_mappings').select('provider_id,provider_content_id,confidence,status')
@@ -97,7 +119,6 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
     return rateDiff || Number(a.latency_ms ?? Number.MAX_SAFE_INTEGER) - Number(b.latency_ms ?? Number.MAX_SAFE_INTEGER);
   });
 
-  const excluded = new Set(excludedProviders.map((value) => value.trim().toLowerCase()).filter(Boolean));
   const timeoutMs = Math.max(2_000, Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000));
 
   // Resolve providers in priority order and stop on the first usable provider.
