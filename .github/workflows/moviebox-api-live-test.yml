@@ -80,7 +80,7 @@ jobs:
           watch.searchParams.set('detail_path', detailPath);
           watch.searchParams.set('se', '1');
           watch.searchParams.set('ep', '1');
-          watch.searchParams.set('resolution', String(parseInt(selected.resolution, 10) || 480);
+          watch.searchParams.set('resolution', String(parseInt(selected.resolution, 10) || 480));
 
           const resp = await fetch(watch, {
             headers: { Range: 'bytes=0-1023' }
