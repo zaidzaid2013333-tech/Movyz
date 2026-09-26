@@ -436,6 +436,137 @@ async function requestMobile(path, method = "GET", params, body) {
 
   throw new Error(`MovieBox mobile request failed for ${path}: ${failures.join(" | ")}`);
 }
+ 
+
+function mapSearchItem(item) {
+  const subjectId = item?.subjectId;
+  return {
+    name: item?.title || item?.name || "",
+    year: item?.releaseDate || null,
+    poster_url: item?.cover?.url || item?.thumbnail || null,
+    url: subjectId != null
+      ? `https://moviebox.pk/detail/${encodeURIComponent(String(subjectId))}`
+      : null,
+    slug: subjectId != null ? String(subjectId) : null,
+    badge: item?.corner || null,
+    blurhash: item?.cover?.blurHash || null,
+  };
+}
+
+export async function mobileSearch(query) {
+  const data = await requestMobile(
+    SEARCH_PATH,
+    "POST",
+    undefined,
+    { keyword: query, type: 0, page: 1, pageSize: 20 },
+  );
+  const items = Array.isArray(data?.items) ? data.items : [];
+  return {
+    query,
+    count: items.length,
+    movies: items.map(mapSearchItem).filter((item) => item.slug && item.name),
+  };
+}
+
+export async function mobileDetail(subjectId) {
+  const data = await requestMobile(DETAIL_PATH, "GET", { subjectId });
+  if (!data?.subjectId) {
+    throw new Error(`MovieBox detail returned no subject id for ${subjectId}`);
+  }
+  return {
+    id: String(data.subjectId),
+    title: data.title || "",
+    description: data.description || null,
+    release_date: data.releaseDate || null,
+    duration: data.duration || null,
+    genre: data.genre || [],
+    country: data.countryName || null,
+    imdb_rating: data.imdbRatingValue || null,
+    poster: data.cover?.url || null,
+    badge: data.corner || null,
+    dubs: data.dubs || [],
+    top_cast: data.staffList || [],
+    has_resource: Boolean(data.hasResource),
+    language: data.language || null,
+  };
+}
+
+export async function mobileSeasons(subjectId) {
+  const data = await requestMobile(SEASON_PATH, "GET", { subjectId });
+  const seasons = Array.isArray(data?.seasons) ? data.seasons : [];
+  return seasons.map((season) => ({
+    season: Number(season.se || 0),
+    episode_count: Number(season.maxEp || 0),
+    episodes_available:
+      Array.isArray(season.resolutions) && season.resolutions.length
+        ? Math.max(...season.resolutions.map((resolution) => Number(resolution.epNum || 0)))
+        : Number(season.maxEp || 0),
+  }));
+}
+
+async function fetchResourcePage(subjectId, se, ep, resolution, page) {
+  return requestMobile(
+    RESOURCE_PATH,
+    "GET",
+    { subjectId, se, ep, resolution, page, perPage: 10 },
+  );
+}
+
+export async function mobileStreams(subjectId, se = 0, ep = 0) {
+  const seen = new Map();
+  const failures = [];
+
+  for (const resolution of RESOLUTIONS) {
+    let page = 1;
+    while (page <= 100) {
+      try {
+        const data = await fetchResourcePage(subjectId, se, ep, resolution, page);
+        const list = Array.isArray(data?.list) ? data.list : [];
+        for (const item of list) {
+          if (item?.resourceId && item?.resourceLink) {
+            seen.set(String(item.resourceId), item);
+          }
+        }
+        if (!data?.pager?.hasMore) break;
+        page++;
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : String(error));
+        break;
+      }
+    }
+  }
+
+  const items = [...seen.values()].sort(
+    (a, b) => Number(b.resolution || 0) - Number(a.resolution || 0),
+  );
+
+  if (!items.length) {
+    throw new Error(
+      `MovieBox returned no resources for subject ${subjectId} se=${se} ep=${ep}${failures.length ? ": " + failures.join(" | ").slice(0, 700) : ""}`,
+    );
+  }
+
+  return items.map((item) => ({
+    id: String(item.resourceId),
+    resolution: Number(item.resolution || 0),
+    format: "mp4",
+    url: String(item.resourceLink),
+    size_bytes: item.size ? Number(item.size) || null : null,
+    size: item.size || null,
+    title: item.title || null,
+    se: Number(item.se ?? se),
+    ep: Number(item.ep ?? ep),
+    captions: Array.isArray(item.extCaptions)
+      ? item.extCaptions
+          .map((caption) => ({
+            language: caption.lanName || caption.lan || "und",
+            language_code: caption.lan || null,
+            url: caption.url || null,
+          }))
+          .filter((caption) => caption.url)
+      : [],
+  }));
+}
 
 
 export function __resetMobileAuthForTests() {
