@@ -77,10 +77,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const isMovie = contentType === 'movie';
   const safeTmdbId = Number(tmdbId || 0);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadStream = async () => {
   const handleSourceChange = (sourceId: string) => {
     const source = availableSources.find((item) => item.id === sourceId);
     if (!source) return;
@@ -89,7 +85,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setStreamUrl(source.url);
     setError('');
   };
-
 
   const handleReportSource = async () => {
     const playbackContentId = isMovie ? contentId : (currentEpisode?.id || contentId);
@@ -111,7 +106,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
 
-  if (!safeTmdbId) {
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadStream = async () => {
+if (!safeTmdbId) {
         setStreamUrl('');
       setStreamType('hls');
         setError(language === 'ar' ? 'معرّف TMDB غير متاح لهذا العنوان.' : 'TMDB id is unavailable for this title.');
