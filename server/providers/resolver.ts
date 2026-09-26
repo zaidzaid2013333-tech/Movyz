@@ -201,7 +201,8 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
       // Do not waterfall into other providers after a successful provider.
       // This keeps MovieBox primary and avoids unnecessary provider calls/timeouts.
       break;
-    } catch {
+    } catch (error) {
+      console.error('[playback-resolver]', provider.key, error instanceof Error ? error.message : error);
       await adminSupabase.from('providers').update({
         status: 'degraded',
         latency_ms: Math.max(Date.now() - started, timeoutMs),

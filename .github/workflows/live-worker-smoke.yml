@@ -1,12 +1,14 @@
 name: Live Worker playback smoke
 
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: ["Movyz Cloudflare Deploy"]
+    types: [completed]
   workflow_dispatch:
 
 jobs:
   live:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Verify deployed Worker API and playback resolver
@@ -25,15 +27,8 @@ jobs:
             return JSON.parse(body);
           };
 
-          let health;
-          for (let i = 1; i <= 24; i++) {
-            try {
-              health = await getJson('/health', 15000);
-              if (health?.success) break;
-            } catch (e) { console.log('HEALTH_RETRY', i, String(e)); }
-            await new Promise(r => setTimeout(r, 15000));
-          }
-          if (!health?.success) throw new Error('Worker health did not become ready');
+          const health = await getJson('/health', 15000);
+          if (!health?.success) throw new Error('Worker health check failed');
 
           const movies = await getJson('/api/v1/movies?search=Interstellar&page=1&limit=5');
           const items = movies?.data?.items ?? movies?.data?.movies ?? movies?.data ?? [];
@@ -46,22 +41,31 @@ jobs:
             id: movie.id, title: movie.title, titleEn: movie.titleEn, sourceCount: sources.length,
             providers: sources.map(s => s.provider)
           }));
-          const newProviders = sources.filter(s => ['moviebox-api', 'ezvidapi'].includes(String(s?.providerKey || s?.provider || '').toLowerCase().replace(/\s+/g, '-')));
-          if (!newProviders.length) {
-            throw new Error('Interstellar returned no MovieBox API or ezVidAPI source through the live Worker');
+
+          if (!sources.length) {
+            throw new Error('No playable source returned by the provider resolver');
           }
 
-          for (const source of newProviders.slice(0, 2)) {
+          for (const source of sources.slice(0, 2)) {
             const stream = await fetch(source.url, {
               headers:{Range:'bytes=0-1023'}, redirect:'follow', signal:AbortSignal.timeout(20000)
             });
             const type = (stream.headers.get('content-type') || '').toLowerCase();
-            console.log('STREAM', JSON.stringify({provider:source.provider,url:stream.url,status:stream.status,type}));
+            console.log('STREAM', JSON.stringify({
+              provider:source.provider,url:stream.url,status:stream.status,type
+            }));
             const playable = type.includes('mpegurl') || type.includes('video/') ||
               /\.m3u8(?:$|\?)/i.test(stream.url) || stream.status === 206 || stream.status === 416;
-            if (!playable) throw new Error('Source is not playable: ' + source.provider + ' HTTP ' + stream.status + ' ' + type);
+            if (!playable) {
+              throw new Error('Source is not playable: ' + source.provider + ' HTTP ' + stream.status + ' ' + type);
+            }
           }
 
           console.log('LIVE_WORKER_PLAYBACK=PASS');
-          console.log('PASSED_MOVIE', JSON.stringify({movie, sources:newProviders.map(s => ({provider:s.provider,url:s.url,type:s.type,quality:s.quality}))}).slice(0,3000));
+          console.log('PASSED_MOVIE', JSON.stringify({
+            movie,
+            sources:sources.map(s => ({
+              provider:s.provider,url:s.url,type:s.type,quality:s.quality
+            }))
+          }).slice(0,3000));
           NODE
