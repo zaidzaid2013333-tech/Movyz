@@ -288,15 +288,47 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       } catch (loadError) {
         if (cancelled) return;
 
-        console.warn('[movyza-player] direct playback unavailable', loadError);
+        console.warn('[movyza-player] source list unavailable', loadError);
         setSources([]);
         setSelectedSourceId('');
         setStreamUrl('');
-        // API could not resolve a raw HLS/MP4/DASH URL. The official
-        // ezVidAPI embed remains playable without requiring a raw stream.
-        setFallbackEmbedUrl(fallbackUrl);
+        setFallbackEmbedUrl('');
         setLoading(true);
         setError('');
+
+        try {
+          const universal = await MovyzaApi.resolvePlaybackSource(fallbackUrl);
+          if (cancelled) return;
+
+          const fallbackSource: PlaybackSource = {
+            id: 'universal-fallback',
+            url: universal.data.url,
+            type: universal.data.type,
+            quality: universal.data.quality || 'auto',
+            language: 'und',
+            label: universal.data.label || 'Universal source',
+            provider: 'Movyza Universal Resolver',
+          };
+
+          setSources([fallbackSource]);
+          setSelectedSourceId(fallbackSource.id);
+
+          if (fallbackSource.type === 'embed') {
+            setStreamUrl('');
+            setFallbackEmbedUrl(fallbackSource.url);
+          } else {
+            setStreamType(fallbackSource.type);
+            setStreamUrl(fallbackSource.url);
+            setFallbackEmbedUrl('');
+          }
+          return;
+        } catch (resolveError) {
+          console.warn('[movyza-player] universal fallback unavailable', resolveError);
+          if (cancelled) return;
+          setFallbackEmbedUrl(fallbackUrl);
+          setLoading(true);
+          setError('');
+        }
       }
     };
 
@@ -355,8 +387,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               setLoading(false);
               setError(
                 language === 'ar'
-                  ? 'تعذر تحميل مشغل ezvidapi.'
-                  : 'The ezvidapi player could not be loaded.',
+                  ? 'تعذر تحميل المصدر المضمّن.'
+                  : 'The embedded source could not be loaded.',
               );
             }}
             className="absolute inset-0 h-full w-full border-0 bg-black"
