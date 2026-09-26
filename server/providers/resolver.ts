@@ -5,13 +5,12 @@ import type { NormalizedPlaybackSource, ProviderContext } from './types';
 const VALID_TYPES = new Set(['hls', 'mp4', 'dash']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
-  // Primary order: FaselHD → EzVid → StreamProvider.
-  // Credential-dependent providers are intentionally excluded.
-  vidzee: 0,
-  faselhd: 1,
-  streamflix: 2,
-  ezvidapi: 3,
-  streamprovider: 4,
+  // Preferred playback order. Resolve all enabled providers and expose their valid sources.
+  'moviebox-api': 0,
+  ezvidapi: 1,
+  faselhd: 20,
+  streamflix: 21,
+  streamprovider: 22,
 };
 
 function providerPriority(key: string) {
@@ -29,6 +28,8 @@ function sourceDto(source: any) {
     url: source.url || '',
     isWorking: source.is_working === true,
     provider: source.providers?.name || 'Provider',
+    providerKey: String(source.providers?.key || '').toLowerCase() || undefined,
+    providerReference: source.provider_reference || undefined,
   };
 }
 
@@ -103,8 +104,8 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   const excluded = new Set(excludedProviders.map((value) => value.trim().toLowerCase()).filter(Boolean));
   const timeoutMs = Math.max(2_000, Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000));
 
-  // True fallback: call providers in fixed priority order and stop at the first
-  // provider that returns at least one validated playable source.
+  // Resolve every enabled provider so the player can offer multiple source choices.
+  const allResolvedSources: any[] = [];
   for (const provider of orderedProviders) {
     if (excluded.has(provider.key.toLowerCase()) || excluded.has(String(provider.name || '').trim().toLowerCase().replace(/\s+/g, ''))) continue;
 
@@ -194,7 +195,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
         throw new Error('Unable to persist resolved playback sources');
       }
 
-      return (persistedSources || []).map(sourceDto);
+      allResolvedSources.push(...(persistedSources || []).map(sourceDto));
     } catch {
       await adminSupabase.from('providers').update({
         status: 'degraded',
@@ -204,5 +205,5 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
     }
   }
 
-  return [];
+  return allResolvedSources;
 }
