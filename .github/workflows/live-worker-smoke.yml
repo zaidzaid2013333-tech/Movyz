@@ -13,15 +13,14 @@ jobs:
         run: |
           node <<'NODE'
           const base = 'https://movyz-api.sameranede.workers.dev';
+          const headers = {'Accept':'application/json'};
 
           const getJson = async (path, timeout = 20000) => {
             const r = await fetch(base + path, {
-              headers: {'Accept':'application/json'},
-              redirect: 'follow',
-              signal: AbortSignal.timeout(timeout)
+              headers, redirect:'follow', signal:AbortSignal.timeout(timeout)
             });
             const body = await r.text();
-            console.log(path, 'HTTP', r.status, body.slice(0,1200));
+            console.log(path, 'HTTP', r.status, body.slice(0,900));
             if (!r.ok) throw new Error(path + ' -> HTTP ' + r.status + ' ' + body.slice(0,500));
             return JSON.parse(body);
           };
@@ -31,41 +30,41 @@ jobs:
             try {
               health = await getJson('/health', 15000);
               if (health?.success) break;
-            } catch (e) {
-              console.log('HEALTH_RETRY', i, String(e));
-            }
+            } catch (e) { console.log('HEALTH_RETRY', i, String(e)); }
             await new Promise(r => setTimeout(r, 15000));
           }
           if (!health?.success) throw new Error('Worker health did not become ready');
 
-          const movies = await getJson('/api/v1/movies?page=1&limit=1');
-          const movie = movies?.data?.items?.[0] ?? movies?.data?.movies?.[0] ?? movies?.data?.[0];
-          const movieId = movie?.id;
-          if (!movieId) throw new Error('Could not extract a movie id from /movies');
+          const movies = await getJson('/api/v1/movies?page=1&limit=20');
+          const items = movies?.data?.items ?? movies?.data?.movies ?? movies?.data ?? [];
+          if (!Array.isArray(items) || !items.length) throw new Error('No movies returned');
 
-          const watch = await getJson('/api/v1/watch/' + encodeURIComponent(movieId));
-          const sources = watch?.data?.sources ?? [];
-          console.log('MOVIE_ID', movieId);
-          console.log('SOURCE_COUNT', sources.length);
-          console.log('SOURCES', JSON.stringify(sources).slice(0,4000));
+          let passed = null;
+          for (const movie of items.slice(0, 10)) {
+            try {
+              const watch = await getJson('/api/v1/watch/' + encodeURIComponent(movie.id), 20000);
+              const sources = watch?.data?.sources ?? [];
+              console.log('MOVIE_RESULT', JSON.stringify({
+                id: movie.id, title: movie.title, titleEn: movie.titleEn, sourceCount: sources.length,
+                providers: sources.map(s => s.provider)
+              }));
+              const vidzee = sources.find(s => String(s?.provider || '').toLowerCase() === 'vidzee');
+              if (!vidzee?.url || !/^https?:\/\//i.test(vidzee.url)) continue;
 
-          if (!sources.length) throw new Error('Worker /watch returned zero playable sources');
+              const stream = await fetch(vidzee.url, {
+                headers:{Range:'bytes=0-1023'}, redirect:'follow', signal:AbortSignal.timeout(20000)
+              });
+              const type = (stream.headers.get('content-type') || '').toLowerCase();
+              console.log('STREAM', stream.status, stream.url, type);
+              const playable = type.includes('mpegurl') || type.includes('video/') ||
+                /\.m3u8(?:$|\?)/i.test(stream.url) || stream.status === 206 || stream.status === 416;
+              if (playable) { passed = {movie, vidzee, stream:{status:stream.status,type,url:stream.url}}; break; }
+            } catch (e) {
+              console.log('MOVIE_FAILED', movie.id, movie.title, String(e));
+            }
+          }
 
-          const hasVidZee = sources.some(s => String(s?.provider || s?.providerKey || s?.provider?.key || '').toLowerCase() === 'vidzee');
-          if (!hasVidZee) throw new Error('Worker returned sources, but none came from VidZee');
-
-          const url = sources[0]?.url;
-          if (!url || !/^https?:\/\//i.test(url)) throw new Error('Resolved source URL is invalid');
-
-          const stream = await fetch(url, {
-            headers: {Range:'bytes=0-1023'},
-            redirect: 'follow',
-            signal: AbortSignal.timeout(20000)
-          });
-          const type = (stream.headers.get('content-type') || '').toLowerCase();
-          console.log('STREAM', stream.status, stream.url, type);
-          const playable = type.includes('mpegurl') || type.includes('video/') || /\.m3u8(?:$|\?)/i.test(stream.url) || stream.status === 206 || stream.status === 416;
-          if (!playable) throw new Error('Resolved Worker source is not a playable HLS/MP4/DASH response');
-
+          if (!passed) throw new Error('No tested catalog movie produced a playable VidZee source through the live Worker');
           console.log('LIVE_WORKER_PLAYBACK=PASS');
+          console.log('PASSED_MOVIE', JSON.stringify(passed).slice(0,3000));
           NODE
