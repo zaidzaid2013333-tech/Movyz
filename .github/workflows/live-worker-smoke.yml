@@ -46,19 +46,21 @@ jobs:
             id: movie.id, title: movie.title, titleEn: movie.titleEn, sourceCount: sources.length,
             providers: sources.map(s => s.provider)
           }));
-          const vidzee = sources.find(s => String(s?.provider || '').toLowerCase() === 'vidzee');
-          if (!vidzee?.url || !/^https?:\/\//i.test(vidzee.url)) {
-            throw new Error('Interstellar returned no valid VidZee source through the live Worker');
+          const newProviders = sources.filter(s => ['moviebox-api', 'ezvidapi'].includes(String(s?.providerKey || s?.provider || '').toLowerCase().replace(/\\s+/g, '-')));
+          if (!newProviders.length) {
+            throw new Error('Interstellar returned no MovieBox API or ezVidAPI source through the live Worker');
           }
 
-          const stream = await fetch(vidzee.url, {
-            headers:{Range:'bytes=0-1023'}, redirect:'follow', signal:AbortSignal.timeout(20000)
-          });
-          const type = (stream.headers.get('content-type') || '').toLowerCase();
-          console.log('STREAM', stream.status, stream.url, type);
-          const playable = type.includes('mpegurl') || type.includes('video/') ||
-            /\.m3u8(?:$|\?)/i.test(stream.url) || stream.status === 206 || stream.status === 416;
-          if (!playable) throw new Error('Interstellar VidZee source is not playable');
+          for (const source of newProviders.slice(0, 2)) {
+            const stream = await fetch(source.url, {
+              headers:{Range:'bytes=0-1023'}, redirect:'follow', signal:AbortSignal.timeout(20000)
+            });
+            const type = (stream.headers.get('content-type') || '').toLowerCase();
+            console.log('STREAM', JSON.stringify({provider:source.provider,url:stream.url,status:stream.status,type}));
+            const playable = type.includes('mpegurl') || type.includes('video/') ||
+              /\\.m3u8(?:$|\\?)/i.test(stream.url) || stream.status === 206 || stream.status === 416;
+            if (!playable) throw new Error('Source is not playable: ' + source.provider + ' HTTP ' + stream.status + ' ' + type);
+          }
 
           console.log('LIVE_WORKER_PLAYBACK=PASS');
           console.log('PASSED_MOVIE', JSON.stringify({movie, vidzee, stream:{status:stream.status,type,url:stream.url}}).slice(0,3000));
