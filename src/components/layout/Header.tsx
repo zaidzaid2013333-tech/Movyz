@@ -32,9 +32,9 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
 
   return (
     <header className="sticky top-0 z-50 w-full bg-[#07090e]/95 backdrop-blur-md border-b border-white/[0.08] transition-all">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4 min-w-0">
         {/* Brand Logo & Navigation */}
-        <div className="flex items-center gap-6 lg:gap-8">
+        <div className="flex items-center gap-3 lg:gap-8 min-w-0 shrink">
           <button
             onClick={() => handleNav('/')}
             className="flex items-center gap-2 group text-start cursor-pointer focus:outline-none"
@@ -43,7 +43,7 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
             <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 to-amber-400 flex items-center justify-center shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform">
               <Film className="w-4 h-4 text-slate-950 stroke-[2.5]" />
             </div>
-            <span className="text-xl font-bold tracking-wider text-white font-cinzel leading-none uppercase">
+            <span className="text-lg sm:text-xl font-bold tracking-wider text-white font-cinzel leading-none uppercase">
               MOVYZA
             </span>
           </button>
@@ -70,11 +70,11 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
         </div>
 
         {/* Right Actions Cluster */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-0.5 sm:gap-2 shrink-0">
           {/* Surprise Me Random Title */}
           <button
             onClick={openSurprise}
-            className="p-2 rounded-xl text-slate-300 hover:text-amber-400 hover:bg-white/[0.06] transition-colors cursor-pointer"
+            className="hidden sm:block p-2 rounded-xl text-slate-300 hover:text-amber-400 hover:bg-white/[0.06] transition-colors cursor-pointer"
             title={language === 'ar' ? 'اختر لي فيلماً عشوائياً' : 'Surprise Me'}
             aria-label="Surprise Me"
           >
@@ -113,7 +113,7 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
           {/* Language Switcher */}
           <button
             onClick={toggleLanguage}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
+            className="flex items-center gap-1 px-1.5 sm:px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
             title={language === 'ar' ? 'Switch to English' : 'التحويل للعربية'}
           >
             <Globe className="w-3.5 h-3.5 text-amber-400" />
@@ -182,7 +182,7 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
           ) : (
             <button
               onClick={() => handleNav('/login')}
-              className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors cursor-pointer"
+              className="px-2 sm:px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors cursor-pointer whitespace-nowrap"
             >
               {t('login')}
             </button>
