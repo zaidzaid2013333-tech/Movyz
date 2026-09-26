@@ -350,8 +350,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     <div className="movyza-player-root relative w-full bg-black" dir="rtl">
       <style>{`
         .movyza-player video::cue {
-          font-size: 165%;
-          line-height: 1.35;
+          font-size: 205%;
+          line-height: 1.3;
           font-family: Arial, "Noto Sans Arabic", "Noto Sans", sans-serif;
           font-weight: 700;
           color: #fff;
@@ -360,7 +360,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
         @media (max-width: 640px) {
           .movyza-player video::cue {
-            font-size: 145%;
+            font-size: 185%;
           }
         }
       `}</style>
