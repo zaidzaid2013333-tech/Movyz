@@ -5,7 +5,7 @@ app.listen(8787);
 const apiHandler = httpServerHandler({ port: 8787 });
 
 export default {
-  async fetch(request: Request, env: { ASSETS: Fetcher }): Promise<Response> {
+  async fetch(request: Request, env: { ASSETS: { fetch(request: Request): Promise<Response> } }): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === '/health' || url.pathname.startsWith('/api/')) {
