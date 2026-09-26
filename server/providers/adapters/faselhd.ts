@@ -265,9 +265,32 @@ async function getHtml(url: string, timeoutMs: number, referer?: string) {
   });
 
   const html = await response.text();
-  if (!response.ok || isBlockedHtml(html)) return null;
+  if (response.ok && !isBlockedHtml(html)) {
+    return { html, finalUrl: response.url || url };
+  }
 
-  return { html, finalUrl: response.url || url };
+  // Some Fasel domains reject cloud/datacenter egress with a challenge or 451.
+  // Use a text-rendering fallback to retrieve the HTML without changing the
+  // URL identity that the downstream parser resolves against.
+  try {
+    const proxyUrl = 'https://r.jina.ai/http://' + url.replace(/^https?:\/\//i, '');
+    const proxyResponse = await fetchWithTimeout(proxyUrl, {
+      method: 'GET',
+      timeoutMs: Math.min(timeoutMs, 12_000),
+      headers: {
+        Accept: 'text/plain,text/html,*/*;q=0.8',
+        'User-Agent': USER_AGENT,
+      },
+    });
+    const proxyHtml = await proxyResponse.text();
+    if (proxyResponse.ok && proxyHtml && !isBlockedHtml(proxyHtml)) {
+      return { html: proxyHtml, finalUrl: url };
+    }
+  } catch {
+    // Keep the primary failure behavior.
+  }
+
+  return null;
 }
 
 type SearchResult = { title: string; url: string };
