@@ -54,7 +54,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   currentEpisode,
 }) => {
   const { language } = useLanguage();
-  const playerRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [streamUrl, setStreamUrl] = useState('');
   const [streamType, setStreamType] = useState<'hls' | 'mp4' | 'dash'>('hls');
@@ -345,7 +344,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           />
         ) : showPlayer ? (
           <MediaPlayer
-            ref={playerRef as React.RefObject<any>}
             className="movyza-player absolute inset-0 h-full w-full"
             title={isMovie ? title : titleEn || title}
             src={playerSource}
