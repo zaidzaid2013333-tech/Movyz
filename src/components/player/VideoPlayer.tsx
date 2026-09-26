@@ -274,8 +274,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           setSelectedSourceId(initial.id);
 
           if (initial.type === 'embed') {
+            // Embed-only response is valid: use it directly instead of
+            // mounting an empty/broken raw player behind an error overlay.
             setStreamUrl('');
             setFallbackEmbedUrl(initial.url);
+            setLoading(true);
           } else {
             setStreamType(initial.type);
             setStreamUrl(initial.url);
@@ -289,6 +292,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setSources([]);
         setSelectedSourceId('');
         setStreamUrl('');
+        // API could not resolve a raw HLS/MP4/DASH URL. The official
+        // ezVidAPI embed remains playable without requiring a raw stream.
         setFallbackEmbedUrl(fallbackUrl);
         setLoading(true);
         setError('');
@@ -390,10 +395,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onError={(playbackError) => {
               console.warn('[movyza-player] source error', playbackError);
+              // Never leave the user looking at a broken raw player. Move
+              // immediately to the official ezVidAPI embed fallback.
               setStreamUrl('');
+              setError('');
               setFallbackEmbedUrl(fallbackUrl);
               setLoading(true);
-              setError('');
               moveToNextSource();
             }}
             onWaiting={() => setLoading(true)}
@@ -422,7 +429,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="absolute inset-0 bg-black" />
         )}
 
-        {(loading || error) && (
+        {(loading || error) && !fallbackEmbedUrl && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/65 pointer-events-none">
             <div className="flex flex-col items-center gap-3 px-6 text-center">
               {loading && !error && (
