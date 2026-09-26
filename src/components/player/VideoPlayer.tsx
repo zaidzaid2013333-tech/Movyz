@@ -101,29 +101,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const tracks = playerRef.current?.textTracks;
     if (!tracks || tracks.length === 0) return;
 
-    let preferredTrack: typeof tracks[0] | null = null;
+    const availableTracks = Array.from(
+      { length: tracks.length },
+      (_, index) => tracks.item(index),
+    ).filter((track): track is TextTrack => Boolean(track));
 
-    for (let index = 0; index < tracks.length; index += 1) {
-      const track = tracks[index];
-      if (!preferredTrack && String(track.language).toLowerCase().startsWith('ar')) {
-        preferredTrack = track;
-      }
-    }
-
-    if (!preferredTrack) {
-      for (let index = 0; index < tracks.length; index += 1) {
-        const track = tracks[index];
-        if (track.kind === 'subtitles' || track.kind === 'captions') {
-          preferredTrack = track;
-          break;
-        }
-      }
-    }
+    const preferredTrack =
+      availableTracks.find((track) =>
+        String(track.language).toLowerCase().startsWith('ar'),
+      ) ||
+      availableTracks.find(
+        (track) => track.kind === 'subtitles' || track.kind === 'captions',
+      );
 
     if (!preferredTrack) return;
 
-    for (let index = 0; index < tracks.length; index += 1) {
-      const track = tracks[index];
+    for (const track of availableTracks) {
       if (track.kind === 'subtitles' || track.kind === 'captions') {
         track.mode = track === preferredTrack ? 'showing' : 'disabled';
       }
