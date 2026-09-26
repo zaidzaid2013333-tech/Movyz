@@ -249,14 +249,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           .map((source, index) => ({
             id:
               source.id ||
-              `${source.providerKey || source.provider || 'source'}-${source.type}-${index}`,
+              `${source.provider || 'source'}-${source.type}-${index}`,
             url: source.url,
             type: source.type,
             quality: source.quality || 'auto',
             language: source.language || 'und',
             label: source.label || source.provider || 'Source',
             provider: source.provider || 'Provider',
-            providerKey: source.providerKey,
           }));
 
         if (!normalized.length) {
