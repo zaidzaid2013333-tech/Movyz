@@ -26,6 +26,12 @@ import { PlaybackSource, Episode, Season, WatchProgress, ContentType } from '../
 import { useLanguage } from '../../context/LanguageContext';
 import { MovyzaApi } from '../../services/api';
 
+type PlayerSource = PlaybackSource & {
+  embedUrl?: string;
+  providerKey?: string;
+  providerReference?: string;
+};
+
 interface VideoPlayerProps {
   contentId: string;
   contentType: ContentType;
@@ -100,8 +106,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const failedProvidersRef = useRef<Set<string>>(new Set());
   const sourceRefreshInFlightRef = useRef(false);
 
-  const playbackSources = [...sources, ...fallbackSources];
+  const playbackSources = [...sources, ...fallbackSources].filter((source, index, all) => {
+    const key = (source as PlayerSource).embedUrl || source.url;
+    return all.findIndex((candidate) => ((candidate as PlayerSource).embedUrl || candidate.url) === key) === index;
+  }) as PlayerSource[];
   const activeSource = playbackSources[activeSourceIndex] || playbackSources[0];
+
   const sourceKey = sources.map((source) => source.id).join('|');
   const normalizeProviderKey = (provider?: string) =>
     provider ? provider.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
@@ -189,6 +199,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     dashRef.current?.reset();
     dashRef.current = null;
 
+    if (source?.embedUrl) {
+      setHasError(false);
+      setIsLoading(false);
+      setIsPlaying(false);
+      return () => {
+        if (sourceFailoverTimerRef.current) clearTimeout(sourceFailoverTimerRef.current);
+        sourceFailoverTimerRef.current = null;
+        hlsRef.current?.destroy();
+        hlsRef.current = null;
+        dashRef.current?.reset();
+        dashRef.current = null;
+      };
+    }
+
     if (!video || !source?.url) {
       setHasError(true);
       setIsLoading(false);
@@ -250,7 +274,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeAttribute('src');
       video.load();
     };
-  }, [activeSource?.id, activeSource?.url, activeSource?.type]);
+  }, [activeSource?.id, activeSource?.url, activeSource?.type, activeSource?.embedUrl]);
 
   // Handle controls activity hide
   const resetControlsTimer = () => {
@@ -480,6 +504,32 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       lastTapRef.current = { time: now, x: tapX };
     }
   };
+
+  if (activeSource?.embedUrl) {
+    return (
+      <div
+        ref={playerContainerRef}
+        className="relative w-full aspect-video max-h-[85vh] bg-black overflow-hidden focus:outline-none"
+      >
+        <iframe
+          src={activeSource.embedUrl}
+          title={title}
+          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+          allowFullScreen
+          referrerPolicy="origin"
+          className="w-full h-full min-h-[240px] border-0 bg-black"
+        />
+        <div className="pointer-events-none absolute top-3 left-3 right-3 flex justify-between items-center">
+          <span className="rounded-full bg-black/70 backdrop-blur px-2.5 py-1 text-[10px] font-semibold text-white border border-white/10">
+            VidZee
+          </span>
+          <span className="rounded-full bg-black/55 backdrop-blur px-2.5 py-1 text-[10px] text-slate-300 border border-white/10">
+            {language === 'ar' ? 'مشغل خارجي آمن' : 'Provider player'}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
