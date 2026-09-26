@@ -21,7 +21,7 @@ function normalizeUrl(value: string, baseUrl?: string): string | null {
 
   const cleaned = value
     .trim()
-    .replaceAll('\\\\/', '/')
+    .replaceAll('\\/', '/')
     .replace(/\\u0026/gi, '&')
     .replace(/&amp;/gi, '&')
     .replace(/^['\`"]|['\`"]$/g, '');
@@ -42,11 +42,11 @@ function isSafeExternalUrl(value: string) {
 
     const hostname = url.hostname.toLowerCase();
     const privateIpv4 =
-      /^10\\./.test(hostname) ||
-      /^127\\./.test(hostname) ||
-      /^169\\.254\\./.test(hostname) ||
-      /^192\\.168\\./.test(hostname) ||
-      /^172\\.(1[6-9]|2[0-9]|3[0-1])\\./.test(hostname);
+      /^10\./.test(hostname) ||
+      /^127\./.test(hostname) ||
+      /^169\.254\./.test(hostname) ||
+      /^192\.168\./.test(hostname) ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
 
     if (
       hostname === 'localhost' ||
@@ -77,10 +77,10 @@ function candidateUrlsFromText(text: string, baseUrl: string) {
     found.push(normalized);
   };
 
-  const streamRegex = /(?:https?:\\/\\/[^\\s"'<>\\\\]+|(?:\\/\\/)?[^\\s"'<>\\\\]+)(?:\\.m3u8|\\.mpd|\\.mp4)(?:[?#][^\\s"'<>\\\\]*)?/gi;
+  const streamRegex = /(?:https?:\/\/[^\s"'<>\\]+|(?:\/\/)?[^\s"'<>\\]+)(?:\.m3u8|\.mpd|\.mp4)(?:[?#][^\s"'<>\\]*)?/gi;
   for (const match of text.match(streamRegex) || []) add(match);
 
-  const attributeRegex = /(?:src|data-src|file|url|stream|source|hls|dash)\\s*[:=]\\s*["'\`]([^"'\`]+)["'\`]/gi;
+  const attributeRegex = /(?:src|data-src|file|url|stream|source|hls|dash)\s*[:=]\s*["'\x60]([^"'\x60]+)["'\x60]/gi;
   let attributeMatch: RegExpExecArray | null;
   while ((attributeMatch = attributeRegex.exec(text))) add(attributeMatch[1]);
 
@@ -101,7 +101,7 @@ export function extractUniversalCandidates(text: string, baseUrl: string) {
     }
   }
 
-  const iframeRegex = /<(?:iframe|embed)[^>]+(?:src|data-src)\\s*=\\s*["'\`]([^"'\`]+)["'\`]/gi;
+  const iframeRegex = /<(?:iframe|embed)[^>]+(?:src|data-src)\s*=\s*["'\x60]([^"'\x60]+)["'\x60]/gi;
   let iframeMatch: RegExpExecArray | null;
   while ((iframeMatch = iframeRegex.exec(text))) {
     const url = normalizeUrl(iframeMatch[1], baseUrl);
