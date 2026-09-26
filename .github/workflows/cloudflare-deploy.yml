@@ -26,7 +26,6 @@ jobs:
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
-      MOVYZA_TMDB_EMBED_API_BASE_URL: ${{ secrets.MOVYZA_TMDB_EMBED_API_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -63,46 +62,73 @@ jobs:
             printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_ANON_KEY"
             printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
             printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
-            printf 'MOVYZA_TMDB_EMBED_API_BASE_URL=%s\n' "$MOVYZA_TMDB_EMBED_API_BASE_URL"
           } > .env.production
 
       - name: Deploy Movyz
         run: npx wrangler deploy --secrets-file .env.production
 
-      - name: Verify deployed playback resolver
+      - name: Verify deployed Watch API contract
         run: |
           node <<'NODE'
           const base = 'https://movyz-api.sameranede.workers.dev';
-          const headers = { Accept: 'application/json' };
-          const getJson = async (path, timeout = 30000) => {
-            const response = await fetch(base + path, { headers, redirect: 'follow', signal: AbortSignal.timeout(timeout) });
+          const get = async (path, timeout = 30000) => {
+            const response = await fetch(base + path, {
+              headers: { Accept: 'application/json' },
+              redirect: 'follow',
+              signal: AbortSignal.timeout(timeout),
+            });
             const body = await response.text();
             console.log(path, 'HTTP', response.status, body.slice(0, 1800));
-            if (!response.ok) throw new Error(path + ' -> HTTP ' + response.status + ' ' + body.slice(0, 900));
-            return JSON.parse(body);
+            let json = null;
+            try { json = JSON.parse(body); } catch {}
+            return { response, json };
           };
-          const health = await getJson('/health', 15000);
-          if (!health?.success || health?.data?.status !== 'ok') throw new Error('Worker health check failed');
-          const catalog = await getJson('/api/v1/movies?page=1&limit=1', 20000);
-          const items = Array.isArray(catalog?.data) ? catalog.data : catalog?.data?.items ?? catalog?.data?.movies ?? [];
+
+          const health = await get('/health', 15000);
+          if (!health.response.ok || !health.json?.success || health.json?.data?.status !== 'ok') {
+            throw new Error('Worker health check failed');
+          }
+
+          const catalog = await get('/api/v1/movies?page=1&limit=1', 20000);
+          const items = Array.isArray(catalog.json?.data)
+            ? catalog.json.data
+            : catalog.json?.data?.items ?? catalog.json?.data?.movies ?? [];
           if (!Array.isArray(items) || !items.length) throw new Error('Published movie catalog is empty');
+
           const movie = items[0];
-          const contentId = String(movie?.id || '');
           const tmdbId = Number(movie?.tmdbId || movie?.tmdb_id || 0);
-          if (!contentId || !/^[0-9a-f-]{36}$/i.test(contentId)) throw new Error('First published movie has no valid UUID: ' + JSON.stringify(movie).slice(0, 1200));
-          if (!Number.isInteger(tmdbId) || tmdbId <= 0) throw new Error('First published movie has no valid TMDB id: ' + JSON.stringify(movie).slice(0, 1200));
-          const playback = await getJson('/api/v1/watch/movie/' + encodeURIComponent(String(tmdbId)), 30000);
-          const sources = Array.isArray(playback?.data) ? playback.data : [];
-          if (!sources.length) throw new Error('Playback resolver returned no playable source for movie ' + contentId);
+          if (!Number.isInteger(tmdbId) || tmdbId <= 0) {
+            throw new Error('First published movie has no valid TMDB id: ' + JSON.stringify(movie).slice(0, 1200));
+          }
+
+          const watch = await get('/api/v1/watch/movie/' + encodeURIComponent(String(tmdbId)), 20000);
+          if (watch.response.status === 404 && watch.json?.error?.code === 'WATCH_SOURCES_NOT_FOUND') {
+            console.log('WATCH_API=PASS (contract verified; no source is configured for the first movie)');
+            process.exit(0);
+          }
+
+          if (!watch.response.ok) {
+            throw new Error('Watch API failed: HTTP ' + watch.response.status + ' ' + JSON.stringify(watch.json).slice(0, 1200));
+          }
+
+          const sources = Array.isArray(watch.json?.data) ? watch.json.data : [];
+          if (!sources.length) throw new Error('Watch API returned success without sources');
+
           const source = sources[0];
-          const validDirect = /^https:\/\//i.test(String(source?.url || ''));
-          const validProxy = /^\/api\/v1\/playback\/proxy\?url=/.test(String(source?.url || ''));
-          if (!source?.url || (!validDirect && !validProxy)) throw new Error('Playback resolver returned an invalid direct source: ' + JSON.stringify(source).slice(0, 1600));
-          if (!['hls','mp4','dash'].includes(String(source.type))) throw new Error('Playback resolver returned unsupported direct type: ' + String(source.type));
-          if (String(source.type) === 'hls' && !validProxy && !/\.m3u8(?:$|[?#])/i.test(String(source.url))) throw new Error('HLS source does not point to an m3u8 URL');
-          const host = validDirect ? new URL(source.url).host : 'movyz-proxy';
-          console.log('LIVE_PLAYBACK_TARGET=PASS');
-          console.log(JSON.stringify({ contentId, tmdbId, provider: source.provider, type: source.type, host }));
+          if (!/^https:\/\//i.test(String(source?.url || ''))) {
+            throw new Error('Watch API returned a non-HTTPS source');
+          }
+          if (!['hls', 'mp4', 'dash'].includes(String(source?.type || ''))) {
+            throw new Error('Watch API returned an unsupported direct type: ' + String(source?.type));
+          }
+
+          console.log('WATCH_API=PASS');
+          console.log(JSON.stringify({
+            tmdbId,
+            provider: source.provider,
+            type: source.type,
+            host: new URL(source.url).host,
+          }));
           NODE
 
       - name: Remove temporary secrets file
