@@ -28,7 +28,7 @@ export function createEzvidApiAdapter(): ProviderAdapter {
   const timeoutMs = Math.max(2_000, Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000));
   const origins = (process.env.EZVIDAPI_ORIGINS || DEFAULT_ORIGINS.join(','))
     .split(',')
-    .map((value) => value.trim().replace(/\\/$/, ''))
+    .map((value) => value.trim().replace(/\/$/, ''))
     .filter(Boolean);
   const configuredProvider = (process.env.EZVIDAPI_PROVIDER || DEFAULT_PROVIDER).trim().toLowerCase();
 
