@@ -278,8 +278,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 </span>
                 <p className="text-[11px] leading-relaxed">
                   {language === 'ar'
-                    ? 'التشغيل يتم عبر VidRift اعتمادًا على معرّف TMDB. يمكنك اختيار المصدر المتاح من قائمة المشغل الخارجية.'
-                    : 'Playback is powered by VidRift using the TMDB id. Available sources can be selected from the embedded player.'}
+                    ? 'التشغيل يتم عبر VidRift اعتمادًا على معرّف TMDB. عند فتح اختيار المصدر على الهاتف، ستظهر خيارات السيرفرات أسفل المشغل لتسهيل الوصول إليها.'
+                    : 'Playback is powered by VidRift using the TMDB id. On mobile, source choices appear in a panel below the player when opened.'}
                 </p>
               </div>
             </div>
