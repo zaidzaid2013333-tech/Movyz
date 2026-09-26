@@ -35,7 +35,9 @@ jobs:
           if (!health?.success) throw new Error('Worker health check failed');
 
           const catalog = await getJson('/api/v1/movies?search=Interstellar&page=1&limit=5');
-          const items = catalog?.data?.items ?? catalog?.data?.movies ?? catalog?.movies ?? [];
+          const items = Array.isArray(catalog?.data)
+            ? catalog.data
+            : catalog?.data?.items ?? catalog?.data?.movies ?? catalog?.movies ?? [];
           if (!Array.isArray(items) || !items.length) {
             throw new Error('Catalog returned no Interstellar result');
           }
