@@ -366,7 +366,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             onTextTracksChange={(tracks) => {
               if (subtitleAutoShownRef.current) return;
               const preferredTrack =
-                tracks.find((track) => track.kind === 'subtitles' && track.language === 'ar') ||
+                tracks.find((track) => track.kind === 'subtitles' && String(track.language).toLowerCase() === 'ar') ||
                 tracks.find((track) => track.kind === 'subtitles');
               if (preferredTrack) {
                 preferredTrack.mode = 'showing';
