@@ -520,7 +520,8 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
         subtitleTracks: source.subtitle_url
           ? [{
               url: `${subtitleProxyBase}?url=${encodeURIComponent(source.subtitle_url)}`,
-              type: String(source.subtitle_type || 'vtt').toLowerCase(),
+              // /subtitles/proxy always normalizes the upstream payload to WebVTT.
+              type: 'vtt',
               language: source.subtitle_language || 'und',
               label: source.subtitle_label_ar || source.subtitle_label_en || 'Subtitles',
               labelEn: source.subtitle_label_en || source.subtitle_label_ar || 'Subtitles',
