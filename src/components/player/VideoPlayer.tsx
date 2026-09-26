@@ -4,6 +4,7 @@ import {
   MediaProvider,
   Track,
   isVideoProvider,
+  type MediaPlayerInstance,
 } from '@vidstack/react';
 import {
   defaultLayoutIcons,
@@ -70,6 +71,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   currentEpisode,
 }) => {
   const { language } = useLanguage();
+  const playerRef = useRef<MediaPlayerInstance | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const failedSourceIdsRef = useRef<Set<string>>(new Set());
   const lastSavedAtRef = useRef(0);
@@ -96,21 +98,35 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const subtitleEnabled = subtitleTracks.length > 0;
 
   const showPreferredSubtitleTrack = () => {
-    const video = videoRef.current;
-    if (!video) return;
+    const tracks = playerRef.current?.textTracks;
+    if (!tracks || tracks.length === 0) return;
 
-    const tracks = Array.from(video.textTracks).filter(
-      (track) => track.kind === 'subtitles' || track.kind === 'captions',
-    );
+    let preferredTrack: typeof tracks[0] | null = null;
 
-    if (!tracks.length) return;
+    for (let index = 0; index < tracks.length; index += 1) {
+      const track = tracks[index];
+      if (!preferredTrack && String(track.language).toLowerCase().startsWith('ar')) {
+        preferredTrack = track;
+      }
+    }
 
-    const preferred =
-      tracks.find((track) => String(track.language).toLowerCase().startsWith('ar')) ||
-      tracks[0];
+    if (!preferredTrack) {
+      for (let index = 0; index < tracks.length; index += 1) {
+        const track = tracks[index];
+        if (track.kind === 'subtitles' || track.kind === 'captions') {
+          preferredTrack = track;
+          break;
+        }
+      }
+    }
 
-    for (const track of tracks) {
-      track.mode = track === preferred ? 'showing' : 'disabled';
+    if (!preferredTrack) return;
+
+    for (let index = 0; index < tracks.length; index += 1) {
+      const track = tracks[index];
+      if (track.kind === 'subtitles' || track.kind === 'captions') {
+        track.mode = track === preferredTrack ? 'showing' : 'disabled';
+      }
     }
 
     subtitleAutoShownRef.current = true;
@@ -370,27 +386,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div className="movyza-player-root relative w-full bg-black" dir="rtl">
       <style>{`
-        .movyza-player video::cue {
-          font-size: 30px;
-          line-height: 1.3;
+        .movyza-player .vds-captions {
+          --media-cue-font-size: clamp(
+            22px,
+            calc(var(--media-height) / 100 * 6.5),
+            54px
+          );
+          --media-cue-line-height: 1.25;
+          --media-cue-color: #fff;
+          --media-cue-bg-color: rgba(0, 0, 0, 0.72);
+        }
+
+        .movyza-player .vds-captions [data-part="cue"] {
           font-family: Arial, "Noto Sans Arabic", "Noto Sans", sans-serif;
-          font-weight: 700;
-          color: #fff;
-          background: rgba(0, 0, 0, 0.72);
+          font-weight: 800;
           text-shadow:
             0 2px 4px rgba(0, 0, 0, .98),
             0 0 3px rgba(0, 0, 0, 1);
-          white-space: pre-line;
-        }
-        @media (max-width: 640px) {
-          .movyza-player video::cue {
-            font-size: 22px;
-          }
         }
       `}</style>
       <div className="movyza-player-shell relative aspect-video w-full overflow-hidden bg-black">
         {playerSource ? (
           <MediaPlayer
+            ref={playerRef}
             key={`movyza-player-${selectedSourceId}-${subtitleTracks.map((track) => `${track.language}:${track.url}`).join('|')}`}
             className="movyza-player absolute inset-0 h-full w-full"
             load="eager"
