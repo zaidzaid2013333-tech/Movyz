@@ -407,6 +407,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     tmdbId: req.params.tmdbId,
     season: req.query.season,
     episode: req.query.episode,
+    provider: req.query.provider,
   });
 
   if (!parsed.success) {
