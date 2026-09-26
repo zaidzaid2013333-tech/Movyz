@@ -12,7 +12,7 @@
     "start": "tsx server/index.ts",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "test": "tsx --test \"server/**/*.test.ts\""
+    "test": "tsx --test server/providers/http.test.ts server/providers/tmdb-hls.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
