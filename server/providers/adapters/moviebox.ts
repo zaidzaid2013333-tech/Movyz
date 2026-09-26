@@ -206,6 +206,7 @@ export function createMovieBoxApiAdapter(): ProviderAdapter {
     const proxyPlayback = env('MOVIEBOX_PROXY_PLAYBACK', 'true').toLowerCase() === 'true';
 
     const match = await chooseMatch(context, timeoutMs, baseUrl);
+    if (!match) throw new Error('MovieBox match resolution returned no result');
     const subjectId = await getSubjectIdFromMovieBoxApi(baseUrl, match.slug, timeoutMs);
     if (!subjectId) throw new Error('MovieBox detail returned no subject id for ' + match.slug);
 
