@@ -210,24 +210,24 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({
       {/* Cast & Technical Specifications */}
       <div className="max-w-7xl mx-auto px-3 sm:px-6 space-y-12">
         {/* Technical Projection Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-2xl bg-[#090b10] border border-amber-500/15 text-xs">
-          <div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-2xl bg-[#090b10] border border-amber-500/15 text-xs min-w-0 overflow-hidden">
+          <div className="min-w-0">
             <span className="text-[10px] text-slate-500 block">{t('director')}</span>
-            <span className="font-bold text-white font-cinema-title">
+            <span className="font-bold text-white font-cinema-title break-words">
               {language === 'ar' ? movie.director : movie.directorEn}
             </span>
           </div>
           <div>
             <span className="text-[10px] text-slate-500 block">نسبة العرض البصري</span>
-            <span className="font-mono text-amber-400 font-bold">2.39:1 Anamorphic</span>
+            <span className="font-mono text-amber-400 font-bold break-words">2.39:1 Anamorphic</span>
           </div>
           <div>
             <span className="text-[10px] text-slate-500 block">نظام الصوت</span>
-            <span className="font-mono text-white font-bold">Dolby Atmos 7.1</span>
+            <span className="font-mono text-white font-bold break-words">Dolby Atmos 7.1</span>
           </div>
           <div>
             <span className="text-[10px] text-slate-500 block">دقة العرض الرئيسية</span>
-            <span className="font-mono text-emerald-400 font-bold">4K Ultra HD</span>
+            <span className="font-mono text-emerald-400 font-bold break-words">4K Ultra HD</span>
           </div>
         </div>
 
@@ -240,11 +240,11 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({
             </h2>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 min-w-0">
             {movie.cast.map((actor) => (
               <div
                 key={actor.id}
-                className="flex items-center gap-3 p-3 rounded-2xl bg-[#090b10] border border-amber-500/15 hover:border-amber-400/40 transition-all shadow-md"
+                className="flex items-center gap-3 p-3 rounded-2xl bg-[#090b10] border border-amber-500/15 hover:border-amber-400/40 transition-all shadow-md min-w-0"
               >
                 <img
                   src={actor.avatarUrl}
