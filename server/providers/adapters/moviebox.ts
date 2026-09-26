@@ -121,24 +121,62 @@ async function fetchStreamsViaH5(subjectId: string, slug: string, season: number
   return Array.isArray(payload?.data?.streams) ? payload.data.streams : [];
 }
 
+function buildProxyUrl(baseUrl: string, subjectId: string, slug: string, season: number, episode: number, resolution: number) {
+  const params = new URLSearchParams({
+    detail_path: slug,
+    se: String(season),
+    ep: String(episode),
+    resolution: String(resolution || 0),
+  });
+  return baseUrl + '/watch/' + encodeURIComponent(subjectId) + '?' + params.toString();
+}
+
 export function createMovieBoxApiAdapter(): ProviderAdapter {
   const timeoutMs = Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000);
   const resolve = async (context: ProviderContext, kind: 'movie' | 'episode'): Promise<NormalizedPlaybackSource[]> => {
     if (!context.tmdbId || !context.title) return [];
     const baseUrl = env('MOVIEBOX_API_BASE_URL').replace(/\/+$/, '');
+    const proxyPlayback = env('MOVIEBOX_PROXY_PLAYBACK').toLowerCase() === 'true' && !!baseUrl;
+
     const match = await chooseMatch(context, timeoutMs, baseUrl); if (!match) return [];
     const subjectId = baseUrl ? await getSubjectIdFromMovieBoxApi(baseUrl, match.slug, timeoutMs) : await getSubjectIdFromH5(match.slug, timeoutMs);
     if (!subjectId) return [];
+
     const season = kind === 'episode' ? Number(context.seasonNumber || 0) : 0;
     const episode = kind === 'episode' ? Number(context.episodeNumber || 0) : 0;
-    const streams = baseUrl ? await fetchStreamsViaMovieBoxApi(baseUrl, subjectId, match.slug, season, episode, timeoutMs) : await fetchStreamsViaH5(subjectId, match.slug, season, episode, timeoutMs);
+    const streams = baseUrl
+      ? await fetchStreamsViaMovieBoxApi(baseUrl, subjectId, match.slug, season, episode, timeoutMs)
+      : await fetchStreamsViaH5(subjectId, match.slug, season, episode, timeoutMs);
+
     return streams.flatMap((stream: any, index: number): NormalizedPlaybackSource[] => {
-      const url = typeof stream?.url === 'string' ? stream.url.trim() : ''; if (!url || !/^https:\/\//i.test(url)) return [];
-      const type = inferPlaybackType(url, stream?.format || stream?.type); if (!type) return [];
-      const quality = stream?.resolutions ? String(stream.resolutions) + 'p' : inferQuality(stream?.label || '', url);
-      return [{ provider: 'moviebox-api', type, url, providerReference: subjectId + ':' + match.slug + ':' + season + ':' + episode + ':' + String(stream?.id ?? index), quality: quality || 'auto', language: typeof stream?.language === 'string' ? stream.language : 'und', label: quality && quality !== 'auto' ? 'MovieBox ' + quality : 'MovieBox' }];
+      const rawUrl = typeof stream?.url === 'string' ? stream.url.trim() : '';
+      if (!rawUrl || !/^https:\/\//i.test(rawUrl)) return [];
+
+      const resolution = Number(stream?.resolutions || 0);
+      // Infer the media type from the original CDN URL/format before optionally
+      // replacing the URL with the zero-buffer MovieBox Worker proxy.
+      const type = inferPlaybackType(rawUrl, stream?.format || stream?.type);
+      if (!type) return [];
+
+      const quality = resolution ? String(resolution) + 'p' : inferQuality(stream?.label || '', rawUrl);
+      const url = proxyPlayback
+        ? buildProxyUrl(baseUrl, subjectId, match.slug, season, episode, resolution)
+        : rawUrl;
+
+      return [{
+        provider: 'moviebox-api',
+        type,
+        url,
+        providerReference: subjectId + ':' + match.slug + ':' + season + ':' + episode + ':' + String(stream?.id ?? index),
+        quality: quality || 'auto',
+        language: typeof stream?.language === 'string' ? stream.language : 'und',
+        label: proxyPlayback
+          ? (quality && quality !== 'auto' ? 'MovieBox Proxy ' + quality : 'MovieBox Proxy')
+          : (quality && quality !== 'auto' ? 'MovieBox ' + quality : 'MovieBox'),
+      }];
     });
   };
+
   return {
     key: 'moviebox-api', name: 'MovieBox API', enabled: true, requiresMapping: false,
     resolveMovie: (context) => resolve(context, 'movie'),
