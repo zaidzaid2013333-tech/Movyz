@@ -111,12 +111,15 @@ async function fetchLists() {
     }
   }
 
+  const priorityIds: number[] = [];
+
   for (const anchor of ANCHOR_IDS) {
+    priorityIds.push(anchor);
     if (!byId.has(anchor)) {
       try {
         byId.set(anchor, await fetchMoviePair(anchor));
       } catch (error) {
-        console.warn(`Anchor ${anchor} metadata lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+        console.warn('Anchor ' + anchor + ' metadata lookup failed: ' + (error instanceof Error ? error.message : String(error)));
       }
     }
   }
@@ -132,15 +135,25 @@ async function fetchLists() {
 
   for (const row of currentMovies || []) {
     const id = Number(row.tmdb_id);
-    if (!Number.isInteger(id) || byId.has(id)) continue;
+    if (!Number.isInteger(id)) continue;
+    priorityIds.push(id);
+    if (byId.has(id)) continue;
     try {
       byId.set(id, await fetchMoviePair(id));
     } catch (lookupError) {
-      console.warn(`Current movie ${id} metadata lookup failed: ${lookupError instanceof Error ? lookupError.message : String(lookupError)}`);
+      console.warn('Current movie ' + id + ' metadata lookup failed: ' + (lookupError instanceof Error ? lookupError.message : String(lookupError)));
     }
   }
 
-  return [...byId.values()].slice(0, LIMIT);
+  const prioritized = Array.from(new Set(priorityIds))
+    .map((id) => byId.get(id))
+    .filter((value): value is { ar: MovieListItem; en: MovieListItem } => Boolean(value));
+
+  const remainder = [...byId.entries()]
+    .filter(([id]) => !priorityIds.includes(id))
+    .map(([, value]) => value);
+
+  return [...prioritized, ...remainder].slice(0, LIMIT);
 }
 
 async function mapWithConcurrency<T>(items: T[], worker: (item: T) => Promise<void>) {
