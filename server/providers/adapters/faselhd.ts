@@ -83,16 +83,16 @@ async function resolveUpstreamVideoId(videoId: string, timeoutMs: number): Promi
   const script = await response.text();
   if (!response.ok || !script) return [];
 
-  const code = [...script.matchAll(/\\/g.....(.*?)\\)/gm)][0]?.[1] || null;
+  const code = [...script.matchAll(/\/g.....(.*?)\)/gm)][0]?.[1] || null;
   if (!code) return [];
 
-  const cleanedScript = script.replace(/['+\\n]/g, '');
+  const cleanedScript = script.replace(/['+\n]/g, '');
   const chunks = cleanedScript.split('.');
   let page = '';
 
   for (const chunk of chunks) {
     const decoded = decodeBase64Ascii(chunk + '==');
-    const digits = decoded.match(/\\d+/g);
+    const digits = decoded.match(/\d+/g);
     if (digits?.length) {
       const next = Number.parseInt(digits[0], 10) + Number.parseInt(code, 10);
       if (Number.isFinite(next)) page += String.fromCharCode(next);
@@ -118,14 +118,14 @@ async function resolveUpstreamVideoId(videoId: string, timeoutMs: number): Promi
   const urls = new Map<string, string>();
   let pendingQuality = 'auto';
 
-  for (const line of playlist.split(/\\r?\\n/)) {
+  for (const line of playlist.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    const resolution = trimmed.match(/RESOLUTION=\\d+x(\\d+)/i);
+    const resolution = trimmed.match(/RESOLUTION=\d+x(\d+)/i);
     if (resolution) pendingQuality = resolution[1] + 'p';
 
-    if (/^https:\\/\\//i.test(trimmed) && /\\.m3u8(?:\\?|$)/i.test(trimmed)) {
+    if (/^https:\/\//i.test(trimmed) && /\.m3u8(?:\?|$)/i.test(trimmed)) {
       const quality = inferQuality(pendingQuality, trimmed);
       urls.set(trimmed, quality);
       pendingQuality = 'auto';
