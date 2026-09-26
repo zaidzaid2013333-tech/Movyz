@@ -31,6 +31,7 @@ export interface PlaybackSource {
 
 export interface Movie {
   id: string;
+  tmdbId: number;
   type: 'movie';
   title: string; // Arabic Title
   titleEn: string; // English Title
@@ -58,6 +59,7 @@ export interface Movie {
 
 export interface Episode {
   id: string;
+  tmdbId?: number;
   seriesId: string;
   seasonNumber: number;
   episodeNumber: number;
@@ -86,6 +88,7 @@ export interface Season {
 
 export interface Series {
   id: string;
+  tmdbId: number;
   type: 'series';
   title: string;
   titleEn: string;
