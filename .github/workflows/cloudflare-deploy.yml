@@ -119,7 +119,7 @@ jobs:
           if (!/^https:\/\//i.test(String(source?.url || ''))) {
             throw new Error('Watch API returned a non-HTTPS source');
           }
-          if (!['hls', 'mp4', 'dash'].includes(String(source?.type || ''))) {
+          if (!['hls', 'mp4', 'dash', 'webm'].includes(String(source?.type || ''))) {
             throw new Error('Watch API returned an unsupported direct type: ' + String(source?.type));
           }
 
