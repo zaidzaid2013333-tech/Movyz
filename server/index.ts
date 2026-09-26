@@ -39,17 +39,36 @@ const catalogQuery = z.object({
   search: z.string().trim().max(120).optional(),
 });
 
-const sourceDto = (s: any) => ({
-  id: s.id,
-  type: s.source_type,
-  quality: s.quality || 'auto',
-  language: s.language || 'und',
-  label: s.label_ar || s.providers?.name || 'Source',
-  labelEn: s.label_en || s.providers?.name || 'Source',
-  url: s.url || '',
-  isWorking: s.is_working === true,
-  provider: s.providers?.name || 'Provider',
-});
+const sourceDto = (s: any) => {
+  const providerKey = String(s.providers?.key || '').toLowerCase();
+  const providerReference = String(s.provider_reference || '');
+  const parts = providerReference.split(':');
+  const tmdbId = parts[0];
+  const kind = parts[1];
+  const embedUrl =
+    providerKey === 'vidzee' && /^\\d+$/.test(tmdbId)
+      ? kind === 'episode' && /^\\d+$/.test(parts[2] || '') && /^\\d+$/.test(parts[3] || '')
+        ? `https://player.vidzee.wtf/embed/tv/${encodeURIComponent(tmdbId)}/${encodeURIComponent(parts[2])}/${encodeURIComponent(parts[3])}`
+        : kind === 'movie'
+          ? `https://player.vidzee.wtf/embed/movie/${encodeURIComponent(tmdbId)}`
+          : undefined
+      : undefined;
+
+  return {
+    id: s.id,
+    type: s.source_type,
+    quality: s.quality || 'auto',
+    language: s.language || 'und',
+    label: s.label_ar || s.providers?.name || 'Source',
+    labelEn: s.label_en || s.providers?.name || 'Source',
+    url: s.url || '',
+    isWorking: s.is_working === true,
+    provider: s.providers?.name || 'Provider',
+    providerKey: providerKey || undefined,
+    providerReference: providerReference || undefined,
+    embedUrl,
+  };
+};
 
 const genreDto = (g: any) => ({
   id: g.id,
@@ -149,7 +168,7 @@ async function movieDto(row: any) {
   const [genres, cast, sources] = await Promise.all([
     adminSupabase.from('movie_genres').select('genres(id,name_ar,name_en,slug)').eq('movie_id', row.id),
     adminSupabase.from('movie_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('movie_id', row.id).order('cast_order'),
-    adminSupabase.from('playback_sources').select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name,enabled)').eq('content_type', 'movie').eq('content_id', row.id).eq('is_working', true),
+    adminSupabase.from('playback_sources').select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,undefined').eq('content_type', 'movie').eq('content_id', row.id).eq('is_working', true),
   ]);
   return {
     id: row.id, type: 'movie',
@@ -430,7 +449,7 @@ app.get(`${api}` + '/watch/:id', asyncRoute(async (req, res) => {
     const detail = await movieDto(data);
     const { data: rows } = await adminSupabase
       .from('playback_sources')
-      .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)')
+      .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name)')
       .eq('content_type', 'movie').eq('content_id', id).eq('is_working', true);
     let sources = (rows || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date()).map(sourceDto);
     if (!sources.length) {
@@ -454,7 +473,7 @@ app.get(`${api}` + '/watch/:id', asyncRoute(async (req, res) => {
 
   const { data: rows } = await adminSupabase
     .from('playback_sources')
-    .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)')
+    .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name)')
     .eq('content_type', 'episode').eq('content_id', id).eq('is_working', true);
   let sources = (rows || []).filter((x: any) => !x.expires_at || new Date(x.expires_at) > new Date()).map(sourceDto);
   if (!sources.length) {
