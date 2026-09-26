@@ -101,10 +101,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const tracks = playerRef.current?.textTracks;
     if (!tracks || tracks.length === 0) return;
 
-    const availableTracks = Array.from(
-      { length: tracks.length },
-      (_, index) => tracks.item(index),
-    ).filter((track): track is TextTrack => Boolean(track));
+    const availableTracks: TextTrack[] = [];
+    for (let index = 0; index < tracks.length; index += 1) {
+      const track = tracks[index];
+      if (track) availableTracks.push(track);
+    }
 
     const preferredTrack =
       availableTracks.find((track) =>
