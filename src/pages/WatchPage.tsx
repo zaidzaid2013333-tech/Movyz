@@ -73,7 +73,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
         setCurrentEpisode(episode);
         if (episode) {
-          // YapGrid resolves playback from the series TMDB id and episode numbers.
         }
         setLoading(false);
       } else {
@@ -175,9 +174,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </button>
 
           <div className="flex items-center gap-2 text-slate-500">
-            <span className="text-amber-400/90 font-bold">4K 60FPS</span>
+            <span className="text-amber-400/90 font-bold">MOVYZA PLAYER</span>
             <span>·</span>
-            <span>PCM 24-BIT</span>
+            <span>{language === 'ar' ? 'الجودة حسب المصدر' : 'Quality by source'}</span>
           </div>
         </div>
       </div>
@@ -278,8 +277,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 </span>
                 <p className="text-[11px] leading-relaxed">
                   {language === 'ar'
-                    ? 'التشغيل يتم عبر VidLux اعتمادًا على معرّف TMDB. المشغل يدعم عدة مصادر مع التحويل التلقائي، وتتوفر الترجمة العربية عندما تكون متاحة للمصدر.'
-                    : 'Playback is powered by VidLux using the TMDB id. The player supports multiple sources with automatic fallback, and Arabic subtitles are available when provided by the source.'}
+                    ? 'يتم حل مصادر التشغيل من خادم Movyza مع التحويل بين المصادر المتاحة، وتظهر الترجمة عندما يوفرها المصدر.'
+                    : 'Playback sources are resolved by Movyza and can be switched when multiple sources are available; subtitles depend on the source.'}
                 </p>
               </div>
             </div>
