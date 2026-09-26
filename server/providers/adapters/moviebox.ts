@@ -98,10 +98,10 @@ async function getSubjectIdFromH5(slug: string, timeoutMs: number) {
 
 async function discoverDomain(timeoutMs: number) {
   const configured = env('MOVIEBOX_STREAM_DOMAIN');
-  if (configured) return configured.replace(/\\/+$/, '');
+  if (configured) return configured.replace(/\/+$/, '');
   try {
     const payload = await fetchJson<any>(H5_API + '/wefeed-h5api-bff/media-player/get-domain', timeoutMs, { headers: { 'X-Client-Type': 'h5' } });
-    const domain = String(payload?.data || '').trim(); if (domain) return domain.replace(/\\/+$/, '');
+    const domain = String(payload?.data || '').trim(); if (domain) return domain.replace(/\/+$/, '');
   } catch {}
   return DEFAULT_STREAM_DOMAIN;
 }
@@ -125,7 +125,7 @@ export function createMovieBoxApiAdapter(): ProviderAdapter {
   const timeoutMs = Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000);
   const resolve = async (context: ProviderContext, kind: 'movie' | 'episode'): Promise<NormalizedPlaybackSource[]> => {
     if (!context.tmdbId || !context.title) return [];
-    const baseUrl = env('MOVIEBOX_API_BASE_URL').replace(/\\/+$/, '');
+    const baseUrl = env('MOVIEBOX_API_BASE_URL').replace(/\/+$/, '');
     const match = await chooseMatch(context, timeoutMs, baseUrl); if (!match) return [];
     const subjectId = baseUrl ? await getSubjectIdFromMovieBoxApi(baseUrl, match.slug, timeoutMs) : await getSubjectIdFromH5(match.slug, timeoutMs);
     if (!subjectId) return [];
