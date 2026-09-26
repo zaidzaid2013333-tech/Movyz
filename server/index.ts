@@ -348,9 +348,9 @@ app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
       return fail(res, 502, 'SUBTITLE_FETCH_FAILED', `Wikimedia subtitle request failed (${upstream.status})`);
     }
 
-    const body = (await upstream.text()).replace(/^\\uFEFF/, '').trim();
-    const isWebVtt = /^WEBVTT(?:\\s|$)/i.test(body);
-    const hasSrtCue = /(?:^|\\n)\\s*\\d+\\s*\\n\\s*\\d{2}:\\d{2}:\\d{2}[,.]\\d{3}\\s*-->\\s*\\d{2}:\\d{2}:\\d{2}[,.]\\d{3}/.test(body);
+    const body = (await upstream.text()).replace(/^\uFEFF/, '').trim();
+    const isWebVtt = /^WEBVTT(?:\s|$)/i.test(body);
+    const hasSrtCue = /(?:^|\n)\s*\d+\s*\n\s*\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[,.]\d{3}/.test(body);
 
     if (!body || (!isWebVtt && !hasSrtCue)) {
       return fail(res, 502, 'SUBTITLE_FORMAT_INVALID', 'Wikimedia returned an invalid timed-text payload');
@@ -358,7 +358,7 @@ app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
 
     const vttBody = isWebVtt
       ? body
-      : `WEBVTT\\n\\n${body.replace(/(\\d{2}:\\d{2}:\\d{2}),(\\d{3})/g, '$1.$2')}\n`;
+      : `WEBVTT\n\n${body.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')}\n`;
 
     const responseHeaders = new Headers({
       'content-type': 'text/vtt; charset=utf-8',

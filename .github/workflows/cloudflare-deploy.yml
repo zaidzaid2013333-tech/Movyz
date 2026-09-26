@@ -154,10 +154,10 @@ jobs:
           if (!subtitleType.includes('text/vtt')) {
             throw new Error('Subtitle proxy returned unexpected content-type: ' + subtitleType);
           }
-          if (!/^WEBVTT(?:\\s|$)/i.test(subtitleBody.trim())) {
+          if (!/^WEBVTT(?:\s|$)/i.test(subtitleBody.trim())) {
             throw new Error('Subtitle proxy did not return WebVTT');
           }
-          if (!/[\\u0600-\\u06FF]/.test(subtitleBody)) {
+          if (!/[\u0600-\u06FF]/.test(subtitleBody)) {
             throw new Error('Arabic subtitle track contains no Arabic text');
           }
 
