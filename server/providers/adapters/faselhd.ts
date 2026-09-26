@@ -25,6 +25,139 @@ const PAGE_HEADERS = {
   'Cache-Control': 'no-cache',
 };
 
+
+const FASELHD_CONTENT_API =
+  'https://netcore.faselhd.pro/api/v1.0/Content/GetContent';
+const FASELHD_PLAYER_API = 'https://faselhd-embed.scdns.io/video_player';
+
+const FASELHD_UPSTREAM_TOKEN = 'CMrdhDW04Ce9ZcWFsNCAgTKCMHKD88bjgxomBVOL+VDippsR9/YvclNOKrYwRSRYYwP0uJ6AXtUFMk1iNdQgGsFC2G/5fO05l4hGbODXi41X91/TbE117NdC0fl/ZRKBu1kn08dQIoG4GvW9ypci03/DxjqPHzVffnegq4WRy+NZ0BPbob3pf2TODnKj1Zc7iR+fSQVE479J/V3dMm46N41AjfJuXFpyj1wxg0husAnVpj647nv0EDBc+kOC+CtdLOV/LFvzoxj+fEKkzhEJ1wC9IqI3J6+DIkoYg8Skvjm+yfIHewNGmAhrb0MMi+v28AeimhfMIHq28QgyKI0Sulkm8coU+a/O';
+
+async function fetchFaselContent(id: number, timeoutMs: number) {
+  const url = FASELHD_CONTENT_API + '?ContentId=' + encodeURIComponent(String(id));
+  const response = await fetchWithTimeout(url, {
+    method: 'GET',
+    timeoutMs,
+    headers: {
+      Accept: 'application/json',
+      Authorization: 'Bearer ' + FASELHD_UPSTREAM_TOKEN,
+      'User-Agent': USER_AGENT,
+    },
+  });
+
+  const text = await response.text();
+  if (!response.ok) return null;
+
+  try {
+    const payload = JSON.parse(text);
+    return payload?.statusCode === 1 ? payload.result ?? null : null;
+  } catch {
+    return null;
+  }
+}
+
+function decodeBase64Ascii(value: string) {
+  try {
+    const binary = atob(value);
+    let output = '';
+    for (let index = 0; index < binary.length; index += 1) {
+      output += String.fromCharCode(binary.charCodeAt(index));
+    }
+    return output;
+  } catch {
+    return '';
+  }
+}
+
+async function resolveUpstreamVideoId(videoId: string, timeoutMs: number): Promise<string[]> {
+  const url = FASELHD_PLAYER_API + '?uid=0&vid=' + encodeURIComponent(videoId);
+  const response = await fetchWithTimeout(url, {
+    method: 'GET',
+    timeoutMs,
+    headers: {
+      Accept: 'text/plain,text/html,*/*;q=0.8',
+      Referer: 'https://faselhd.io/',
+      'User-Agent': USER_AGENT,
+    },
+  });
+
+  const script = await response.text();
+  if (!response.ok || !script) return [];
+
+  const code = [...script.matchAll(/\\/g.....(.*?)\\)/gm)][0]?.[1] || null;
+  if (!code) return [];
+
+  const cleanedScript = script.replace(/['+\\n]/g, '');
+  const chunks = cleanedScript.split('.');
+  let page = '';
+
+  for (const chunk of chunks) {
+    const decoded = decodeBase64Ascii(chunk + '==');
+    const digits = decoded.match(/\\d+/g);
+    if (digits?.length) {
+      const next = Number.parseInt(digits[0], 10) + Number.parseInt(code, 10);
+      if (Number.isFinite(next)) page += String.fromCharCode(next);
+    }
+  }
+
+  const directListUrl = page.match(/file":"(.+?)"/s)?.[1] || '';
+  if (!directListUrl) return [];
+
+  const playlistResponse = await fetchWithTimeout(directListUrl, {
+    method: 'GET',
+    timeoutMs,
+    headers: {
+      Accept: 'application/vnd.apple.mpegurl,text/plain,*/*;q=0.8',
+      Referer: FASELHD_PLAYER_API,
+      'User-Agent': USER_AGENT,
+    },
+  });
+
+  const playlist = await playlistResponse.text();
+  if (!playlistResponse.ok || !playlist) return [];
+
+  const urls = new Map<string, string>();
+  let pendingQuality = 'auto';
+
+  for (const line of playlist.split(/\\r?\\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const resolution = trimmed.match(/RESOLUTION=\\d+x(\\d+)/i);
+    if (resolution) pendingQuality = resolution[1] + 'p';
+
+    if (/^https:\\/\\//i.test(trimmed) && /\\.m3u8(?:\\?|$)/i.test(trimmed)) {
+      const quality = inferQuality(pendingQuality, trimmed);
+      urls.set(trimmed, quality);
+      pendingQuality = 'auto';
+    }
+  }
+
+  return [...urls.entries()].map(([url]) => url);
+}
+
+async function resolveDirectFromFaselUpstream(
+  context: ProviderContext,
+  kind: 'movie' | 'episode',
+  timeoutMs: number,
+): Promise<string[]> {
+  if (!context.tmdbId) return [];
+
+  const content = await fetchFaselContent(Number(context.tmdbId), timeoutMs);
+  if (!content) return [];
+
+  if (kind === 'movie') {
+    const videoId = content.videoId ? String(content.videoId) : '';
+    return videoId ? resolveUpstreamVideoId(videoId, timeoutMs) : [];
+  }
+
+  const targetEpisode = Number(context.episodeNumber || 0);
+  if (!targetEpisode || !Array.isArray(content.episodesVideosIds)) return [];
+
+  const episode = content.episodesVideosIds[targetEpisode - 1];
+  const videoId = episode?.videoId ? String(episode.videoId) : '';
+  return videoId ? resolveUpstreamVideoId(videoId, timeoutMs) : [];
+}
+
 function decodeHtml(value: string) {
   return value
     .replace(/&amp;/gi, '&')
@@ -487,11 +620,16 @@ export function createFaselHdAdapter(): ProviderAdapter {
     const host = await getHost();
     if (!host || (!context.title && !context.originalTitle)) return [];
 
-    const pageUrl = kind === 'episode'
-      ? await findEpisodePage(host, context, timeoutMs)
-      : await findContentPage(host, context, timeoutMs, false);
+    let urls = await resolveDirectFromFaselUpstream(context, kind, timeoutMs);
 
-    let urls = pageUrl ? await resolveDirectFromPage(pageUrl, timeoutMs) : [];
+    if (!urls.length) {
+      const pageUrl = kind === 'episode'
+        ? await findEpisodePage(host, context, timeoutMs)
+        : await findContentPage(host, context, timeoutMs, false);
+
+      urls = pageUrl ? await resolveDirectFromPage(pageUrl, timeoutMs) : [];
+    }
+
     if (!urls.length) {
       urls = await extractWithBrowser(host, context, kind, timeoutMs);
     }
