@@ -1,0 +1,108 @@
+name: MovieBox API live compatibility test
+
+on:
+  push:
+    branches:
+      - tmp/test-moviebox-api
+
+jobs:
+  test-moviebox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout Movyz
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Clone MovieBox-API
+        run: git clone --depth 1 https://github.com/mdtahseen7/MovieBox-API.git /tmp/moviebox-api
+
+      - name: Install MovieBox-API dependencies
+        working-directory: /tmp/moviebox-api
+        run: npm ci
+
+      - name: Start local MovieBox worker
+        working-directory: /tmp/moviebox-api
+        run: |
+          nohup npm run dev -- --ip 127.0.0.1 --port 8787 > /tmp/moviebox-worker.log 2>&1 &
+          echo $! > /tmp/moviebox-worker.pid
+          for i in {1..40}; do
+            if curl -fsS http://127.0.0.1:8787/ > /tmp/moviebox-root.json; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8787/ > /tmp/moviebox-root.json
+          cat /tmp/moviebox-root.json
+
+      - name: Test stream extraction and playback
+        env:
+          SUBJECT_ID: "5203417860348986440"
+          DETAIL_PATH: "boyfriend-on-demand-hindi-OXFhFpXHnc6"
+        run: |
+          node <<'NODE'
+          const subjectId = process.env.SUBJECT_ID;
+          const detailPath = process.env.DETAIL_PATH;
+          const base = 'http://127.0.0.1:8787';
+          const api = new URL('/api/stream/' + subjectId, base);
+          api.searchParams.set('detail_path', detailPath);
+          api.searchParams.set('se', '1');
+          api.searchParams.set('ep', '1');
+
+          const json = await fetch(api).then(async r => {
+            const text = await r.text();
+            if (!r.ok) throw new Error('stream API ' + r.status + ': ' + text.slice(0,500));
+            return JSON.parse(text);
+          });
+
+          console.log('STREAM_COUNT=' + json.count);
+          if (!json.count || !Array.isArray(json.sources) || !json.sources.length) {
+            throw new Error('No stream sources were returned');
+          }
+
+          for (const s of json.sources) {
+            const u = new URL(s.url);
+            console.log(JSON.stringify({
+              resolution: s.resolution,
+              format: s.format,
+              hostname: u.hostname,
+              pathname: u.pathname,
+              extension: (u.pathname.match(/\\.(m3u8|mp4)(?:$|\\?)/i) || [])[1] || null
+            }));
+          }
+
+          const selected = json.sources[0];
+          const watch = new URL('/watch/' + subjectId, base);
+          watch.searchParams.set('detail_path', detailPath);
+          watch.searchParams.set('se', '1');
+          watch.searchParams.set('ep', '1');
+          watch.searchParams.set('resolution', String(parseInt(selected.resolution, 10) || 480);
+
+          const resp = await fetch(watch, {
+            headers: { Range: 'bytes=0-1023' }
+          });
+          console.log('WATCH_STATUS=' + resp.status);
+          console.log('WATCH_CONTENT_TYPE=' + (resp.headers.get('content-type') || ''));
+          console.log('WATCH_ACCEPT_RANGES=' + (resp.headers.get('accept-ranges') || ''));
+          console.log('WATCH_CONTENT_RANGE=' + (resp.headers.get('content-range') || ''));
+          console.log('WATCH_CONTENT_LENGTH=' + (resp.headers.get('content-length') || ''));
+          const body = new Uint8Array(await resp.arrayBuffer());
+          console.log('WATCH_BYTES=' + body.byteLength);
+
+          if (![200,206].includes(resp.status)) throw new Error('Watch endpoint failed');
+          if (!body.length) throw new Error('Watch endpoint returned an empty body');
+
+          const ct = (resp.headers.get('content-type') || '').toLowerCase();
+          const looksVideo = ct.includes('video/') || ct.includes('application/octet-stream') || ct.includes('mpegurl');
+          if (!looksVideo) throw new Error('Unexpected content type: ' + ct);
+
+          console.log('MOVIEBOX_TEST=PASS');
+          NODE
+
+      - name: Dump worker log on failure
+        if: failure()
+        run: cat /tmp/moviebox-worker.log || true
