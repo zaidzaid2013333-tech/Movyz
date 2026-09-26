@@ -308,7 +308,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [streamUrl]);
 
   const playerSource = streamUrl
-    ? { src: streamUrl, type: streamMime[streamType] }
+    ? streamType === 'hls'
+      ? { src: streamUrl, type: 'application/x-mpegurl' as const }
+      : streamType === 'dash'
+        ? { src: streamUrl, type: 'application/dash+xml' as const }
+        : { src: streamUrl, type: 'video/mp4' as const }
     : undefined;
 
   if (!safeTmdbId) {
@@ -393,12 +397,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               playbackRates={[0.5, 0.75, 1, 1.25, 1.5, 2]}
               seekStep={10}
               translations={{
-                play: language === 'ar' ? 'تشغيل' : 'Play',
-                pause: language === 'ar' ? 'إيقاف مؤقت' : 'Pause',
-                mute: language === 'ar' ? 'كتم' : 'Mute',
-                unmute: language === 'ar' ? 'إلغاء الكتم' : 'Unmute',
-                fullscreen: language === 'ar' ? 'ملء الشاشة' : 'Fullscreen',
-                settings: language === 'ar' ? 'الإعدادات' : 'Settings',
+                Play: language === 'ar' ? 'تشغيل' : 'Play',
+                Pause: language === 'ar' ? 'إيقاف مؤقت' : 'Pause',
+                Mute: language === 'ar' ? 'كتم' : 'Mute',
+                Unmute: language === 'ar' ? 'إلغاء الكتم' : 'Unmute',
+                Fullscreen: language === 'ar' ? 'ملء الشاشة' : 'Fullscreen',
+                Settings: language === 'ar' ? 'الإعدادات' : 'Settings',
               }}
             />
           </MediaPlayer>
