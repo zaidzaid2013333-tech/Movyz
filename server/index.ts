@@ -324,7 +324,7 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 }));
 
 
-app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
+app.get(\`\${api}/watch/:mediaType/:tmdbId\`, asyncRoute(async (req, res) => {
   const parsed = z.object({
     mediaType: z.enum(['movie', 'series']),
     tmdbId: z.coerce.number().int().positive(),
@@ -346,40 +346,122 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     return fail(res, 400, 'EPISODE_REQUIRED', 'Season and episode are required for series playback');
   }
 
-  const adapter = getProvider('tmdbembed');
-  if (!adapter?.enabled) {
-    return fail(res, 503, 'WATCH_PROVIDER_UNAVAILABLE', 'The watch provider is not configured');
-  }
-
   try {
-    const resolved = mediaType === 'movie'
-      ? await adapter.resolveMovie({ tmdbId })
-      : await adapter.resolveEpisode({ tmdbId, seasonNumber: season, episodeNumber: episode });
+    // Watch is isolated from the legacy provider resolver.
+    // It serves only direct HLS/MP4/DASH rows already approved in playback_sources.
+    let contentType: 'movie' | 'episode';
+    let contentId: string;
 
-    const sources = (resolved || [])
-      .filter((source) => ['hls', 'mp4', 'dash'].includes(source.type) && typeof source.url === 'string' && /^https:\/\//i.test(source.url))
-      .map((source, index) => ({
-        id: `tmdbembed-${source.type}-${source.quality || 'auto'}-${index}`,
-        type: source.type,
+    if (mediaType === 'movie') {
+      const { data: movie, error: movieError } = await adminSupabase
+        .from('movies')
+        .select('id')
+        .eq('tmdb_id', tmdbId)
+        .eq('status', 'published')
+        .maybeSingle();
+
+      if (movieError) throw movieError;
+      if (!movie?.id) {
+        return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
+      }
+
+      contentType = 'movie';
+      contentId = movie.id;
+    } else {
+      const { data: series, error: seriesError } = await adminSupabase
+        .from('series')
+        .select('id')
+        .eq('tmdb_id', tmdbId)
+        .eq('status', 'published')
+        .maybeSingle();
+
+      if (seriesError) throw seriesError;
+      if (!series?.id) {
+        return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
+      }
+
+      const { data: seasonRow, error: seasonError } = await adminSupabase
+        .from('seasons')
+        .select('id')
+        .eq('series_id', series.id)
+        .eq('season_number', season)
+        .maybeSingle();
+
+      if (seasonError) throw seasonError;
+      if (!seasonRow?.id) {
+        return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
+      }
+
+      const { data: episodeRow, error: episodeError } = await adminSupabase
+        .from('episodes')
+        .select('id')
+        .eq('season_id', seasonRow.id)
+        .eq('episode_number', episode)
+        .maybeSingle();
+
+      if (episodeError) throw episodeError;
+      if (!episodeRow?.id) {
+        return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
+      }
+
+      contentType = 'episode';
+      contentId = episodeRow.id;
+    }
+
+    const now = new Date().toISOString();
+    const { data: rows, error: sourceError } = await adminSupabase
+      .from('playback_sources')
+      .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name)')
+      .eq('content_type', contentType)
+      .eq('content_id', contentId)
+      .eq('is_working', true)
+      .or(\`expires_at.is.null,expires_at.gt.\${now}\`);
+
+    if (sourceError) throw sourceError;
+
+    const seen = new Set<string>();
+    const sources = (rows || [])
+      .filter((source: any) => {
+        const type = String(source.source_type || '').toLowerCase();
+        if (!['hls', 'mp4', 'dash'].includes(type)) return false;
+        if (typeof source.url !== 'string' || !/^https:\\/\\//i.test(source.url.trim())) return false;
+
+        const key = \`\${type}|\${source.url.trim()}\`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((source: any) => ({
+        id: source.id,
+        type: String(source.source_type).toLowerCase(),
         quality: source.quality || 'auto',
         language: source.language || 'und',
-        label: source.label || 'TMDB Embed API',
-        labelEn: source.label || 'TMDB Embed API',
-        url: source.url,
-        isWorking: true,
-        provider: source.provider || 'TMDB Embed API',
-        providerKey: 'tmdbembed',
-        providerReference: source.providerReference || undefined,
+        label: source.label_ar || source.providers?.name || 'Source',
+        labelEn: source.label_en || source.providers?.name || 'Source',
+        url: source.url.trim(),
+        isWorking: source.is_working === true,
+        provider: source.providers?.name || 'Movyza',
+        providerKey: String(source.providers?.key || '').toLowerCase() || undefined,
+        providerReference: source.provider_reference || undefined,
       }));
 
     if (!sources.length) {
-      return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No direct playable sources are available for this title');
+      return fail(
+        res,
+        404,
+        'WATCH_SOURCES_NOT_FOUND',
+        'No direct playable sources are configured for this title',
+      );
     }
 
-    return ok(res, sources);
+    return ok(res, sources, {
+      source: 'playback_sources',
+      contentType,
+      contentId,
+    });
   } catch (error) {
     console.error('[watch-sources]', error instanceof Error ? error.message : error);
-    return fail(res, 502, 'WATCH_PROVIDER_FAILED', 'Unable to resolve watch sources');
+    return fail(res, 502, 'WATCH_DATABASE_FAILED', 'Unable to load watch sources');
   }
 }));
 
