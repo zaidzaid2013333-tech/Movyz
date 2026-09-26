@@ -188,7 +188,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
       const { data: persistedSources, error: insertError } = await adminSupabase
         .from('playback_sources')
         .upsert(rows, { onConflict: 'provider_id,content_type,content_id,url' })
-        .select('id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,providers(name)');
+        .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name)');
 
       if (insertError) {
         throw new Error('Unable to persist resolved playback sources');
