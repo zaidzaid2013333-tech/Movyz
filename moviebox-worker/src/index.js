@@ -701,8 +701,6 @@ async function handleSearch(params) {
   );
 }
 
-}
-
 // ══════════════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════════════
 // GET /detail/{slug}  — full metadata from the H5 detail API
@@ -714,8 +712,6 @@ async function handleDetail(slug) {
   );
 }
 
-}
-
 // ══════════════════════════════════════════════════════════════════
 // GET /episodes/{slug}  — episode list from detail API
 // ══════════════════════════════════════════════════════════════════
@@ -724,8 +720,6 @@ async function handleEpisodes(slug) {
   return json(
     await fetchSupabaseMovieBox(`/episodes/${encodeURIComponent(String(slug))}`),
   );
-}
-
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -744,8 +738,6 @@ async function handleStreamApi(subjectId, params) {
       query,
     ),
   );
-}
-
 }
 
 async function handleWatch(subjectId, params, request) {
