@@ -728,7 +728,7 @@ drop policy if exists sync_jobs_admin on public.sync_jobs;
 create policy sync_jobs_admin on public.sync_jobs for select to authenticated using (exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.role in ('ADMIN','OWNER')));
 
 update public.providers set enabled = false, status = 'offline', updated_at = now() where key in ('moviebox-api','streamprovider','streamflix','vidzee','faselhd','nhdapi','egybest');
-update public.providers set enabled = true where key = 'ezvidapi';
+update public.providers set enabled = true where key in ('ezvidapi','vidzee');
 
 create index if not exists audit_logs_actor_idx on public.audit_logs(actor_id);
 create index if not exists movie_cast_person_idx on public.movie_cast(person_id);

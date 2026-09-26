@@ -16,7 +16,7 @@ The current production playback path:
 1. The player asks `/api/v1/playback/sources` for the movie or episode UUID.
 2. Movyz reuses a valid cached source when available.
 3. If no valid cache exists, the provider registry resolves an enabled provider.
-4. The current built-in provider is ezvidAPI, with provider discovery and source normalization on the server.
+4. The current built-in providers are VidZee first and ezvidAPI fallback, with provider discovery and source normalization on the server.
 5. The player supports HLS and MP4, source switching, and automatic failover when another returned source is available.
 
 Playback sources are external URLs; video files are not hosted by the frontend.
