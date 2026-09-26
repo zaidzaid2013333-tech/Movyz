@@ -41,25 +41,21 @@ function isSafeExternalUrl(value: string) {
     if (url.protocol !== 'https:') return false;
 
     const hostname = url.hostname.toLowerCase();
+    const privateIpv4 =
+      /^10\\./.test(hostname) ||
+      /^127\\./.test(hostname) ||
+      /^169\\.254\\./.test(hostname) ||
+      /^192\\.168\\./.test(hostname) ||
+      /^172\\.(1[6-9]|2[0-9]|3[0-1])\\./.test(hostname);
+
     if (
       hostname === 'localhost' ||
       hostname.endsWith('.local') ||
       hostname.endsWith('.internal') ||
       hostname === '0.0.0.0' ||
       hostname === '::1' ||
-      hostname.startsWith('127.') ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('192.168.') ||
-      hostname.startsWith('169.254.') ||
-      hostname.startsWith('172.16.') ||
-      hostname.startsWith('172.17.') ||
-      hostname.startsWith('172.18.') ||
-      hostname.startsWith('172.19.') ||
-      hostname.startsWith('172.2') ||
-      hostname.startsWith('172.30.') ||
-      hostname.startsWith('172.31.') ||
-      hostname.startsWith('fc') ||
-      hostname.startsWith('fd')
+      hostname.includes(':') ||
+      privateIpv4
     ) {
       return false;
     }
