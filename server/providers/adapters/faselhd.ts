@@ -57,6 +57,134 @@ export function setFaselHdBrowserBinding(binding: unknown) {
       : null;
 }
 
+let faselBrowserSession: Promise<any> | null = null;
+
+async function getFaselBrowser() {
+  if (!faselBrowserBinding) return null;
+  if (!faselBrowserSession) {
+    faselBrowserSession = (async () => {
+      const { launch } = await import('@cloudflare/playwright');
+      return launch(faselBrowserBinding as any, { keep_alive: 600000 });
+    })().catch(() => null);
+  }
+  return faselBrowserSession;
+}
+
+async function resolveWithBrowser(context: ProviderContext, kind: 'movie' | 'episode', timeoutMs: number) {
+  const browser = await getFaselBrowser();
+  if (!browser) return [];
+
+  let page: any = null;
+  try {
+    page = await browser.newPage();
+    const captured = new Set<string>();
+    const capture = (url: string) => {
+      if (/^https:///i.test(url) && /.(?:m3u8|mp4)(?:[?#]|$)/i.test(url)) captured.add(url);
+    };
+
+    page.on('request', (request: any) => capture(request.url()));
+    page.on('response', (response: any) => capture(response.url()));
+
+    const queries = [context.title, context.originalTitle]
+      .filter((value, index, all) => Boolean(value) && all.indexOf(value) === index) as string[];
+
+    let contentUrl: string | null = null;
+    let bestScore = 0;
+
+    for (const query of queries) {
+      const searchUrl = 'https://www.faselhd.tech/?s=' + encodeURIComponent(query);
+      try {
+        await page.goto(searchUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: Math.min(timeoutMs, 45_000),
+        });
+        await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
+        await page.waitForTimeout(1200);
+
+        const html = await page.content();
+        if (isBlockedHtml(html)) continue;
+
+        for (const item of extractSearchResults(html, page.url())) {
+          let score = Math.max(
+            scoreTitle(item.title, query),
+            scoreTitle(item.title, context.originalTitle || query),
+          );
+          const episodeLike = //episodes?//i.test(item.url);
+          if (kind === 'episode' && episodeLike) score += 100;
+          if (kind === 'movie' && episodeLike) score -= 150;
+          if (score > bestScore) {
+            bestScore = score;
+            contentUrl = item.url;
+          }
+        }
+      } catch {
+        // Try the next title query.
+      }
+    }
+
+    if (!contentUrl || bestScore < 180) return [];
+
+    await page.goto(contentUrl, {
+      waitUntil: 'domcontentloaded',
+      timeout: Math.min(timeoutMs, 45_000),
+    }).catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+
+    const pageHtml = await page.content();
+    for (const media of extractMediaUrls(pageHtml, page.url())) capture(media);
+
+    // Try the current/default player iframe.
+    const frameCandidates = page.frames().filter((frame: any) =>
+      /video_player|videoplayer|player/i.test(frame.url()),
+    );
+
+    for (const frame of frameCandidates) {
+      try {
+        for (const selector of ['video', '.jw-icon-display', '.jw-display-icon-container', '[class*="play"][class*="btn"]']) {
+          const locator = frame.locator(selector).first();
+          if (await locator.count()) {
+            await locator.click({ force: true, timeout: 2500 }).catch(() => {});
+            break;
+          }
+        }
+      } catch {
+        // Keep waiting for network capture.
+      }
+    }
+
+    // Some Fasel pages expose player iframe only after selecting a server tab.
+    if (!captured.size) {
+      const tabs = page.locator('.tabs-ul li');
+      const count = Math.min(await tabs.count().catch(() => 0), 5);
+      for (let index = 0; index < count && !captured.size; index += 1) {
+        await tabs.nth(index).click({ force: true, timeout: 2500 }).catch(() => {});
+        await page.waitForTimeout(900);
+        for (const frame of page.frames()) {
+          if (!/video_player|videoplayer|player/i.test(frame.url())) continue;
+          for (const selector of ['video', '.jw-icon-display', '.jw-display-icon-container']) {
+            const locator = frame.locator(selector).first();
+            if (await locator.count().catch(() => 0)) {
+              await locator.click({ force: true, timeout: 1800 }).catch(() => {});
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    for (let index = 0; index < 20 && !captured.size; index += 1) {
+      await page.waitForTimeout(500);
+    }
+
+    return [...captured];
+  } catch {
+    return [];
+  } finally {
+    try { await page?.close(); } catch {}
+  }
+}
+
 const FASELHD_UPSTREAM_TOKEN = 'CMrdhDW04Ce9ZcWFsNCAgTKCMHKD88bjgxomBVOL+VDippsR9/YvclNOKrYwRSRYYwP0uJ6AXtUFMk1iNdQgGsFC2G/5fO05l4hGbODXi41X91/TbE117NdC0fl/ZRKBu1kn08dQIoG4GvW9ypci03/DxjqPHzVffnegq4WRy+NZ0BPbob3pf2TODnKj1Zc7iR+fSQVE479J/V3dMm46N41AjfJuXFpyj1wxg0husAnVpj647nv0EDBc+kOC+CtdLOV/LFvzoxj+fEKkzhEJ1wC9IqI3J6+DIkoYg8Skvjm+yfIHewNGmAhrb0MMi+v28AeimhfMIHq28QgyKI0Sulkm8coU+a/O';
 
 async function fetchFaselContent(id: number, timeoutMs: number) {
@@ -263,26 +391,6 @@ function looksLikeFaselSite(html: string) {
   return markers.filter((marker) => lower.includes(marker)).length >= 2;
 }
 
-async function getBrowserRenderedHtml(url: string, timeoutMs: number) {
-  if (!faselBrowserBinding) return null;
-
-  try {
-    const response = await faselBrowserBinding.quickAction('content', {
-      url,
-      userAgent: USER_AGENT,
-      gotoOptions: { waitUntil: 'networkidle2', timeout: Math.min(timeoutMs, 45_000) },
-    });
-    const html = await response.text();
-    if (response.ok && html && !isBlockedHtml(html)) {
-      return { html, finalUrl: url };
-    }
-  } catch {
-    // Browser Run is a fallback; keep ordinary fetch/Jina behavior.
-  }
-
-  return null;
-}
-
 async function getHtml(url: string, timeoutMs: number, referer?: string) {
   const response = await fetchWithTimeout(url, {
     method: 'GET',
@@ -299,9 +407,6 @@ async function getHtml(url: string, timeoutMs: number, referer?: string) {
   if (response.ok && !isBlockedHtml(html)) {
     return { html, finalUrl: response.url || url };
   }
-
-  const browserRendered = await getBrowserRenderedHtml(url, timeoutMs);
-  if (browserRendered) return browserRendered;
 
   // Some Fasel domains reject cloud/datacenter egress with a challenge or 451.
   // Use a text-rendering fallback to retrieve the HTML without changing the
@@ -560,6 +665,10 @@ export function createFaselHdAdapter(): ProviderAdapter {
         : await findContentPage(host, context, timeoutMs, false);
 
       urls = pageUrl ? await resolveDirectFromPage(pageUrl, timeoutMs) : [];
+    }
+
+    if (!urls.length && /faselhd\.tech$/i.test(host)) {
+      urls = await resolveWithBrowser(context, kind, timeoutMs);
     }
 
     return urls.flatMap((url, index): NormalizedPlaybackSource[] => {
