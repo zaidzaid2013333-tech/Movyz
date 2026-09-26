@@ -21,9 +21,13 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigate }) => {
     });
   }, []);
 
-  const handleClearHistory = () => {
-    localStorage.removeItem('movyza_user_progress_v1');
-    setHistory([]);
+  const handleClearHistory = async () => {
+    try {
+      await MovyzaApi.clearWatchHistory();
+      setHistory([]);
+    } catch {
+      // Keep server-backed history intact when deletion fails.
+    }
   };
 
   return (

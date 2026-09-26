@@ -108,6 +108,7 @@ export const MovyzaApi = {
     request<{ removed: boolean }>(`/watchlist/${encodeURIComponent(contentId)}`, { method: 'DELETE' }),
 
   getWatchHistory: () => request<WatchProgress[]>('/history'),
+  clearWatchHistory: () => request<{ cleared: boolean }>('/history', { method: 'DELETE' }),
 
   getWatchProgress: (contentId: string, episodeId?: string) =>
     request<WatchProgress | null>(
@@ -142,6 +143,17 @@ export const MovyzaApi = {
   }>('/admin/stats'),
 
   getAdminProviders: () => request<ProviderHealth[]>('/admin/providers'),
+
+  getAdminMappings: (params?: { providerId?: string; contentType?: 'movie' | 'series' | 'season' | 'episode'; contentId?: string }) =>
+    request<any[]>(`/admin/mappings${query(params || {})}`),
+  createAdminMapping: (payload: { providerId: string; contentType: 'movie' | 'series' | 'season' | 'episode'; contentId: string; providerContentId: string; confidence?: number; status?: 'active' | 'inactive' }) =>
+    request<any>('/admin/mappings', { method: 'POST', body: JSON.stringify(payload) }),
+  updateAdminMapping: (id: string, payload: { providerContentId?: string; confidence?: number; status?: 'active' | 'inactive' }) =>
+    request<any>(`/admin/mappings/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteAdminMapping: (id: string) =>
+    request<{ deleted: boolean }>(`/admin/mappings/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+
 
   getAdminSources: (params?: { contentType?: 'movie' | 'episode'; contentId?: string; providerId?: string; includeBroken?: boolean }) =>
     request<any[]>(`/admin/sources${query(params || {})}`),

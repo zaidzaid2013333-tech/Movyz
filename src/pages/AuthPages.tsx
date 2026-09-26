@@ -9,12 +9,12 @@ interface AuthPageProps {
 }
 
 export const AuthPage: React.FC<AuthPageProps> = ({ mode, onNavigate }) => {
-  const { login, register } = useAuth();
+  const { login, register, requestPasswordReset } = useAuth();
   const { language, t } = useLanguage();
 
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('sameranede@gmail.com');
-  const [password, setPassword] = useState('••••••••');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);

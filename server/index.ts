@@ -580,6 +580,12 @@ app.get(`${api}/history`, requireAuth, asyncRoute(async (req: AuthenticatedReque
       positionSeconds: x.position_seconds, durationSeconds: x.duration_seconds, percentage: x.duration_seconds ? Math.floor((x.position_seconds / x.duration_seconds) * 100) : 0, lastWatchedAt: x.updated_at, completed: x.completed };
   }));
 }));
+app.delete(`${api}/history`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const { error } = await req.supabase!.from('watch_history').delete().eq('user_id', req.userId!);
+  if (error) return fail(res, 500, 'HISTORY_DELETE_FAILED', 'Unable to clear history');
+  return ok(res, { cleared: true });
+}));
+
 app.get(`${api}/watch/:id/progress`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {
   const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : null;
   const contentType = episodeId ? 'episode' : 'movie'; const contentId = episodeId || req.params.id;
@@ -970,6 +976,126 @@ function normalizeAdminPlaybackSourceBody(value: z.infer<typeof adminPlaybackSou
     last_checked_at: value.isWorking !== false ? new Date().toISOString() : null,
   };
 }
+
+app.get(`${api}/admin/mappings`, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const query = z.object({
+    providerId: z.string().uuid().optional(),
+    contentType: z.enum(['movie','series','season','episode']).optional(),
+    contentId: z.string().uuid().optional(),
+  }).safeParse(req.query);
+  if (!query.success) return fail(res, 400, 'INVALID_QUERY', 'Invalid mapping filters');
+
+  let q = adminSupabase
+    .from('provider_mappings')
+    .select('id,provider_id,content_type,internal_content_id,provider_content_id,confidence,status,providers(key,name)')
+    .order('confidence', { ascending: false });
+  if (query.data.providerId) q = q.eq('provider_id', query.data.providerId);
+  if (query.data.contentType) q = q.eq('content_type', query.data.contentType);
+  if (query.data.contentId) q = q.eq('internal_content_id', query.data.contentId);
+
+  const { data, error } = await q;
+  if (error) return fail(res, 500, 'MAPPINGS_QUERY_FAILED', 'Unable to load provider mappings');
+
+  return ok(res, (data || []).map((row: any) => ({
+    id: row.id,
+    providerId: row.provider_id,
+    providerKey: row.providers?.key || '',
+    providerName: row.providers?.name || '',
+    contentType: row.content_type,
+    contentId: row.internal_content_id,
+    providerContentId: row.provider_content_id,
+    confidence: Number(row.confidence || 0),
+    status: row.status,
+  })));
+}));
+
+app.post(`${api}/admin/mappings`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = z.object({
+    providerId: z.string().uuid(),
+    contentType: z.enum(['movie','series','season','episode']),
+    contentId: z.string().uuid(),
+    providerContentId: z.string().trim().min(1).max(500),
+    confidence: z.number().min(0).max(100).default(100),
+    status: z.enum(['active','inactive']).default('active'),
+  }).safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_MAPPING', 'Invalid provider mapping');
+
+  const { data: provider } = await adminSupabase.from('providers').select('id').eq('id', body.data.providerId).maybeSingle();
+  if (!provider) return fail(res, 404, 'PROVIDER_NOT_FOUND', 'Provider not found');
+
+  const { data, error } = await adminSupabase
+    .from('provider_mappings')
+    .upsert({
+      provider_id: body.data.providerId,
+      content_type: body.data.contentType,
+      internal_content_id: body.data.contentId,
+      provider_content_id: body.data.providerContentId,
+      confidence: body.data.confidence,
+      status: body.data.status,
+    }, { onConflict: 'provider_id,content_type,internal_content_id' })
+    .select('id,provider_id,content_type,internal_content_id,provider_content_id,confidence,status')
+    .single();
+
+  if (error) return fail(res, 500, 'MAPPING_WRITE_FAILED', 'Unable to save provider mapping');
+
+  await adminSupabase.from('audit_logs').insert({
+    actor_id: req.userId,
+    action: 'provider_mapping.upsert',
+    target_type: 'provider_mapping',
+    target_id: data.id,
+    details: { providerId: data.provider_id, contentType: data.content_type, contentId: data.internal_content_id },
+  });
+
+  return created(res, data);
+}));
+
+app.patch(`${api}/admin/mappings/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const body = z.object({
+    providerContentId: z.string().trim().min(1).max(500).optional(),
+    confidence: z.number().min(0).max(100).optional(),
+    status: z.enum(['active','inactive']).optional(),
+  }).safeParse(req.body);
+  if (!body.success) return fail(res, 400, 'INVALID_MAPPING', 'Invalid provider mapping update');
+
+  const update: Record<string, unknown> = {};
+  if (body.data.providerContentId !== undefined) update.provider_content_id = body.data.providerContentId;
+  if (body.data.confidence !== undefined) update.confidence = body.data.confidence;
+  if (body.data.status !== undefined) update.status = body.data.status;
+
+  const { data, error } = await adminSupabase
+    .from('provider_mappings')
+    .update(update)
+    .eq('id', req.params.id)
+    .select('id,provider_id,content_type,internal_content_id,provider_content_id,confidence,status')
+    .maybeSingle();
+
+  if (error) return fail(res, 500, 'MAPPING_UPDATE_FAILED', 'Unable to update provider mapping');
+  if (!data) return fail(res, 404, 'MAPPING_NOT_FOUND', 'Provider mapping not found');
+
+  await adminSupabase.from('audit_logs').insert({
+    actor_id: req.userId,
+    action: 'provider_mapping.update',
+    target_type: 'provider_mapping',
+    target_id: data.id,
+    details: { providerContentId: body.data.providerContentId, confidence: body.data.confidence, status: body.data.status },
+  });
+
+  return ok(res, data);
+}));
+
+app.delete(`${api}/admin/mappings/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const { error } = await adminSupabase.from('provider_mappings').delete().eq('id', req.params.id);
+  if (error) return fail(res, 500, 'MAPPING_DELETE_FAILED', 'Unable to delete provider mapping');
+
+  await adminSupabase.from('audit_logs').insert({
+    actor_id: req.userId,
+    action: 'provider_mapping.delete',
+    target_type: 'provider_mapping',
+    target_id: req.params.id,
+  });
+
+  return ok(res, { deleted: true });
+}));
 
 app.get(`${api}/admin/sources`, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
   const parsed = z.object({
