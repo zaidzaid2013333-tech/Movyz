@@ -43,11 +43,14 @@ const sourceDto = (s: any) => {
   const providerKey = String(s.providers?.key || '').toLowerCase();
   const providerReference = String(s.provider_reference || '');
   const parts = providerReference.split(':');
-  const tmdbId = parts[0];
+  const tmdbId = parts[0] || '';
   const kind = parts[1];
+  const isTmdbId = Number.isInteger(Number(tmdbId)) && Number(tmdbId) > 0;
+  const isSeason = Number.isInteger(Number(parts[2])) && Number(parts[2]) > 0;
+  const isEpisode = Number.isInteger(Number(parts[3])) && Number(parts[3]) > 0;
   const embedUrl =
-    providerKey === 'vidzee' && /^\d+$/.test(tmdbId)
-      ? kind === 'episode' && /^\d+$/.test(parts[2] || '') && /^\d+$/.test(parts[3] || '')
+    providerKey === 'vidzee' && isTmdbId
+      ? kind === 'episode' && isSeason && isEpisode
         ? `https://player.vidzee.wtf/embed/tv/${encodeURIComponent(tmdbId)}/${encodeURIComponent(parts[2])}/${encodeURIComponent(parts[3])}`
         : kind === 'movie'
           ? `https://player.vidzee.wtf/embed/movie/${encodeURIComponent(tmdbId)}`
