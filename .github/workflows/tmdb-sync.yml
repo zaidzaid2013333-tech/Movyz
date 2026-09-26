@@ -1,6 +1,11 @@
 name: Movyz TMDB Sync
 
 on:
+  # Temporary one-shot trigger: editing this workflow on main starts the first TMDB sync.
+  # It is removed after the run so normal operation remains manual via workflow_dispatch.
+  push:
+    paths:
+      - ".github/workflows/tmdb-sync.yml"
   workflow_dispatch:
     inputs:
       pages:
@@ -56,13 +61,13 @@ jobs:
 
       - name: Sync TMDB catalog
         env:
-          TMDB_PAGES: ${{ inputs.pages }}
+          TMDB_PAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.pages || '1' }}
         run: npx tsx scripts/run-tmdb-sync.ts catalog "$TMDB_PAGES"
 
       - name: Sync TMDB episodes
-        if: ${{ inputs.sync_episodes }}
+        if: ${{ github.event_name == 'push' || inputs.sync_episodes }}
         env:
-          SERIES_LIMIT: ${{ inputs.series_limit }}
+          SERIES_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.series_limit || '5' }}
         run: npx tsx scripts/run-tmdb-sync.ts episodes "$SERIES_LIMIT"
 
       - name: Verify synchronized catalog
