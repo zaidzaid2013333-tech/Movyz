@@ -35,36 +35,31 @@ jobs:
           }
           if (!health?.success) throw new Error('Worker health did not become ready');
 
-          const movies = await getJson('/api/v1/movies?page=1&limit=20');
+          const movies = await getJson('/api/v1/movies?search=Interstellar&page=1&limit=5');
           const items = movies?.data?.items ?? movies?.data?.movies ?? movies?.data ?? [];
-          if (!Array.isArray(items) || !items.length) throw new Error('No movies returned');
+          if (!Array.isArray(items) || !items.length) throw new Error('Interstellar is not present in the catalog');
 
-          let passed = null;
-          for (const movie of items.slice(0, 10)) {
-            try {
-              const watch = await getJson('/api/v1/watch/' + encodeURIComponent(movie.id), 20000);
-              const sources = watch?.data?.sources ?? [];
-              console.log('MOVIE_RESULT', JSON.stringify({
-                id: movie.id, title: movie.title, titleEn: movie.titleEn, sourceCount: sources.length,
-                providers: sources.map(s => s.provider)
-              }));
-              const vidzee = sources.find(s => String(s?.provider || '').toLowerCase() === 'vidzee');
-              if (!vidzee?.url || !/^https?:\/\//i.test(vidzee.url)) continue;
-
-              const stream = await fetch(vidzee.url, {
-                headers:{Range:'bytes=0-1023'}, redirect:'follow', signal:AbortSignal.timeout(20000)
-              });
-              const type = (stream.headers.get('content-type') || '').toLowerCase();
-              console.log('STREAM', stream.status, stream.url, type);
-              const playable = type.includes('mpegurl') || type.includes('video/') ||
-                /\.m3u8(?:$|\?)/i.test(stream.url) || stream.status === 206 || stream.status === 416;
-              if (playable) { passed = {movie, vidzee, stream:{status:stream.status,type,url:stream.url}}; break; }
-            } catch (e) {
-              console.log('MOVIE_FAILED', movie.id, movie.title, String(e));
-            }
+          const movie = items[0];
+          const watch = await getJson('/api/v1/watch/' + encodeURIComponent(movie.id), 20000);
+          const sources = watch?.data?.sources ?? [];
+          console.log('MOVIE_RESULT', JSON.stringify({
+            id: movie.id, title: movie.title, titleEn: movie.titleEn, sourceCount: sources.length,
+            providers: sources.map(s => s.provider)
+          }));
+          const vidzee = sources.find(s => String(s?.provider || '').toLowerCase() === 'vidzee');
+          if (!vidzee?.url || !/^https?:\/\//i.test(vidzee.url)) {
+            throw new Error('Interstellar returned no valid VidZee source through the live Worker');
           }
 
-          if (!passed) throw new Error('No tested catalog movie produced a playable VidZee source through the live Worker');
+          const stream = await fetch(vidzee.url, {
+            headers:{Range:'bytes=0-1023'}, redirect:'follow', signal:AbortSignal.timeout(20000)
+          });
+          const type = (stream.headers.get('content-type') || '').toLowerCase();
+          console.log('STREAM', stream.status, stream.url, type);
+          const playable = type.includes('mpegurl') || type.includes('video/') ||
+            /\.m3u8(?:$|\?)/i.test(stream.url) || stream.status === 206 || stream.status === 416;
+          if (!playable) throw new Error('Interstellar VidZee source is not playable');
+
           console.log('LIVE_WORKER_PLAYBACK=PASS');
-          console.log('PASSED_MOVIE', JSON.stringify(passed).slice(0,3000));
+          console.log('PASSED_MOVIE', JSON.stringify({movie, vidzee, stream:{status:stream.status,type,url:stream.url}}).slice(0,3000));
           NODE
