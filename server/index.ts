@@ -232,6 +232,76 @@ async function seriesDto(row: any) {
   } as any;
 }
 
+const VIDZEE_PROXY_HEADERS = {
+  Referer: 'https://player.vidzee.wtf/',
+  Origin: 'https://player.vidzee.wtf',
+};
+
+function isAllowedVidZeeTarget(value: URL) {
+  return value.protocol === 'https:' && (value.hostname === 'core.vidzee.wtf' || value.hostname.endsWith('.1shows.app'));
+}
+
+function rewriteVidZeePlaylist(body: string, baseUrl: string) {
+  const proxy = (target: string) => `${api}/playback/proxy?url=${encodeURIComponent(target)}`;
+  return body.split(/\r?\n/).map((line) => {
+    if (!line) return line;
+    if (line.startsWith('#')) {
+      return line.replace(/URI="([^"]+)"/g, (_match, uri) => {
+        try {
+          const resolved = new URL(uri, baseUrl).toString();
+          return isAllowedVidZeeTarget(new URL(resolved)) ? `URI="${proxy(resolved)}"` : `URI="${uri}"`;
+        } catch {
+          return `URI="${uri}"`;
+        }
+      });
+    }
+    try {
+      const resolved = new URL(line.trim(), baseUrl).toString();
+      return isAllowedVidZeeTarget(new URL(resolved)) ? proxy(resolved) : line;
+    } catch {
+      return line;
+    }
+  }).join('\n');
+}
+
+app.get(`${api}/playback/proxy`, asyncRoute(async (req, res) => {
+  const rawTarget = typeof req.query.url === 'string' ? req.query.url : '';
+  let target: URL;
+  try { target = new URL(rawTarget); }
+  catch { return fail(res, 400, 'INVALID_PROXY_URL', 'Invalid playback proxy URL'); }
+  if (!isAllowedVidZeeTarget(target)) return fail(res, 403, 'PROXY_TARGET_NOT_ALLOWED', 'Playback proxy target is not allowed');
+
+  const requestHeaders: Record<string, string> = { ...VIDZEE_PROXY_HEADERS };
+  const range = req.header('range');
+  if (range) requestHeaders.Range = range;
+
+  try {
+    const upstream = await fetch(target.toString(), { headers: requestHeaders, redirect: 'follow' });
+    if (!upstream.ok) return new Response(await upstream.text(), { status: upstream.status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+
+    const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
+    const playlist = contentType.includes('mpegurl') || target.pathname.toLowerCase().endsWith('.m3u8');
+    const responseHeaders = new Headers();
+    responseHeaders.set('cache-control', 'no-store');
+    responseHeaders.set('access-control-allow-origin', '*');
+    if (contentType) responseHeaders.set('content-type', contentType);
+    for (const name of ['accept-ranges', 'content-range']) {
+      const value = upstream.headers.get(name);
+      if (value) responseHeaders.set(name, value);
+    }
+
+    if (playlist) {
+      const body = await upstream.text();
+      responseHeaders.set('content-type', 'application/vnd.apple.mpegurl');
+      return new Response(rewriteVidZeePlaylist(body, target.toString()), { status: 200, headers: responseHeaders });
+    }
+
+    return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+  } catch (error) {
+    return fail(res, 502, 'VIDZEE_PROXY_FAILED', error instanceof Error ? error.message : 'VidZee proxy failed');
+  }
+}));
+
 app.get(`${api}/playback/sources`, asyncRoute(async (req, res) => {
   const parsed = z.object({
     contentType: z.enum(['movie', 'episode']),

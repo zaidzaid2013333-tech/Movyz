@@ -214,8 +214,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
 
       allResolvedSources.push(...(persistedSources || []).map(sourceDto));
 
-      // Do not waterfall into other providers after a successful provider.
-      // This keeps MovieBox primary and avoids unnecessary provider calls/timeouts.
+      // Stop after the first provider that returns usable playback sources.
       break;
     } catch (error) {
       console.error('[playback-resolver]', provider.key, error instanceof Error ? error.message : error);

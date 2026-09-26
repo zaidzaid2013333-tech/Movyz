@@ -52,6 +52,33 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Verify VidZee upstream before deploy
+        run: |
+          node <<'NODE'
+          const servers = ['dcloud', 'tik', 'ipcloud', 'v6:Hindi'];
+          let passed = false;
+          const results = [];
+          for (const server of servers) {
+            const url = 'https://core.vidzee.wtf/streams/movie/157336?s=' + encodeURIComponent(server) + '&e=0';
+            try {
+              const response = await fetch(url, { headers: { Accept: 'application/json', Referer: 'https://player.vidzee.wtf/', Origin: 'https://player.vidzee.wtf' }, redirect: 'follow', signal: AbortSignal.timeout(12000) });
+              const body = await response.text();
+              results.push({ server, status: response.status, body: body.slice(0, 400) });
+              if (response.ok) {
+                try {
+                  const payload = JSON.parse(body);
+                  const raw = payload?.url || payload?.stream_url || payload?.streamUrl || payload?.data?.url || '';
+                  if (/^https:\/\//i.test(String(raw)) && /\.m3u8(?:$|[?#])/i.test(String(raw))) { passed = true; break; }
+                } catch {}
+              }
+            } catch (error) {
+              results.push({ server, error: error instanceof Error ? error.message : String(error) });
+            }
+          }
+          console.log(JSON.stringify(results));
+          if (!passed) throw new Error('VidZee upstream returned no playable HLS source for the test title');
+          console.log('VIDZEE_UPSTREAM=PASS');
+          NODE
       - name: Validate Cloudflare configuration
         run: npx wrangler deploy --dry-run
 
@@ -95,9 +122,11 @@ jobs:
           const sources = Array.isArray(playback?.data) ? playback.data : [];
           if (!sources.length) throw new Error('Playback resolver returned no playable sources for movie ' + contentId);
           const source = sources[0];
-          if (!source?.url || !/^https:\/\//i.test(String(source.url))) throw new Error('Playback resolver returned an invalid HTTPS source: ' + JSON.stringify(source).slice(0, 1600));
+          const validDirect = /^https:\/\//i.test(String(source?.url || ''));
+          const validProxy = /^\/api\/v1\/playback\/proxy\?url=/.test(String(source?.url || ''));
+          if (!source?.url || (!validDirect && !validProxy)) throw new Error('Playback resolver returned an invalid source: ' + JSON.stringify(source).slice(0, 1600));
           if (!['hls','mp4','dash'].includes(String(source.type))) throw new Error('Playback resolver returned unsupported type: ' + String(source.type));
-          if (String(source.type) === 'hls' && !/\.m3u8(?:$|[?#])/i.test(String(source.url))) throw new Error('HLS source does not point to an m3u8 URL');
+          if (String(source.type) === 'hls' && !validProxy && !/\.m3u8(?:$|[?#])/i.test(String(source.url))) throw new Error('HLS source does not point to an m3u8 URL');
           console.log('LIVE_PLAYBACK_TARGET=PASS');
           console.log(JSON.stringify({ contentId, tmdbId, provider: source.provider, type: source.type, host: new URL(source.url).host }));
           NODE
