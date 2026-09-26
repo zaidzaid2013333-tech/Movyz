@@ -53,7 +53,12 @@ export function createTmdbHlsAdapter(config: TmdbHlsConfig): ProviderAdapter {
     resolveEpisode: (context) => resolve(context, 'episode'),
     health: async () => {
       const started = Date.now();
-      const healthUrl = config.healthUrl || materializeTemplate(config.movieUrl, {\n        tmdbId: 550,\n        season: 1,\n        episode: 1,\n        ...(config.templateValues || {}),\n      });
+      const healthUrl = config.healthUrl || materializeTemplate(config.movieUrl, {
+        tmdbId: 550,
+        season: 1,
+        episode: 1,
+        ...(config.templateValues || {}),
+      });
       try {
         await fetchJsonOrText(healthUrl, Math.min(config.timeoutMs, 5_000));
         const latencyMs = Date.now() - started;
