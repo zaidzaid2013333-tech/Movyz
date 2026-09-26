@@ -9,10 +9,13 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
 import { getProvider } from './providers/registry';
 import { resolvePlaybackSources } from './providers/resolver';
+import { registerBuiltInProviders } from './providers/bootstrap';
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
 const api = '/api/v1';
+
+registerBuiltInProviders();
 
 app.disable('x-powered-by');
 app.use(helmet());
