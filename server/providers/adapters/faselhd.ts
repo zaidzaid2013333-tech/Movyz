@@ -7,6 +7,8 @@ import {
 } from '../http';
 
 const DEFAULT_HOSTS = [
+  'https://faselhd.express',
+  'https://www.faselhd.express',
   'https://web31818x.faselhdx.bid',
   'https://web6712x.faselhdx.bid',
   'https://www.fasel-hd.cam',
