@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 45
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       MOVYZA_PROVIDER_TIMEOUT_MS: "8000"
@@ -49,6 +50,7 @@ jobs:
       - name: Validate required secrets
         run: |
           test -n "$SUPABASE_URL" || (echo "Missing SUPABASE_URL"; exit 1)
+          test -n "$SUPABASE_ANON_KEY" || (echo "Missing SUPABASE_ANON_KEY"; exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY"; exit 1)
           test -n "$TMDB_API_READ_ACCESS_TOKEN" || (echo "Missing TMDB_API_READ_ACCESS_TOKEN"; exit 1)
 
