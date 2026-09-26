@@ -200,30 +200,60 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }
 
   return (
-    <div className="relative w-full bg-black overflow-visible">\n      <div className="relative w-full aspect-video overflow-hidden">
-      <iframe
-        ref={iframeRef}
-        src={embedUrl}
-        title={isMovie ? title : titleEn || title}
-        allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-        allowFullScreen
-        referrerPolicy="strict-origin-when-cross-origin"
-        className="absolute inset-0 w-full h-full border-0 bg-black"
-      />
-
-      <div className="pointer-events-none absolute top-3 start-3 z-10 flex items-center gap-2">
-        <span className="rounded-full bg-black/70 backdrop-blur px-3 py-1 text-[10px] font-semibold text-white border border-white/10">
-          VidRift
-        </span>
-        <span className="rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[10px] text-slate-300 border border-white/10">
-          {language === 'ar' ? 'مشغل خارجي' : 'External player'}
-        </span>
+    <div className="relative w-full bg-black overflow-visible">
+      <div className="relative w-full aspect-video overflow-hidden">
+        <iframe
+          ref={iframeRef}
+          src={embedUrl}
+          title={isMovie ? title : titleEn || title}
+          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+          allowFullScreen
+          referrerPolicy="strict-origin-when-cross-origin"
+          className="absolute inset-0 w-full h-full border-0 bg-black"
+        />
+        <div className="pointer-events-none absolute top-3 start-3 z-10 flex items-center gap-2">
+          <span className="rounded-full bg-black/70 backdrop-blur px-3 py-1 text-[10px] font-semibold text-white border border-white/10">VidRift</span>
+          <span className="rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[10px] text-slate-300 border border-white/10">
+            {language === 'ar' ? 'مشغل خارجي' : 'External player'}
+          </span>
+        </div>
+        <div className="pointer-events-none absolute bottom-3 end-3 z-10 flex items-center gap-2 rounded-full bg-black/60 backdrop-blur px-3 py-1 text-[10px] text-emerald-300 border border-white/10">
+          <CheckCircle2 className="w-3 h-3" />
+          <span>TMDB → VidRift</span>
+        </div>
       </div>
-
-      <div className="pointer-events-none absolute bottom-3 end-3 z-10 flex items-center gap-2 rounded-full bg-black/60 backdrop-blur px-3 py-1 text-[10px] text-emerald-300 border border-white/10">
-        <CheckCircle2 className="w-3 h-3" />
-        <span>{language === 'ar' ? 'TMDB → VidRift' : 'TMDB → VidRift'}</span>
-      </div>
+      {sourcePanel && (
+        <section className="w-full border-t border-white/10 bg-[#0b0d13] p-3 sm:p-4" aria-label={language === 'ar' ? 'اختيار مصدر التشغيل' : 'Playback source selection'}>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-white">{language === 'ar' ? 'اختيار السيرفر' : 'Choose a server'}</h3>
+              <p className="text-[11px] text-slate-400">{language === 'ar' ? 'اختر المصدر من هنا بدل القائمة داخل المشغل.' : 'Choose a source here instead of inside the player.'}</p>
+            </div>
+            <button type="button" onClick={() => setSourcePanel(null)} className="shrink-0 rounded-lg px-3 py-1.5 text-xs text-slate-300 bg-white/5 hover:bg-white/10">
+              {language === 'ar' ? 'إغلاق' : 'Close'}
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {sourcePanel.options.map((item, index) => (
+              <button
+                key={`${item.option}-${item.value}-${index}`}
+                type="button"
+                onClick={() => {
+                  iframeRef.current?.contentWindow?.postMessage({
+                    type: 'vidrift:mobile-option',
+                    option: item.option,
+                    value: item.value,
+                  }, VIDRIFT_ORIGIN);
+                  setSourcePanel(null);
+                }}
+                className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-500/20"
+              >
+                {item.label || item.value}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 };
