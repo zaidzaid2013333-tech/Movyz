@@ -1,5 +1,6 @@
 import { getProvider, registerProvider } from './registry';
-import { createEzvidApiAdapter, createStreamProviderAdapter, createStreamFlixAdapter, createVidZeeAdapter } from './adapters/tmdb-hls';
+import { createEzvidApiAdapter, createStreamProviderAdapter, createStreamFlixAdapter } from './adapters/tmdb-hls';
+import { createMovieBoxApiAdapter } from './adapters/moviebox';
 import { createFaselHdAdapter } from './adapters/mapped-json';
 
 let bootstrapped = false;
@@ -9,7 +10,7 @@ export function registerBuiltInProviders() {
   bootstrapped = true;
 
   for (const adapter of [
-    createVidZeeAdapter(),
+    createMovieBoxApiAdapter(),
     createFaselHdAdapter(),
     createStreamFlixAdapter(),
     createEzvidApiAdapter(),
