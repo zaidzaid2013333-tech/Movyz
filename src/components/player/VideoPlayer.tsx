@@ -97,12 +97,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const dashRef = useRef<dashjs.MediaPlayerClass | null>(null);
 
   const activeSource = sources[activeSourceIndex] || sources[0];
+  const sourceKey = sources.map((source) => source.id).join('|');
 
   useEffect(() => {
     setActiveSourceIndex(0);
     setHasError(false);
     setIsLoading(sources.length > 0);
-  }, [contentId, currentEpisode?.id, sources]);
+  }, [contentId, currentEpisode?.id, sourceKey]);
 
   // Format seconds to mm:ss or hh:mm:ss
   const formatTime = (secs: number) => {
