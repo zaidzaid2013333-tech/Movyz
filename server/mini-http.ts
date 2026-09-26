@@ -76,48 +76,61 @@ export class MiniApp {
   async handle(request:Request):Promise<Response>{
     const url=new URL(request.url);
     const req:HttpRequest={
-      method:request.method,
-      url:request.url,
-      headers:request.headers,
-      body:{},
-      params:{},
+      method:request.method,url:request.url,headers:request.headers,body:{},params:{},
       query:Object.fromEntries(url.searchParams.entries()),
       header:(name:string)=>request.headers.get(name)||undefined,
     };
     if(['POST','PUT','PATCH','DELETE'].includes(request.method)){
       const ct=request.headers.get('content-type')||'';
       if(ct.toLowerCase().includes('application/json')){
-        try{ req.body=await request.json(); }
+        try{req.body=await request.json();}
         catch{return new Response(JSON.stringify({success:false,error:{code:'INVALID_JSON',message:'Request body must be valid JSON'}}),{status:400,headers:{'content-type':'application/json; charset=utf-8'}});}
       }
     }
+
     const route=this.routes.find(r=>r.method===request.method && matchRoute(r.pattern,url.pathname));
     if(route) req.params=matchRoute(route.pattern,url.pathname)!;
     const chain:RequestHandler[]=[...this.middleware,...(route?.handlers||[])];
-    let response:Response|undefined;
     const res=new MiniResponse();
-    let index=-1;
-    const next=async(error?:unknown):Promise<void>=>{
+    let response:Response|undefined;
+
+    const dispatch=async(index:number,error?:unknown):Promise<void>=>{
       if(error!==undefined){
         if(this.errorHandler){
-          try{const out=await this.errorHandler(error,req,res,()=>{}); if(out instanceof Response) response=out; return;}
-          catch{response=new Response(JSON.stringify({success:false,error:{code:'INTERNAL_ERROR',message:'Internal server error'}}),{status:500,headers:{'content-type':'application/json; charset=utf-8'}});return;}
+          try{
+            const out=await this.errorHandler(error,req,res,()=>{});
+            if(out instanceof Response) response=out;
+          }catch{
+            response=new Response(JSON.stringify({success:false,error:{code:'INTERNAL_ERROR',message:'Internal server error'}}),{status:500,headers:{'content-type':'application/json; charset=utf-8'}});
+          }
+        } else {
+          response=new Response(JSON.stringify({success:false,error:{code:'INTERNAL_ERROR',message:'Internal server error'}}),{status:500,headers:{'content-type':'application/json; charset=utf-8'}});
         }
-        response=new Response(JSON.stringify({success:false,error:{code:'INTERNAL_ERROR',message:'Internal server error'}}),{status:500,headers:{'content-type':'application/json; charset=utf-8'}});return;
-      }
-      index++;
-      const fn=chain[index];
-      if(!fn){
-        if(!response) response=new Response(JSON.stringify({success:false,error:{code:'NOT_FOUND',message:'Route not found'}}),{status:404,headers:{'content-type':'application/json; charset=utf-8'}});
         return;
       }
+
+      const fn=chain[index];
+      if(!fn){
+        if(!route){
+          response=new Response(JSON.stringify({success:false,error:{code:'NOT_FOUND',message:'Route not found'}}),{status:404,headers:{'content-type':'application/json; charset=utf-8'}});
+        } else if(!response) {
+          response=new Response(null,{status:204});
+        }
+        return;
+      }
+
+      let nextPromise:Promise<void>|undefined;
+      const next:NextFunction=(nextError)=>{nextPromise=dispatch(index+1,nextError);};
       try{
         const out=await fn(req,res,next);
         if(out instanceof Response) response=out;
-        if(out===undefined && index===chain.length-1 && !response) response=new Response(null,{status:204});
-      }catch(e){await next(e);}
+        if(nextPromise) await nextPromise;
+      }catch(e){
+        await dispatch(index+1,e);
+      }
     };
-    await next();
+
+    await dispatch(0);
     return response || new Response(null,{status:204});
   }
 }
