@@ -1,8 +1,19 @@
+-- Sync job tracking and timestamp triggers.
+-- Safe/idempotent migration for Movyz.
+
+begin;
+
+-- Keep provider.updated_at available before its trigger is installed.
+alter table if exists public.providers
+  add column if not exists updated_at timestamptz not null default now();
+
+-- Sync execution history.
 create table if not exists public.sync_jobs (
   id uuid primary key default gen_random_uuid(),
   provider text not null,
   job_type text not null,
-  status text not null default 'queued' check(status in ('queued','running','succeeded','failed')),
+  status text not null default 'queued'
+    check (status in ('queued','running','succeeded','failed')),
   pages integer,
   movies_synced integer not null default 0,
   series_synced integer not null default 0,
@@ -11,17 +22,27 @@ create table if not exists public.sync_jobs (
   error text,
   started_at timestamptz,
   finished_at timestamptz,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
-create index if not exists sync_jobs_created_idx on public.sync_jobs(created_at desc);
+create index if not exists sync_jobs_created_idx
+  on public.sync_jobs(created_at desc);
+
+create index if not exists sync_jobs_status_idx
+  on public.sync_jobs(status);
 
 alter table public.sync_jobs enable row level security;
 
 drop policy if exists sync_jobs_admin on public.sync_jobs;
-create policy sync_jobs_admin on public.sync_jobs
-  for select using (public.is_admin_or_owner());
 
+create policy sync_jobs_admin
+on public.sync_jobs
+for select
+to authenticated
+using (public.is_admin_or_owner());
+
+-- Generic updated_at trigger.
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
@@ -32,18 +53,35 @@ begin
 end;
 $function$;
 
+-- Recreate triggers safely.
 drop trigger if exists profiles_updated_at on public.profiles;
-create trigger profiles_updated_at before update on public.profiles
-for each row execute procedure public.set_updated_at();
+create trigger profiles_updated_at
+before update on public.profiles
+for each row
+execute function public.set_updated_at();
 
 drop trigger if exists movies_updated_at on public.movies;
-create trigger movies_updated_at before update on public.movies
-for each row execute procedure public.set_updated_at();
+create trigger movies_updated_at
+before update on public.movies
+for each row
+execute function public.set_updated_at();
 
 drop trigger if exists series_updated_at on public.series;
-create trigger series_updated_at before update on public.series
-for each row execute procedure public.set_updated_at();
+create trigger series_updated_at
+before update on public.series
+for each row
+execute function public.set_updated_at();
 
 drop trigger if exists providers_updated_at on public.providers;
-create trigger providers_updated_at before update on public.providers
-for each row execute procedure public.set_updated_at();
+create trigger providers_updated_at
+before update on public.providers
+for each row
+execute function public.set_updated_at();
+
+drop trigger if exists sync_jobs_updated_at on public.sync_jobs;
+create trigger sync_jobs_updated_at
+before update on public.sync_jobs
+for each row
+execute function public.set_updated_at();
+
+commit;
