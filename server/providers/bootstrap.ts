@@ -1,5 +1,5 @@
 import { getProvider, registerProvider } from './registry';
-import { createEzvidApiAdapter, createStreamProviderAdapter } from './adapters/tmdb-hls';
+import { createEzvidApiAdapter, createNhdApiAdapter, createStreamProviderAdapter } from './adapters/tmdb-hls';
 import { createFaselHdAdapter } from './adapters/mapped-json';
 
 let bootstrapped = false;
@@ -10,6 +10,7 @@ export function registerBuiltInProviders() {
 
   for (const adapter of [
     createEzvidApiAdapter(),
+    createNhdApiAdapter(),
     createStreamProviderAdapter(),
     createFaselHdAdapter(),
   ]) {
