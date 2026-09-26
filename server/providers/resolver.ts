@@ -55,8 +55,8 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
 
 async function getContext(contentType: 'movie' | 'episode', contentId: string): Promise<ProviderContext | null> {
   if (contentType === 'movie') {
-    const { data } = await adminSupabase.from('movies').select('tmdb_id').eq('id', contentId).maybeSingle();
-    return data?.tmdb_id ? { tmdbId: data.tmdb_id } : null;
+    const { data } = await adminSupabase.from('movies').select('tmdb_id,title_ar,title_en,original_title,release_date').eq('id', contentId).maybeSingle();
+    return data?.tmdb_id ? { tmdbId: data.tmdb_id, title: data.title_en || data.original_title || data.title_ar || '', originalTitle: data.original_title || data.title_en || data.title_ar || '', releaseYear: data.release_date ? Number(String(data.release_date).slice(0, 4)) : undefined } : null;
   }
 
   const { data: episode } = await adminSupabase
@@ -73,10 +73,10 @@ async function getContext(contentType: 'movie' | 'episode', contentId: string): 
     .maybeSingle();
   if (!season?.series_id || season.season_number == null) return null;
 
-  const { data: series } = await adminSupabase.from('series').select('tmdb_id').eq('id', season.series_id).maybeSingle();
+  const { data: series } = await adminSupabase.from('series').select('tmdb_id,title_ar,title_en,original_title,first_air_date').eq('id', season.series_id).maybeSingle();
   if (!series?.tmdb_id) return null;
 
-  return { tmdbId: series.tmdb_id, seasonNumber: season.season_number, episodeNumber: episode.episode_number };
+  return { tmdbId: series.tmdb_id, title: series.title_en || series.original_title || series.title_ar || '', originalTitle: series.original_title || series.title_en || series.title_ar || '', releaseYear: series.first_air_date ? Number(String(series.first_air_date).slice(0, 4)) : undefined, seasonNumber: season.season_number, episodeNumber: episode.episode_number };
 }
 
 export async function resolvePlaybackSources(contentType: 'movie' | 'episode', contentId: string, excludedProviders: string[] = []) {
