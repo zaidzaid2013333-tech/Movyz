@@ -4,24 +4,28 @@
  */
 
 const HOST_POOL = [
+  "https://apig.inmoviebox.com",
+  "https://api.inmoviebox.com",
   "https://api6.aoneroom.com",
   "https://api5.aoneroom.com",
   "https://api4.aoneroom.com",
   "https://api4sg.aoneroom.com",
   "https://api3.aoneroom.com",
   "https://api6sg.aoneroom.com",
-  "https://api.inmoviebox.com",
 ];
 
+const API_HOST_QUERY = "apig.inmoviebox.com";
+const DEFAULT_GUEST_TOKEN =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjcwNjU5NDg0MTAyMTM4MTYyMzIsInV0cCI6MSwiZXhwIjoxNzkxNzMyMjMzLCJpYXQiOjE3ODM5NTU5Mzl9.7iyEzTj4vWAbOF0oXwNnZ0p3Nc1QaO6K9eMiGFyVfGs";
+const DEFAULT_GUEST_EXP_MS = 1791732233000;
 const SECRET_KEY_B64 = "76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O";
-const VERSION_CODE = 50020044;
-const VERSION_NAME = "3.0.03.0529.03";
-const ANDROID_VERSION = "13";
-const ANDROID_BUILD = "TQ2A.230405.003";
-const DEVICE_MODEL = "23078RKD5C";
-const DEVICE_BRAND = "Redmi";
-const USER_AGENT =
-  `com.community.oneroom/${VERSION_CODE} (Linux; U; Android ${ANDROID_VERSION}; en_US; ${DEVICE_MODEL}; Build/${ANDROID_BUILD}; Cronet/135.0.7012.3)`;
+const VERSION_CODE = 50020126;
+const VERSION_NAME = "4.0.02";
+const ANDROID_VERSION = "14";
+const ANDROID_BUILD = "UP1A.231005.007";
+const DEVICE_MODEL = "Pixel 6";
+const DEVICE_BRAND = "Google";
+const USER_AGENT = "MovieBox/4.0.02 (Android 14; Pixel 6)";
 
 const BOOTSTRAP_PATH = "/wefeed-mobile-bff/tab-operating";
 const SEARCH_PATH = "/wefeed-mobile-bff/subject-api/search";
@@ -31,8 +35,8 @@ const RESOURCE_PATH = "/wefeed-mobile-bff/subject-api/resource";
 const RESOLUTIONS = [360, 480, 720, 1080];
 const REQUEST_TIMEOUT_MS = 12000;
 
-let authToken = null;
-let authExpiresAt = 0;
+let authToken = DEFAULT_GUEST_TOKEN;
+let authExpiresAt = DEFAULT_GUEST_EXP_MS;
 let bootstrapPromise = null;
 let clientInfo = null;
 let deviceId = null;
@@ -216,10 +220,10 @@ function getClientIdentity() {
       brand: DEVICE_BRAND,
       model: DEVICE_MODEL,
       system_language: "en",
-      net: "NETWORK_WIFI",
-      region: "US",
-      timezone: "America/New_York",
-      sp_code: "40401",
+      net: "wifi",
+      region: "IN",
+      timezone: "Asia/Kolkata",
+      sp_code: "404",
       "X-Play-Mode": "2",
     });
   }
@@ -262,19 +266,27 @@ function usableAuthToken() {
 
 function buildHeaders(method, url, body, bearerToken) {
   const accept = "application/json";
-  const contentType = body !== null ? "application/json; charset=utf-8" : "application/json";
+  const contentType = "application/json;charset=UTF-8";
   const timestamp = Date.now();
+  const origin = new URL(url).origin;
 
   const headers = {
     "User-Agent": USER_AGENT,
     Accept: accept,
     "Content-Type": contentType,
-    Connection: "keep-alive",
+    Referer: `${origin}/`,
+    "X-M-Version": VERSION_NAME,
+    "X-Sign-Version": "2.0",
     "X-Client-Token": generateClientToken(timestamp),
     "x-tr-signature": generateSignature(method, accept, contentType, url, body, timestamp),
     "X-Client-Info": getClientIdentity(),
     "X-Client-Status": "0",
     "X-Play-Mode": "2",
+    appid: "4U01pxRu278GqCZKY9",
+    region: "IN",
+    lang: "en",
+    os: "android",
+    "X-Timestamp": String(timestamp),
     "Cache-Control": "no-cache, no-store, must-revalidate",
     Pragma: "no-cache",
     Expires: "0",
@@ -297,7 +309,12 @@ async function bootstrapAuthToken() {
 
   bootstrapPromise = (async () => {
     resetClientIdentity();
-    const params = new URLSearchParams({ page: "1", tabId: "0", version: "" });
+    const params = new URLSearchParams({
+      host: API_HOST_QUERY,
+      page: "1",
+      pageSize: "24",
+      tabId: "1",
+    });
     let lastFailure = "no x-user token returned";
 
     for (const host of HOST_POOL) {
@@ -336,16 +353,35 @@ async function requestOnce(host, path, method, params, body, bearerToken) {
       if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     }
   }
+  if (!url.searchParams.has("host")) {
+    url.searchParams.set("host", API_HOST_QUERY);
+  }
 
   const bodyText = body == null ? null : JSON.stringify(body);
   const headers = buildHeaders(method, url.toString(), bodyText, bearerToken);
-  const response = await fetch(url.toString(), {
+  let response = await fetch(url.toString(), {
     method,
     headers,
     body: bodyText ?? undefined,
     redirect: "follow",
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
+
+  if (response.status === 404 && path.startsWith("/wefeed-mobile-bff/")) {
+    const healedPath = path.replace("/wefeed-mobile-bff", "");
+    const healedUrl = new URL(`${host}${healedPath}`);
+    for (const [key, value] of url.searchParams.entries()) {
+      healedUrl.searchParams.set(key, value);
+    }
+    const healedHeaders = buildHeaders(method, healedUrl.toString(), bodyText, bearerToken);
+    response = await fetch(healedUrl.toString(), {
+      method,
+      headers: healedHeaders,
+      body: bodyText ?? undefined,
+      redirect: "follow",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  }
 
   const { raw, parsed } = await readResponse(response);
   const rotated = extractXUserToken(response);
@@ -417,7 +453,13 @@ export async function mobileSearch(query) {
     SEARCH_PATH,
     "POST",
     undefined,
-    { keyword: query, page: 1, perPage: 30, subjectType: 0 },
+    {
+      keyword: query,
+      q: query,
+      page: 1,
+      pageSize: 30,
+      type: 0,
+    },
   );
   const items = Array.isArray(data?.items) ? data.items : [];
   return {
@@ -527,8 +569,8 @@ export async function mobileStreams(subjectId, se = 0, ep = 0) {
 }
 
 export function __resetMobileAuthForTests() {
-  authToken = null;
-  authExpiresAt = 0;
+  authToken = DEFAULT_GUEST_TOKEN;
+  authExpiresAt = DEFAULT_GUEST_EXP_MS;
   bootstrapPromise = null;
   resetClientIdentity();
 }
