@@ -46,6 +46,17 @@ const FASELHD_CONTENT_API =
   'https://netcore.faselhd.pro/api/v1.0/Content/GetContent';
 const FASELHD_PLAYER_API = 'https://faselhd-embed.scdns.io/video_player';
 
+let faselBrowserBinding: {
+  quickAction: (action: string, options: Record<string, unknown>) => Promise<Response>;
+} | null = null;
+
+export function setFaselHdBrowserBinding(binding: unknown) {
+  faselBrowserBinding =
+    binding && typeof (binding as { quickAction?: unknown }).quickAction === 'function'
+      ? (binding as typeof faselBrowserBinding)
+      : null;
+}
+
 const FASELHD_UPSTREAM_TOKEN = 'CMrdhDW04Ce9ZcWFsNCAgTKCMHKD88bjgxomBVOL+VDippsR9/YvclNOKrYwRSRYYwP0uJ6AXtUFMk1iNdQgGsFC2G/5fO05l4hGbODXi41X91/TbE117NdC0fl/ZRKBu1kn08dQIoG4GvW9ypci03/DxjqPHzVffnegq4WRy+NZ0BPbob3pf2TODnKj1Zc7iR+fSQVE479J/V3dMm46N41AjfJuXFpyj1wxg0husAnVpj647nv0EDBc+kOC+CtdLOV/LFvzoxj+fEKkzhEJ1wC9IqI3J6+DIkoYg8Skvjm+yfIHewNGmAhrb0MMi+v28AeimhfMIHq28QgyKI0Sulkm8coU+a/O';
 
 async function fetchFaselContent(id: number, timeoutMs: number) {
@@ -252,6 +263,26 @@ function looksLikeFaselSite(html: string) {
   return markers.filter((marker) => lower.includes(marker)).length >= 2;
 }
 
+async function getBrowserRenderedHtml(url: string, timeoutMs: number) {
+  if (!faselBrowserBinding) return null;
+
+  try {
+    const response = await faselBrowserBinding.quickAction('content', {
+      url,
+      userAgent: USER_AGENT,
+      gotoOptions: { waitUntil: 'networkidle2', timeout: Math.min(timeoutMs, 45_000) },
+    });
+    const html = await response.text();
+    if (response.ok && html && !isBlockedHtml(html)) {
+      return { html, finalUrl: url };
+    }
+  } catch {
+    // Browser Run is a fallback; keep ordinary fetch/Jina behavior.
+  }
+
+  return null;
+}
+
 async function getHtml(url: string, timeoutMs: number, referer?: string) {
   const response = await fetchWithTimeout(url, {
     method: 'GET',
@@ -268,6 +299,9 @@ async function getHtml(url: string, timeoutMs: number, referer?: string) {
   if (response.ok && !isBlockedHtml(html)) {
     return { html, finalUrl: response.url || url };
   }
+
+  const browserRendered = await getBrowserRenderedHtml(url, timeoutMs);
+  if (browserRendered) return browserRendered;
 
   // Some Fasel domains reject cloud/datacenter egress with a challenge or 451.
   // Use a text-rendering fallback to retrieve the HTML without changing the
