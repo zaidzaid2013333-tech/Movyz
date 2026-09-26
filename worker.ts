@@ -8,6 +8,13 @@ export default {
       return app.handle(request);
     }
 
+    const watchMatch = url.pathname.match(/^\/watch\/([^/]+)$/);
+    if (watchMatch) {
+      const target = new URL(request.url);
+      target.pathname = `/api/v1/watch/${watchMatch[1]}/stream`;
+      return app.handle(new Request(target, request));
+    }
+
     return env.ASSETS.fetch(request);
   },
 };
