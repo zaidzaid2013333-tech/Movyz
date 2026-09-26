@@ -15,21 +15,29 @@ test('MovieBox worker sends browser H5 context and normalizes a search result', 
   let request: Request | undefined;
   globalThis.fetch = (async (input, init) => {
     request = new Request(input, init);
+    if (String(input).includes('/home?host=moviebox.pk')) {
+      return new Response('{}', { status: 200, headers: { 'x-user': JSON.stringify({ token: 'test-token' }) } });
+    }
     return new Response(JSON.stringify({ data: { items: [{ title: 'Interstellar', detailPath: 'interstellar-x', releaseDate: '2014-11-05' }] } }), { status: 200 });
   }) as typeof fetch;
   try {
     const { response, body } = await responseFor(new Request('https://worker.test/search?q=Interstellar'));
     assert.equal(response.status, 200);
     assert.equal(request!.method, 'POST');
-    assert.equal(request!.headers.get('origin'), 'https://moviebox.ph');
-    assert.equal(request!.headers.get('referer'), 'https://moviebox.ph/');
-    assert.deepEqual(body.movies, [{ name: 'Interstellar', year: '2014-11-05', poster_url: null, url: 'https://moviebox.ph/detail/interstellar-x', slug: 'interstellar-x', badge: null, blurhash: null }]);
+    assert.equal(request!.headers.get('origin'), 'https://moviebox.pk');
+    assert.equal(request!.headers.get('referer'), 'https://moviebox.pk/');
+    assert.deepEqual(body.movies, [{ name: 'Interstellar', year: '2014-11-05', poster_url: null, url: 'https://moviebox.pk/detail/interstellar-x', slug: 'interstellar-x', badge: null, blurhash: null }]);
   } finally { globalThis.fetch = originalFetch; }
 });
 
 test('MovieBox worker returns safe upstream search diagnostics instead of an ambiguous empty result', async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => new Response('upstream unavailable', { status: 503 })) as typeof fetch;
+  globalThis.fetch = (async (input) => {
+    if (String(input).includes('/home?host=moviebox.pk')) {
+      return new Response('{}', { status: 200, headers: { 'x-user': JSON.stringify({ token: 'test-token' }) } });
+    }
+    return new Response('upstream unavailable', { status: 503 });
+  }) as typeof fetch;
   try {
     const { response, body } = await responseFor(new Request('https://worker.test/search?q=Interstellar'));
     assert.equal(response.status, 502);
@@ -42,6 +50,9 @@ test('MovieBox worker returns safe upstream search diagnostics instead of an amb
 test('MovieBox worker resolves the H5 detail payload without scraping a MovieBox HTML page', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input) => {
+    if (String(input).includes('/home?host=moviebox.pk')) {
+      return new Response('{}', { status: 200, headers: { 'x-user': JSON.stringify({ token: 'test-token' }) } });
+    }
     assert.match(String(input), /wefeed-h5api-bff\/detail\?detailPath=interstellar-x/);
     return new Response(JSON.stringify({ data: { subject: { subjectId: 4242, title: 'Interstellar', releaseDate: '2014' } } }), { status: 200 });
   }) as typeof fetch;
@@ -57,6 +68,7 @@ test('MovieBox worker returns stream URLs from the current H5 stream response sh
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input) => {
     const url = String(input);
+    if (url.includes('/home?host=moviebox.pk')) return new Response('{}', { status: 200, headers: { 'x-user': JSON.stringify({ token: 'test-token' }) } });
     if (url.includes('get-domain')) return new Response(JSON.stringify({ data: 'https://play.example.test' }), { status: 200 });
     if (url.includes('/subject/caption')) return new Response(JSON.stringify({ data: { subtitles: [] } }), { status: 200 });
     assert.match(url, /subject\/play\?subjectId=4242&se=0&ep=0&detailPath=interstellar-x/);
