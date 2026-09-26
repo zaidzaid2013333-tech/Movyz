@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   MediaPlayer,
   MediaProvider,
+  Track,
   isVideoProvider,
 } from '@vidstack/react';
 import {
@@ -44,6 +45,9 @@ type PlaybackSource = {
   providerKey?: string;
 };
 
+const WIKIMEDIA_NLOTD_SUBTITLE_URL =
+  'https://commons.wikimedia.org/w/api.php?action=timedtext&title=File%3ANight_of_the_Living_Dead_%281968%29.webm&lang=ar&trackformat=vtt&origin=*';
+
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   contentId,
   title,
@@ -72,6 +76,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const isMovie = contentType === 'movie';
   const safeTmdbId = Number(tmdbId || 0);
+
+  const subtitleEnabled = useMemo(
+    () =>
+      isMovie &&
+      safeTmdbId === 10331 &&
+      sources.some((source) => source.providerKey === 'wikimedia_commons_nlotd'),
+    [isMovie, safeTmdbId, sources],
+  );
 
   const currentLabel = useMemo(() => {
     const source = sources.find((item) => item.id === selectedSourceId);
@@ -137,7 +149,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setSelectedSourceId(source.id);
     setError('');
     setLoading(true);
-
     setStreamType(source.type);
     setStreamUrl(source.url);
   };
@@ -214,10 +225,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       progressLoadedRef.current = false;
 
       try {
-        const playbackContentId = isMovie
-          ? contentId
-          : (currentEpisode?.id || contentId);
-
         const response = await MovyzaApi.getWatchSources(
           safeTmdbId,
           isMovie ? 'movie' : 'series',
@@ -241,6 +248,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             language: source.language || 'und',
             label: source.label || source.provider || 'Source',
             provider: source.provider || 'Provider',
+            providerKey: source.providerKey,
           }));
 
         if (!normalized.length) {
@@ -353,7 +361,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onError={(playbackError) => {
               console.warn('[movyza-player] source error', playbackError);
-              // Try the next resolved direct source.
               setStreamUrl('');
               setError('');
               setLoading(true);
@@ -365,7 +372,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               setError('');
             }}
           >
-            <MediaProvider />
+            <MediaProvider>
+              {subtitleEnabled && (
+                <Track
+                  src={WIKIMEDIA_NLOTD_SUBTITLE_URL}
+                  kind="subtitles"
+                  label="العربية"
+                  lang="ar"
+                  language="ar"
+                  type="vtt"
+                  default
+                />
+              )}
+            </MediaProvider>
             <DefaultVideoLayout
               colorScheme="dark"
               icons={defaultLayoutIcons}
@@ -429,7 +448,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </h3>
             <p className="text-[11px] text-slate-400">
               {language === 'ar'
-                ? 'يتم تشغيل HLS أو MP4 أو DASH أو WEBM مباشرة داخل مشغل Movyza فقط.'
+                ? 'يتم تشغيل HLS أو MP4 أو DASH أو WEBM مباشرة داخل مشغل Movyza فقط.' 
                 : 'Movyza plays HLS, MP4, DASH, or WEBM directly inside the native player.'}
             </p>
           </div>
@@ -490,14 +509,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <Subtitles className="h-4 w-4" />
               {language === 'ar' ? 'الترجمة' : 'Subtitles'}
             </div>
-            <div className="rounded-xl border border-sky-400/20 bg-sky-400/10 px-3 py-2">
-              <div className="text-xs font-semibold text-sky-100">
-                {language === 'ar' ? 'جاهزة للمسارات المضافة' : 'Ready for external tracks'}
+            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2">
+              <div className="text-xs font-semibold text-emerald-100">
+                {subtitleEnabled
+                  ? (language === 'ar' ? 'العربية مفعّلة تلقائيًا' : 'Arabic subtitles enabled')
+                  : (language === 'ar' ? 'تُعرض عند توفر مسار ترجمة' : 'Shown when a subtitle track is available')}
               </div>
-              <div className="mt-1 text-[10px] text-sky-100/65">
-                {language === 'ar'
-                  ? 'يمكن ربط WebVTT بدون تغيير المشغل الأساسي.'
-                  : 'WebVTT tracks can be added without replacing the player.'}
+              <div className="mt-1 text-[10px] text-emerald-100/65">
+                {subtitleEnabled
+                  ? (language === 'ar'
+                    ? 'مسار WebVTT مرتبط بنفس ملف الفيلم، ويمكن إيقافه من زر CC.'
+                    : 'A WebVTT track tied to the same film file; toggle it from CC.')
+                  : (language === 'ar'
+                    ? 'الترجمة ليست مرتبطة بمصادر لا تملك مسارًا موثوقًا لها.'
+                    : 'No subtitle track is attached to this source.')}
               </div>
             </div>
           </div>
