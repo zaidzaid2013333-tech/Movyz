@@ -193,6 +193,43 @@ jobs:
           })();
           NODE
 
+      - name: Diagnose Jina Fasel fallback
+        run: |
+          node <<'NODE'
+          (async () => {
+            for (const target of [
+              'http://www.faselhd.tech/',
+              'http://www.faselhd.tech/?s=The%20Shawshank%20Redemption',
+              'https://www.fasel-hd.co/?s=Night%20of%20the%20Living%20Dead',
+            ]) {
+              const url = 'https://r.jina.ai/' + target;
+              try {
+                const r = await fetch(url, {
+                  headers: {
+                    Accept: 'text/plain,text/html,*/*;q=0.8',
+                    'User-Agent': 'Movyz-Jina-Diagnostic/1.0',
+                  },
+                  signal: AbortSignal.timeout(20000),
+                });
+                const body = await r.text();
+                console.log(JSON.stringify({
+                  target,
+                  proxyStatus: r.status,
+                  finalUrl: r.url,
+                  contentType: r.headers.get('content-type'),
+                  length: body.length,
+                  title: (body.match(/^Title:\s*(.+)$/mi)?.[1] || '').trim(),
+                  shawshank: (body.match(/Shawshank Redemption|الخلاص من شاوشانك/gi) || []).length,
+                  iframe: (body.match(/player_iframe|video_player|videoplayer|\.m3u8|\.mp4/gi) || []).length,
+                  head: body.slice(0, 1000),
+                }));
+              } catch (e) {
+                console.log(JSON.stringify({target,error:String(e)}));
+              }
+            }
+          })();
+          NODE
+
       - name: Diagnose direct Fasel upstream API
         run: |
           node <<'NODE'
