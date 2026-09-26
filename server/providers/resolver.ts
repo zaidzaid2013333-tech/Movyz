@@ -82,7 +82,7 @@ async function getContext(contentType: 'movie' | 'episode', contentId: string): 
   return { tmdbId: series.tmdb_id, title: series.title_en || series.original_title || series.title_ar || '', originalTitle: series.original_title || series.title_en || series.title_ar || '', releaseYear: series.first_air_date ? Number(String(series.first_air_date).slice(0, 4)) : undefined, seasonNumber: season.season_number, episodeNumber: episode.episode_number };
 }
 
-export async function resolvePlaybackSources(contentType: 'movie' | 'episode', contentId: string, excludedProviders: string[] = []) {
+export async function resolvePlaybackSources(contentType: 'movie' | 'episode', contentId: string, excludedProviders: string[] = [], onlyProvider?: string) {
   const context = await getContext(contentType, contentId);
   if (!context) return [];
 
@@ -102,7 +102,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   const usableCached = (cachedSources || []).filter((source: any) => {
     const key = String(source.providers?.key || '').toLowerCase();
     const name = String(source.providers?.name || '').trim().toLowerCase().replace(/\s+/g, '');
-    return !excluded.has(key) && !excluded.has(name) && VALID_TYPES.has(String(source.source_type || '').toLowerCase());
+    return !excluded.has(key) && !excluded.has(name) && (!onlyProvider || key === onlyProvider.toLowerCase()) && VALID_TYPES.has(String(source.source_type || '').toLowerCase());
   });
 
   if (usableCached.length) {
@@ -119,7 +119,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   if (mappingsError) throw new Error('Unable to load provider mappings');
 
   const mappingByProvider = new Map((mappings || []).map((mapping: any) => [mapping.provider_id, mapping]));
-  const orderedProviders = [...(providers || [])].sort((a: any, b: any) => {
+  const orderedProviders = [...(providers || [])].filter((provider: any) => !onlyProvider || String(provider.key).toLowerCase() === onlyProvider.toLowerCase()).sort((a: any, b: any) => {
     const pa = providerPriority(a.key);
     const pb = providerPriority(b.key);
     if (pa !== pb) return pa - pb;
