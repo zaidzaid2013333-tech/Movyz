@@ -1,5 +1,8 @@
 import { adminSupabase } from '../server/supabase';
 import { resolvePlaybackSources } from '../server/providers/resolver';
+import { registerBuiltInProviders } from '../server/providers/bootstrap';
+
+registerBuiltInProviders();
 
 const limit = Math.min(Math.max(Number(process.env.PLAYBACK_LIMIT || 20), 1), 100);
 
