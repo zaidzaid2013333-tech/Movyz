@@ -348,7 +348,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
 
   try {
     // Watch is isolated from the legacy provider resolver.
-    // It serves only direct HLS/MP4/DASH rows already approved in playback_sources.
+    // It serves only direct HLS/MP4/DASH/WEBM rows already approved in playback_sources.
     let contentType: 'movie' | 'episode';
     let contentId: string;
 
@@ -423,7 +423,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     const sources = (rows || [])
       .filter((source: any) => {
         const type = String(source.source_type || '').toLowerCase();
-        if (!['hls', 'mp4', 'dash'].includes(type)) return false;
+        if (!['hls', 'mp4', 'dash', 'webm'].includes(type)) return false;
         if (typeof source.url !== 'string' || !/^https:\/\//i.test(source.url.trim())) return false;
 
         const key = `${type}|${source.url.trim()}`;
