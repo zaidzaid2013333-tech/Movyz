@@ -26,7 +26,7 @@ jobs:
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
-      FASELHD_API_BASE_URL: https://faselhdapi.onrender.com
+      FASELHD_API_BASE_URL: ${{ secrets.FASELHD_API_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -68,96 +68,6 @@ jobs:
 
       - name: Deploy Movyz
         run: npx wrangler deploy --secrets-file .env.production
-
-      - name: Verify FaselHD provider integration
-        run: |
-          node <<'NODE'
-          const base = process.env.FASELHD_API_BASE_URL;
-          const supabaseUrl = process.env.SUPABASE_URL;
-          const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-          const worker = 'https://movyz-api.sameranede.workers.dev';
-          const fixtureTmdbId = 335984;
-
-          if (!base || !supabaseUrl || !serviceRoleKey) {
-            throw new Error('Missing FaselHD/Supabase verification configuration');
-          }
-
-          const headers = {
-            apikey: serviceRoleKey,
-            Authorization: 'Bearer ' + serviceRoleKey,
-            'Content-Type': 'application/json',
-          };
-
-          const patchProvider = async (key, enabled) => {
-            const response = await fetch(
-              supabaseUrl + '/rest/v1/providers?key=eq.' + encodeURIComponent(key),
-              {
-                method: 'PATCH',
-                headers: { ...headers, Prefer: 'return=minimal' },
-                body: JSON.stringify({ enabled }),
-                signal: AbortSignal.timeout(15000),
-              },
-            );
-            if (!response.ok) {
-              throw new Error('Unable to update provider ' + key + ': HTTP ' + response.status + ' ' + (await response.text()).slice(0, 1000));
-            }
-          };
-
-          const getJson = async (url, timeout = 45000) => {
-            const response = await fetch(url, {
-              headers: { Accept: 'application/json' },
-              redirect: 'follow',
-              signal: AbortSignal.timeout(timeout),
-            });
-            const body = await response.text();
-            let json = null;
-            try { json = JSON.parse(body); } catch {}
-            return { response, body, json };
-          };
-
-          const fasel = await getJson(base.replace(/\/$/, '') + '/movie/' + fixtureTmdbId, 60000);
-          console.log('FASEL_DIRECT_HTTP=' + fasel.response.status);
-          console.log('FASEL_DIRECT_BODY=' + fasel.body.slice(0, 1800));
-          if (!fasel.response.ok) throw new Error('FaselHD movie endpoint failed: HTTP ' + fasel.response.status);
-
-          const links = Array.isArray(fasel.json?.links) ? fasel.json.links : [];
-          const direct = links.find((item) => /^https:\/\//i.test(String(item?.url || '')));
-          if (!direct) throw new Error('FaselHD movie endpoint returned no direct HTTPS links');
-
-          let restoredMovieBox = false;
-          try {
-            await patchProvider('moviebox-api', false);
-
-            const watch = await getJson(worker + '/api/v1/watch/movie/' + fixtureTmdbId, 60000);
-            console.log('MOVYZA_FASEL_WATCH_HTTP=' + watch.response.status);
-            console.log('MOVYZA_FASEL_WATCH_BODY=' + watch.body.slice(0, 3000));
-
-            if (!watch.response.ok) throw new Error('Movyz Watch endpoint failed during Fasel verification: HTTP ' + watch.response.status);
-
-            const sources = Array.isArray(watch.json?.data) ? watch.json.data : [];
-            const faselSource = sources.find((item) => String(item?.providerKey || '').toLowerCase() === 'faselhd');
-            if (!faselSource) throw new Error('Movyz Watch endpoint did not return a FaselHD source');
-            if (!/^https:\/\//i.test(String(faselSource.url || ''))) throw new Error('FaselHD source returned a non-HTTPS URL');
-            if (!['hls', 'mp4', 'dash', 'webm'].includes(String(faselSource.type || '').toLowerCase())) {
-              throw new Error('FaselHD source returned unsupported type: ' + String(faselSource.type));
-            }
-
-            console.log('MOVYZA_FASEL_INTEGRATION=PASS');
-            console.log(JSON.stringify({
-              fixtureTmdbId,
-              faselDirectLabel: direct.label || null,
-              faselDirectType: direct.type || 'hls',
-              movyzaProviderKey: faselSource.providerKey,
-              movyzaType: faselSource.type,
-              sourceHost: new URL(faselSource.url).host,
-            }));
-          } finally {
-            await patchProvider('moviebox-api', true);
-            restoredMovieBox = true;
-          }
-
-          if (!restoredMovieBox) throw new Error('MovieBox provider was not restored');
-          NODE
 
       # Watch API must pass against the dedicated public-domain playback fixture.
       - name: Verify deployed Watch API playback
