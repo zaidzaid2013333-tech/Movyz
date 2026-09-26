@@ -34,6 +34,15 @@ interface VideoPlayerProps {
 
 type StreamType = 'hls' | 'mp4' | 'dash' | 'webm';
 
+type SubtitleTrack = {
+  url: string;
+  type: 'vtt' | 'srt';
+  language: string;
+  label: string;
+  labelEn: string;
+  default?: boolean;
+};
+
 type PlaybackSource = {
   id: string;
   url: string;
@@ -41,12 +50,12 @@ type PlaybackSource = {
   quality: string;
   language: string;
   label: string;
+  labelEn?: string;
   provider: string;
   providerKey?: string;
+  providerReference?: string;
+  subtitleTracks?: SubtitleTrack[];
 };
-
-const WIKIMEDIA_NLOTD_SUBTITLE_URL =
-  'https://commons.wikimedia.org/w/api.php?action=timedtext&title=File%3ANight_of_the_Living_Dead_%281968%29.webm&lang=ar&trackformat=vtt&origin=*';
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   contentId,
@@ -77,13 +86,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const isMovie = contentType === 'movie';
   const safeTmdbId = Number(tmdbId || 0);
 
-  const subtitleEnabled = useMemo(
-    () =>
-      isMovie &&
-      safeTmdbId === 10331 &&
-      sources.some((source) => source.url.includes('upload.wikimedia.org') && source.url.includes('Night_of_the_Living_Dead')),
-    [isMovie, safeTmdbId, sources],
+  const currentSource = useMemo(
+    () => sources.find((source) => source.id === selectedSourceId),
+    [selectedSourceId, sources],
   );
+
+  const subtitleTracks = currentSource?.subtitleTracks || [];
+  const subtitleEnabled = subtitleTracks.length > 0;
 
   const currentLabel = useMemo(() => {
     const source = sources.find((item) => item.id === selectedSourceId);
@@ -249,6 +258,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             label: source.label || source.provider || 'Source',
             provider: source.provider || 'Provider',
             providerKey: source.providerKey,
+            providerReference: source.providerReference,
+            subtitleTracks: Array.isArray(source.subtitleTracks)
+              ? source.subtitleTracks.filter((track) => Boolean(track?.url)).map((track) => ({
+                  url: track.url,
+                  type: track.type === 'srt' ? 'srt' : 'vtt',
+                  language: track.language || 'und',
+                  label: track.label || track.labelEn || 'Subtitles',
+                  labelEn: track.labelEn || track.label || 'Subtitles',
+                  default: track.default === true,
+                }))
+              : [],
           }));
 
         if (!normalized.length) {
@@ -373,17 +393,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
           >
             <MediaProvider>
-              {subtitleEnabled && (
+              {subtitleTracks.map((track) => (
                 <Track
-                  src={WIKIMEDIA_NLOTD_SUBTITLE_URL}
+                  key={`${selectedSourceId}-${track.language}-${track.url}`}
+                  src={track.url}
                   kind="subtitles"
-                  label="العربية"
-                  lang="ar"
-                  language="ar"
-                  type="vtt"
-                  default
+                  label={track.label}
+                  lang={track.language}
+                  language={track.language}
+                  type={track.type}
+                  default={track.default}
                 />
-              )}
+              ))}
             </MediaProvider>
             <DefaultVideoLayout
               colorScheme="dark"
@@ -518,11 +539,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <div className="mt-1 text-[10px] text-emerald-100/65">
                 {subtitleEnabled
                   ? (language === 'ar'
-                    ? 'مسار WebVTT مرتبط بنفس ملف الفيلم، ويمكن إيقافه من زر CC.'
-                    : 'A WebVTT track tied to the same film file; toggle it from CC.')
+                    ? 'مسار ترجمة مرتبط بمصدر التشغيل نفسه ويُعرض داخل المشغل من زر CC.'
+                    : 'A subtitle track attached to the selected playback source and available from CC.')
                   : (language === 'ar'
-                    ? 'الترجمة ليست مرتبطة بمصادر لا تملك مسارًا موثوقًا لها.'
-                    : 'No subtitle track is attached to this source.')}
+                    ? 'لا يوجد مسار ترجمة موثوق مرتبط بهذا المصدر.'
+                    : 'No trusted subtitle track is attached to this source.')}
               </div>
             </div>
           </div>
