@@ -57,6 +57,8 @@ jobs:
             printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_ANON_KEY"
             printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
             printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
+            printf 'MOVIEBOX_API_BASE_URL=%s\n' 'https://movyz-moviebox.sameranede.workers.dev'
+            printf 'MOVIEBOX_PROXY_PLAYBACK=%s\n' 'true'
           } > .env.production
 
       - name: Deploy Movyz
