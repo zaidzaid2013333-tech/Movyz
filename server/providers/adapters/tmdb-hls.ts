@@ -117,3 +117,107 @@ export function createNhdApiAdapter() {
     healthUrl: process.env.NHD_HEALTH_URL || undefined,
   });
 }
+
+export function createStreamFlixAdapter() {
+  const timeoutMs = Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000);
+  const apiBase = 'https://api.streamflix.app';
+  const firebaseBase = 'https://chilflix-410be-default-rtdb.asia-southeast1.firebasedatabase.app';
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/137 Safari/537.36',
+    Accept: 'application/json, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+  };
+  let dataCache: { items: any[]; expiresAt: number } | null = null;
+  let configCache: { config: any; expiresAt: number } | null = null;
+
+  const getData = async () => {
+    if (dataCache && dataCache.expiresAt > Date.now()) return dataCache.items;
+    const response = await fetch(`${apiBase}/data.json`, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    if (!response.ok) throw new Error(`StreamFlix data.json returned ${response.status}`);
+    const payload = await response.json() as any;
+    const items = Array.isArray(payload?.data) ? payload.data : [];
+    dataCache = { items, expiresAt: Date.now() + 30 * 60 * 1000 };
+    return items;
+  };
+
+  const getConfig = async () => {
+    if (configCache && configCache.expiresAt > Date.now()) return configCache.config;
+    const response = await fetch(`${apiBase}/config/config-streamflixapp.json`, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    if (!response.ok) throw new Error(`StreamFlix config returned ${response.status}`);
+    const config = await response.json() as any;
+    configCache = { config, expiresAt: Date.now() + 5 * 60 * 1000 };
+    return config;
+  };
+
+  const resolve = async (context: ProviderContext, kind: 'movie' | 'episode'): Promise<NormalizedPlaybackSource[]> => {
+    if (!context.tmdbId) return [];
+    const [items, config] = await Promise.all([getData(), getConfig()]);
+    const match = items.find((item: any) => String(item?.tmdb) === String(context.tmdbId));
+    if (!match) return [];
+
+    const bases = [...new Set((Array.isArray(config?.download) ? config.download : []).filter((value: unknown): value is string => typeof value === 'string' && value.startsWith('https://')))];
+    if (!bases.length) return [];
+
+    if (kind === 'movie') {
+      if (!match.movielink) return [];
+      return bases.map((base, index) => {
+        const url = `${base}${match.movielink}`;
+        return {
+          provider: 'streamflix',
+          type: inferPlaybackType(url) || 'mp4',
+          url,
+          providerReference: String(context.tmdbId),
+          quality: inferQuality('', url),
+          language: 'und',
+          label: `StreamFlix${index ? ` Mirror ${index + 1}` : ''}`,
+        };
+      });
+    }
+
+    if (context.seasonNumber == null || context.episodeNumber == null || !match.moviekey) return [];
+
+    const episodeIndex = context.episodeNumber - 1;
+    const episodeUrl = `${firebaseBase}/Data/${encodeURIComponent(String(match.moviekey))}/seasons/${encodeURIComponent(String(context.seasonNumber))}/episodes.json`;
+    const episodeResponse = await fetch(episodeUrl, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    if (!episodeResponse.ok) throw new Error(`StreamFlix episodes returned ${episodeResponse.status}`);
+    const episodes = await episodeResponse.json() as Record<string, any>;
+    const episode = episodes[String(episodeIndex)] ?? episodes[String(context.episodeNumber)];
+    if (!episode?.link) return [];
+
+    return bases.map((base, index) => {
+      const url = `${base}${episode.link}`;
+      return {
+        provider: 'streamflix',
+        type: inferPlaybackType(url) || 'mp4',
+        url,
+        providerReference: `${context.tmdbId}:${context.seasonNumber}:${context.episodeNumber}`,
+        quality: inferQuality('', url),
+        language: 'und',
+        label: `StreamFlix${index ? ` Mirror ${index + 1}` : ''}`,
+      };
+    });
+  };
+
+  return {
+    key: 'streamflix',
+    name: 'StreamFlix',
+    enabled: true,
+    requiresMapping: false,
+    resolveMovie: (context: ProviderContext) => resolve(context, 'movie'),
+    resolveEpisode: (context: ProviderContext) => resolve(context, 'episode'),
+    health: async () => {
+      const started = Date.now();
+      try {
+        await getData();
+        const latencyMs = Date.now() - started;
+        return { status: latencyMs < 4_000 ? 'healthy' as const : 'degraded' as const, latencyMs };
+      } catch (error) {
+        return {
+          status: 'offline' as const,
+          latencyMs: Date.now() - started,
+          message: error instanceof Error ? error.message : 'StreamFlix health check failed',
+        };
+      }
+    },
+  };
+}
