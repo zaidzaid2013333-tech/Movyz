@@ -10,7 +10,13 @@ type SearchItem = { title?: string; name?: string; slug?: string; detailPath?: s
 function env(name: string, fallback = '') { return String(process.env[name] || fallback).trim(); }
 
 function normalizeTitle(value: unknown) {
-  return String(value || '').toLowerCase().replace(/&/g, ' and ').replace(/[\\[\\]().,:;!?\"']/g, ' ').replace(/[^a-z0-9\\s]/g, ' ').replace(/\\s+/g, ' ').trim();
+  return String(value || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[\[\]().,:;!?"']/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function titleScore(query: string, candidate: string) {
@@ -26,7 +32,7 @@ function titleScore(query: string, candidate: string) {
 }
 
 function yearOf(item: SearchItem) {
-  const match = String(item.releaseDate ?? item.year ?? '').match(/(19|20)\\d{2}/);
+  const match = String(item.releaseDate ?? item.year ?? '').match(/(19|20)\d{2}/);
   return match ? Number(match[0]) : 0;
 }
 
@@ -127,7 +133,7 @@ export function createMovieBoxApiAdapter(): ProviderAdapter {
     const episode = kind === 'episode' ? Number(context.episodeNumber || 0) : 0;
     const streams = baseUrl ? await fetchStreamsViaMovieBoxApi(baseUrl, subjectId, match.slug, season, episode, timeoutMs) : await fetchStreamsViaH5(subjectId, match.slug, season, episode, timeoutMs);
     return streams.flatMap((stream: any, index: number): NormalizedPlaybackSource[] => {
-      const url = typeof stream?.url === 'string' ? stream.url.trim() : ''; if (!url || !/^https:\\/\\//i.test(url)) return [];
+      const url = typeof stream?.url === 'string' ? stream.url.trim() : ''; if (!url || !/^https:\/\//i.test(url)) return [];
       const type = inferPlaybackType(url, stream?.format || stream?.type); if (!type) return [];
       const quality = stream?.resolutions ? String(stream.resolutions) + 'p' : inferQuality(stream?.label || '', url);
       return [{ provider: 'moviebox-api', type, url, providerReference: subjectId + ':' + match.slug + ':' + season + ':' + episode + ':' + String(stream?.id ?? index), quality: quality || 'auto', language: typeof stream?.language === 'string' ? stream.language : 'und', label: quality && quality !== 'auto' ? 'MovieBox ' + quality : 'MovieBox' }];
