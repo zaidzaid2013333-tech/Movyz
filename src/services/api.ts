@@ -86,6 +86,11 @@ export const MovyzaApi = {
       cast: { name: string; nameEn: string; worksCount: number; avatarUrl: string }[];
     }>(`/search?q=${encodeURIComponent(search)}`),
 
+  resolveEzvidApi: (params: { type: 'movie' | 'episode'; tmdbId: number; season?: number; episode?: number }) =>
+    request<{ stream_url: string; type: string; quality: string; language: string; provider: string }>(
+      `/playback/ezvidapi${query(params)}`,
+    ),
+
   getGenres: () => request<Genre[]>('/genres'),
 
   getWatchlist: () => request<WatchlistItem[]>('/watchlist'),
