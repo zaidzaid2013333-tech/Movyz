@@ -3,7 +3,6 @@ import {
   MediaPlayer,
   MediaProvider,
   isVideoProvider,
-  type MediaPlayerInstance,
 } from '@vidstack/react';
 import {
   defaultLayoutIcons,
@@ -64,7 +63,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   currentEpisode,
 }) => {
   const { language } = useLanguage();
-  const playerRef = useRef<MediaPlayerInstance | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const failedSourceIdsRef = useRef<Set<string>>(new Set());
   const lastSavedAtRef = useRef(0);
@@ -348,12 +346,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           />
         ) : playerSource ? (
           <MediaPlayer
-            ref={playerRef}
             className="movyza-player absolute inset-0 h-full w-full"
             title={isMovie ? title : titleEn || title}
             src={playerSource}
             playsInline
-            crossorigin="anonymous"
+            crossOrigin="anonymous"
             onProviderSetup={(provider) => {
               if (isVideoProvider(provider)) {
                 videoRef.current = provider.video;
