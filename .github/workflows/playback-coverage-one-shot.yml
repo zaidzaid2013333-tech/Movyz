@@ -22,7 +22,7 @@ jobs:
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       MOVYZA_PROVIDER_TIMEOUT_MS: "6000"
       COVERAGE_PAGES: "3"
-      COVERAGE_LIMIT: "120"
+      COVERAGE_LIMIT: "60"
       COVERAGE_CONCURRENCY: "5"
     steps:
       - uses: actions/checkout@v4
