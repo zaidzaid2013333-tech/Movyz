@@ -26,6 +26,7 @@ jobs:
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      FASELHD_API_BASE_URL: https://faselhdapi.onrender.com
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +63,7 @@ jobs:
             printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_ANON_KEY"
             printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
             printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
+            printf 'FASELHD_API_BASE_URL=%s\n' "$FASELHD_API_BASE_URL"
           } > .env.production
 
       - name: Deploy Movyz
