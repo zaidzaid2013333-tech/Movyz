@@ -76,6 +76,47 @@ export function createTmdbHlsAdapter(config: TmdbHlsConfig): ProviderAdapter {
 
 const timeoutMs = Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000);
 
+export function createVidZeeAdapter() {
+  const timeout = Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000);
+  const baseUrl = process.env.VIDZEE_API_BASE_URL || 'https://core.vidzee.wtf';
+  const headers = { 'User-Agent': 'Mozilla/5.0 (compatible; Movyz/1.0)', Accept: 'application/json, */*', Referer: process.env.VIDZEE_REFERER || 'https://player.vidzee.wtf/' };
+  const resolve = async (context: ProviderContext, kind: 'movie' | 'episode'): Promise<NormalizedPlaybackSource[]> => {
+    if (!context.tmdbId) return [];
+    const path = kind === 'movie'
+      ? `/streams/movie/${encodeURIComponent(String(context.tmdbId))}?e=0`
+      : context.seasonNumber != null && context.episodeNumber != null
+        ? `/streams/tv/${encodeURIComponent(String(context.tmdbId))}/${encodeURIComponent(String(context.seasonNumber))}/${encodeURIComponent(String(context.episodeNumber))}?e=0`
+        : null;
+    if (!path) return [];
+    const response = await fetch(`${baseUrl.replace(/\\/$/, '')}${path}`, { headers, signal: AbortSignal.timeout(timeout) });
+    if (!response.ok) throw new Error(`VidZee returned ${response.status}`);
+    const payload = await response.json() as any;
+    const candidates = Array.isArray(payload) ? payload : [payload];
+    return candidates.flatMap((item: any): NormalizedPlaybackSource[] => {
+      const url = typeof item?.url === 'string' ? item.url.trim() : '';
+      const type = inferPlaybackType(url, item?.type);
+      if (!/^https?:\\/\\//i.test(url) || !type) return [];
+      return [{ provider: 'vidzee', type, url, providerReference: `${context.tmdbId}:${kind}${kind === 'episode' ? `:${context.seasonNumber}:${context.episodeNumber}` : ''}`, quality: inferQuality(item?.quality || item?.label || '', url), language: typeof item?.language === 'string' ? item.language : 'und', label: item?.quality || item?.label || 'VidZee' }];
+    });
+  };
+  return {
+    key: 'vidzee', name: 'VidZee', enabled: true, requiresMapping: false,
+    resolveMovie: (context: ProviderContext) => resolve(context, 'movie'),
+    resolveEpisode: (context: ProviderContext) => resolve(context, 'episode'),
+    health: async () => {
+      const started = Date.now();
+      try {
+        const response = await fetch(`${baseUrl.replace(/\\/$/, '')}/streams/movie/550?e=0`, { headers, signal: AbortSignal.timeout(Math.min(timeout, 5_000)) });
+        if (!response.ok) throw new Error(`VidZee health returned ${response.status}`);
+        const payload = await response.json() as any;
+        if (!payload?.url) throw new Error('VidZee health returned no stream URL');
+        const latencyMs = Date.now() - started;
+        return { status: latencyMs < 2_500 ? 'healthy' as const : 'degraded' as const, latencyMs };
+      } catch (error) { return { status: 'offline' as const, latencyMs: Date.now() - started, message: error instanceof Error ? error.message : 'VidZee health check failed' }; }
+    },
+  };
+}
+
 export function createEzvidApiAdapter() {
   return createTmdbHlsAdapter({
     key: 'ezvidapi',
