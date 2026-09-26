@@ -151,7 +151,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
       }> = [];
 
       for (const source of rawSources || []) {
-        const url = normalizeUrl(source.url);
+        const url = normalizeUrl(source.url, provider.key);
         if (!url || !VALID_TYPES.has(source.type)) continue;
         if (source.expiresAt && Number.isFinite(Date.parse(source.expiresAt)) && new Date(source.expiresAt) <= new Date()) continue;
 
