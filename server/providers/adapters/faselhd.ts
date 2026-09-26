@@ -79,7 +79,7 @@ async function resolveWithBrowser(context: ProviderContext, kind: 'movie' | 'epi
     page = await browser.newPage();
     const captured = new Set<string>();
     const capture = (url: string) => {
-      if (/^https:///i.test(url) && /.(?:m3u8|mp4)(?:[?#]|$)/i.test(url)) captured.add(url);
+      if (/^https:\/\//i.test(url) && /\.(?:m3u8|mp4)(?:[?#]|$)/i.test(url)) captured.add(url);
     };
 
     page.on('request', (request: any) => capture(request.url()));
@@ -109,7 +109,7 @@ async function resolveWithBrowser(context: ProviderContext, kind: 'movie' | 'epi
             scoreTitle(item.title, query),
             scoreTitle(item.title, context.originalTitle || query),
           );
-          const episodeLike = //episodes?//i.test(item.url);
+          const episodeLike = /\/episodes?\//i.test(item.url);
           if (kind === 'episode' && episodeLike) score += 100;
           if (kind === 'movie' && episodeLike) score -= 150;
           if (score > bestScore) {
