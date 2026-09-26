@@ -6,22 +6,20 @@ Arabic-first movie and series platform.
 
 Browser UI -> Movyz API -> Supabase/PostgreSQL
                          -> TMDB metadata sync
-                         -> YapGrid embedded playback
+                         -> VidLux embedded playback
 
 TMDB remains the catalog and metadata source. Video playback is handled by the YapGrid embed player using the stored TMDB id; the Movyz backend does not resolve MovieBox, H5, Render, HLS, DASH, MP4, or provider playback URLs.
 
 ## Playback
 
-YapGrid is used for both movies and TV episodes:
+VidLux is used for both movies and TV episodes:
 
-- Movies: `https://yapgrid.com/embed/movie/{tmdb_id}`
-- TV: `https://yapgrid.com/embed/tv/{tmdb_id}/{season}/{episode}`
-- `lang=ar` requests Arabic as the default subtitle language.
-- `server=x|y|z` selects the initial YapGrid server.
-- YapGrid provides its own in-player server switching, quality controls, subtitles, and fullscreen controls.
-- External `.srt` / `.vtt` subtitles can be attached with YapGrid's documented `sub_url` parameters when a title needs a specific track.
-
-Subtitle availability still depends on the selected title/source.
+- Movies: `https://vidlux.xyz/embed/movie/{tmdb_id}`
+- TV: `https://vidlux.xyz/embed/tv/{tmdb_id}/{season}/{episode}`
+- VidLux provides multiple streaming sources with automatic fallback.
+- The player supports multi-language subtitles, including Arabic according to the provider's published feature description.
+- Ads/source behavior is controlled by VidLux; its published community listing claims minimal popup ads, but this is not an official SLA and must be monitored in production.
+- No server parameter is fabricated in our code; source switching is left to the provider's player.
 
 ## Local development
 
