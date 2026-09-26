@@ -17,5 +17,10 @@
       "SUPABASE_SERVICE_ROLE_KEY",
       "TMDB_API_READ_ACCESS_TOKEN"
     ]
+  },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
   }
 }
