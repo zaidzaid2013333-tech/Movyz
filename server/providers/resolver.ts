@@ -7,10 +7,11 @@ const VALID_TYPES = new Set(['hls', 'mp4', 'dash']);
 export const PROVIDER_PRIORITY: Record<string, number> = {
   // Primary order: FaselHD → EzVid → StreamProvider.
   // Credential-dependent providers are intentionally excluded.
-  faselhd: 0,
-  streamflix: 1,
-  ezvidapi: 2,
-  streamprovider: 3,
+  vidzee: 0,
+  faselhd: 1,
+  streamflix: 2,
+  ezvidapi: 3,
+  streamprovider: 4,
 };
 
 function providerPriority(key: string) {
