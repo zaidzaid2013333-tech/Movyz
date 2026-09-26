@@ -649,7 +649,10 @@ async function handleRankingSectionByName(name) {
 }
 
 async function fetchSupabaseMovieBox(path, query = new URLSearchParams()) {
-  const target = new URL(path, SUPABASE_MOVIEBOX_URL + "/");
+  const normalizedPath = String(path).replace(/^\/+/, "");
+  const target = new URL(
+    SUPABASE_MOVIEBOX_URL + "/" + normalizedPath,
+  );
   for (const [key, value] of query.entries()) target.searchParams.set(key, value);
 
   const response = await fetch(target.toString(), {
