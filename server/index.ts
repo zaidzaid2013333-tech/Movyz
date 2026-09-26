@@ -500,7 +500,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
         providerReference: source.provider_reference || undefined,
         subtitleTracks: source.subtitle_url
           ? [{
-              url: \`${api}/subtitles/proxy?url=${encodeURIComponent(source.subtitle_url)}\`,
+              url: `${api}/subtitles/proxy?url=${encodeURIComponent(source.subtitle_url)}`,
               type: String(source.subtitle_type || 'vtt').toLowerCase(),
               language: source.subtitle_language || 'und',
               label: source.subtitle_label_ar || source.subtitle_label_en || 'Subtitles',
