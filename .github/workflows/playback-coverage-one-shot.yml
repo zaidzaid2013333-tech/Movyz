@@ -1,0 +1,44 @@
+name: Movyz Playback Coverage — One Shot
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-playback-coverage-one-shot
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      MOVYZA_PROVIDER_TIMEOUT_MS: "6000"
+      COVERAGE_PAGES: "3"
+      COVERAGE_LIMIT: "120"
+      COVERAGE_CONCURRENCY: "5"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: |
+          npm config set audit false
+          npm config set fund false
+          npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Validate secrets
+        run: |
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_ANON_KEY"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+          test -n "$TMDB_API_READ_ACCESS_TOKEN"
+      - name: Discover and cache playable movies
+        run: npx tsx scripts/discover-playback.ts
