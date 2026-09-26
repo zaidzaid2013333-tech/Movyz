@@ -3,7 +3,7 @@ import { getProvider } from './registry';
 import { resolveUniversalSource } from './universal-resolver';
 import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
-const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'embed']);
+const VALID_TYPES = new Set(['hls', 'mp4', 'dash']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
   streamprovider: 1,
