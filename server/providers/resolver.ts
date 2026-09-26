@@ -104,7 +104,8 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   const excluded = new Set(excludedProviders.map((value) => value.trim().toLowerCase()).filter(Boolean));
   const timeoutMs = Math.max(2_000, Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000));
 
-  // Resolve every enabled provider so the player can offer multiple source choices.
+  // Resolve providers in priority order and stop on the first usable provider.
+  // MovieBox has priority 0, so it is always attempted first and wins when healthy.
   const allResolvedSources: any[] = [];
   for (const provider of orderedProviders) {
     if (excluded.has(provider.key.toLowerCase()) || excluded.has(String(provider.name || '').trim().toLowerCase().replace(/\s+/g, ''))) continue;
@@ -196,6 +197,10 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
       }
 
       allResolvedSources.push(...(persistedSources || []).map(sourceDto));
+
+      // Do not waterfall into other providers after a successful provider.
+      // This keeps MovieBox primary and avoids unnecessary provider calls/timeouts.
+      break;
     } catch {
       await adminSupabase.from('providers').update({
         status: 'degraded',

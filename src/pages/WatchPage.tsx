@@ -61,7 +61,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         const movie = movieRes.value.data.movie;
         setContent(movie);
         try {
-          const sourceRes = await MovyzaApi.getWatchSources(movie.id);
+          let sourceRes = await MovyzaApi.getWatchSources(movie.id);
+          // One explicit refresh only when the cached/first attempt returned no source.
+          if (!sourceRes.data.length) {
+            sourceRes = await MovyzaApi.getWatchSources(movie.id, undefined, { refresh: true });
+          }
           setSources(sourceRes.data);
         } catch {
           setSources([]);
@@ -81,7 +85,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setCurrentEpisode(episode);
         if (episode) {
           try {
-            const sourceRes = await MovyzaApi.getWatchSources(series.id, episode.id);
+            let sourceRes = await MovyzaApi.getWatchSources(series.id, episode.id);
+            // One explicit refresh only when the cached/first attempt returned no source.
+            if (!sourceRes.data.length) {
+              sourceRes = await MovyzaApi.getWatchSources(series.id, episode.id, { refresh: true });
+            }
             setSources(sourceRes.data);
           } catch {
             setSources([]);
