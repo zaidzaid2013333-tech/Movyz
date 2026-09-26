@@ -114,9 +114,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
 
       if (data.type === 'vidrift:nextup-play' && onSelectEpisode && contentType === 'series') {
-        const nextSeason = Number(data.season || seasonNumber || 1);
-        const nextEpisode = Number(data.episode || 0);
-        if (nextEpisode > 0) onSelectEpisode(nextSeason, nextEpisode);
+        const finishedSeason = Number(data.season || seasonNumber || 1);
+        const finishedEpisode = Number(data.episode || episodeNumber || 0);
+        const nextSeason = allSeasons?.find((item) => item.seasonNumber === finishedSeason);
+        const hasNextInSeason = nextSeason?.episodes.some((episode) => episode.episodeNumber === finishedEpisode + 1);
+        if (hasNextInSeason) {
+          onSelectEpisode(finishedSeason, finishedEpisode + 1);
+          return;
+        }
+        const followingSeason = allSeasons
+          ?.filter((item) => item.seasonNumber > finishedSeason)
+          .sort((a, b) => a.seasonNumber - b.seasonNumber)[0];
+        if (followingSeason?.episodes.length) {
+          onSelectEpisode(followingSeason.seasonNumber, followingSeason.episodes[0].episodeNumber);
+        }
       }
     };
 
