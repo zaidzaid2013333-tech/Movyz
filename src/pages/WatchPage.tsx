@@ -74,8 +74,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setCurrentEpisode(episode);
         if (episode) {
           // VidRift resolves playback from the series TMDB id and episode numbers.
-        } else {
-          setSources([]);
         }
         setLoading(false);
       } else {
