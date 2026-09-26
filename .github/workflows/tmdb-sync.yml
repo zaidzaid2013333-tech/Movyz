@@ -1,6 +1,8 @@
 name: Movyz TMDB Sync — Hardened
 
 on:
+  push:
+    branches: ["main"]
   schedule:
     # Daily catalog + episode synchronization. GitHub Actions is the scheduler;
     # the database remains the source of truth.
