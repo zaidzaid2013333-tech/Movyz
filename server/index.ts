@@ -485,7 +485,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
 
     if (sourceError) throw sourceError;
 
-    const requestOrigin = `${req.protocol || 'https'}://${req.get('host')}`;
+    const requestOrigin = new URL(req.url).origin;
     const subtitleProxyBase = new URL(`${api}/subtitles/proxy`, requestOrigin).toString();
 
     const seen = new Set<string>();
