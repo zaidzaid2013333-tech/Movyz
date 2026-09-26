@@ -138,7 +138,7 @@ async function readCachedH5AuthToken() {
 
 async function bootstrapH5AuthToken() {
   const response = await fetch(
-    `${H5_API}/wefeed-h5api-bff/app/get-latest-app-pkgs?appName=moviebox`,
+    `${H5_API}/wefeed-h5api-bff/app/get-latest-app-pkgs?appName=moviebox&packageName=com.community.oneroom&channelType=CHANNEL_OWN`,
     {
       headers: {
         Accept: "application/json",
