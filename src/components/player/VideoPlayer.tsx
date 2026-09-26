@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Settings2, Subtitles } from 'lucide-react';
 import { Episode, Season, ContentType } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
@@ -39,6 +39,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 }) => {
   const { language } = useLanguage();
   const [selectedServer, setSelectedServer] = useState<ServerId>('x');
+  const [iframeLoaded, setIframeLoaded] = useState(false);
+
+  useEffect(() => {
+    setIframeLoaded(false);
+  }, [embedUrl]);
 
   const isMovie = contentType === 'movie';
   const safeTmdbId = Number(tmdbId || 0);
@@ -71,7 +76,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   return (
     <div className="relative w-full bg-black overflow-visible" dir="rtl">
+      <link rel="preconnect" href={YAPGRID_ORIGIN} />
+      <link rel="dns-prefetch" href={YAPGRID_ORIGIN} />
       <div className="relative w-full aspect-video overflow-hidden">
+        {!iframeLoaded && (
+          <div className="absolute inset-0 z-[1] flex items-center justify-center bg-black" aria-hidden="true">
+            <div className="flex flex-col items-center gap-3 text-slate-400">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-amber-300" />
+              <span className="text-xs">جاري تشغيل المصدر…</span>
+            </div>
+          </div>
+        )}
         <iframe
           key={embedUrl}
           src={embedUrl}
@@ -79,6 +94,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           allow="autoplay; fullscreen; picture-in-picture"
           allowFullScreen
           referrerPolicy="strict-origin-when-cross-origin"
+          loading="eager"
+          onLoad={() => setIframeLoaded(true)}
           className="absolute inset-0 w-full h-full border-0 bg-black"
         />
         <div className="pointer-events-none absolute top-3 start-3 z-10 flex items-center gap-2">
