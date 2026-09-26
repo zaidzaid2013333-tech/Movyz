@@ -93,7 +93,8 @@ function md5Hex(value) {
 }
 
 async function generateClientToken() {
-  const timestamp = String(Date.now());
+  // MovieBox web currently signs the current Unix timestamp in seconds.
+  const timestamp = String(Math.floor(Date.now() / 1000));
   const reversed = timestamp.split("").reverse().join("");
   return `${timestamp},${await md5Hex(reversed)}`;
 }
@@ -137,10 +138,11 @@ async function readCachedH5AuthToken() {
 
 async function bootstrapH5AuthToken() {
   const response = await fetch(
-    `${H5_API}/wefeed-h5api-bff/home?host=moviebox.pk`,
+    `${H5_API}/wefeed-h5api-bff/app/get-latest-app-pkgs?appName=moviebox`,
     {
       headers: {
         Accept: "application/json",
+        "Content-Type": "application/json;charset=UTF-8",
         Origin: BASE_URL,
         Referer: `${BASE_URL}/`,
         "User-Agent": UA,
