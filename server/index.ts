@@ -580,6 +580,12 @@ app.get(`${api}/history`, requireAuth, asyncRoute(async (req: AuthenticatedReque
       positionSeconds: x.position_seconds, durationSeconds: x.duration_seconds, percentage: x.duration_seconds ? Math.floor((x.position_seconds / x.duration_seconds) * 100) : 0, lastWatchedAt: x.updated_at, completed: x.completed };
   }));
 }));
+app.delete(`${api}/history`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {
+  const { error } = await req.supabase!.from('watch_history').delete().eq('user_id', req.userId!);
+  if (error) return fail(res, 500, 'HISTORY_DELETE_FAILED', 'Unable to clear history');
+  return ok(res, { cleared: true });
+}));
+
 app.get(`${api}/watch/:id/progress`, requireAuth, asyncRoute(async (req: AuthenticatedRequest, res) => {
   const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : null;
   const contentType = episodeId ? 'episode' : 'movie'; const contentId = episodeId || req.params.id;
