@@ -1,6 +1,13 @@
 -- Provider hardening and playback-source deduplication.
 -- Safe to apply after the initial Movyz migrations.
 
+create or replace function public.set_updated_at()
+returns trigger language plpgsql as $
+begin
+  new.updated_at = now();
+  return new;
+end $;
+
 alter table public.providers
   add column if not exists updated_at timestamptz not null default now();
 
