@@ -521,10 +521,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         />
         <div className="pointer-events-none absolute top-3 left-3 right-3 flex justify-between items-center">
           <span className="rounded-full bg-black/70 backdrop-blur px-2.5 py-1 text-[10px] font-semibold text-white border border-white/10">
-            VidZee
+            {activeSource.provider || 'External source'}
           </span>
           <span className="rounded-full bg-black/55 backdrop-blur px-2.5 py-1 text-[10px] text-slate-300 border border-white/10">
-            {language === 'ar' ? 'مشغل خارجي آمن' : 'Provider player'}
+            {language === 'ar' ? 'مشغل المصدر الخارجي' : 'External provider player'}
           </span>
         </div>
       </div>
