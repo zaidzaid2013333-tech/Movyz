@@ -6,9 +6,22 @@ Arabic-first movie and series platform.
 
 Browser UI -> Movyz API -> Supabase/PostgreSQL
                          -> TMDB metadata sync
-                         -> VidRift embedded playback
+                         -> YapGrid embedded playback
 
-TMDB remains the catalog and metadata source. Video playback is handled by the VidRift embed player using the stored TMDB id; the Movyz backend no longer resolves MovieBox, HLS, DASH, MP4, or provider playback URLs.
+TMDB remains the catalog and metadata source. Video playback is handled by the YapGrid embed player using the stored TMDB id; the Movyz backend does not resolve MovieBox, H5, Render, HLS, DASH, MP4, or provider playback URLs.
+
+## Playback
+
+YapGrid is used for both movies and TV episodes:
+
+- Movies: `https://yapgrid.com/embed/movie/{tmdb_id}`
+- TV: `https://yapgrid.com/embed/tv/{tmdb_id}/{season}/{episode}`
+- `lang=ar` requests Arabic as the default subtitle language.
+- `server=x|y|z` selects the initial YapGrid server.
+- YapGrid provides its own in-player server switching, quality controls, subtitles, and fullscreen controls.
+- External `.srt` / `.vtt` subtitles can be attached with YapGrid's documented `sub_url` parameters when a title needs a specific track.
+
+Subtitle availability still depends on the selected title/source.
 
 ## Local development
 
@@ -34,14 +47,7 @@ update public.profiles set role = 'OWNER' where id = '<AUTH_USER_UUID>';
 
 TMDB is used for metadata only. Add `TMDB_API_READ_ACCESS_TOKEN` to the server environment. The admin sync endpoint imports localized catalog metadata and season metadata.
 
-TMDB does not provide the playback itself. Movyza passes the title's public TMDB id to VidRift for embedded playback.
-
-## VidRift playback
-
-- Movies: `https://embed.vidrift.net/embed/movie/{tmdb_id}`
-- TV: `https://embed.vidrift.net/embed/tv/{tmdb_id}/{season}/{episode}`
-- No API key or signup is required by VidRift's current public documentation.
-- The player carries the provider's public-embed advertising and source selection.
+TMDB does not provide the playback itself. Movyza passes the title's public TMDB id to YapGrid for embedded playback.
 
 ## Production rules
 
