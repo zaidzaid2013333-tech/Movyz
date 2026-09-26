@@ -25,7 +25,31 @@ app.use(cors({
     callback(new Error('Origin not allowed'));
   },
 }));
-app.use(express.json({ limit: '1mb' }));
+app.use(async (req, res, next) => {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  const contentType = req.headers['content-type'] || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    req.body = {};
+    return next();
+  }
+
+  try {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      const size = chunks.reduce((total, part) => total + part.length, 0);
+      if (size > 1024 * 1024) {
+        return fail(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds 1MB');
+      }
+    }
+
+    const raw = Buffer.concat(chunks).toString('utf8').trim();
+    req.body = raw ? JSON.parse(raw) : {};
+    return next();
+  } catch {
+    return fail(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
+  }
+});
 
 const catalogQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
