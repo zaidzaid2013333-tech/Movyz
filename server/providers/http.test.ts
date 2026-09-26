@@ -30,7 +30,7 @@ test('extracts nested source arrays used by provider APIs', () => {
   });
 
   assert.equal(result.length, 2);
-  assert.equal(result[0].quality, undefined);
+  assert.equal(result[0].quality, '1080p');
   assert.equal(result[0].label, '1080p');
 });
 
