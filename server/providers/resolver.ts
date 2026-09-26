@@ -123,6 +123,8 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
 
   if (cachedSourcesError) throw new Error('Unable to load cached playback sources');
 
+  const timeoutMs = Math.max(2_000, Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000));
+
   const usableCached = (cachedSources || []).filter((source: any) => {
     const key = String(source.providers?.key || '').toLowerCase();
     const name = String(source.providers?.name || '').trim().toLowerCase().replace(/\s+/g, '');
@@ -172,7 +174,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
     return rateDiff || Number(a.latency_ms ?? Number.MAX_SAFE_INTEGER) - Number(b.latency_ms ?? Number.MAX_SAFE_INTEGER);
   });
 
-  const timeoutMs = Math.max(2_000, Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000));
+
 
   // Resolve providers in priority order and stop on the first usable provider.
   const allResolvedSources: any[] = [];
@@ -323,7 +325,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
           url: universal.url,
           quality: universal.quality || fallback.quality,
           label: universal.type === 'embed' ? fallback.label : universal.label,
-          labelEn: universal.type === 'embed' ? fallback.labelEn : universal.labelEn,
+          labelEn: universal.type === 'embed' ? fallback.labelEn : universal.label,
         }];
       } catch (error) {
         console.warn('[playback-resolver] fallback conversion failed', error instanceof Error ? error.message : error);
