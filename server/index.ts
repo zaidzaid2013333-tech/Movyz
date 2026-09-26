@@ -39,39 +39,19 @@ const catalogQuery = z.object({
   search: z.string().trim().max(120).optional(),
 });
 
-const sourceDto = (s: any) => {
-  const providerKey = String(s.providers?.key || '').toLowerCase();
-  const providerReference = String(s.provider_reference || '');
-  const parts = providerReference.split(':');
-  const tmdbId = parts[0] || '';
-  const kind = parts[1];
-  const isTmdbId = Number.isInteger(Number(tmdbId)) && Number(tmdbId) > 0;
-  const isSeason = Number.isInteger(Number(parts[2])) && Number(parts[2]) > 0;
-  const isEpisode = Number.isInteger(Number(parts[3])) && Number(parts[3]) > 0;
-  const embedUrl =
-    providerKey === 'vidzee' && isTmdbId
-      ? kind === 'episode' && isSeason && isEpisode
-        ? `https://player.vidzee.wtf/embed/tv/${encodeURIComponent(tmdbId)}/${encodeURIComponent(parts[2])}/${encodeURIComponent(parts[3])}`
-        : kind === 'movie'
-          ? `https://player.vidzee.wtf/embed/movie/${encodeURIComponent(tmdbId)}`
-          : undefined
-      : undefined;
-
-  return {
-    id: s.id,
-    type: s.source_type,
-    quality: s.quality || 'auto',
-    language: s.language || 'und',
-    label: s.label_ar || s.providers?.name || 'Source',
-    labelEn: s.label_en || s.providers?.name || 'Source',
-    url: s.url || '',
-    isWorking: s.is_working === true,
-    provider: s.providers?.name || 'Provider',
-    providerKey: providerKey || undefined,
-    providerReference: providerReference || undefined,
-    embedUrl,
-  };
-};
+const sourceDto = (s: any) => ({
+  id: s.id,
+  type: s.source_type,
+  quality: s.quality || 'auto',
+  language: s.language || 'und',
+  label: s.label_ar || s.providers?.name || 'Source',
+  labelEn: s.label_en || s.providers?.name || 'Source',
+  url: s.url || '',
+  isWorking: s.is_working === true,
+  provider: s.providers?.name || 'Provider',
+  providerKey: String(s.providers?.key || '').toLowerCase() || undefined,
+  providerReference: s.provider_reference || undefined,
+});
 
 const genreDto = (g: any) => ({
   id: g.id,
