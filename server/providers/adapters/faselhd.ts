@@ -10,6 +10,9 @@ const DEFAULT_HOSTS = [
   'https://web31818x.faselhdx.bid',
   'https://web6712x.faselhdx.bid',
   'https://www.fasel-hd.cam',
+  'https://faselhd.io',
+  'https://www.faselhd.club',
+  'https://faselhd.club',
 ];
 
 const USER_AGENT =
@@ -150,6 +153,9 @@ function extractMediaUrls(html: string, baseUrl: string) {
   const jsonRe = /["'](?:file|src)["']\s*[:=]\s*["']([^"']+?(?:\.m3u8(?:\?[^"'\\]*)?|\.mp4(?:\?[^"'\\]*)?))["']/gi;
   while ((match = jsonRe.exec(html))) add(match[1]);
 
+  const dataUrlRe = /(?:data-url|data-src|src)\s*=\s*["']([^"']+?(?:\.m3u8(?:\?[^"'\\]*)?|\.mp4(?:\?[^"'\\]*)?))["']/gi;
+  while ((match = dataUrlRe.exec(html))) add(match[1]);
+
   return [...found];
 }
 
@@ -160,9 +166,12 @@ function extractPlayerUrls(html: string, pageUrl: string) {
     if (resolved && /videoplayer|video_player/i.test(resolved)) candidates.add(resolved);
   };
 
-  const iframeRe = /<iframe\b[^>]+(?:data-src|src)\s*=\s*["']([^"']*(?:videoplayer|video_player)[^"']*)["']/gi;
+  const iframeRe = /<iframe\b[^>]+(?:name\s*=\s*["']player_iframe["'][^>]*|(?:data-src|src)\s*=\s*["']([^"']*(?:videoplayer|video_player|player_iframe)[^"']*)["'])/gi;
   let match: RegExpExecArray | null;
-  while ((match = iframeRe.exec(html))) add(match[1]);
+  while ((match = iframeRe.exec(html))) {
+    const raw = match[1] || match[0].match(/(?:data-src|src)\s*=\s*["']([^"']+)["']/i)?.[1];
+    if (raw) add(raw);
+  }
 
   const tokenRe = /(?:playertoken|player_token)=([^\s'"&<]+)/gi;
   while ((match = tokenRe.exec(html))) add('/videoplayer?playertoken=' + match[1]);
@@ -448,7 +457,7 @@ async function extractWithBrowser(
     );
     for (const raw of frameUrls) {
       const resolved = resolveUrl(String(raw), page.url());
-      if (resolved && /videoplayer|video_player/i.test(resolved)) playerUrls.add(resolved);
+      if (resolved && /videoplayer|video_player|player_iframe/i.test(resolved)) playerUrls.add(resolved);
     }
 
     for (const playerUrl of [...playerUrls].slice(0, 5)) {
