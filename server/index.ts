@@ -6,6 +6,7 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
 import { getProvider } from './providers/registry';
 import { registerBuiltInProviders } from './providers/bootstrap';
+import { resolvePlaybackSources } from './providers/resolver';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -230,6 +231,24 @@ async function seriesDto(row: any) {
     status: row.status, addedAt: row.created_at, ageRating: row.age_rating || '',
   } as any;
 }
+
+app.get(`${api}/playback/sources`, asyncRoute(async (req, res) => {
+  const parsed = z.object({
+    contentType: z.enum(['movie', 'episode']),
+    contentId: z.string().uuid(),
+  }).safeParse(req.query);
+
+  if (!parsed.success) return fail(res, 400, 'INVALID_PLAYBACK_QUERY', 'Invalid playback source parameters');
+
+  try {
+    const sources = await resolvePlaybackSources(parsed.data.contentType, parsed.data.contentId);
+    if (!sources.length) return fail(res, 404, 'PLAYBACK_SOURCES_NOT_FOUND', 'No playable sources are available for this title');
+    return ok(res, sources);
+  } catch (error) {
+    console.error('[playback-sources]', error instanceof Error ? error.message : error);
+    return fail(res, 502, 'PLAYBACK_RESOLUTION_FAILED', 'Unable to resolve playable sources');
+  }
+}));
 
 app.get(`${api}/playback/ezvidapi`, asyncRoute(async (req, res) => {
   const parsed = z.object({
