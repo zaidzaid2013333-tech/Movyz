@@ -5,12 +5,8 @@ import type { NormalizedPlaybackSource, ProviderContext } from './types';
 const VALID_TYPES = new Set(['hls', 'mp4', 'dash']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
-  // Preferred playback order. Resolve all enabled providers and expose their valid sources.
-  'moviebox-api': 0,
   ezvidapi: 1,
   faselhd: 20,
-  streamflix: 21,
-  streamprovider: 22,
 };
 
 function providerPriority(key: string) {
@@ -105,7 +101,6 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   const timeoutMs = Math.max(2_000, Number(process.env.MOVYZA_PROVIDER_TIMEOUT_MS || 8_000));
 
   // Resolve providers in priority order and stop on the first usable provider.
-  // MovieBox has priority 0, so it is always attempted first and wins when healthy.
   const allResolvedSources: any[] = [];
   for (const provider of orderedProviders) {
     if (excluded.has(provider.key.toLowerCase()) || excluded.has(String(provider.name || '').trim().toLowerCase().replace(/\s+/g, ''))) continue;
