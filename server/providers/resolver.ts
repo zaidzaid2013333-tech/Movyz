@@ -29,10 +29,16 @@ function sourceDto(source: any) {
   };
 }
 
-function normalizeUrl(value: unknown) {
+function normalizeUrl(value: unknown, provider?: string) {
   if (typeof value !== 'string' || !value.trim()) return null;
+  const trimmed = value.trim();
+
+  if (provider === 'vidzee' && trimmed.startsWith('/api/v1/playback/proxy?url=')) {
+    return trimmed;
+  }
+
   try {
-    const url = new URL(value.trim());
+    const url = new URL(trimmed);
     return url.protocol === 'https:' ? url.toString() : null;
   } catch {
     return null;
