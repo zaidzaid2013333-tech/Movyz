@@ -88,3 +88,78 @@ test('ezvidAPI uses the JSON API origin and normalizes stream_url as HLS', async
     else process.env.EZVIDAPI_PROVIDER = originalProvider;
   }
 });
+
+
+test('ezvidAPI discovers alternate providers after the configured provider has no stream', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalOrigin = process.env.EZVIDAPI_ORIGINS;
+  const originalProvider = process.env.EZVIDAPI_PROVIDER;
+
+  delete process.env.EZVIDAPI_ORIGINS;
+  process.env.EZVIDAPI_PROVIDER = 'vidsrc';
+
+  const requested: string[] = [];
+  globalThis.fetch = (async (input) => {
+    const url = String(input);
+    requested.push(url);
+
+    if (url === 'https://api.ezvidapi.com/movie/vidsrc/157336') {
+      return new Response(JSON.stringify({ stream_url: null }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    if (url === 'https://api.ezvidapi.com/list') {
+      return new Response(JSON.stringify({
+        providers: [
+          { key: 'provider_one' },
+          { key: 'provider_two' },
+        ],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    if (url === 'https://api.ezvidapi.com/movie/provider_one/157336') {
+      return new Response(JSON.stringify({ stream_url: null }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    if (url === 'https://api.ezvidapi.com/movie/provider_two/157336') {
+      return new Response(JSON.stringify({
+        stream_url: 'https://cdn.example.com/provider-two/master.m3u8',
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    throw new Error('Unexpected URL: ' + url);
+  }) as typeof fetch;
+
+  try {
+    const { createEzvidApiAdapter } = await import('./adapters/ezvidapi');
+    const adapter = createEzvidApiAdapter();
+    const sources = await adapter.resolveMovie({ tmdbId: 157336 });
+
+    assert.deepEqual(requested, [
+      'https://api.ezvidapi.com/movie/vidsrc/157336',
+      'https://api.ezvidapi.com/list',
+      'https://api.ezvidapi.com/movie/provider_one/157336',
+      'https://api.ezvidapi.com/movie/provider_two/157336',
+    ]);
+    assert.equal(sources.length, 1);
+    assert.equal(sources[0].type, 'hls');
+    assert.equal(sources[0].url, 'https://cdn.example.com/provider-two/master.m3u8');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalOrigin === undefined) delete process.env.EZVIDAPI_ORIGINS;
+    else process.env.EZVIDAPI_ORIGINS = originalOrigin;
+    if (originalProvider === undefined) delete process.env.EZVIDAPI_PROVIDER;
+    else process.env.EZVIDAPI_PROVIDER = originalProvider;
+  }
+});
