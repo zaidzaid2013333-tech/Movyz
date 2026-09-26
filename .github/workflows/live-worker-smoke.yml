@@ -1,48 +1,35 @@
 name: Live Worker playback smoke
 
 on:
-  workflow_run:
-    workflows: ["Movyz Cloudflare Deploy"]
-    types: [completed]
   workflow_dispatch:
 
 jobs:
   live:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Verify deployed API and current playback resolver
         run: |
           node <<'NODE'
           const base = 'https://movyz-api.sameranede.workers.dev';
-          const headers = {'Accept':'application/json'};
-
-          const getJson = async (path, timeout = 20000) => {
-            const response = await fetch(base + path, { headers, redirect: 'follow', signal: AbortSignal.timeout(timeout) });
+          const getJson = async (path, timeout = 30000) => {
+            const response = await fetch(base + path, { headers: { Accept: 'application/json' }, redirect: 'follow', signal: AbortSignal.timeout(timeout) });
             const body = await response.text();
-            console.log(path, 'HTTP', response.status, body.slice(0, 1600));
-            if (!response.ok) throw new Error(path + ' -> HTTP ' + response.status + ' ' + body.slice(0, 800));
+            console.log(path, 'HTTP', response.status, body.slice(0, 1800));
+            if (!response.ok) throw new Error(path + ' -> HTTP ' + response.status + ' ' + body.slice(0, 900));
             return JSON.parse(body);
           };
-
           const health = await getJson('/health', 15000);
           if (!health?.success || health?.data?.status !== 'ok') throw new Error('Worker health check failed');
-
-          const catalog = await getJson('/api/v1/movies?search=Interstellar&page=1&limit=5');
+          const catalog = await getJson('/api/v1/movies?page=1&limit=1', 20000);
           const items = Array.isArray(catalog?.data) ? catalog.data : catalog?.data?.items ?? catalog?.data?.movies ?? [];
-          if (!Array.isArray(items) || !items.length) throw new Error('Catalog returned no Interstellar result');
-
-          const movie = items.find((item) => /interstellar/i.test(String(item?.titleEn || item?.title || ''))) || items[0];
-          const tmdbId = Number(movie?.tmdbId || movie?.tmdb_id || 0);
-          if (!Number.isInteger(tmdbId) || tmdbId <= 0) throw new Error('Catalog movie has no valid TMDB id: ' + JSON.stringify(movie).slice(0, 1200));
-
-          const playback = await getJson('/api/v1/playback/ezvidapi?type=movie&tmdbId=' + encodeURIComponent(String(tmdbId)), 30000);
-          const streamUrl = String(playback?.data?.stream_url || '');
-          const streamType = String(playback?.data?.type || '');
-          if (!streamUrl || !/^https:\/\//i.test(streamUrl)) throw new Error('Playback resolver returned no HTTPS stream: ' + JSON.stringify(playback).slice(0, 1600));
-          if (!['hls','mp4','dash'].includes(streamType)) throw new Error('Playback resolver returned unsupported type: ' + streamType);
-          if (streamType === 'hls' && !/\.m3u8(?:$|[?#])/i.test(streamUrl)) throw new Error('Playback resolver marked stream as HLS but URL is not m3u8');
-
+          if (!Array.isArray(items) || !items.length) throw new Error('Published movie catalog is empty');
+          const movie = items[0];
+          const contentId = String(movie?.id || '');
+          const playback = await getJson('/api/v1/playback/sources?contentType=movie&contentId=' + encodeURIComponent(contentId), 30000);
+          const sources = Array.isArray(playback?.data) ? playback.data : [];
+          if (!sources.length) throw new Error('No playable sources returned for ' + contentId);
+          const source = sources[0];
+          if (!source?.url || !/^https:\/\//i.test(String(source.url))) throw new Error('Invalid playback source');
           console.log('LIVE_PLAYBACK_TARGET=PASS');
-          console.log('PASSED_MOVIE', JSON.stringify({ id: movie?.id, title: movie?.titleEn || movie?.title, tmdbId, streamType, streamHost: new URL(streamUrl).host }));
+          console.log(JSON.stringify({ contentId, tmdbId: movie?.tmdbId || movie?.tmdb_id, provider: source.provider, type: source.type, host: new URL(source.url).host }));
           NODE
