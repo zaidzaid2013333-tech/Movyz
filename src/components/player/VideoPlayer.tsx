@@ -101,7 +101,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const tracks = playerRef.current?.textTracks;
     if (!tracks || tracks.length === 0) return;
 
-    const availableTracks: TextTrack[] = [];
+    const availableTracks = [];
     for (let index = 0; index < tracks.length; index += 1) {
       const track = tracks[index];
       if (track) availableTracks.push(track);
