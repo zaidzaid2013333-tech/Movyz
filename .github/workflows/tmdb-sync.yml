@@ -1,6 +1,10 @@
 name: Movyz TMDB Sync
 
 on:
+  schedule:
+    # Daily catalog + episode synchronization. GitHub Actions is the scheduler;
+    # the database remains the source of truth.
+    - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
       pages:
@@ -44,8 +48,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
-      - run: npm install
+      - run: npm ci
 
       - name: Validate required secrets
         run: |
@@ -60,9 +65,9 @@ jobs:
         run: npx tsx scripts/run-tmdb-sync.ts catalog "$TMDB_PAGES"
 
       - name: Sync TMDB episodes
-        if: ${{ github.event_name == 'push' || inputs.sync_episodes }}
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.sync_episodes }}
         env:
-          SERIES_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.series_limit || '5' }}
+          SERIES_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.series_limit || '10' }}
         run: npx tsx scripts/run-tmdb-sync.ts episodes "$SERIES_LIMIT"
 
       - name: Verify synchronized catalog
