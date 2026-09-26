@@ -33,9 +33,10 @@ for each row execute procedure public.set_updated_at();
 insert into public.providers(key,name,adapter_name,enabled,status)
 values
   ('ezvidapi','ezvidAPI','ezvidapi',true,'unknown'),
+  ('egybest','EgyBest','egybest',true,'unknown'),
   ('streamprovider','StreamProvider','streamprovider',true,'unknown'),
   ('nhdapi','NHD API','nhdapi',true,'unknown'),
-  ('faselhd','FaselHD','faselhd',false,'unknown')
+  ('faselhd','FaselHD','faselhd',true,'unknown')
 on conflict(key) do update
 set name = excluded.name,
     adapter_name = excluded.adapter_name;
