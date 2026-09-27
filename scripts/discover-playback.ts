@@ -177,11 +177,11 @@ async function main() {
   const providerRows = await adminSupabase
     .from('providers')
     .select('key,enabled')
-    .in('key', ['vidzee', 'ezvidapi', 'faselhd']);
+    .in('key', ['vidzee', 'ezvidapi']);
 
   if (providerRows.error) throw new Error('Unable to load playback providers');
   const enabledKeys = new Set((providerRows.data || []).filter((row: any) => row.enabled).map((row: any) => row.key));
-  if (!enabledKeys.has('vidzee') && !enabledKeys.has('ezvidapi') && !enabledKeys.has('faselhd')) {
+  if (!enabledKeys.has('vidzee') && !enabledKeys.has('ezvidapi')) {
     throw new Error('No configured playback provider is enabled in Supabase');
   }
 
