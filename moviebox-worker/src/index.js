@@ -637,14 +637,14 @@ async function browserExtractAkwam(pageUrl, env) {
   const add = (value) => {
     if (typeof value !== "string" || !/^https?:\/\//i.test(value)) return;
     const url = value.trim();
-    if (!/\.mp4(?:$|[?#])/i.test(url)) return;
+    if (!/(?:\.mp4|\.m3u8|\.mpd|\.webm)(?:$|[?#])/i.test(url) && !/(?:mp4|m3u8|mpd|webm)(?:[?&=]|$)/i.test(url)) return;
     if (!mediaUrls.includes(url)) mediaUrls.push(url);
   };
 
   page.on("request", (request) => add(request.url()));
   page.on("response", (response) => {
     const type = String(response.headers()["content-type"] || "").toLowerCase();
-    if (type.includes("video/mp4")) add(response.url());
+    if (type.includes("video/") || type.includes("mpegurl") || type.includes("dash+xml")) add(response.url());
   });
 
   try {
@@ -680,17 +680,17 @@ async function browserExtractAkwam(pageUrl, env) {
     }
 
     if (!mediaUrls.length) {
-      throw new Error("Akwam page exposed no direct MP4");
+      throw new Error("Akwam page exposed no direct media stream");
     }
 
     return {
       url: mediaUrls[0],
-      type: "mp4",
+      type: detectStreamType(mediaUrls[0]),
       quality: "auto",
       qualities: ["auto"],
       sources: mediaUrls.slice(0, 8).map((url) => ({
         quality: "auto",
-        type: "mp4",
+        type: detectStreamType(url),
         url,
       })),
       cached: false,
