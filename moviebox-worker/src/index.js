@@ -601,7 +601,10 @@ function sourcePageFallback(pageUrl, matchedTitle = '') {
 function isLikelyMediaUrl(value) {
   if (typeof value !== "string" || !/^https?:\/\//i.test(value)) return false;
   const url = value.trim().toLowerCase();
-  if (!url || /(?:fasel-hd|abdobest|watch|player|iframe|html)(?:[./?]|$)/i.test(url)) return false;
+  if (!url) return false;
+  // Do not reject a real media URL just because its CDN path contains
+  // words such as "watch" or "player". AbdoBest can return signed CDN
+  // URLs whose paths do not look like a normal .m3u8 filename.
   return /\.(?:m3u8|mp4|webm|mpd)(?:[?#]|$)/i.test(url) ||
     /(?:m3u8|mp4|webm|mpd)(?:[?#=&]|$)/i.test(url);
 }
@@ -656,7 +659,21 @@ async function extractStream(pageUrl, env) {
     });
 
     if (result.validJson) {
-      const videoUrl = findStreamUrl(result.body);
+      // Prefer explicit media fields from AbdoBest. These are authoritative
+      // when the extractor says they are video streams, even if the URL
+      // contains words like "watch" or "player".
+      const explicitCandidates = [
+        result.body?.stream_url,
+        result.body?.video_url,
+        result.body?.videoUrl,
+        result.body?.streamUrl,
+        result.body?.media_url,
+        result.body?.mediaUrl,
+        result.body?.src,
+        result.body?.url,
+      ].filter((value) => typeof value === "string" && /^https?:\/\//i.test(value));
+
+      const videoUrl = explicitCandidates.find(isLikelyMediaUrl) || findStreamUrl(result.body);
 
       if (result.response.ok && videoUrl) {
         const qualities = Array.isArray(result.body?.quality_options)
@@ -820,20 +837,25 @@ async function resolveMovie(payload, env) {
   for (const source of sources.slice(0, 3)) {
     try {
       const stream = await extractStream(source, env);
-      const fallback = sourcePageFallback(source, extractTitle(match));
-      const streamSources = [
-        ...(Array.isArray(stream.sources) ? stream.sources : [{
-          quality: stream.quality || 'auto',
-          type: stream.type || detectStreamType(stream.url),
-          url: stream.url,
-        }]),
-        fallback.sources[0],
-      ];
+      // Never expose an HTML source page to the video player. If AbdoBest
+      // cannot produce a direct stream, fail this candidate and try the next
+      // AbdoBest source instead of opening an iframe that can be refused.
+      const directSources = (Array.isArray(stream.sources) ? stream.sources : [{
+        quality: stream.quality || 'auto',
+        type: stream.type || detectStreamType(stream.url),
+        url: stream.url,
+      }]).filter((entry) => entry?.url && entry.type !== 'web' && isLikelyMediaUrl(entry.url));
+
+      if (!directSources.length) {
+        throw new Error("AbdoBest returned no direct media URL");
+      }
+
       return {
         ...stream,
-        sources: streamSources,
+        url: directSources[0].url,
+        type: directSources[0].type,
+        sources: directSources,
         matched_title: extractTitle(match),
-        fallback_source_page: source,
       };
     } catch (error) {
       lastError = error;
