@@ -11,6 +11,7 @@
  * Source discovery includes AbdoBest pre-scraped server URLs.
  * Verification is performed against a dynamically discovered AbdoBest source.
  * AbdoBest search is also used when sorted metadata lacks source fields.
+ * Source-page fallback is rendered by the web player when extraction is unavailable.
  */
 
 const ABDOBEST_API_BASES = [
