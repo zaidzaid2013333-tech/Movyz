@@ -243,13 +243,33 @@ function scoreMatch(item, input) {
   return score;
 }
 
-function asArray(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (!payload || typeof payload !== "object") return [];
-  for (const key of ["results", "items", "data", "movies", "series", "episodes"]) {
-    if (Array.isArray(payload[key])) return payload[key];
+function asArray(payload, depth = 0) {
+  if (depth > 5 || payload == null) return [];
+  if (Array.isArray(payload)) {
+    return payload.filter((item) => item && typeof item === "object");
   }
-  return Object.values(payload).filter((item) => item && typeof item === "object");
+  if (typeof payload !== "object") return [];
+
+  for (const key of ["results", "items", "movies", "series", "episodes"]) {
+    if (Array.isArray(payload[key])) {
+      return payload[key].filter((item) => item && typeof item === "object");
+    }
+  }
+
+  for (const key of ["data", "response", "payload", "result"]) {
+    if (payload[key] && typeof payload[key] === "object") {
+      const nested = asArray(payload[key], depth + 1);
+      if (nested.length) return nested;
+    }
+  }
+
+  const nested = [];
+  for (const value of Object.values(payload)) {
+    if (value && typeof value === "object") {
+      nested.push(...asArray(value, depth + 1));
+    }
+  }
+  return nested;
 }
 
 async function abdoJson(path, init = {}) {
