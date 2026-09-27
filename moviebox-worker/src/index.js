@@ -510,6 +510,30 @@ async function extractStream(pageUrl, env) {
   };
 }
 
+async function findStoredMovieSources(payload) {
+  const categories = ["movies", "dubbed-movies", "hindi", "asian-movies"];
+
+  for (const category of categories) {
+    try {
+      const result = await upstreamJson("/api/sorted/" + category);
+      if (!result.validJson || !result.response.ok) continue;
+
+      const match = chooseBestResult(result.body, payload);
+      if (!match) continue;
+
+      const sources = extractSourceUrls(match);
+      if (sources.length) {
+        return {
+          match,
+          sources,
+        };
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
 async function resolveMovie(payload, env) {
   const directSource = cleanText(payload?.source_url);
 
@@ -539,10 +563,18 @@ async function resolveMovie(payload, env) {
     throw new Error("No AbdoBest source matched this TMDB title");
   }
 
-  const sources = extractSourceUrls(match);
+  let sources = extractSourceUrls(match);
 
-  // AbdoBest search results may only expose category/id for Fasel-backed movies.
-  // The official AbdoBest app derives the same movie page from that id.
+  // The search endpoint may return only {category,id,image,title}.
+  // AbdoBest itself also keeps richer Source/Sources fields in /api/sorted/*.
+  if (!sources.length) {
+    const stored = await findStoredMovieSources(payload);
+    if (stored) {
+      sources = stored.sources;
+    }
+  }
+
+  // Last resort: derive the source page from AbdoBest's stored content id.
   if (!sources.length) {
     const matchId = firstString(match?.id, match?.ID);
     const category = extractCategory(match);
