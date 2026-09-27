@@ -3,9 +3,9 @@ import { getProvider } from './registry';
 import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
 const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'webm']);
+const DISABLED_PROVIDERS = new Set(['faselhd', 'fasel']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
-  faselhd: 5,
   streamprovider: 20,
   tmdbembed: 30,
 };
@@ -102,7 +102,11 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   const usableCached = (cachedSources || []).filter((source: any) => {
     const key = String(source.providers?.key || '').toLowerCase();
     const name = String(source.providers?.name || '').trim().toLowerCase().replace(/\s+/g, '');
-    return !excluded.has(key) && !excluded.has(name) && (!onlyProvider || key === onlyProvider.toLowerCase()) && VALID_TYPES.has(String(source.source_type || '').toLowerCase());
+    return !DISABLED_PROVIDERS.has(key) &&
+      !excluded.has(key) &&
+      !excluded.has(name) &&
+      (!onlyProvider || key === onlyProvider.toLowerCase()) &&
+      VALID_TYPES.has(String(source.source_type || '').toLowerCase());
   });
 
   if (usableCached.length) {
@@ -132,6 +136,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   // Resolve providers in priority order and stop on the first usable provider.
   const allResolvedSources: any[] = [];
   for (const provider of orderedProviders) {
+    if (DISABLED_PROVIDERS.has(String(provider.key).toLowerCase())) continue;
     if (excluded.has(provider.key.toLowerCase()) || excluded.has(String(provider.name || '').trim().toLowerCase().replace(/\s+/g, ''))) continue;
 
     const adapter = getProvider(provider.key);
