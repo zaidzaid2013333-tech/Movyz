@@ -8,6 +8,7 @@
  *
  * TMDB remains the metadata/catalog source.
  * AbdoBest is used only internally to resolve playable sources.
+ * Source discovery includes AbdoBest pre-scraped server URLs.
  */
 
 const ABDOBEST_API_BASES = [
