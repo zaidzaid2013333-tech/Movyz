@@ -1,0 +1,6 @@
+name = "movyz-akwam-resolver"
+main = "src/index.js"
+compatibility_date = "2026-09-26"
+
+[browser]
+binding = "BROWSER"
