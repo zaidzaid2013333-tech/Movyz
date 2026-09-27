@@ -135,7 +135,7 @@ function extractSourceUrls(item) {
     // AbdoBest documents Sources[] as pre-scraped server-page URLs
     // (video_player?player_token=...), which should outrank legacy pages.
     let effectivePriority = priority;
-    if (/video_player(?:\?|\/)|player_token=/i.test(lower)) effectivePriority += 250;
+  return /player_token=/i.test(String(url || "")) || /video_player(?:\?|\/)/i.test(String(url || ""));
     if (/https?:\/\/[^/]*akwam\.it\/watch\//i.test(lower)) effectivePriority += 180;
 
     seen.add(url);
