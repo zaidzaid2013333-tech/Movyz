@@ -792,13 +792,31 @@ async function extractStream(pageUrl, env) {
   }
 }
 function searchTitles(payload) {
-  return [...new Set([
+  const rawTitles = [
     payload?.title,
     payload?.title_en,
     payload?.title_ar,
     payload?.original_title,
     ...(Array.isArray(payload?.titles) ? payload.titles : []),
-  ].map(cleanText).filter(Boolean))];
+  ].map(cleanText).filter(Boolean);
+
+  const variants = [];
+
+  for (const raw of rawTitles) {
+    variants.push(raw);
+
+    const simplified = raw
+      .replace(/^\s*(?:فيلم|مسلسل|انمي|أنمي|movie|series)\s*[:\-]?\s*/iu, "")
+      .replace(/\s+(?:مترجم|مترجمة|مدبلج|مدبلجة)\s*$/iu, "")
+      .replace(/\b(?:19|20)\d{2}\b/g, " ")
+      .replace(/[|]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (simplified && simplified !== raw) variants.push(simplified);
+  }
+
+  return [...new Set(variants)].filter(Boolean);
 }
 
 async function findStoredMovieSources(payload) {
@@ -847,6 +865,7 @@ async function resolveMovie(payload, env) {
   }
 
   let match = null;
+  let sources = [];
   let lastSearchError = null;
 
   for (const title of titles) {
@@ -861,23 +880,30 @@ async function resolveMovie(payload, env) {
         continue;
       }
 
-      const candidate = chooseBestResult(search.body, payload);
-      if (candidate) {
-        match = candidate;
+      const ranked = toArray(search.body)
+        .map((item) => ({ item, score: scoreMatch(item, payload) }))
+        .filter((entry) => entry.score > 0)
+        .sort((a, b) => b.score - a.score);
+
+      for (const entry of ranked) {
+        const candidateSources = extractAkwamSourceUrls(entry.item);
+        if (!candidateSources.length) continue;
+        match = entry.item;
+        sources = candidateSources;
         break;
       }
+
+      if (match && sources.length) break;
     } catch (error) {
       lastSearchError = error instanceof Error ? error.message : String(error);
     }
   }
 
-  let sources = match ? extractAkwamSourceUrls(match) : [];
-
   if (!match || !sources.length) {
     const stored = await findStoredMovieSources(payload);
     if (stored) {
-      match = match || stored.match;
-      sources = sources.length ? sources : stored.sources;
+      match = stored.match;
+      sources = stored.sources;
     }
   }
 
