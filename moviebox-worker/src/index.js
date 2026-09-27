@@ -653,7 +653,15 @@ async function resolveMovie(payload, env) {
     }
   }
 
-  throw new Error(`Unable to resolve a playable movie stream; sources=${sources.slice(0, 6).join(" | ")}; last=${lastError?.message || "unknown"}`);
+  const fallbackSource = sources[0];
+  if (fallbackSource) {
+    return {
+      ...sourcePageFallback(fallbackSource, extractTitle(match)),
+      extraction_error: lastError instanceof Error ? lastError.message : String(lastError || ''),
+    };
+  }
+
+  throw new Error('Unable to resolve a playable movie source');
 }
 
 async function resolveEpisode(payload, env) {
