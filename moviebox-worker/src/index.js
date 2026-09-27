@@ -437,11 +437,18 @@ async function resolveMovie(payload) {
 
   const sources = extractSourceUrls(match);
 
+  // AbdoBest search results may only expose category/id for Fasel-backed movies.
+  // The official AbdoBest app derives the same movie page from that id.
   if (!sources.length) {
-    throw new Error(
-      "Matched title has no playable source page; matched keys: " +
-      Object.keys(match || {}).join(","),
-    );
+    const matchId = firstString(match?.id, match?.ID);
+    const category = extractCategory(match);
+    if (matchId && category !== "arabic-movies") {
+      sources.push("https://www.fasel-hd.cam/?p=" + encodeURIComponent(matchId));
+    }
+  }
+
+  if (!sources.length) {
+    throw new Error("Matched title has no playable source page");
   }
 
   let lastError = null;
