@@ -3,7 +3,6 @@ import { getProvider } from './registry';
 import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
 const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'webm']);
-const DISABLED_PROVIDERS = new Set(['faselhd', 'fasel']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
   streamprovider: 20,
