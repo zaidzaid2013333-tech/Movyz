@@ -39,6 +39,120 @@ function json(body, status = 200) {
   });
 }
 
+function isSafeProxyTarget(rawUrl) {
+  try {
+    const target = new URL(rawUrl);
+    if (target.protocol !== "https:") return false;
+    const host = target.hostname.toLowerCase();
+    if (!host || host === "localhost" || host.endsWith(".local")) return false;
+    if (/^(127\\.|10\\.|192\\.168\\.|172\\.(?:1[6-9]|2[0-9]|3[0-1])\\.)/.test(host)) return false;
+    return /(?:m3u8|\.mp4(?:$|[?#])|\.webm(?:$|[?#])|\.mpd(?:$|[?#]))/i.test(target.href);
+  } catch {
+    return false;
+  }
+}
+
+function proxyUrlFor(requestUrl, mediaUrl, referer) {
+  const proxy = new URL(requestUrl);
+  proxy.pathname = "/proxy";
+  proxy.search = "";
+  proxy.searchParams.set("url", mediaUrl);
+  if (referer) proxy.searchParams.set("referer", referer);
+  return proxy.toString();
+}
+
+async function proxyMedia(request) {
+  const incoming = new URL(request.url);
+  const mediaUrl = incoming.searchParams.get("url") || "";
+  const referer = incoming.searchParams.get("referer") || "";
+
+  if (!isSafeProxyTarget(mediaUrl)) {
+    return json({ ok: false, error: "Invalid media proxy target" }, 400);
+  }
+
+  const target = new URL(mediaUrl);
+  const headers = new Headers();
+  headers.set("Accept", request.headers.get("Accept") || "*/*");
+  headers.set("User-Agent", request.headers.get("User-Agent") ||
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36");
+  const range = request.headers.get("Range");
+  if (range) headers.set("Range", range);
+  if (referer) headers.set("Referer", referer);
+  headers.set("Origin", "https://movyza.local");
+
+  const upstreamResponse = await fetch(target.toString(), {
+    method: request.method === "HEAD" ? "HEAD" : "GET",
+    headers,
+    redirect: "follow",
+    cache: "no-store",
+  });
+
+  if (!upstreamResponse.ok && upstreamResponse.status !== 206) {
+    return new Response(JSON.stringify({
+      ok: false,
+      error: "Upstream media request failed",
+      status: upstreamResponse.status,
+    }), {
+      status: upstreamResponse.status,
+      headers: { "Content-Type": "application/json; charset=utf-8", ...CORS },
+    });
+  }
+
+  const contentType = upstreamResponse.headers.get("Content-Type") || "";
+  const isPlaylist = /mpegurl|m3u8/i.test(contentType) || /\.m3u8(?:$|[?#])/i.test(target.pathname + target.search);
+
+  if (!isPlaylist || request.method === "HEAD") {
+    const outHeaders = new Headers();
+    outHeaders.set("Content-Type", contentType || "application/octet-stream");
+    outHeaders.set("Access-Control-Allow-Origin", "*");
+    outHeaders.set("Cache-Control", "no-store");
+    const contentLength = upstreamResponse.headers.get("Content-Length");
+    if (contentLength) outHeaders.set("Content-Length", contentLength);
+    const acceptRanges = upstreamResponse.headers.get("Accept-Ranges");
+    if (acceptRanges) outHeaders.set("Accept-Ranges", acceptRanges);
+    return new Response(upstreamResponse.body, {
+      status: upstreamResponse.status,
+      headers: outHeaders,
+    });
+  }
+
+  const text = await upstreamResponse.text();
+  const base = new URL(target.toString());
+  const makeProxy = (value) => {
+    try {
+      const absolute = new URL(value, base).toString();
+      return isSafeProxyTarget(absolute)
+        ? proxyUrlFor(request.url, absolute, referer || target.origin + "/")
+        : value;
+    } catch {
+      return value;
+    }
+  };
+
+  const rewritten = text
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+
+      if (trimmed.startsWith("#")) {
+        return line.replace(/URI="([^"]+)"/g, (_match, uri) => `URI="${makeProxy(uri)}"`);
+      }
+
+      return makeProxy(trimmed);
+    })
+    .join("\n");
+
+  return new Response(rewritten, {
+    status: upstreamResponse.status,
+    headers: {
+      "Content-Type": contentType || "application/vnd.apple.mpegurl",
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 function detectStreamType(url) {
   const value = String(url || '').toLowerCase();
   if (value.includes('.m3u8')) return 'hls';
@@ -1029,7 +1143,7 @@ export default {
         });
       }
 
-      if (request.method === "GET" && path === "/health") {
+      if ((request.method === "GET" || request.method === "HEAD") && path === "/proxy") {\n        return await proxyMedia(request);\n      }\n\n      if (request.method === "GET" && path === "/health") {
         const result = await upstreamJson("/health", { method: "GET" });
 
         return json(
