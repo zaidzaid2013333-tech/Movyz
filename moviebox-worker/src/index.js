@@ -358,7 +358,92 @@ async function upstreamJson(path, init = {}) {
   };
 }
 
-async function extractStream(pageUrl) {
+async function browserExtractStream(pageUrl, env) {
+  if (!env?.BROWSER) throw new Error("Browser Run binding unavailable");
+
+  const { launch } = await import("@cloudflare/playwright");
+  const browser = await launch(env.BROWSER);
+  const page = await browser.newPage();
+  const urls = [];
+  const seen = new Set();
+
+  const add = (value) => {
+    if (typeof value !== "string" || !/\.m3u8(?:$|[?#])/i.test(value) || seen.has(value)) return;
+    seen.add(value);
+    urls.push(value);
+  };
+
+  page.on("request", (request) => add(request.url()));
+
+  try {
+    await page.setExtraHTTPHeaders({
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
+    });
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    );
+
+    await page.goto(pageUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 45_000,
+    });
+
+    const iframe = await page.waitForSelector('iframe[name="player_iframe"]', {
+      timeout: 20_000,
+    }).catch(() => null);
+
+    const frame = iframe ? await iframe.contentFrame() : null;
+
+    if (frame) {
+      const selectors = [
+        ".jw-icon-display",
+        ".jw-icon.jw-icon-display",
+        ".jw-display-icon-container",
+        '[class*="jw-icon"][class*="play"]',
+        ".jw-media video",
+        "video",
+      ];
+
+      for (const selector of selectors) {
+        try {
+          const target = frame.locator(selector).first();
+          if (await target.count()) {
+            await target.click({ force: true, timeout: 5_000 });
+            break;
+          }
+        } catch {}
+      }
+    }
+
+    const deadline = Date.now() + 15_000;
+    while (!urls.length && Date.now() < deadline) {
+      await page.waitForTimeout(1_000);
+    }
+
+    if (!urls.length) {
+      throw new Error("Browser extraction found no HLS playlist");
+    }
+
+    return {
+      url: urls[0],
+      type: "hls",
+      quality: "auto",
+      qualities: ["Auto"],
+      sources: urls.map((url) => ({
+        quality: "auto",
+        type: "hls",
+        url,
+      })),
+      cached: false,
+      via: "browser-run",
+    };
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+async function extractStream(pageUrl, env) {
   const result = await upstreamJson("/extract", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -372,10 +457,13 @@ async function extractStream(pageUrl) {
   }
 
   if (!result.response.ok) {
-    throw new Error(
+    const message =
       result.body?.error ||
-        `AbdoBest extraction failed with HTTP ${result.response.status}`,
-    );
+      `AbdoBest extraction failed with HTTP ${result.response.status}`;
+    if (/scraper not available/i.test(message)) {
+      return browserExtractStream(pageUrl, env);
+    }
+    throw new Error(message);
   }
 
   const videoUrl = firstString(
@@ -385,7 +473,11 @@ async function extractStream(pageUrl) {
   );
 
   if (!videoUrl) {
-    throw new Error(result.body?.error || "No playable stream URL returned");
+    const message = result.body?.error || "No playable stream URL returned";
+    if (/scraper not available/i.test(message)) {
+      return browserExtractStream(pageUrl, env);
+    }
+    throw new Error(message);
   }
 
   const qualities = Array.isArray(result.body?.quality_options)
@@ -406,7 +498,7 @@ async function extractStream(pageUrl) {
   };
 }
 
-async function resolveMovie(payload) {
+async function resolveMovie(payload, env) {
   const directSource = cleanText(payload?.source_url);
 
   if (directSource) {
@@ -455,7 +547,7 @@ async function resolveMovie(payload) {
 
   for (const source of sources.slice(0, 3)) {
     try {
-      const stream = await extractStream(source);
+      const stream = await extractStream(source, env);
       return {
         ...stream,
         matched_title: extractTitle(match),
@@ -468,7 +560,7 @@ async function resolveMovie(payload) {
   throw lastError || new Error("Unable to resolve a playable movie stream");
 }
 
-async function resolveEpisode(payload) {
+async function resolveEpisode(payload, env) {
   const title = cleanText(payload?.title);
   const season = Number(payload?.season);
   const episode = Number(payload?.episode);
@@ -564,7 +656,7 @@ async function resolveEpisode(payload) {
 
   for (const source of urls.slice(0, 3)) {
     try {
-      const stream = await extractStream(source);
+      const stream = await extractStream(source, env);
       return {
         ...stream,
         matched_title: extractTitle(match),
@@ -639,7 +731,7 @@ export default {
 
         const payload = parsed.payload;
         const tmdbId = firstNumber(payload.tmdb_id, payload.tmdbId);
-        const stream = await resolveMovie(payload);
+        const stream = await resolveMovie(payload, env);
 
         return json({
           ok: true,
@@ -657,7 +749,7 @@ export default {
         const tmdbId = firstNumber(payload.tmdb_id, payload.tmdbId);
         const season = Number(payload.season);
         const episode = Number(payload.episode);
-        const stream = await resolveEpisode(payload);
+        const stream = await resolveEpisode(payload, env);
 
         return json({
           ok: true,
