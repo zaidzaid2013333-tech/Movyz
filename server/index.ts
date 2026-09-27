@@ -395,202 +395,153 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 }));
 
 
+const WATCH_API_BASE = (process.env.MOVYZA_WATCH_API_BASE_URL || 'https://movyz-moviebox.sameranede.workers.dev').replace(/\\/+$/, '');
+
+function streamTypeFromUrl(url: string) {
+  const value = String(url || '').toLowerCase();
+  if (value.includes('.m3u8')) return 'hls';
+  if (value.includes('.mpd')) return 'dash';
+  if (value.includes('.webm')) return 'webm';
+  return 'mp4';
+}
+
+function normalizeWatchSources(payload: any) {
+  const stream = payload?.stream || {};
+  const rawSources = Array.isArray(stream.sources) && stream.sources.length
+    ? stream.sources
+    : (stream.url ? [{
+        url: stream.url,
+        type: stream.type || streamTypeFromUrl(stream.url),
+        quality: stream.quality || (Array.isArray(stream.qualities) ? stream.qualities[0] : 'auto') || 'auto',
+      }] : []);
+
+  return rawSources
+    .filter((source: any) => typeof source?.url === 'string' && /^https:\\/\\//i.test(source.url))
+    .map((source: any, index: number) => ({
+      id: source.id || ['abdobest', source.type || streamTypeFromUrl(source.url), source.quality || 'auto', index].join('-'),
+      type: String(source.type || streamTypeFromUrl(source.url)).toLowerCase(),
+      quality: source.quality || 'auto',
+      language: source.language || 'und',
+      label: source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · '),
+      labelEn: source.labelEn || source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · '),
+      url: source.url,
+      isWorking: true,
+      provider: 'AbdoBest',
+      providerKey: 'abdobest',
+      providerReference: source.providerReference,
+      subtitleTracks: Array.isArray(source.subtitleTracks) ? source.subtitleTracks : [],
+    }));
+}
+
 app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   const parsed = z.object({
     mediaType: z.enum(['movie', 'series']),
     tmdbId: z.coerce.number().int().positive(),
     season: z.coerce.number().int().min(0).max(99).optional(),
     episode: z.coerce.number().int().min(1).max(999).optional(),
-    provider: z.string().trim().toLowerCase().max(64).optional(),
   }).safeParse({
     mediaType: req.params.mediaType,
     tmdbId: req.params.tmdbId,
     season: req.query.season,
     episode: req.query.episode,
-    provider: req.query.provider,
   });
 
   if (!parsed.success) {
     return fail(res, 400, 'INVALID_WATCH_QUERY', 'Invalid watch parameters');
   }
 
-  const { mediaType, tmdbId, season, episode, provider: requestedProvider } = parsed.data;
+  const { mediaType, tmdbId, season, episode } = parsed.data;
+
   if (mediaType === 'series' && (season == null || episode == null)) {
     return fail(res, 400, 'EPISODE_REQUIRED', 'Season and episode are required for series playback');
   }
 
   try {
-    // Watch is isolated from the legacy provider resolver.
-    // It serves only direct HLS/MP4/DASH/WEBM rows already approved in playback_sources.
-    let contentType: 'movie' | 'episode';
-    let contentId: string;
+    let title = '';
+    let titleEn = '';
+    let year: number | undefined;
 
     if (mediaType === 'movie') {
-      const { data: movie, error: movieError } = await adminSupabase
+      const { data: movie, error } = await adminSupabase
         .from('movies')
-        .select('id')
+        .select('title_ar,title_en,original_title,release_date')
         .eq('tmdb_id', tmdbId)
         .eq('status', 'published')
         .maybeSingle();
 
-      if (movieError) throw movieError;
-      if (!movie?.id) {
-        return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
-      }
+      if (error) throw error;
+      if (!movie) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
 
-      contentType = 'movie';
-      contentId = movie.id;
+      title = String(movie.title_ar || '');
+      titleEn = String(movie.title_en || movie.original_title || '');
+      year = movie.release_date ? Number(String(movie.release_date).slice(0, 4)) : undefined;
     } else {
-      const { data: series, error: seriesError } = await adminSupabase
+      const { data: series, error } = await adminSupabase
         .from('series')
-        .select('id')
+        .select('title_ar,title_en,original_title,first_air_date')
         .eq('tmdb_id', tmdbId)
         .eq('status', 'published')
         .maybeSingle();
 
-      if (seriesError) throw seriesError;
-      if (!series?.id) {
-        return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
-      }
+      if (error) throw error;
+      if (!series) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
 
-      const { data: seasonRow, error: seasonError } = await adminSupabase
-        .from('seasons')
-        .select('id')
-        .eq('series_id', series.id)
-        .eq('season_number', season)
-        .maybeSingle();
-
-      if (seasonError) throw seasonError;
-      if (!seasonRow?.id) {
-        return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
-      }
-
-      const { data: episodeRow, error: episodeError } = await adminSupabase
-        .from('episodes')
-        .select('id')
-        .eq('season_id', seasonRow.id)
-        .eq('episode_number', episode)
-        .maybeSingle();
-
-      if (episodeError) throw episodeError;
-      if (!episodeRow?.id) {
-        return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
-      }
-
-      contentType = 'episode';
-      contentId = episodeRow.id;
+      title = String(series.title_ar || '');
+      titleEn = String(series.title_en || series.original_title || '');
+      year = series.first_air_date ? Number(String(series.first_air_date).slice(0, 4)) : undefined;
     }
 
-    const now = new Date().toISOString();
-    const { data: rows, error: sourceError } = await adminSupabase
-      .from('playback_sources')
-      .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,subtitle_url,subtitle_type,subtitle_language,subtitle_label_ar,subtitle_label_en,subtitle_default,providers(key,name)')
-      .eq('content_type', contentType)
-      .eq('content_id', contentId)
-      .eq('is_working', true)
-      .or(`expires_at.is.null,expires_at.gt.${now}`);
+    const response = await fetch(
+      `${WATCH_API_BASE}${mediaType === 'movie' ? '/watch/movie' : '/watch/episode'}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(
+          mediaType === 'movie'
+            ? {
+                tmdb_id: tmdbId,
+                title: titleEn || title,
+                year,
+              }
+            : {
+                tmdb_id: tmdbId,
+                title: titleEn || title,
+                year,
+                season,
+                episode,
+              },
+        ),
+        redirect: 'follow',
+      },
+    );
 
-    if (sourceError) throw sourceError;
+    const payload = await response.json().catch(() => null);
 
-    const requestOrigin = new URL(req.url).origin;
-    const subtitleProxyBase = new URL(`${api}/subtitles/proxy`, requestOrigin).toString();
+    if (!response.ok || !payload?.ok) {
+      const message = payload?.error || `Watch API request failed (${response.status})`;
+      console.error('[watch-api]', mediaType, tmdbId, message);
+      return fail(res, 502, 'WATCH_API_FAILED', message);
+    }
 
-    const seen = new Set<string>();
-    const sources = (rows || [])
-      .filter((source: any) => {
-        const type = String(source.source_type || '').toLowerCase();
-        if (!['hls', 'mp4', 'dash', 'webm'].includes(type)) return false;
-        if (typeof source.url !== 'string' || !/^https:\/\//i.test(source.url.trim())) return false;
-        const sourceProviderKey = String(source.providers?.key || '').toLowerCase();
-        if (requestedProvider && sourceProviderKey !== requestedProvider) return false;
-
-        const key = `${type}|${source.url.trim()}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .map((source: any) => ({
-        id: source.id,
-        type: String(source.source_type).toLowerCase(),
-        quality: source.quality || 'auto',
-        language: source.language || 'und',
-        label: source.label_ar || source.providers?.name || 'Source',
-        labelEn: source.label_en || source.providers?.name || 'Source',
-        url: source.url.trim(),
-        isWorking: source.is_working === true,
-        provider: source.providers?.name || 'Movyza',
-        providerKey: String(source.providers?.key || '').toLowerCase() || undefined,
-        providerReference: source.provider_reference || undefined,
-        subtitleTracks: source.subtitle_url
-          ? [{
-              url: `${subtitleProxyBase}?url=${encodeURIComponent(source.subtitle_url)}`,
-              // /subtitles/proxy always normalizes the upstream payload to WebVTT.
-              type: 'vtt',
-              language: source.subtitle_language || 'und',
-              label: source.subtitle_label_ar || source.subtitle_label_en || 'Subtitles',
-              labelEn: source.subtitle_label_en || source.subtitle_label_ar || 'Subtitles',
-              default: source.subtitle_default !== false,
-            }]
-          : [],
-      }));
+    const sources = normalizeWatchSources(payload);
 
     if (!sources.length) {
-      // Cache-first is preferred, but a missing/expired cache must never make
-      // an otherwise resolvable title unplayable. Fall back to the live
-      // provider resolver and persist its usable direct sources for the next
-      // request.
-      const resolved = await resolvePlaybackSources(contentType, contentId, [], requestedProvider);
-
-      const fallbackSources = (resolved || [])
-        .filter((source: any) =>
-          ['hls', 'mp4', 'dash', 'webm'].includes(String(source?.type || '').toLowerCase()) &&
-          typeof source?.url === 'string' &&
-          /^https:\/\//i.test(source.url),
-        )
-        .map((source: any, index: number) => ({
-          id: source.id || [source.providerKey || source.provider || 'resolver', source.type, index].join('-'),
-          type: String(source.type).toLowerCase(),
-          quality: source.quality || 'auto',
-          language: source.language || 'und',
-          label: source.label || source.provider || 'Source',
-          labelEn: source.labelEn || source.label || source.provider || 'Source',
-          url: source.url,
-          isWorking: source.isWorking !== false,
-          provider: source.provider || 'Movyza',
-          providerKey: source.providerKey,
-          providerReference: source.providerReference,
-          subtitleTracks: Array.isArray(source.subtitleTracks)
-            ? source.subtitleTracks
-            : [],
-        }));
-
-      if (fallbackSources.length) {
-        return ok(res, fallbackSources, {
-          source: 'live_provider_resolver',
-          contentType,
-          contentId,
-          provider: requestedProvider || undefined,
-        });
-      }
-
-      return fail(
-        res,
-        404,
-        'WATCH_SOURCES_NOT_FOUND',
-        'No direct playable sources are currently available for this title',
-      );
+      return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable AbdoBest source is currently available');
     }
 
     return ok(res, sources, {
-      source: 'playback_sources',
-      contentType,
-      contentId,
+      source: 'abdobest_watch_api',
+      mediaType,
+      tmdbId,
+      season,
+      episode,
     });
   } catch (error) {
-    console.error('[watch-sources]', error instanceof Error ? error.message : error);
-    return fail(res, 502, 'WATCH_DATABASE_FAILED', 'Unable to load watch sources');
+    console.error('[watch-api]', error instanceof Error ? error.message : error);
+    return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load AbdoBest playback sources');
   }
 }));
+
 
 app.get(`${api}/playback/sources`, asyncRoute(async (req, res) => {
   const parsed = z.object({
