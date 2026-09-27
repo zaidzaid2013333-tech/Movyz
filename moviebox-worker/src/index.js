@@ -548,20 +548,30 @@ async function extractStream(pageUrl, env) {
   };
 }
 
+function searchTitles(payload) {
+  return [...new Set([
+    payload?.title,
+    payload?.title_en,
+    payload?.title_ar,
+    payload?.original_title,
+    ...(Array.isArray(payload?.titles) ? payload.titles : []),
+  ].map(cleanText).filter(Boolean))];
+}
+
 async function findStoredMovieSources(payload) {
   const endpoints = [
-    "/api/movies",
-    "/api/dubbed-movies",
-    "/api/hindi",
-    "/api/asian-movies",
-    "/api/anime-movies",
-    "/api/arabic-movies",
     "/api/sorted/movies",
     "/api/sorted/dubbed-movies",
     "/api/sorted/hindi",
     "/api/sorted/asian-movies",
     "/api/sorted/anime-movies",
     "/api/sorted/arabic-movies",
+    "/api/movies",
+    "/api/dubbed-movies",
+    "/api/hindi",
+    "/api/asian-movies",
+    "/api/anime-movies",
+    "/api/arabic-movies",
   ];
 
   for (const endpoint of endpoints) {
@@ -573,12 +583,7 @@ async function findStoredMovieSources(payload) {
       if (!match) continue;
 
       const sources = extractSourceUrls(match);
-      if (sources.length) {
-        return {
-          match,
-          sources,
-        };
-      }
+      if (sources.length) return { match, sources };
     } catch {}
   }
 
@@ -599,37 +604,48 @@ async function resolveMovie(payload, env) {
     }
   }
 
-  const title = cleanText(payload?.title);
-  if (!title) {
+  const titles = searchTitles(payload);
+  if (!titles.length) {
     throw new Error("title is required when source_url is omitted");
   }
 
-  const search = await upstreamJson(
-    "/api/search?q=" + encodeURIComponent(title),
-  );
+  let match = null;
+  let lastSearchError = null;
 
-  if (!search.validJson || !search.response.ok) {
-    throw new Error(
-      search.body?.error ||
-        `AbdoBest search failed with HTTP ${search.response?.status ?? 502}`,
-    );
+  for (const title of titles) {
+    try {
+      const search = await upstreamJson(
+        "/api/search?q=" + encodeURIComponent(title),
+      );
+
+      if (!search.validJson || !search.response.ok) {
+        lastSearchError = search.body?.error ||
+          `AbdoBest search failed with HTTP ${search.response?.status ?? 502}`;
+        continue;
+      }
+
+      const candidate = chooseBestResult(search.body, payload);
+      if (candidate) {
+        match = candidate;
+        break;
+      }
+    } catch (error) {
+      lastSearchError = error instanceof Error ? error.message : String(error);
+    }
   }
 
-  const match = chooseBestResult(search.body, payload);
+  let sources = match ? extractSourceUrls(match) : [];
 
-  if (!match) {
-    throw new Error("No AbdoBest source matched this TMDB title");
-  }
-
-  let sources = extractSourceUrls(match);
-
-  // The search endpoint may return only {category,id,image,title}.
-  // AbdoBest itself also keeps richer Source/Sources fields in /api/sorted/*.
-  if (!sources.length) {
+  if (!match || !sources.length) {
     const stored = await findStoredMovieSources(payload);
     if (stored) {
-      sources = stored.sources;
+      match = match || stored.match;
+      sources = sources.length ? sources : stored.sources;
     }
+  }
+
+  if (!match) {
+    throw new Error(lastSearchError || "No AbdoBest source matched this TMDB title");
   }
 
   // Last resort: derive the source page from AbdoBest's stored content id.
