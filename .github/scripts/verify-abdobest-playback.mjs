@@ -325,7 +325,9 @@ async function postWatch(candidate) {
 }
 
 const root = await getJson(WATCH_BASE, '/', 30000);
-if (!root.response.ok || root.json?.api !== 'Movyz Watch API' || root.json?.provider !== 'AbdoBest') {
+if (!root.response.ok ||
+    root.json?.api !== 'Movyz Watch API' ||
+    !['AbdoBest', 'Akwam + AbdoBest fallback'].includes(String(root.json?.provider || ''))) {
   throw new Error('Watch API identity check failed');
 }
 
