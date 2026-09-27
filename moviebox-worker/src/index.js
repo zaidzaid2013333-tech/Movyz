@@ -650,9 +650,20 @@ async function resolveMovie(payload, env) {
   for (const source of sources.slice(0, 3)) {
     try {
       const stream = await extractStream(source, env);
+      const fallback = sourcePageFallback(source, extractTitle(match));
+      const streamSources = [
+        ...(Array.isArray(stream.sources) ? stream.sources : [{
+          quality: stream.quality || 'auto',
+          type: stream.type || detectStreamType(stream.url),
+          url: stream.url,
+        }]),
+        fallback.sources[0],
+      ];
       return {
         ...stream,
+        sources: streamSources,
         matched_title: extractTitle(match),
+        fallback_source_page: source,
       };
     } catch (error) {
       lastError = error;
@@ -767,9 +778,20 @@ async function resolveEpisode(payload, env) {
   for (const source of urls.slice(0, 3)) {
     try {
       const stream = await extractStream(source, env);
+      const fallback = sourcePageFallback(source, extractTitle(match));
+      const streamSources = [
+        ...(Array.isArray(stream.sources) ? stream.sources : [{
+          quality: stream.quality || 'auto',
+          type: stream.type || detectStreamType(stream.url),
+          url: stream.url,
+        }]),
+        fallback.sources[0],
+      ];
       return {
         ...stream,
+        sources: streamSources,
         matched_title: extractTitle(match),
+        fallback_source_page: source,
       };
     } catch (error) {
       lastError = error;
