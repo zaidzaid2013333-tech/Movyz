@@ -71,5 +71,24 @@ jobs:
             throw new Error('Watch API health failed');
           }
 
+          const playbackResponse = await fetch(base + '/watch/movie', {
+            method: 'POST',
+            headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tmdb_id: 278, title: 'The Shawshank Redemption', year: 1994 }),
+            redirect: 'follow',
+            signal: AbortSignal.timeout(120000),
+          });
+          const playbackBody = await playbackResponse.text();
+          console.log('/watch/movie', playbackResponse.status, playbackBody.slice(0, 5000));
+          if (!playbackResponse.ok) throw new Error('Watch API movie playback failed');
+          const playback = JSON.parse(playbackBody);
+          const streamUrl = playback?.stream?.url || playback?.stream?.sources?.[0]?.url;
+          if (!playback?.ok || !streamUrl) throw new Error('Watch API returned no playable stream URL');
+          console.log('WATCH_API_PLAYBACK=PASS', JSON.stringify({
+            type: playback?.stream?.type,
+            urlScheme: String(streamUrl).split(':')[0],
+            host: (() => { try { return new URL(streamUrl).host; } catch { return ''; } })(),
+          }));
+
           console.log('WATCH_API_DEPLOY=PASS');
           NODE
