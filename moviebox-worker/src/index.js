@@ -59,7 +59,11 @@ function isSafeProxyTarget(rawUrl) {
       host.startsWith("172.30.") ||
       host.startsWith("172.31.")
     ) return false;
-    return /m3u8|\\.mp4(?:$|[?#])|\\.webm(?:$|[?#])|\\.mpd(?:$|[?#])/i.test(target.href);
+    const value = target.href.toLowerCase();
+    return value.includes("m3u8") ||
+      value.includes(".mp4") ||
+      value.includes(".webm") ||
+      value.includes(".mpd");
   } catch {
     return false;
   }
@@ -105,7 +109,7 @@ async function proxyMedia(request) {
   const contentType = upstreamResponse.headers.get("Content-Type") || "";
   const isPlaylist =
     /mpegurl|m3u8/i.test(contentType) ||
-    /\\.m3u8(?:$|[?#])/i.test(target.pathname + target.search);
+    (target.pathname + target.search).toLowerCase().includes(".m3u8");
 
   if (!isPlaylist) {
     const outHeaders = new Headers();
