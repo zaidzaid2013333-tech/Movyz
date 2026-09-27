@@ -400,11 +400,9 @@ async function browserExtractStream(pageUrl, env) {
       frameUrls: page.frames().map((frame) => frame.url()).slice(0, 12),
     };
 
-    const iframe = page.locator('iframe[name="player_iframe"]').first();
-    const frame = await iframe.contentFrame().catch(() => null);
+    const playerFrame = page.frameLocator('iframe[name="player_iframe"]');
 
-    if (frame) {
-      const selectors = [
+    const selectors = [
         ".jw-icon-display",
         ".jw-icon.jw-icon-display",
         ".jw-display-icon-container",
@@ -413,15 +411,14 @@ async function browserExtractStream(pageUrl, env) {
         "video",
       ];
 
-      for (const selector of selectors) {
-        try {
-          const target = frame.locator(selector).first();
-          if (await target.count()) {
-            await target.click({ force: true, timeout: 5_000 });
-            break;
-          }
-        } catch {}
-      }
+    for (const selector of selectors) {
+      try {
+        const target = playerFrame.locator(selector).first();
+        if (await target.count()) {
+          await target.click({ force: true, timeout: 5_000 });
+          break;
+        }
+      } catch {}
     }
 
     const deadline = Date.now() + 15_000;
