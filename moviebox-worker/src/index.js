@@ -131,8 +131,15 @@ function extractSourceUrls(item) {
     const lower = url.toLowerCase();
     if (/\.(?:jpg|jpeg|png|gif|webp|svg)(?:[?#]|$)/i.test(lower)) return;
     if (/^(?:https?:\/\/)?(?:image\.tmdb\.org|images\.|cdn\.jsdelivr\.net)/i.test(lower)) return;
+
+    // AbdoBest documents Sources[] as pre-scraped server-page URLs
+    // (video_player?player_token=...), which should outrank legacy pages.
+    let effectivePriority = priority;
+    if (/video_player(?:\?|\/)|player_token=/i.test(lower)) effectivePriority += 250;
+    if (/https?:\/\/[^/]*akwam\.it\/watch\//i.test(lower)) effectivePriority += 180;
+
     seen.add(url);
-    candidates.push({ url, priority });
+    candidates.push({ url, priority: effectivePriority });
   };
 
   const visit = (value, key = "", depth = 0) => {
@@ -156,17 +163,18 @@ function extractSourceUrls(item) {
     }
   };
 
-  // Prefer fields normally used for playback/source pages.
+  // Prefer AbdoBest's pre-scraped Sources/Links collections first.
+  for (const value of [item?.Sources, item?.sources, item?.Links, item?.links]) {
+    visit(value, "source", 140);
+  }
+
+  // Keep legacy single-source fields as fallbacks.
   for (const key of [
     "Source", "source", "source_url", "SourceUrl", "sourceUrl",
     "URL", "Url", "url", "page_url", "pageUrl", "watch_url", "watchUrl",
     "link", "Link", "href", "player", "player_url", "playerUrl",
   ]) {
-    add(item?.[key], 100);
-  }
-
-  for (const value of [item?.Sources, item?.sources, item?.Links, item?.links]) {
-    visit(value, "source", 0);
+    add(item?.[key], 60);
   }
 
   visit(item, "", 0);
