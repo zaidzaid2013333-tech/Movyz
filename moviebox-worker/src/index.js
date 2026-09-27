@@ -389,18 +389,19 @@ async function upstreamJson(path, init = {}) {
   };
 }
 
-function isPreScrapedPlayerUrl(url) {
+function isBrowserExtractionCandidate(url) {
   const value = String(url || "").toLowerCase();
   return (
     value.includes("player_token=") ||
     value.includes("video_player?") ||
-    value.includes("video_player/")
+    value.includes("video_player/") ||
+    value.includes("fasel-hd.")
   );
 }
 
 async function browserExtractStream(pageUrl, env) {
   if (!env?.BROWSER) throw new Error("Browser Run binding unavailable");
-  if (!isPreScrapedPlayerUrl(pageUrl)) {
+  if (!isBrowserExtractionCandidate(pageUrl)) {
     throw new Error("Browser extraction is only enabled for pre-scraped player URLs");
   }
 
@@ -465,7 +466,7 @@ async function extractStream(pageUrl, env) {
   });
 
   if (!result.validJson) {
-    if (isPreScrapedPlayerUrl(pageUrl)) return browserExtractStream(pageUrl, env);
+    if (isBrowserExtractionCandidate(pageUrl)) return browserExtractStream(pageUrl, env);
     throw new Error(
       "AbdoBest extraction returned invalid JSON (HTTP " + result.response.status + ")",
     );
@@ -478,7 +479,7 @@ async function extractStream(pageUrl, env) {
   );
 
   if (!result.response.ok || !videoUrl) {
-    if (isPreScrapedPlayerUrl(pageUrl)) return browserExtractStream(pageUrl, env);
+    if (isBrowserExtractionCandidate(pageUrl)) return browserExtractStream(pageUrl, env);
     const message =
       result.body?.error ||
       ("AbdoBest extraction failed with HTTP " + result.response.status);
