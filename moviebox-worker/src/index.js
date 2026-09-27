@@ -511,11 +511,20 @@ async function extractStream(pageUrl, env) {
 }
 
 async function findStoredMovieSources(payload) {
-  const categories = ["movies", "dubbed-movies", "hindi", "asian-movies"];
+  const endpoints = [
+    "/api/movies",
+    "/api/dubbed-movies",
+    "/api/hindi",
+    "/api/asian-movies",
+    "/api/sorted/movies",
+    "/api/sorted/dubbed-movies",
+    "/api/sorted/hindi",
+    "/api/sorted/asian-movies",
+  ];
 
-  for (const category of categories) {
+  for (const endpoint of endpoints) {
     try {
-      const result = await upstreamJson("/api/sorted/" + category);
+      const result = await upstreamJson(endpoint);
       if (!result.validJson || !result.response.ok) continue;
 
       const match = chooseBestResult(result.body, payload);
