@@ -408,7 +408,7 @@ async function browserExtractStream(pageUrl, env) {
   const page = await context.newPage();
   const urls = [];
   const add = (value) => {
-    if (typeof value !== "string" || !/\\.m3u8(?:$|[?#])/i.test(value)) return;
+    if (typeof value !== "string" || !/\.m3u8(?:$|[?#])/i.test(value)) return;
     if (!urls.includes(value)) urls.push(value);
   };
 
