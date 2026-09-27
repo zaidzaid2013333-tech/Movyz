@@ -14,6 +14,7 @@
  * Source-page fallback is rendered by the web player when extraction is unavailable.
  * Smoke test fixture refresh.
  * Candidate discovery supports title-only entries.
+ * Smoke logging syntax fixed in verification script.
  */
 
 const ABDOBEST_API_BASES = [
