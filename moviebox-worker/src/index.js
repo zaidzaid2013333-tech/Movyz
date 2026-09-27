@@ -438,7 +438,10 @@ async function resolveMovie(payload) {
   const sources = extractSourceUrls(match);
 
   if (!sources.length) {
-    throw new Error("Matched title has no playable source page");
+    throw new Error(
+      "Matched title has no playable source page; matched keys: " +
+      Object.keys(match || {}).join(","),
+    );
   }
 
   let lastError = null;
