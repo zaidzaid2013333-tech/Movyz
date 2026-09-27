@@ -419,7 +419,7 @@ function isBrowserExtractionCandidate(url) {
 async function browserExtractStream(pageUrl, env) {
   if (!env?.BROWSER) throw new Error("Browser Run binding unavailable");
   if (!isBrowserExtractionCandidate(pageUrl)) {
-    throw new Error("Browser extraction is only enabled for pre-scraped player URLs");
+    throw new Error("Browser extraction is only enabled for AbdoBest player/source URLs");
   }
 
   const { launch } = await import("@cloudflare/playwright");
@@ -431,9 +431,52 @@ async function browserExtractStream(pageUrl, env) {
   const page = await context.newPage();
   const urls = [];
   const add = (value) => {
-    if (typeof value !== "string" || !/\.m3u8(?:$|[?#])/i.test(value)) return;
+    if (typeof value !== "string") return;
+    if (!/\\.m3u8(?:$|[?#])/i.test(value)) return;
     if (!urls.includes(value)) urls.push(value);
   };
+
+  // AbdoBest's own WebView captures HLS from fetch/XHR/media.src and then
+  // clicks the JWPlayer play button. Reproduce that normal playback flow.
+  await page.addInitScript(() => {
+    const post = (url) => {
+      try {
+        if (typeof url === "string" && /\\.m3u8(?:$|[?#])/i.test(url)) {
+          window.__MOVYZA_M3U8__ = window.__MOVYZA_M3U8__ || [];
+          if (!window.__MOVYZA_M3U8__.includes(url)) window.__MOVYZA_M3U8__.push(url);
+        }
+      } catch {}
+    };
+
+    const originalFetch = window.fetch;
+    window.fetch = function(input, init) {
+      try {
+        post(typeof input === "string" ? input : input?.url);
+      } catch {}
+      return originalFetch.apply(this, arguments);
+    };
+
+    const originalOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      try { post(url); } catch {}
+      return originalOpen.apply(this, arguments);
+    };
+
+    try {
+      const desc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "src");
+      if (desc?.set) {
+        const setter = desc.set;
+        Object.defineProperty(HTMLMediaElement.prototype, "src", {
+          set(value) {
+            try { post(value); } catch {}
+            return setter.call(this, value);
+          },
+          get: desc.get,
+          configurable: true,
+        });
+      }
+    } catch {}
+  });
 
   page.on("request", (request) => add(request.url()));
 
@@ -443,17 +486,80 @@ async function browserExtractStream(pageUrl, env) {
       timeout: 45_000,
     });
 
-    await page.waitForTimeout(8_000);
+    // Give the source page time to create its player iframe/server tabs.
+    await page.waitForTimeout(4_000);
 
-    const bodyText = (await page.locator("body").innerText().catch(() => "")).slice(0, 1500);
-    if (/turnstile|cloudflare|security check|verify you are human|إجراء التحقق من الأمان/i.test(bodyText)) {
-      throw new Error("Pre-scraped player is blocked by a security challenge");
+    const bodyText = (await page.locator("body").innerText().catch(() => "")).slice(0, 3000);
+    if (/turnstile|security check|verify you are human|إجراء التحقق من الأمان/i.test(bodyText)) {
+      throw new Error("AbdoBest source is blocked by a security challenge");
     }
 
+    // Collect pre-scraped player/server URLs just like AbdoBest's VideoExtractor.
+    const tokenUrls = await page.locator(".tabs-ul li").evaluateAll((items) =>
+      items.map((li) => {
+        const onclick = li.getAttribute("onclick") || "";
+        const match = onclick.match(/player_iframe\\.location\\.href\\s*=\\s*['"]([^'"]+)['"]/);
+        return match?.[1] || "";
+      }).filter(Boolean)
+    ).catch(() => []);
+
+    const targets = [...new Set([pageUrl, ...tokenUrls])];
+
+    // If the source page itself contains a player iframe, let it lazy-load.
+    await page.locator('iframe[name="player_iframe"]').first().scrollIntoViewIfNeeded().catch(() => {});
+
+    // Try the JWPlayer play control in every frame. This is normal user-like
+    // playback interaction; no CAPTCHA/security challenge is bypassed.
+    for (let attempt = 0; attempt < 8 && !urls.length; attempt++) {
+      for (const frame of page.frames()) {
+        for (const selector of [
+          ".jw-icon-display",
+          ".jw-display-icon-container",
+          "[class*='jw-icon'][class*='play']",
+          "video",
+        ]) {
+          const locator = frame.locator(selector).first();
+          if (await locator.count().catch(() => 0)) {
+            await locator.click({ force: true, timeout: 1500 }).catch(() => {});
+            break;
+          }
+        }
+      }
+
+      const captured = await page.evaluate(() => window.__MOVYZA_M3U8__ || []).catch(() => []);
+      for (const url of captured) add(url);
+
+      if (!urls.length) await page.waitForTimeout(2_000);
+    }
+
+    // Also try opening the pre-scraped player URLs directly if the page did
+    // not expose a usable iframe. Requests are still captured by Playwright.
+    for (const target of targets.slice(0, 5)) {
+      if (urls.length) break;
+      if (target === pageUrl) continue;
+      await page.goto(target, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
+      await page.waitForTimeout(3_000);
+
+      for (const selector of [
+        ".jw-icon-display",
+        ".jw-display-icon-container",
+        "[class*='jw-icon'][class*='play']",
+        "video",
+      ]) {
+        const locator = page.locator(selector).first();
+        if (await locator.count().catch(() => 0)) {
+          await locator.click({ force: true, timeout: 1500 }).catch(() => {});
+          break;
+        }
+      }
+      await page.waitForTimeout(4_000);
+    }
+
+    const captured = await page.evaluate(() => window.__MOVYZA_M3U8__ || []).catch(() => []);
+    for (const url of captured) add(url);
+
     if (!urls.length) {
-      throw new Error(
-        "Pre-scraped player returned no HLS playlist; finalUrl=" + page.url(),
-      );
+      throw new Error("AbdoBest player produced no HLS playlist");
     }
 
     return {
@@ -467,7 +573,7 @@ async function browserExtractStream(pageUrl, env) {
         url,
       })),
       cached: false,
-      via: "browser-run-pre-scraped",
+      via: "browser-run-abdobest-player",
     };
   } finally {
     await context.close().catch(() => {});
