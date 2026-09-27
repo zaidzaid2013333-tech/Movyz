@@ -345,6 +345,20 @@ try {
   const akR = await fetch(akDebugUrl, { redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) });
   const akT = await akR.text();
   console.log('AKWAM_DIRECT_DEBUG', akR.status, akR.url, akT.slice(0, 4000));
+try {
+  const resolverHealth = await fetch('https://movyz-akwam-resolver.sameranede.workers.dev/health');
+  console.log('AKWAM_RESOLVER_HEALTH', resolverHealth.status, await resolverHealth.text());
+  const resolverResp = await fetch('https://movyz-akwam-resolver.sameranede.workers.dev/resolve', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({title: 'Inception', type: 'movie', year: 2010}),
+    signal: AbortSignal.timeout(60000),
+  });
+  console.log('AKWAM_RESOLVER_TEST', resolverResp.status, (await resolverResp.text()).slice(0, 8000));
+} catch (e) {
+  console.log('AKWAM_RESOLVER_TEST_ERROR', String(e));
+}
+
 } catch (e) {
   console.log('AKWAM_DIRECT_DEBUG_ERROR', String(e));
 }
