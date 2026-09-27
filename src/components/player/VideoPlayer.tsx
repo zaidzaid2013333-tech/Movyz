@@ -375,11 +375,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         const normalized: PlaybackSource[] = (response.data || [])
           .filter(
-            (source) =>
+            (source: any) =>
               Boolean(source.url) &&
               ['hls', 'mp4', 'dash', 'webm', 'web'].includes(source.type),
           )
-          .map((source, index) => ({
+          .map((source: any, index: number) => ({
             id:
               source.id ||
               `${source.provider || 'source'}-${source.type}-${index}`,
@@ -392,7 +392,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             providerKey: source.providerKey,
             providerReference: source.providerReference,
             subtitleTracks: Array.isArray(source.subtitleTracks)
-              ? source.subtitleTracks.filter((track) => Boolean(track?.url)).map((track) => ({
+              ? source.subtitleTracks
+                  .filter((track: any) => Boolean(track?.url))
+                  .map((track: any) => ({
                   url: track.url,
                   type: track.type === 'srt' ? 'srt' : 'vtt',
                   language: track.language || 'und',
