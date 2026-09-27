@@ -35,7 +35,7 @@ export interface PlaybackSource {
   labelEn: string; // e.g., 'Fast CDN (Primary)'
   url: string;
   isWorking: boolean;
-  provider: string; // e.g. 'ArabStream', 'FaselHD Adapter', 'EgyBest Adapter'
+  provider: string; // e.g. 'AbdoBest', 'StreamProvider', 'TMDB Embed'
   providerKey?: string;
   providerReference?: string;
   subtitleTracks?: PlaybackSubtitleTrack[];
