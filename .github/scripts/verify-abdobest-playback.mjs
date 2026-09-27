@@ -130,8 +130,8 @@ function candidatesFrom(payload) {
     const tmdbId = tmdbIdOf(item);
     const title = titleOf(item);
     const sources = sourceUrlsOf(item);
-    if (!title || !sources.length) continue;
-    const key = [tmdbId || '', title, sources[0]].join('|');
+    if (!title) continue;
+    const key = [tmdbId || '', title, sources[0] || ''].join('|');
     if (seen.has(key)) continue;
     seen.add(key);
     candidates.push({
@@ -202,17 +202,20 @@ async function discoverCandidates() {
 }
 
 async function postWatch(candidate) {
-  for (const sourceUrl of candidate.sources.slice(0, 6)) {
+  const attempts = [undefined, ...candidate.sources.slice(0, 6)];
+  for (const sourceUrl of attempts) {
     try {
+      const body = {
+        tmdb_id: candidate.tmdbId,
+        title: candidate.title,
+        year: candidate.year,
+      };
+      if (sourceUrl) body.source_url = sourceUrl;
+
       const response = await fetch(WATCH_BASE + '/watch/movie', {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tmdb_id: candidate.tmdbId,
-          title: candidate.title,
-          year: candidate.year,
-          source_url: sourceUrl,
-        }),
+        body: JSON.stringify(body),
         redirect: 'follow',
         signal: timeout(120000),
       });
@@ -225,7 +228,7 @@ async function postWatch(candidate) {
           ['hls', 'mp4', 'dash', 'webm', 'web'].includes(streamType)) {
         return { candidate, sourceUrl, response: json };
       }
-      console.log('ABDO_PLAYBACK_TRY', candidate.title, response.status, streamType || 'none');
+      console.log('ABDO_PLAYBACK_TRY', candidate.title, sourceUrl ? 'source' : 'auto', response.status, streamType || 'none');
     } catch (error) {
       console.log('ABDO_PLAYBACK_ERROR', candidate.title, error instanceof Error ? error.message : String(error));
     }
