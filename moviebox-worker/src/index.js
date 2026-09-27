@@ -8,10 +8,11 @@
  *
  * TMDB remains the metadata/catalog source.
  * AbdoBest is used only internally to resolve playable sources.
- * Source discovery includes AbdoBest pre-scraped server URLs.
- * Verification is performed against a dynamically discovered AbdoBest source.
+ * Source discovery uses Akwam watch/download URLs exposed by AbdoBest metadata.
+ * Verification is performed against an Akwam source exposed by AbdoBest.
  * AbdoBest search is also used when sorted metadata lacks source fields.
  * Only direct media streams are returned to the web player.
+Akwam source pages are resolved to MP4 in a normal browser context; HTML pages are never returned to the player.
  * Smoke test fixture refresh.
  * Candidate discovery supports title-only entries.
  * Smoke logging syntax fixed in verification script.
@@ -393,31 +394,7 @@ function seasonNumberOf(item) {
 }
 
 function episodeUrls(item) {
-  const urls = [];
-
-  for (const value of [
-    item?.watch_url,
-    item?.video_url,
-    item?.stream_url,
-    item?.url,
-    item?.source,
-    item?.page_url,
-    item?.link,
-  ]) {
-    if (typeof value === "string" && /^https?:\/\//i.test(value)) {
-      urls.push(value);
-    }
-  }
-
-  if (Array.isArray(item?.Sources)) {
-    for (const value of item.Sources) {
-      if (typeof value === "string" && /^https?:\/\//i.test(value)) {
-        urls.push(value);
-      }
-    }
-  }
-
-  return [...new Set(urls)];
+  return extractAkwamSourceUrls(item);
 }
 
 function findEpisode(payload, wantedSeason, wantedEpisode) {
@@ -514,145 +491,102 @@ async function upstreamJson(path, init = {}) {
   };
 }
 
-function isBrowserExtractionCandidate(url) {
-  const value = String(url || "").toLowerCase();
-  return (
-    value.includes("player_token=") ||
-    value.includes("video_player?") ||
-    value.includes("video_player/") ||
-    value.includes("fasel-hd.")
-  );
+function isAkwamUrl(rawUrl) {
+  try {
+    const host = new URL(String(rawUrl || "")).hostname.toLowerCase();
+    return host === "akwam.it" ||
+      host.endsWith(".akwam.it") ||
+      host === "downet.net" ||
+      host.endsWith(".downet.net");
+  } catch {
+    return false;
+  }
 }
 
-async function browserExtractStream(pageUrl, env) {
+function normalizeAkwamUrl(rawUrl) {
+  const value = cleanText(rawUrl);
+  if (!value) return "";
+  return value
+    .replace(/^https?:\/\/(?:www\.)?akwam\.com\.co/i, "https://akwam.it")
+    .replace(/^https?:\/\/go\.akwam\.com\.co/i, "https://go.akwam.it")
+    .replace(/^https?:\/\/akw\.cam/i, "https://akwam.it");
+}
+
+function extractAkwamSourceUrls(item) {
+  const found = [];
+  const seen = new Set();
+
+  const visit = (value, depth = 0) => {
+    if (depth > 7 || value == null) return;
+    if (typeof value === "string") {
+      const url = normalizeAkwamUrl(value);
+      if (/^https?:\/\//i.test(url) && isAkwamUrl(url) && !seen.has(url)) {
+        seen.add(url);
+        found.push(url);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const entry of value) visit(entry, depth + 1);
+      return;
+    }
+    if (typeof value !== "object") return;
+    for (const child of Object.values(value)) visit(child, depth + 1);
+  };
+
+  visit(item);
+  return found;
+}
+
+async function browserExtractAkwam(pageUrl, env) {
   if (!env?.BROWSER) throw new Error("Browser Run binding unavailable");
-  if (!isBrowserExtractionCandidate(pageUrl)) {
-    throw new Error("Browser extraction is only enabled for AbdoBest player/source URLs");
+  const normalizedPageUrl = normalizeAkwamUrl(pageUrl);
+  if (!isAkwamUrl(normalizedPageUrl)) {
+    throw new Error("Akwam source URL required");
   }
 
   const { launch } = await import("@cloudflare/playwright");
   const browser = await launch(env.BROWSER);
   const context = await browser.newContext({
     userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
   });
   const page = await context.newPage();
-  const urls = [];
+  const mediaUrls = [];
   const add = (value) => {
-    if (typeof value !== "string") return;
-    if (!/\.m3u8(?:$|[?#])/i.test(value)) return;
-    if (!urls.includes(value)) urls.push(value);
+    if (typeof value !== "string" || !/^https?:\/\//i.test(value)) return;
+    const url = value.trim();
+    if (!/\.mp4(?:$|[?#])/i.test(url)) return;
+    if (!mediaUrls.includes(url)) mediaUrls.push(url);
   };
 
-  // AbdoBest's own WebView captures HLS from fetch/XHR/media.src and then
-  // clicks the JWPlayer play button. Reproduce that normal playback flow.
-  await page.addInitScript(() => {
-    const post = (url) => {
-      try {
-        if (typeof url === "string" && /\.m3u8(?:$|[?#])/i.test(url)) {
-          window.__MOVYZA_M3U8__ = window.__MOVYZA_M3U8__ || [];
-          if (!window.__MOVYZA_M3U8__.includes(url)) window.__MOVYZA_M3U8__.push(url);
-        }
-      } catch {}
-    };
-
-    const originalFetch = window.fetch;
-    window.fetch = function(input, init) {
-      try {
-        post(typeof input === "string" ? input : input?.url);
-      } catch {}
-      return originalFetch.apply(this, arguments);
-    };
-
-    const originalOpen = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function(method, url) {
-      try { post(url); } catch {}
-      return originalOpen.apply(this, arguments);
-    };
-
-    try {
-      const desc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "src");
-      if (desc?.set) {
-        const setter = desc.set;
-        Object.defineProperty(HTMLMediaElement.prototype, "src", {
-          set(value) {
-            try { post(value); } catch {}
-            return setter.call(this, value);
-          },
-          get: desc.get,
-          configurable: true,
-        });
-      }
-    } catch {}
+  page.on("request", (request) => add(request.url()));
+  page.on("response", (response) => {
+    const type = String(response.headers()["content-type"] || "").toLowerCase();
+    if (type.includes("video/mp4")) add(response.url());
   });
 
-  page.on("request", (request) => add(request.url()));
-
   try {
-    await page.goto(pageUrl, {
+    await page.goto(normalizedPageUrl, {
       waitUntil: "domcontentloaded",
       timeout: 45_000,
-    });
+    }).catch(() => {});
 
-    // Give the source page time to create its player iframe/server tabs.
-    await page.waitForTimeout(4_000);
+    for (let attempt = 0; attempt < 10 && !mediaUrls.length; attempt += 1) {
+      const domUrls = await page.locator("video source[src], video[src], source[src], a[href*='.mp4']")
+        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("src") || node.getAttribute("href") || "").filter(Boolean))
+        .catch(() => []);
+      domUrls.forEach(add);
 
-    const bodyText = (await page.locator("body").innerText().catch(() => "")).slice(0, 3000);
-    if (/turnstile|security check|verify you are human|إجراء التحقق من الأمان/i.test(bodyText)) {
-      throw new Error("AbdoBest source is blocked by a security challenge");
-    }
-
-    // Collect pre-scraped player/server URLs just like AbdoBest's VideoExtractor.
-    const tokenUrls = await page.locator(".tabs-ul li").evaluateAll((items) =>
-      items.map((li) => {
-        const onclick = li.getAttribute("onclick") || "";
-        const match = onclick.match(/player_iframe\.location\.href\s*=\s*['"]([^'"]+)['"]/);
-        return match?.[1] || "";
-      }).filter(Boolean)
-    ).catch(() => []);
-
-    const targets = [...new Set([pageUrl, ...tokenUrls])];
-
-    // If the source page itself contains a player iframe, let it lazy-load.
-    await page.locator('iframe[name="player_iframe"]').first().scrollIntoViewIfNeeded().catch(() => {});
-
-    // Try the JWPlayer play control in every frame. This is normal user-like
-    // playback interaction; no CAPTCHA/security challenge is bypassed.
-    for (let attempt = 0; attempt < 8 && !urls.length; attempt++) {
-      for (const frame of page.frames()) {
-        for (const selector of [
-          ".jw-icon-display",
-          ".jw-display-icon-container",
-          "[class*='jw-icon'][class*='play']",
-          "video",
-        ]) {
-          const locator = frame.locator(selector).first();
-          if (await locator.count().catch(() => 0)) {
-            await locator.click({ force: true, timeout: 1500 }).catch(() => {});
-            break;
-          }
-        }
-      }
-
-      const captured = await page.evaluate(() => window.__MOVYZA_M3U8__ || []).catch(() => []);
-      for (const url of captured) add(url);
-
-      if (!urls.length) await page.waitForTimeout(2_000);
-    }
-
-    // Also try opening the pre-scraped player URLs directly if the page did
-    // not expose a usable iframe. Requests are still captured by Playwright.
-    for (const target of targets.slice(0, 5)) {
-      if (urls.length) break;
-      if (target === pageUrl) continue;
-      await page.goto(target, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
-      await page.waitForTimeout(3_000);
+      const html = await page.content().catch(() => "");
+      for (const match of html.match(/https?:\\/\\/[^"'\\s<>]+\\.mp4(?:\\?[^"'\\s<>]*)?/gi) || []) add(match);
 
       for (const selector of [
+        "video",
+        "#player video",
         ".jw-icon-display",
         ".jw-display-icon-container",
-        "[class*='jw-icon'][class*='play']",
-        "video",
+        "[class*='play'][class*='btn']",
       ]) {
         const locator = page.locator(selector).first();
         if (await locator.count().catch(() => 0)) {
@@ -660,50 +594,31 @@ async function browserExtractStream(pageUrl, env) {
           break;
         }
       }
-      await page.waitForTimeout(4_000);
+
+      if (!mediaUrls.length) await page.waitForTimeout(1500);
     }
 
-    const captured = await page.evaluate(() => window.__MOVYZA_M3U8__ || []).catch(() => []);
-    for (const url of captured) add(url);
-
-    if (!urls.length) {
-      throw new Error("AbdoBest player produced no HLS playlist");
+    if (!mediaUrls.length) {
+      throw new Error("Akwam page exposed no direct MP4");
     }
 
     return {
-      url: urls[0],
-      type: "hls",
+      url: mediaUrls[0],
+      type: "mp4",
       quality: "auto",
-      qualities: ["Auto"],
-      sources: urls.map((url) => ({
+      qualities: ["auto"],
+      sources: mediaUrls.slice(0, 8).map((url) => ({
         quality: "auto",
-        type: "hls",
+        type: "mp4",
         url,
       })),
       cached: false,
-      via: "browser-run-abdobest-player",
+      via: "browser-run-akwam",
     };
   } finally {
     await context.close().catch(() => {});
     await browser.close().catch(() => {});
   }
-}
-
-function sourcePageFallback(pageUrl, matchedTitle = '') {
-  return {
-    url: pageUrl,
-    type: 'web',
-    quality: 'source-page',
-    qualities: [],
-    sources: [{
-      quality: 'source-page',
-      type: 'web',
-      url: pageUrl,
-    }],
-    source_page: pageUrl,
-    requires_browser: true,
-    matched_title: matchedTitle || undefined,
-  };
 }
 
 function isLikelyMediaUrl(value) {
@@ -756,84 +671,37 @@ function findStreamUrl(value, depth = 0, preferred = false) {
 }
 
 async function extractStream(pageUrl, env) {
-  // AbdoBest is the only playback source. We only return a real media URL.
-  // A source HTML page is never returned as a playable stream.
-  let apiError = null;
+  const normalized = normalizeAkwamUrl(pageUrl);
+
+  if (isAkwamUrl(normalized) && /\.(?:mp4|m3u8|mpd|webm)(?:$|[?#])/i.test(normalized)) {
+    return {
+      url: normalized,
+      type: detectStreamType(normalized),
+      quality: "auto",
+      qualities: ["auto"],
+      sources: [{
+        quality: "auto",
+        type: detectStreamType(normalized),
+        url: normalized,
+      }],
+      cached: true,
+      via: "abdobest-direct-url",
+    };
+  }
+
+  if (!isAkwamUrl(normalized)) {
+    throw new Error("Akwam source URL required");
+  }
+
   try {
-    const result = await upstreamJson("/extract", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: pageUrl }),
-    });
-
-    if (result.validJson) {
-      // Prefer explicit media fields from AbdoBest. These are authoritative
-      // when the extractor says they are video streams, even if the URL
-      // contains words like "watch" or "player".
-      const explicitCandidates = [
-        result.body?.stream_url,
-        result.body?.video_url,
-        result.body?.videoUrl,
-        result.body?.streamUrl,
-        result.body?.media_url,
-        result.body?.mediaUrl,
-        result.body?.src,
-        result.body?.url,
-      ].filter((value) => typeof value === "string" && /^https?:\/\//i.test(value));
-
-      const videoUrl = explicitCandidates.find(isLikelyMediaUrl) || findStreamUrl(result.body);
-
-      if (result.response.ok && videoUrl) {
-        const qualities = Array.isArray(result.body?.quality_options)
-          ? result.body.quality_options.filter(Boolean)
-          : [];
-        const type = detectStreamType(videoUrl);
-        return {
-          url: videoUrl,
-          type,
-          quality: qualities[0] || "auto",
-          qualities,
-          sources: [{
-            quality: qualities[0] || "auto",
-            type,
-            url: videoUrl,
-          }],
-          cached: result.body?.cached === true,
-          via: "abdobest-api",
-        };
-      }
-
-      apiError = new Error(
-        result.body?.error ||
-          ("AbdoBest extraction failed with HTTP " + result.response.status),
-      );
-    } else {
-      apiError = new Error(
-        "AbdoBest extraction returned invalid JSON (HTTP " + result.response.status + ")",
-      );
-    }
+    return await browserExtractAkwam(normalized, env);
   } catch (error) {
-    apiError = error instanceof Error ? error : new Error(String(error));
+    throw new Error(
+      "Akwam direct extraction failed: " +
+      (error instanceof Error ? error.message : String(error)),
+    );
   }
-
-  // AbdoBest's mobile app resolves the same source pages in a WebView and
-  // captures the HLS request generated by the player. Browser Run mirrors that
-  // normal browser flow; it does not bypass CAPTCHAs/security challenges.
-  if (isBrowserExtractionCandidate(pageUrl)) {
-    try {
-      return await browserExtractStream(pageUrl, env);
-    } catch (browserError) {
-      throw new Error(
-        "AbdoBest direct extraction failed: " +
-        (browserError instanceof Error ? browserError.message : String(browserError)) +
-        (apiError ? " | API: " + apiError.message : ""),
-      );
-    }
-  }
-
-  throw apiError || new Error("AbdoBest could not resolve a direct video stream");
 }
-
 function searchTitles(payload) {
   return [...new Set([
     payload?.title,
@@ -868,7 +736,7 @@ async function findStoredMovieSources(payload) {
       const match = chooseBestResult(result.body, payload);
       if (!match) continue;
 
-      const sources = extractSourceUrls(match);
+      const sources = extractAkwamSourceUrls(match);
       if (sources.length) return { match, sources };
     } catch {}
   }
@@ -880,7 +748,8 @@ async function resolveMovie(payload, env) {
   const directSource = cleanText(payload?.source_url);
 
   if (directSource) {
-    return await extractStream(directSource, env); 
+    if (!isAkwamUrl(directSource)) throw new Error("Only Akwam playback sources are allowed");
+    return await extractStream(directSource, env);
   }
 
   const titles = searchTitles(payload);
@@ -913,7 +782,7 @@ async function resolveMovie(payload, env) {
     }
   }
 
-  let sources = match ? extractSourceUrls(match) : [];
+  let sources = match ? extractAkwamSourceUrls(match) : [];
 
   if (!match || !sources.length) {
     const stored = await findStoredMovieSources(payload);
@@ -925,15 +794,6 @@ async function resolveMovie(payload, env) {
 
   if (!match) {
     throw new Error(lastSearchError || "No AbdoBest source matched this TMDB title");
-  }
-
-  // Last resort: derive the source page from AbdoBest's stored content id.
-  if (!sources.length) {
-    const matchId = firstString(match?.id, match?.ID);
-    const category = extractCategory(match);
-    if (matchId && category !== "arabic-movies") {
-      sources.push("https://www.fasel-hd.cam/?p=" + encodeURIComponent(matchId));
-    }
   }
 
   if (!sources.length) {
@@ -952,7 +812,11 @@ async function resolveMovie(payload, env) {
         quality: stream.quality || 'auto',
         type: stream.type || detectStreamType(stream.url),
         url: stream.url,
-      }]).filter((entry) => entry?.url && entry.type !== 'web' && isLikelyMediaUrl(entry.url));
+      }]).filter((entry) =>
+        entry?.url &&
+        entry.type !== 'web' &&
+        isLikelyMediaUrl(entry.url),
+      );
 
       if (!directSources.length) {
         throw new Error("AbdoBest returned no direct media URL");
@@ -1038,13 +902,13 @@ async function resolveEpisode(payload, env) {
     const directSources = found.sources
       .map((source) => ({
         quality: firstString(source?.quality),
-        url: firstString(
+        url: normalizeAkwamUrl(firstString(
           source?.watch_url,
           source?.video_url,
           source?.stream_url,
-        ),
+        )),
       }))
-      .filter((source) => source.url);
+      .filter((source) => source.url && isAkwamUrl(source.url));
 
     if (directSources.length) {
       return {
@@ -1065,7 +929,7 @@ async function resolveEpisode(payload, env) {
   const urls = episodeUrls(found);
 
   if (!urls.length) {
-    throw new Error("Episode has no playable source URL");
+    throw new Error("Episode has no Akwam source URL");
   }
 
   let lastError = null;
@@ -1073,20 +937,22 @@ async function resolveEpisode(payload, env) {
   for (const source of urls.slice(0, 3)) {
     try {
       const stream = await extractStream(source, env);
-      const fallback = sourcePageFallback(source, extractTitle(match));
-      const streamSources = [
-        ...(Array.isArray(stream.sources) ? stream.sources : [{
-          quality: stream.quality || 'auto',
-          type: stream.type || detectStreamType(stream.url),
-          url: stream.url,
-        }]),
-        fallback.sources[0],
-      ];
+      const streamSources = (Array.isArray(stream.sources) ? stream.sources : [{
+        quality: stream.quality || 'auto',
+        type: stream.type || detectStreamType(stream.url),
+        url: stream.url,
+      }]).filter((entry) =>
+        entry?.url &&
+        entry.type !== 'web' &&
+        isLikelyMediaUrl(entry.url),
+      );
+      if (!streamSources.length) throw new Error("Akwam returned no direct media URL");
       return {
         ...stream,
+        url: streamSources[0].url,
+        type: streamSources[0].type,
         sources: streamSources,
         matched_title: extractTitle(match),
-        fallback_source_page: source,
       };
     } catch (error) {
       lastError = error;
