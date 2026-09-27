@@ -58,48 +58,108 @@ function absoluteUrl(value, base) {
 
 async function pickSearchResult(page, title, type) {
   const query = encodeURIComponent(title);
-  const section = type === "series" ? "series" : "movies";
+  const section = type === "series" ? "series" : "movie";
+  let lastDiagnostics = null;
+
   for (const base of SEARCH_BASES) {
     try {
-      await page.goto(
-        base + "/search?q=" + query + "&section=" + section + "&page=1",
-        { waitUntil: "domcontentloaded", timeout: 20000 },
-      );
+      await page.goto(base, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
+      const canonicalBase = new URL(page.url()).origin || base;
 
-      const rows = await page.locator("a.box").evaluateAll((nodes) =>
-        nodes.map((node) => ({
-          href: node.getAttribute("href") || "",
-          title:
-            node.querySelector("h3.entry-title")?.textContent?.trim() ||
-            node.querySelector(".entry-title")?.textContent?.trim() ||
-            node.getAttribute("title") ||
-            "",
-        })),
-      ).catch(() => []);
+      const searchUrls = [
+        canonicalBase + "/search?q=" + query + "&section=" + section + "&page=1",
+        canonicalBase + "/search?q=" + query + "&section=" + section,
+        canonicalBase + "/search?q=" + query,
+      ];
 
-      const wanted = normalizeTitle(title);
-      const candidates = rows
-        .map((row) => {
-          const actual = normalizeTitle(row.title);
-          const score =
-            actual === wanted ? 100 :
-            actual.includes(wanted) || wanted.includes(actual) ? 70 : 0;
-          return {
-            href: absoluteUrl(row.href, page.url()),
-            title: row.title,
-            score,
+      for (const searchUrl of searchUrls) {
+        try {
+          await page.goto(searchUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: 25000,
+          });
+
+          await page.waitForTimeout(1200);
+
+          const rows = await page.locator(
+            ".widget-body .entry-box, .entry-box, a.box"
+          ).evaluateAll((nodes) =>
+            nodes.map((node) => {
+              const anchor = node.matches?.("a.box")
+                ? node
+                : node.querySelector?.("a.box, a[href]");
+              const titleNode =
+                node.matches?.(".entry-box") || node.matches?.("a.box")
+                  ? node
+                  : node.querySelector?.(".entry-title, h3");
+              return {
+                href: anchor?.getAttribute?.("href") || "",
+                title:
+                  titleNode?.textContent?.trim() ||
+                  anchor?.getAttribute?.("title") ||
+                  anchor?.textContent?.trim() ||
+                  "",
+              };
+            })
+          ).catch(() => []);
+
+          const fallbackRows = rows.length ? rows : await page.locator("a[href]").evaluateAll((nodes) =>
+            nodes.map((node) => ({
+              href: node.getAttribute("href") || "",
+              title: node.querySelector?.(".entry-title, h3")?.textContent?.trim() ||
+                node.getAttribute("title") ||
+                node.textContent?.trim() || "",
+            })).filter((x) => x.href && x.title)
+          ).catch(() => []);
+
+          const wanted = normalizeTitle(title);
+          const candidates = fallbackRows
+            .map((row) => {
+              const actual = normalizeTitle(row.title);
+              const score =
+                actual === wanted ? 120 :
+                actual.includes(wanted) ? 90 :
+                wanted.includes(actual) ? 80 :
+                0;
+              return {
+                href: absoluteUrl(row.href, page.url()),
+                title: row.title,
+                score,
+              };
+            })
+            .filter((x) => x.href && x.score > 0)
+            .sort((a, b) => b.score - a.score);
+
+          if (candidates[0]) return candidates[0];
+
+          lastDiagnostics = {
+            url: page.url(),
+            title: await page.title().catch(() => ""),
+            body: (await page.locator("body").innerText().catch(() => "")).slice(0, 1600),
+            anchors: fallbackRows.length,
           };
-        })
-        .filter((x) => x.href && x.score > 0)
-        .sort((a, b) => b.score - a.score);
-
-      if (candidates[0]) return candidates[0];
-    } catch {}
+        } catch (error) {
+          lastDiagnostics = {
+            url: page.url(),
+            title: await page.title().catch(() => ""),
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    } catch (error) {
+      lastDiagnostics = {
+        url: page.url(),
+        title: await page.title().catch(() => ""),
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
-  throw new Error("Akwam search returned no matching result");
+  const suffix = lastDiagnostics
+    ? " | diagnostics=" + JSON.stringify(lastDiagnostics)
+    : "";
+  throw new Error("Akwam search returned no matching result" + suffix);
 }
-
 async function extractFromPage(context, pageUrl, season, episode) {
   const page = await context.newPage();
   const media = [];
