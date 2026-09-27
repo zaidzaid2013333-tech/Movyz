@@ -459,11 +459,19 @@ async function browserExtractStream(pageUrl, env) {
 }
 
 async function extractStream(pageUrl, env) {
-  const result = await upstreamJson("/extract", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: pageUrl }),
-  });
+  let result;
+  try {
+    result = await upstreamJson("/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: pageUrl }),
+    });
+  } catch (error) {
+    if (isBrowserExtractionCandidate(pageUrl)) {
+      return browserExtractStream(pageUrl, env);
+    }
+    throw error;
+  }
 
   if (!result.validJson) {
     if (isBrowserExtractionCandidate(pageUrl)) return browserExtractStream(pageUrl, env);
