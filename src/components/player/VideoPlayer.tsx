@@ -44,6 +44,8 @@ type SubtitleTrack = {
   default?: boolean;
 };
 
+const DIRECT_WATCH_API_BASE = 'https://movyz-moviebox.sameranede.workers.dev';
+
 type PlaybackSource = {
   id: string;
   url: string;
@@ -57,6 +59,74 @@ type PlaybackSource = {
   providerReference?: string;
   subtitleTracks?: SubtitleTrack[];
 };
+
+async function fetchAbdoBestFallbackSources(args: {
+  tmdbId: number;
+  contentType: 'movie' | 'series';
+  title: string;
+  titleEn: string;
+  season?: number;
+  episode?: number;
+}): Promise<PlaybackSource[]> {
+  const isMovie = args.contentType === 'movie';
+  const payload = isMovie
+    ? {
+        tmdb_id: args.tmdbId,
+        title: args.titleEn || args.title,
+        title_en: args.titleEn,
+        title_ar: args.title,
+        titles: [args.titleEn, args.title].filter(Boolean),
+      }
+    : {
+        tmdb_id: args.tmdbId,
+        title: args.titleEn || args.title,
+        title_en: args.titleEn,
+        title_ar: args.title,
+        titles: [args.titleEn, args.title].filter(Boolean),
+        season: args.season,
+        episode: args.episode,
+      };
+
+  const response = await fetch(
+    DIRECT_WATCH_API_BASE + (isMovie ? '/watch/movie' : '/watch/episode'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.ok) {
+    throw new Error(body?.error || \`AbdoBest fallback failed (\${response.status})\`);
+  }
+
+  const stream = body?.stream || {};
+  const rawSources = Array.isArray(stream.sources) && stream.sources.length
+    ? stream.sources
+    : stream.url
+      ? [{
+          url: stream.url,
+          type: stream.type,
+          quality: stream.quality,
+        }]
+      : [];
+
+  return rawSources
+    .filter((source: any) => typeof source?.url === 'string' && /^https?:\/\//i.test(source.url))
+    .map((source: any, index: number) => ({
+      id: source.id || \`abdobest-fallback-\${source.type || 'source'}-\${index}\`,
+      url: source.url,
+      type: (source.type || (String(source.url).toLowerCase().includes('.m3u8') ? 'hls' : 'mp4')) as StreamType,
+      quality: source.quality || 'auto',
+      language: source.language || 'und',
+      label: source.label || \`AbdoBest · \${source.quality || 'auto'}\`,
+      provider: 'AbdoBest',
+      providerKey: 'abdobest',
+      providerReference: source.providerReference,
+      subtitleTracks: Array.isArray(source.subtitleTracks) ? source.subtitleTracks : [],
+    }));
+}
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   contentId,
@@ -286,7 +356,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
 
         if (!response) {
-          throw lastLoadError || new Error('No playback sources returned');
+          try {
+            const fallbackSources = await fetchAbdoBestFallbackSources({
+              tmdbId: safeTmdbId,
+              contentType: isMovie ? 'movie' : 'series',
+              title,
+              titleEn,
+              season: seasonNumber,
+              episode: episodeNumber,
+            });
+            if (!fallbackSources.length) throw new Error('AbdoBest returned no playback sources');
+            response = { data: fallbackSources } as any;
+          } catch (fallbackError) {
+            console.warn('[movyza-player] AbdoBest direct fallback failed', fallbackError);
+            throw lastLoadError || fallbackError || new Error('No playback sources returned');
+          }
         }
 
         const normalized: PlaybackSource[] = (response.data || [])
