@@ -72,10 +72,10 @@ jobs:
       - name: Deploy Akwam Resolver
         run: npx wrangler deploy --config akwam-resolver-worker/wrangler.toml
 
-      # Main API must successfully route playback through the dedicated AbdoBest Watch API.
-      - name: Verify deployed AbdoBest playback
+      # This is a real Browser Run/Akwam media verification, not a health check.
+      - name: Verify deployed Akwam direct playback
         run: |
-          node .github/scripts/verify-abdobest-playback.mjs
+          node .github/scripts/verify-akwam-playback.mjs
 
       - name: Remove temporary secrets file
         if: always()
