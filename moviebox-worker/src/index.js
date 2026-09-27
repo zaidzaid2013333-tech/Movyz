@@ -25,6 +25,11 @@ const ABDOBEST_API_BASES = [
   "https://ogkushhh-abdobest-api.hf.space",
 ];
 const TIMEOUT_MS = 120_000;
+const AKWAM_SEARCH_BASES = [
+  "https://akwam.ss",
+  "https://akwam.it",
+  "https://ak.sv",
+];
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -496,6 +501,10 @@ function isAkwamUrl(rawUrl) {
     const host = new URL(String(rawUrl || "")).hostname.toLowerCase();
     return host === "akwam.it" ||
       host.endsWith(".akwam.it") ||
+      host === "akwam.ss" ||
+      host.endsWith(".akwam.ss") ||
+      host === "ak.sv" ||
+      host.endsWith(".ak.sv") ||
       host === "downet.net" ||
       host.endsWith(".downet.net");
   } catch {
@@ -536,6 +545,78 @@ function extractAkwamSourceUrls(item) {
 
   visit(item);
   return found;
+}
+
+async function browserSearchAkwam(payload, env) {
+  if (!env?.BROWSER) throw new Error("Browser Run binding unavailable");
+
+  const wantedTitles = searchTitles(payload);
+  if (!wantedTitles.length) throw new Error("title is required");
+  const wantedYear = Number(payload?.year);
+
+  const { launch } = await import("@cloudflare/playwright");
+  const browser = await launch(env.BROWSER);
+  const context = await browser.newContext({
+    userAgent:
+      "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+  });
+  const page = await context.newPage();
+
+  try {
+    const candidates = [];
+    for (const base of AKWAM_SEARCH_BASES) {
+      const query = encodeURIComponent(wantedTitles[0]);
+      try {
+        await page.goto(base + "/search?q=" + query, {
+          waitUntil: "domcontentloaded",
+          timeout: 30_000,
+        });
+        const rows = await page.locator("a.box").evaluateAll((nodes) =>
+          nodes.map((node) => ({
+            href: node.getAttribute("href") || "",
+            title:
+              node.querySelector("h3.entry-title")?.textContent?.trim() ||
+              node.querySelector("h2, h3, .entry-title")?.textContent?.trim() ||
+              node.getAttribute("title") ||
+              "",
+          })),
+        ).catch(() => []);
+
+        for (const row of rows) {
+          if (!row.href || !/^https?:\/\//i.test(row.href)) continue;
+          if (!isAkwamUrl(row.href)) continue;
+          const title = cleanText(row.title);
+          if (!title) continue;
+          const normalized = normalizeTitle(title);
+          const wanted = wantedTitles.map(normalizeTitle);
+          const exact = wanted.includes(normalized);
+          const partial = wanted.some(
+            (value) => value && (normalized.includes(value) || value.includes(normalized)),
+          );
+          let score = exact ? 100 : partial ? 55 : 0;
+          if (Number.isFinite(wantedYear)) {
+            const yearMatch = title.match(/\b(?:19|20)\d{2}\b/);
+            if (yearMatch && Number(yearMatch[0]) === wantedYear) score += 20;
+          }
+          candidates.push({ title, url: row.href, score });
+        }
+        if (candidates.length) break;
+      } catch {}
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates.find((candidate) => candidate.score > 0) || candidates[0];
+    if (!best) throw new Error("No Akwam search result matched the title");
+
+    return {
+      match: { title: best.title, url: best.url },
+      sources: [best.url],
+      via: "browser-run-akwam-search",
+    };
+  } finally {
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+  }
 }
 
 async function browserExtractAkwam(pageUrl, env) {
@@ -868,6 +949,40 @@ async function resolveMovie(payload, env) {
   let sources = [];
   let lastSearchError = null;
 
+  try {
+    const akwam = await browserSearchAkwam(payload, env);
+    match = akwam.match;
+    sources = akwam.sources;
+  } catch (error) {
+    lastSearchError = error instanceof Error ? error.message : String(error);
+  }
+
+  if (match && sources.length) {
+    try {
+      const stream = await extractStream(sources[0], env);
+      const directSources = (Array.isArray(stream.sources) ? stream.sources : [{
+        quality: stream.quality || "auto",
+        type: stream.type || detectStreamType(stream.url),
+        url: stream.url,
+      }]).filter((entry) =>
+        entry?.url &&
+        entry.type !== "web" &&
+        isLikelyMediaUrl(entry.url),
+      );
+      if (directSources.length) {
+        return {
+          ...stream,
+          url: directSources[0].url,
+          type: directSources[0].type,
+          sources: directSources,
+          matched_title: extractTitle(match),
+        };
+      }
+    } catch (error) {
+      lastSearchError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
   for (const title of titles) {
     try {
       const search = await upstreamJson(
@@ -1108,7 +1223,7 @@ export default {
         return json({
           api: "Movyz Watch API",
           version: "2.0.0",
-          provider: "AbdoBest",
+          provider: "Akwam + AbdoBest fallback",
           metadata: "TMDB",
           endpoints: {
             health: "GET /health",
