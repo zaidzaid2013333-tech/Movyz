@@ -502,7 +502,7 @@ async function resolveMovie(payload, env) {
   const directSource = cleanText(payload?.source_url);
 
   if (directSource) {
-    return extractStream(directSource);
+    return extractStream(directSource, env);
   }
 
   const title = cleanText(payload?.title);
@@ -684,7 +684,7 @@ async function parseJsonRequest(request) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS });
     }
