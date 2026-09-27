@@ -400,8 +400,8 @@ async function browserExtractStream(pageUrl, env) {
       frameUrls: page.frames().map((frame) => frame.url()).slice(0, 12),
     };
 
-    const iframe = await page.locator('iframe[name="player_iframe"]').first().catch(() => null);
-    const frame = iframe ? await iframe.contentFrame() : null;
+    const iframe = page.locator('iframe[name="player_iframe"]').first();
+    const frame = await iframe.contentFrame().catch(() => null);
 
     if (frame) {
       const selectors = [
