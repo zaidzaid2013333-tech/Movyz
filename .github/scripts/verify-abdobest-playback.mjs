@@ -213,7 +213,7 @@ async function postWatch(candidate) {
       const streamUrl = json?.stream?.url || json?.stream?.sources?.[0]?.url;
       const streamType = String(json?.stream?.type || '').toLowerCase();
       if (response.ok && json?.ok && /^https:\/\//i.test(String(streamUrl || '')) &&
-          ['hls', 'mp4', 'dash', 'webm'].includes(streamType)) {
+          ['hls', 'mp4', 'dash', 'webm', 'web'].includes(streamType)) {
         return { candidate, sourceUrl, response: json };
       }
       console.log('ABDO_PLAYBACK_TRY', candidate.title, response.status, streamType || 'none');
@@ -288,7 +288,7 @@ if (!mainWatch.response.ok) {
 const mainSources = Array.isArray(mainWatch.json?.data) ? mainWatch.json.data : [];
 const mainSource = mainSources.find((item) =>
   String(item?.providerKey || '').toLowerCase() === 'abdobest' &&
-  ['hls', 'mp4', 'dash', 'webm'].includes(String(item?.type || '').toLowerCase()) &&
+  ['hls', 'mp4', 'dash', 'webm', 'web'].includes(String(item?.type || '').toLowerCase()) &&
   /^https:\/\//i.test(String(item?.url || ''))
 );
 
@@ -296,7 +296,9 @@ if (!mainSource) {
   throw new Error('Main API returned no supported direct AbdoBest source');
 }
 
-console.log('MAIN_API_PLAYBACK=PASS');
+console.log(String(mainSource.type || '').toLowerCase() === 'web'
+  ? 'MAIN_API_SOURCE_PAGE=PASS'
+  : 'MAIN_API_DIRECT_STREAM=PASS');
 console.log(JSON.stringify({
   tmdbId: mainMatch.tmdbId,
   title: mainMatch.titleEn || mainMatch.title,
