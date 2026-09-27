@@ -528,10 +528,14 @@ async function findStoredMovieSources(payload) {
     "/api/dubbed-movies",
     "/api/hindi",
     "/api/asian-movies",
+    "/api/anime-movies",
+    "/api/arabic-movies",
     "/api/sorted/movies",
     "/api/sorted/dubbed-movies",
     "/api/sorted/hindi",
     "/api/sorted/asian-movies",
+    "/api/sorted/anime-movies",
+    "/api/sorted/arabic-movies",
   ];
 
   for (const endpoint of endpoints) {
