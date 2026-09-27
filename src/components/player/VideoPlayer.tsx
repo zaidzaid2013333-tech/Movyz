@@ -261,12 +261,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try {
       const proxy = new URL(DIRECT_WATCH_API_BASE + '/proxy');
       proxy.searchParams.set('url', source.url);
-      proxy.searchParams.set(
-        'referer',
-        source.url.includes('fasel-hd')
-          ? 'https://www.fasel-hd.cam/'
-          : 'https://www.abdobest.com/',
-      );
+      proxy.searchParams.set('referer', 'https://www.abdobest.com/');
       return proxy.toString();
     } catch {
       return source.url;
@@ -398,9 +393,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 !source?.url ||
                 !['hls', 'mp4', 'dash', 'webm'].includes(source.type)
               ) return false;
-              const url = String(source.url).toLowerCase();
-              // Hard block legacy Fasel/source-page URLs on the client.
-              return !url.includes('fasel-hd') && !url.includes('faselhd');
+              return true;
             },
           )
           .map((source: any, index: number) => ({
