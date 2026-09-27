@@ -340,6 +340,15 @@ if (!health.response.ok || health.json?.provider !== 'AbdoBest') {
 const debugSearch = await getJson(ABDO_BASE, '/api/search?q=' + encodeURIComponent('Inception'), 30000);
 console.log('ABDO_SEARCH_DEBUG_STATUS', debugSearch.response.status);
 console.log('ABDO_SEARCH_DEBUG_BODY', JSON.stringify(debugSearch.json).slice(0, 12000));
+const akDebugUrl = 'https://ak.sv/search?q=' + encodeURIComponent('Inception') + '&section=movies&page=1';
+try {
+  const akR = await fetch(akDebugUrl, { redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) });
+  const akT = await akR.text();
+  console.log('AKWAM_DIRECT_DEBUG', akR.status, akR.url, akT.slice(0, 4000));
+} catch (e) {
+  console.log('AKWAM_DIRECT_DEBUG_ERROR', String(e));
+}
+
  
 const candidates = await discoverCandidates();
 if (!candidates.length) {
