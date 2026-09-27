@@ -68,59 +68,9 @@ jobs:
         run: npx wrangler deploy --secrets-file .env.production
 
       # Main API must successfully route playback through the dedicated AbdoBest Watch API.
-      - name: Verify deployed Watch API playback
+      - name: Verify deployed AbdoBest playback
         run: |
-          node <<'NODE'
-          const base = 'https://movyz-api.sameranede.workers.dev';
-          const get = async (path, timeout = 120000) => {
-            const response = await fetch(base + path, {
-              headers: { Accept: 'application/json' },
-              redirect: 'follow',
-              signal: AbortSignal.timeout(timeout),
-            });
-            const body = await response.text();
-            console.log(path, 'HTTP', response.status, body.slice(0, 2200));
-            let json = null;
-            try { json = JSON.parse(body); } catch {}
-            return { response, json };
-          };
-
-          const health = await get('/health', 15000);
-          if (!health.response.ok || !health.json?.success || health.json?.data?.status !== 'ok') {
-            throw new Error('Worker health check failed');
-          }
-
-          const watch = await get('/api/v1/watch/movie/278', 120000);
-          if (!watch.response.ok) {
-            throw new Error(
-              'AbdoBest playback routing failed: HTTP ' +
-              watch.response.status +
-              ' ' +
-              JSON.stringify(watch.json).slice(0, 1600),
-            );
-          }
-
-          const sources = Array.isArray(watch.json?.data) ? watch.json.data : [];
-          if (!sources.length) throw new Error('AbdoBest playback returned no sources');
-
-          const source = sources.find((item) =>
-            String(item?.providerKey || '').toLowerCase() === 'abdobest' &&
-            ['hls', 'mp4', 'dash', 'webm'].includes(String(item?.type || ''))
-          );
-          if (!source) throw new Error('AbdoBest playback returned no supported direct source');
-
-          if (!/^https:\/\//i.test(String(source.url || ''))) {
-            throw new Error('AbdoBest playback returned a non-HTTPS source');
-          }
-
-          console.log('WATCH_PLAYBACK=PASS');
-          console.log(JSON.stringify({
-            fixtureTmdbId: 278,
-            provider: source.provider,
-            type: source.type,
-            sourceHost: new URL(source.url).host,
-          }));
-          NODE
+          node .github/scripts/verify-abdobest-playback.mjs
 
       - name: Remove temporary secrets file
         if: always()
