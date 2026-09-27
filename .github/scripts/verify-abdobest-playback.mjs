@@ -364,7 +364,12 @@ let watchCandidate = null;
 let watchPass = null;
 
 for (const candidate of watchCandidates) {
-  const key = normalizeTitle(candidate.title);
+  const key = String(candidate.title || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/\\s+/g, ' ')
+    .trim();
   if (!key || seenWatchTitles.has(key)) continue;
   seenWatchTitles.add(key);
 
