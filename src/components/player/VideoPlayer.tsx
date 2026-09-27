@@ -45,7 +45,7 @@ type SubtitleTrack = {
 };
 
 const DIRECT_WATCH_API_BASE = 'https://movyz-moviebox.sameranede.workers.dev';
-// AbdoBest remains the single playback source; direct streams are preferred and source pages are the final fallback.
+// AbdoBest remains the single playback source. Movyza accepts direct media URLs only.
 
 type PlaybackSource = {
   id: string;
@@ -378,7 +378,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           .filter(
             (source: any) =>
               Boolean(source.url) &&
-              ['hls', 'mp4', 'dash', 'webm', 'web'].includes(source.type),
+              ['hls', 'mp4', 'dash', 'webm'].includes(source.type),
           )
           .map((source: any, index: number) => ({
             id:
@@ -415,7 +415,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           normalized.find((source) => source.type === 'dash') ||
           normalized.find((source) => source.type === 'mp4') ||
           normalized.find((source) => source.type === 'webm') ||
-          normalized.find((source) => source.type === 'web') ||
           normalized[0];
 
         if (!cancelled) {
@@ -462,7 +461,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [streamUrl, selectedSourceId]);
 
   const playerSource =
-    streamUrl && streamType !== 'web'
+    streamUrl
       ? streamType === 'hls'
         ? { src: streamUrl, type: 'application/x-mpegurl' as const }
         : streamType === 'dash'
@@ -505,28 +504,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       `}</style>
       <div className="movyza-player-shell relative aspect-video w-full overflow-hidden bg-black">
-        {streamType === 'web' && streamUrl ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#05070b] p-6">
-            <div className="max-w-md text-center">
-              <div className="mb-3 text-sm font-bold text-white">
-                {language === 'ar' ? 'تعذر استخراج الفيديو المباشر' : 'Direct video extraction unavailable'}
-              </div>
-              <p className="text-xs leading-6 text-slate-400">
-                {language === 'ar'
-                  ? 'المصدر موجود لدى AbdoBest، لكن صفحة المصدر تمنع التضمين داخل المشغل. لن نعرض صفحة مكسورة داخل Movyza.'
-                  : 'AbdoBest returned a source page, but that page blocks iframe embedding. Movyza will not display a broken embedded page.'}
-              </p>
-              <a
-                href={streamUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-4 inline-flex rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-400/20"
-              >
-                {language === 'ar' ? 'فتح المصدر عبر AbdoBest' : 'Open AbdoBest source'}
-              </a>
-            </div>
-          </div>
-        ) : playerSource ? (
+        {playerSource ? (
           <MediaPlayer
             ref={playerRef}
             key={`movyza-player-${selectedSourceId}-${subtitleTracks.map((track) => `${track.language}:${track.url}`).join('|')}`}
@@ -683,8 +661,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </h3>
             <p className="text-[11px] text-slate-400">
               {language === 'ar'
-                ? 'يتم تشغيل الفيديو المباشر داخل مشغل Movyza، وعند تعذر استخراج الرابط الخام نعرض صفحة المصدر عبر AbdoBest.' 
-                : 'Movyza plays direct video streams in the native player and falls back to the AbdoBest source page when raw extraction is unavailable.'}
+                ? 'يتم تشغيل روابط الفيديو المباشرة من AbdoBest داخل مشغل Movyza.'
+                : 'Movyza plays direct video streams resolved by AbdoBest.'}
             </p>
           </div>
         </div>
@@ -734,8 +712,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
             <p className="text-[11px] leading-relaxed text-slate-400">
               {language === 'ar'
-                ? 'HLS وMP4 وDASH وWEBM تعمل مباشرة، مع وضع صفحة مصدر احتياطي عند الحاجة.'
-                : 'HLS, MP4, DASH, and WEBM play directly, with an AbdoBest source-page fallback when needed.'}
+                ? 'HLS وMP4 وDASH وWEBM تعمل مباشرة داخل المشغل.'
+                : 'HLS, MP4, DASH, and WEBM play directly inside Movyza.'}
             </p>
           </div>
 
