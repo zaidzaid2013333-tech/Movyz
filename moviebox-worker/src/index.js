@@ -378,6 +378,10 @@ async function resolveViaAkwamResolver(payload, type) {
       original_title: payload?.original_title ?? payload?.originalTitle,
       year: payload?.year,
       type,
+      // Preserve an Akwam content page (or the title::base64 URL format) so
+      // the dedicated resolver can skip search and run the real link chain.
+      content_url: payload?.content_url ?? payload?.contentUrl,
+      id: payload?.id,
       episode: type === "series" ? Number(payload?.episode) : undefined,
       season: type === "series" ? Number(payload?.season) : undefined,
     };
@@ -395,13 +399,15 @@ async function resolveViaAkwamResolver(payload, type) {
     }
 
     if (isLikelyMediaUrl(data.media_url)) {
-      const typeOfStream = detectStreamType(data.media_url);
+      const typeOfStream = ["mp4", "hls", "dash", "webm"].includes(data.type)
+        ? data.type
+        : detectStreamType(data.media_url);
       return {
         url: data.media_url,
         type: typeOfStream,
-        quality: "auto",
-        qualities: ["auto"],
-        sources: [{ quality: "auto", type: typeOfStream, url: data.media_url }],
+        quality: data.quality || "auto",
+        qualities: [data.quality || "auto"],
+        sources: [{ quality: data.quality || "auto", type: typeOfStream, url: data.media_url }],
         cached: false,
         via: "akwam-browser-resolver",
         source_url: data.source_url || data.page_url || "",
@@ -429,10 +435,18 @@ async function resolveMovie(payload) {
   const directSource = normalizeAkwamUrl(payload?.source_url);
   if (directSource) {
     if (!isAkwamUrl(directSource)) throw new Error("Only Akwam playback sources are allowed");
-    return {
-      ...(await abdoExtract(directSource)),
-      source_url: directSource,
-    };
+    try {
+      return await resolveViaAkwamResolver({
+        ...payload,
+        content_url: directSource,
+      }, "movie");
+    } catch (error) {
+      console.warn("Akwam content URL resolver fallback:", error instanceof Error ? error.message : String(error));
+      return {
+        ...(await abdoExtract(directSource)),
+        source_url: directSource,
+      };
+    }
   }
 
   const titles = [
