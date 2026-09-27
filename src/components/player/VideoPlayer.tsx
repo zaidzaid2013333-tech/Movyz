@@ -393,9 +393,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         const normalized: PlaybackSource[] = (response.data || [])
           .filter(
-            (source: any) =>
-              Boolean(source.url) &&
-              ['hls', 'mp4', 'dash', 'webm'].includes(source.type),
+            (source: any) => {
+              if (
+                !source?.url ||
+                !['hls', 'mp4', 'dash', 'webm'].includes(source.type)
+              ) return false;
+              const url = String(source.url).toLowerCase();
+              // Hard block legacy Fasel/source-page URLs on the client.
+              return !url.includes('fasel-hd') && !url.includes('faselhd');
+            },
           )
           .map((source: any, index: number) => ({
             id:
