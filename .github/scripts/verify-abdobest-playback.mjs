@@ -138,15 +138,49 @@ function candidatesFrom(payload) {
 
 async function discoverCandidates() {
   const all = [];
+  const searchSeeds = [];
+  const seedSeen = new Set();
+
   for (const endpoint of MOVIE_ENDPOINTS) {
     try {
       const result = await getJson(ABDO_BASE, endpoint);
       console.log('ABDO_DISCOVERY', endpoint, result.response.status);
       if (!result.response.ok || !result.json) continue;
+
       all.push(...candidatesFrom(result.json));
+
+      for (const item of collectObjects(result.json)) {
+        const title = titleOf(item);
+        if (!title) continue;
+        const key = title.toLowerCase();
+        if (seedSeen.has(key)) continue;
+        seedSeen.add(key);
+        searchSeeds.push({
+          title,
+          tmdbId: tmdbIdOf(item),
+          year: yearOf(item),
+        });
+        if (searchSeeds.length >= 20) break;
+      }
+      if (searchSeeds.length >= 20) break;
     } catch (error) {
       console.log('ABDO_DISCOVERY_ERROR', endpoint, error instanceof Error ? error.message : String(error));
     }
+  }
+
+  if (!all.length) {
+    console.log('ABDO_SEARCH_FALLBACK_START', searchSeeds.length);
+  }
+
+  for (const seed of searchSeeds.slice(0, 20)) {
+    try {
+      const result = await getJson(ABDO_BASE, '/api/search?q=' + encodeURIComponent(seed.title), 30000);
+      if (!result.response.ok || !result.json) continue;
+      all.push(...candidatesFrom(result.json));
+    } catch (error) {
+      console.log('ABDO_SEARCH_FALLBACK_ERROR', seed.title, error instanceof Error ? error.message : String(error));
+    }
+    if (all.length >= 30) break;
   }
 
   const seen = new Set();
