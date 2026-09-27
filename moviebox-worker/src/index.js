@@ -10,6 +10,7 @@
  * AbdoBest is used only internally to resolve playable sources.
  * Source discovery includes AbdoBest pre-scraped server URLs.
  * Verification is performed against a dynamically discovered AbdoBest source.
+ * AbdoBest search is also used when sorted metadata lacks source fields.
  */
 
 const ABDOBEST_API_BASES = [
