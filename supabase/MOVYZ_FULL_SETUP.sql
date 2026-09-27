@@ -530,7 +530,6 @@ begin
         ('egybest', 'EgyBest', 'egybest', true, 'unknown'),
         ('streamprovider', 'StreamProvider', 'streamprovider', true, 'unknown'),
         ('nhdapi', 'NHD API', 'nhdapi', true, 'unknown'),
-        ('faselhd', 'FaselHD', 'faselhd', true, 'unknown'),
         ('tmdbembed', 'TMDB Embed API', 'tmdbembed', true, 'unknown')
       on conflict (key) do update
       set name = excluded.name,
@@ -728,7 +727,7 @@ create policy audit_admin on public.audit_logs for select to authenticated using
 drop policy if exists sync_jobs_admin on public.sync_jobs;
 create policy sync_jobs_admin on public.sync_jobs for select to authenticated using (exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.role in ('ADMIN','OWNER')));
 
-update public.providers set enabled = false, status = 'offline', updated_at = now() where key in ('moviebox-api','streamflix','vidzee','faselhd','nhdapi','egybest','ezvidapi');
+update public.providers set enabled = false, status = 'offline', updated_at = now() where key in ('moviebox-api','streamflix','vidzee','nhdapi','egybest','ezvidapi');
 update public.providers set enabled = true, status = 'unknown', updated_at = now() where key in ('streamprovider','tmdbembed');
 
 create index if not exists audit_logs_actor_idx on public.audit_logs(actor_id);
