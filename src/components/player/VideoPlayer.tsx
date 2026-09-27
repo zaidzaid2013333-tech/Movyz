@@ -45,6 +45,7 @@ type SubtitleTrack = {
 };
 
 const DIRECT_WATCH_API_BASE = 'https://movyz-moviebox.sameranede.workers.dev';
+// AbdoBest remains the single playback source; direct streams are preferred and source pages are the final fallback.
 
 type PlaybackSource = {
   id: string;
