@@ -603,7 +603,7 @@ async function resolveMovie(payload, env) {
     }
   }
 
-  throw lastError || new Error("Unable to resolve a playable movie stream");
+  throw new Error(`Unable to resolve a playable movie stream; sources=${sources.slice(0, 6).join(" | ")}; last=${lastError?.message || "unknown"}`);
 }
 
 async function resolveEpisode(payload, env) {
