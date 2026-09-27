@@ -397,6 +397,12 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 
 const WATCH_API_BASE = 'https://movyz-moviebox.sameranede.workers.dev';
 
+let watchApiFetch: typeof fetch = fetch;
+
+export function setWatchApiFetch(fetcher: typeof fetch): void {
+  watchApiFetch = fetcher;
+}
+
 function streamTypeFromUrl(url: string) {
   const value = String(url || '').toLowerCase();
   if (value.includes('.m3u8')) return 'hls';
@@ -491,7 +497,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       year = series.first_air_date ? Number(String(series.first_air_date).slice(0, 4)) : undefined;
     }
 
-    const response = await fetch(
+    const response = await watchApiFetch(
       `${WATCH_API_BASE}${mediaType === 'movie' ? '/watch/movie' : '/watch/episode'}`,
       {
         method: 'POST',
