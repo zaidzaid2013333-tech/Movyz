@@ -152,7 +152,8 @@ async function discoverCandidates() {
       console.log('ABDO_DISCOVERY', endpoint, result.response.status);
       if (!result.response.ok || !result.json) continue;
 
-      all.push(...candidatesFrom(result.json));
+      const endpointCandidates = candidatesFrom(result.json);
+      all.push(...endpointCandidates);
 
       for (const item of collectObjects(result.json)) {
         const title = titleOf(item);
@@ -173,28 +174,51 @@ async function discoverCandidates() {
     }
   }
 
-  if (!all.length) {
-    console.log('ABDO_SEARCH_FALLBACK_START', searchSeeds.length);
-  }
+  // Sorted catalog responses often omit source URLs. Always enrich a bounded
+  // set of titles through /api/search so Akwam watch URLs can be discovered.
+  const fallbackTitles = [
+    'Fight Club',
+    'Inception',
+    'Interstellar',
+    'The Dark Knight',
+    'The Matrix',
+  ];
 
-  for (const seed of searchSeeds.slice(0, 20)) {
+  for (const title of [...searchSeeds.slice(0, 15).map((seed) => seed.title), ...fallbackTitles]) {
     try {
-      const result = await getJson(ABDO_BASE, '/api/search?q=' + encodeURIComponent(seed.title), 30000);
+      const result = await getJson(ABDO_BASE, '/api/search?q=' + encodeURIComponent(title), 30000);
       if (!result.response.ok || !result.json) continue;
       all.push(...candidatesFrom(result.json));
     } catch (error) {
-      console.log('ABDO_SEARCH_FALLBACK_ERROR', seed.title, error instanceof Error ? error.message : String(error));
+      console.log('ABDO_SEARCH_ERROR', title, error instanceof Error ? error.message : String(error));
     }
-    if (all.length >= 30) break;
   }
 
-  const seen = new Set();
-  return all.filter((item) => {
-    const key = [item.tmdbId || '', item.title].join('|');
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).slice(0, 40);
+  const merged = new Map();
+  for (const item of all) {
+    const normalized = catalogQueryTitle(item.title).toLowerCase();
+    const key = [normalized, item.year || ''].join('|');
+    const existing = merged.get(key);
+
+    if (!existing) {
+      merged.set(key, {
+        ...item,
+        sources: [...new Set(item.sources || [])],
+      });
+      continue;
+    }
+
+    existing.tmdbId = existing.tmdbId || item.tmdbId || null;
+    existing.year = existing.year || item.year;
+    existing.sources = [...new Set([...(existing.sources || []), ...(item.sources || [])])];
+  }
+
+  return [...merged.values()]
+    .sort((a, b) =>
+      Number(b.sources?.length || 0) - Number(a.sources?.length || 0) ||
+      Number(Boolean(b.tmdbId)) - Number(Boolean(a.tmdbId))
+    )
+    .slice(0, 60);
 }
 
 function catalogQueryTitle(title) {
@@ -217,38 +241,48 @@ function titlesCompatible(a, b) {
 }
 
 async function findCatalogFixture(candidates) {
-  for (const candidate of candidates.slice(0, 12)) {
+  for (const candidate of candidates.slice(0, 30)) {
     const queryTitle = catalogQueryTitle(candidate.title);
     if (!queryTitle) continue;
 
-    try {
-      const search = await getJson(
-        MAIN_BASE,
-        '/api/v1/search?q=' + encodeURIComponent(queryTitle),
-        60000,
-      );
-      if (!search.response.ok) continue;
+    const queries = [...new Set([
+      queryTitle,
+      queryTitle.replace(/\b(?:19|20)\d{2}\b/g, ' ').replace(/\s+/g, ' ').trim(),
+    ].filter(Boolean))];
 
-      const movies = Array.isArray(search.json?.data?.movies)
-        ? search.json.data.movies
-        : [];
+    for (const query of queries) {
+      try {
+        const search = await getJson(
+          MAIN_BASE,
+          '/api/v1/search?q=' + encodeURIComponent(query),
+          60000,
+        );
+        if (!search.response.ok) continue;
 
-      const match = movies.find((movie) =>
-        titlesCompatible(
+        const movies = Array.isArray(search.json?.data?.movies)
+          ? search.json.data.movies
+          : [];
+        const series = Array.isArray(search.json?.data?.series)
+          ? search.json.data.series
+          : [];
+
+        const match = [...movies, ...series].find((item) =>
+          titlesCompatible(
+            candidate.title,
+            String(item?.titleEn || item?.title || item?.originalTitle || ''),
+          )
+        );
+
+        if (match?.tmdbId) {
+          return { candidate, mainMatch: match };
+        }
+      } catch (error) {
+        console.log(
+          'MAIN_CATALOG_SEARCH_ERROR',
           candidate.title,
-          String(movie?.titleEn || movie?.title || movie?.originalTitle || ''),
-        )
-      );
-
-      if (match?.tmdbId) {
-        return { candidate, mainMatch: match };
+          error instanceof Error ? error.message : String(error),
+        );
       }
-    } catch (error) {
-      console.log(
-        'MAIN_CATALOG_SEARCH_ERROR',
-        candidate.title,
-        error instanceof Error ? error.message : String(error),
-      );
     }
   }
 
