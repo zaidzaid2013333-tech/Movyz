@@ -770,7 +770,15 @@ async function resolveEpisode(payload, env) {
     }
   }
 
-  throw lastError || new Error("Unable to resolve a playable episode stream");
+  const fallbackSource = urls[0];
+  if (fallbackSource) {
+    return {
+      ...sourcePageFallback(fallbackSource, extractTitle(match)),
+      extraction_error: lastError instanceof Error ? lastError.message : String(lastError || ''),
+    };
+  }
+
+  throw lastError || new Error("Unable to resolve a playable episode source");
 }
 
 async function parseJsonRequest(request) {
