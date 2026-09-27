@@ -84,12 +84,9 @@ function sourceUrlsOf(item) {
       if (!isHttp(url)) return;
       const lower = url.toLowerCase();
       const useful =
-        lower.includes('player_token=') ||
-        lower.includes('video_player') ||
-        lower.includes('akwam.it/watch/') ||
-        lower.includes('.m3u8') ||
-        lower.includes('.mp4') ||
-        isUsefulKey(key);
+        lower.includes('akwam.it/') ||
+        lower.includes('go.akwam.it/') ||
+        lower.includes('downet.net/');
       if (!useful || seen.has(url)) return;
       seen.add(url);
       found.push(url);
@@ -113,9 +110,8 @@ function sourceUrlsOf(item) {
     const score = (url) => {
       const lower = url.toLowerCase();
       return (
-        (lower.includes('player_token=') || lower.includes('video_player') ? 100 : 0) +
-        (lower.includes('akwam.it/watch/') ? 80 : 0) +
-        (lower.includes('.m3u8') ? 60 : 0) +
+        (lower.includes('akwam.it/') || lower.includes('go.akwam.it/') ? 100 : 0) +
+        (lower.includes('downet.net/') ? 80 : 0) +
         (lower.includes('.mp4') ? 50 : 0)
       );
     };
@@ -319,36 +315,6 @@ console.log('ABDO_CANDIDATES', JSON.stringify(candidates.slice(0, 8).map((candid
 }))));
 
 let fixture = await findCatalogFixture(candidates);
-
-if (!fixture) {
-  const stableCandidate = {
-    title: 'The Shawshank Redemption',
-    tmdbId: 278,
-    year: 1994,
-    sources: [],
-  };
-
-  const stableSearch = await getJson(
-    MAIN_BASE,
-    '/api/v1/search?q=The%20Shawshank%20Redemption',
-    60000,
-  );
-
-  const stableMovies = Array.isArray(stableSearch.json?.data?.movies)
-    ? stableSearch.json.data.movies
-    : [];
-
-  const stableMatch = stableMovies.find((movie) =>
-    Number(movie?.tmdbId) === 278
-  );
-
-  if (stableMatch?.tmdbId) {
-    fixture = {
-      candidate: stableCandidate,
-      mainMatch: stableMatch,
-    };
-  }
-}
 
 if (!fixture) {
   throw new Error('No shared AbdoBest/Movyz movie fixture is currently available');
