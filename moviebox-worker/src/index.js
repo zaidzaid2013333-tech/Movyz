@@ -902,7 +902,7 @@ async function extractViaAbdoBest(pageUrl) {
   throw lastError || new Error("AbdoBest extraction failed");
 }
 
-async function extractStream(pageUrl, env) {
+async function extractStream(pageUrl) {
   const normalized = normalizeAkwamUrl(pageUrl);
 
   if (isAkwamUrl(normalized) && /\.(?:mp4|m3u8|mpd|webm)(?:$|[?#])/i.test(normalized)) {
@@ -925,23 +925,7 @@ async function extractStream(pageUrl, env) {
     throw new Error("Akwam source URL required");
   }
 
-  let extractionError = null;
-
-  try {
-    return await extractViaAbdoBest(normalized);
-  } catch (error) {
-    extractionError = error;
-  }
-
-  try {
-    return await browserExtractAkwam(normalized, env);
-  } catch (error) {
-    throw new Error(
-      "Akwam direct extraction failed: " +
-      (error instanceof Error ? error.message : String(error)) +
-      (extractionError instanceof Error ? " | AbdoBest /extract: " + extractionError.message : ""),
-    );
-  }
+  return await extractViaAbdoBest(normalized);
 }
 function searchTitles(payload) {
   const rawTitles = [
@@ -1008,7 +992,7 @@ async function resolveMovie(payload, env) {
 
   if (directSource) {
     if (!isAkwamUrl(directSource)) throw new Error("Only Akwam playback sources are allowed");
-    return await extractStream(directSource, env);
+    return await extractStream(directSource);
   }
 
   const titles = searchTitles(payload);
@@ -1019,40 +1003,6 @@ async function resolveMovie(payload, env) {
   let match = null;
   let sources = [];
   let lastSearchError = null;
-
-  try {
-    const akwam = await browserSearchAkwam(payload, env);
-    match = akwam.match;
-    sources = akwam.sources;
-  } catch (error) {
-    lastSearchError = error instanceof Error ? error.message : String(error);
-  }
-
-  if (match && sources.length) {
-    try {
-      const stream = await extractStream(sources[0], env);
-      const directSources = (Array.isArray(stream.sources) ? stream.sources : [{
-        quality: stream.quality || "auto",
-        type: stream.type || detectStreamType(stream.url),
-        url: stream.url,
-      }]).filter((entry) =>
-        entry?.url &&
-        entry.type !== "web" &&
-        isLikelyMediaUrl(entry.url),
-      );
-      if (directSources.length) {
-        return {
-          ...stream,
-          url: directSources[0].url,
-          type: directSources[0].type,
-          sources: directSources,
-          matched_title: extractTitle(match),
-        };
-      }
-    } catch (error) {
-      lastSearchError = error instanceof Error ? error.message : String(error);
-    }
-  }
 
   for (const title of titles) {
     try {
@@ -1105,7 +1055,7 @@ async function resolveMovie(payload, env) {
 
   for (const source of sources.slice(0, 3)) {
     try {
-      const stream = await extractStream(source, env);
+      const stream = await extractStream(source);
       // Never expose an HTML source page to the video player. If AbdoBest
       // cannot produce a direct stream, fail this candidate and try the next
       // AbdoBest source instead of opening an iframe that can be refused.
@@ -1237,7 +1187,7 @@ async function resolveEpisode(payload, env) {
 
   for (const source of urls.slice(0, 3)) {
     try {
-      const stream = await extractStream(source, env);
+      const stream = await extractStream(source);
       const streamSources = (Array.isArray(stream.sources) ? stream.sources : [{
         quality: stream.quality || 'auto',
         type: stream.type || detectStreamType(stream.url),
