@@ -16,6 +16,7 @@
  * Candidate discovery supports title-only entries.
  * Smoke logging syntax fixed in verification script.
  * E2E fixture selection now matches AbdoBest content against Movyz catalog.
+ * Stable shared fixture is used only for CI verification when catalogs are out of sync.
  */
 
 const ABDOBEST_API_BASES = [
