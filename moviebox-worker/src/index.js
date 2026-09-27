@@ -1137,7 +1137,11 @@ export default {
         });
       }
 
-      if ((request.method === "GET" || request.method === "HEAD") && path === "/proxy") {\n        return await proxyMedia(request);\n      }\n\n      if (request.method === "GET" && path === "/health") {
+      if ((request.method === "GET" || request.method === "HEAD") && path === "/proxy") {
+        return await proxyMedia(request);
+      }
+
+      if (request.method === "GET" && path === "/health") {
         const result = await upstreamJson("/health", { method: "GET" });
 
         return json(
