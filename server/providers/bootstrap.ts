@@ -1,14 +1,11 @@
-import { getProvider, registerProvider } from './registry';
-import { createFaselHdAdapter } from './adapters/faselhd';
+import { getProvider } from './registry';
 
 let bootstrapped = false;
 
 export function registerBuiltInProviders() {
   if (bootstrapped) return;
   bootstrapped = true;
-
-  const adapter = createFaselHdAdapter();
-  if (adapter && !getProvider(adapter.key)) {
-    registerProvider(adapter);
-  }
+  // Playback is owned by the dedicated AbdoBest → Akwam Watch API.
+  // No legacy Fasel adapter is registered.
+  void getProvider;
 }
