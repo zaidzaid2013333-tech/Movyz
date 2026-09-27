@@ -337,6 +337,10 @@ if (!health.response.ok || health.json?.provider !== 'AbdoBest') {
   throw new Error('AbdoBest Watch API health check failed');
 }
 
+const debugSearch = await getJson(ABDO_BASE, '/api/search?q=' + encodeURIComponent('Inception'), 30000);
+console.log('ABDO_SEARCH_DEBUG_STATUS', debugSearch.response.status);
+console.log('ABDO_SEARCH_DEBUG_BODY', JSON.stringify(debugSearch.json).slice(0, 12000));
+ 
 const candidates = await discoverCandidates();
 if (!candidates.length) {
   throw new Error('AbdoBest metadata did not expose usable movie candidates');
