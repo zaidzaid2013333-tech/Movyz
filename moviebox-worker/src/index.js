@@ -21,8 +21,8 @@ Akwam source pages are resolved to MP4 in a normal browser context; HTML pages a
  */
 
 const ABDOBEST_API_BASES = [
-  "https://ogkushhh-abdobest-api.hf.space",
   "https://ogkushhh-abdobest.hf.space",
+  "https://ogkushhh-abdobest-api.hf.space",
 ];
 const TIMEOUT_MS = 120_000;
 
@@ -670,6 +670,86 @@ function findStreamUrl(value, depth = 0, preferred = false) {
   return "";
 }
 
+async function extractViaAbdoBest(pageUrl) {
+  let lastError = null;
+
+  for (const base of ABDOBEST_API_BASES) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    try {
+      const response = await fetch(base + "/extract", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ url: pageUrl }),
+        signal: controller.signal,
+        redirect: "follow",
+      });
+
+      const text = await response.text();
+      let body = null;
+      try {
+        body = text ? JSON.parse(text) : null;
+      } catch {
+        body = null;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          body?.error ||
+            `AbdoBest /extract failed with HTTP ${response.status}`,
+        );
+      }
+
+      const directUrl =
+        firstString(
+          body?.stream_url,
+          body?.video_url,
+          body?.videoUrl,
+          body?.streamUrl,
+          body?.media_url,
+          body?.mediaUrl,
+          body?.url,
+        ) ||
+        findStreamUrl(body, 0, true);
+
+      if (!isLikelyMediaUrl(directUrl)) {
+        throw new Error("AbdoBest /extract returned no direct media URL");
+      }
+
+      const type = detectStreamType(directUrl);
+      const qualities = Array.isArray(body?.quality_options)
+        ? body.quality_options.filter(Boolean)
+        : [];
+
+      return {
+        url: directUrl,
+        type,
+        quality: qualities[0] || "auto",
+        qualities: qualities.length ? qualities : ["auto"],
+        sources: [{
+          quality: qualities[0] || "auto",
+          type,
+          url: directUrl,
+        }],
+        cached: body?.cached === true,
+        via: "abdobest-extract",
+      };
+    } catch (error) {
+      lastError = error instanceof Error
+        ? error
+        : new Error(String(error));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  throw lastError || new Error("AbdoBest extraction failed");
+}
+
 async function extractStream(pageUrl, env) {
   const normalized = normalizeAkwamUrl(pageUrl);
 
@@ -693,12 +773,21 @@ async function extractStream(pageUrl, env) {
     throw new Error("Akwam source URL required");
   }
 
+  let extractionError = null;
+
+  try {
+    return await extractViaAbdoBest(normalized);
+  } catch (error) {
+    extractionError = error;
+  }
+
   try {
     return await browserExtractAkwam(normalized, env);
   } catch (error) {
     throw new Error(
       "Akwam direct extraction failed: " +
-      (error instanceof Error ? error.message : String(error)),
+      (error instanceof Error ? error.message : String(error)) +
+      (extractionError instanceof Error ? " | AbdoBest /extract: " + extractionError.message : ""),
     );
   }
 }

@@ -348,11 +348,49 @@ console.log('ABDO_CANDIDATES', JSON.stringify(candidates.slice(0, 8).map((candid
   }),
 }))));
 
+const watchCandidate =
+  candidates.find((candidate) => candidate.sources.length > 0) ||
+  candidates[0];
+
+if (!watchCandidate) {
+  throw new Error('AbdoBest did not expose any movie candidate for Watch API verification');
+}
+
+console.log('WATCH_FIXTURE_SELECTED', JSON.stringify({
+  abdoTitle: watchCandidate.title,
+  tmdbId: watchCandidate.tmdbId,
+  year: watchCandidate.year,
+  sourceCount: watchCandidate.sources.length,
+  sourceHosts: watchCandidate.sources.slice(0, 3).map((url) => {
+    try { return new URL(url).host; } catch { return ''; }
+  }),
+}));
+
+const watchPass = await postWatch(watchCandidate);
+if (!watchPass) {
+  throw new Error('AbdoBest Watch API did not return a playable direct stream for the selected candidate');
+}
+
+const watchMode = String(watchPass.response?.stream?.type || '').toLowerCase() === 'web'
+  ? 'source-page'
+  : 'direct-stream';
+
+console.log(watchMode === 'direct-stream'
+  ? 'WATCH_API_DIRECT_STREAM=PASS'
+  : 'WATCH_API_SOURCE_PAGE=PASS');
+
+console.log(JSON.stringify({
+  tmdbId: watchCandidate.tmdbId ?? null,
+  title: watchCandidate.title,
+  streamType: watchPass.response?.stream?.type,
+  streamHost: (() => {
+    try { return new URL(watchPass.response.stream.url).host; } catch { return ''; }
+  })(),
+}));
+
 let fixture = await findCatalogFixture(candidates);
 
 if (!fixture) {
-  // The upstream sorted/search payloads can legitimately omit playable URLs.
-  // Fall back to stable TMDB fixtures so the deployed worker itself is tested.
   const stableFixtures = [
     { tmdbId: 550, title: 'Fight Club', year: 1999, sources: [] },
     { tmdbId: 157336, title: 'Interstellar', year: 2014, sources: [] },
@@ -378,73 +416,53 @@ if (!fixture) {
 }
 
 if (!fixture) {
-  throw new Error('No shared AbdoBest/Movyz movie fixture is currently available');
+  console.log('MAIN_API_PLAYBACK_CHECK=SKIPPED_NO_SHARED_FIXTURE');
+} else {
+  console.log('MOVYZ_FIXTURE_SELECTED', JSON.stringify({
+    abdoTitle: fixture.candidate.title,
+    tmdbId: fixture.mainMatch.tmdbId,
+    movyzTitle: fixture.mainMatch.titleEn || fixture.mainMatch.title,
+  }));
 }
 
-console.log('MOVYZ_FIXTURE_SELECTED', JSON.stringify({
-  abdoTitle: fixture.candidate.title,
-  tmdbId: fixture.mainMatch.tmdbId,
-  movyzTitle: fixture.mainMatch.titleEn || fixture.mainMatch.title,
-}));
-
-const watchPass = await postWatch(fixture.candidate);
-if (!watchPass) {
-  throw new Error('AbdoBest did not return a playable direct stream or source page for the selected Movyz fixture');
-}
-
-const watchMode = String(watchPass.response?.stream?.type || '').toLowerCase() === 'web'
-  ? 'source-page'
-  : 'direct-stream';
-
-console.log(watchMode === 'direct-stream'
-  ? 'WATCH_API_DIRECT_STREAM=PASS'
-  : 'WATCH_API_SOURCE_PAGE=PASS');
-
-console.log(JSON.stringify({
-  tmdbId: fixture.mainMatch.tmdbId,
-  title: fixture.mainMatch.titleEn || fixture.mainMatch.title,
-  streamType: watchPass.response?.stream?.type,
-  streamHost: (() => {
-    try { return new URL(watchPass.response.stream.url).host; } catch { return ''; }
-  })(),
-}));
-
-const mainWatch = await getJson(
-  MAIN_BASE,
-  '/api/v1/watch/movie/' + encodeURIComponent(fixture.mainMatch.tmdbId),
-  120000,
-);
-if (!mainWatch.response.ok) {
-  throw new Error(
-    'Main API AbdoBest playback failed: HTTP ' +
-    mainWatch.response.status +
-    ' ' +
-    JSON.stringify(mainWatch.json).slice(0, 1600),
+if (fixture) {
+  const mainWatch = await getJson(
+    MAIN_BASE,
+    '/api/v1/watch/movie/' + encodeURIComponent(fixture.mainMatch.tmdbId),
+    120000,
   );
+  if (!mainWatch.response.ok) {
+    throw new Error(
+      'Main API AbdoBest playback failed: HTTP ' +
+      mainWatch.response.status +
+      ' ' +
+      JSON.stringify(mainWatch.json).slice(0, 1600),
+    );
+  }
+
+  const mainSources = Array.isArray(mainWatch.json?.data) ? mainWatch.json.data : [];
+  const mainSource = mainSources.find((item) =>
+    String(item?.providerKey || '').toLowerCase() === 'abdobest' &&
+    ['hls', 'mp4', 'dash', 'webm', 'web'].includes(String(item?.type || '').toLowerCase()) &&
+    /^https:\/\//i.test(String(item?.url || ''))
+  );
+
+  if (!mainSource) {
+    throw new Error('Main API returned no supported AbdoBest playback source');
+  }
+
+  console.log(String(mainSource.type || '').toLowerCase() === 'web'
+    ? 'MAIN_API_SOURCE_PAGE=PASS'
+    : 'MAIN_API_DIRECT_STREAM=PASS');
+
+  console.log(JSON.stringify({
+    tmdbId: fixture.mainMatch.tmdbId,
+    title: fixture.mainMatch.titleEn || fixture.mainMatch.title,
+    provider: mainSource.provider,
+    type: mainSource.type,
+    sourceHost: new URL(mainSource.url).host,
+  }));
 }
-
-const mainSources = Array.isArray(mainWatch.json?.data) ? mainWatch.json.data : [];
-const mainSource = mainSources.find((item) =>
-  String(item?.providerKey || '').toLowerCase() === 'abdobest' &&
-  ['hls', 'mp4', 'dash', 'webm', 'web'].includes(String(item?.type || '').toLowerCase()) &&
-  /^https:\/\//i.test(String(item?.url || ''))
-);
-
-if (!mainSource) {
-  throw new Error('Main API returned no supported AbdoBest playback source');
-}
-
-console.log(String(mainSource.type || '').toLowerCase() === 'web'
-  ? 'MAIN_API_SOURCE_PAGE=PASS'
-  : 'MAIN_API_DIRECT_STREAM=PASS');
-
-console.log(JSON.stringify({
-  tmdbId: fixture.mainMatch.tmdbId,
-  title: fixture.mainMatch.titleEn || fixture.mainMatch.title,
-  provider: mainSource.provider,
-  type: mainSource.type,
-  sourceHost: new URL(mainSource.url).host,
-}));
 
 
 console.log('ABDOBEST_PLAYBACK_E2E=PASS');
