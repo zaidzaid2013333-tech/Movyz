@@ -266,12 +266,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       progressLoadedRef.current = false;
 
       try {
-        const response = await MovyzaApi.getWatchSources(
-          safeTmdbId,
-          isMovie ? 'movie' : 'series',
-          seasonNumber,
-          episodeNumber,
-        );
+        let response;
+        let lastLoadError;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            response = await MovyzaApi.getWatchSources(
+              safeTmdbId,
+              isMovie ? 'movie' : 'series',
+              seasonNumber,
+              episodeNumber,
+            );
+            break;
+          } catch (requestError) {
+            lastLoadError = requestError;
+            if (attempt === 0) {
+              await new Promise((resolve) => window.setTimeout(resolve, 900));
+            }
+          }
+        }
+
+        if (!response) {
+          throw lastLoadError || new Error('No playback sources returned');
+        }
 
         const normalized: PlaybackSource[] = (response.data || [])
           .filter(
@@ -312,6 +328,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           normalized.find((source) => source.type === 'dash') ||
           normalized.find((source) => source.type === 'mp4') ||
           normalized.find((source) => source.type === 'webm') ||
+          normalized.find((source) => source.type === 'web') ||
           normalized[0];
 
         if (!cancelled) {
