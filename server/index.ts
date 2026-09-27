@@ -465,6 +465,8 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   try {
     let title = '';
     let titleEn = '';
+    let titleAr = '';
+    let originalTitle = '';
     let year: number | undefined;
 
     if (mediaType === 'movie') {
@@ -479,7 +481,9 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       if (!movie) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
 
       title = String(movie.title_ar || '');
-      titleEn = String(movie.title_en || movie.original_title || '');
+      titleAr = String(movie.title_ar || '');
+      titleEn = String(movie.title_en || '');
+      originalTitle = String(movie.original_title || '');
       year = movie.release_date ? Number(String(movie.release_date).slice(0, 4)) : undefined;
     } else {
       const { data: series, error } = await adminSupabase
@@ -493,7 +497,9 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       if (!series) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
 
       title = String(series.title_ar || '');
-      titleEn = String(series.title_en || series.original_title || '');
+      titleAr = String(series.title_ar || '');
+      titleEn = String(series.title_en || '');
+      originalTitle = String(series.original_title || '');
       year = series.first_air_date ? Number(String(series.first_air_date).slice(0, 4)) : undefined;
     }
 
@@ -511,7 +517,11 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
           mediaType === 'movie'
             ? {
                 tmdb_id: tmdbId,
-                title: titleEn || title,
+                title: titleEn || titleAr || originalTitle || title,
+                title_en: titleEn,
+                title_ar: titleAr,
+                original_title: originalTitle,
+                titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
                 year,
               }
             : {
