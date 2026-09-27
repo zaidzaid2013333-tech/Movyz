@@ -247,10 +247,17 @@ for (const candidate of candidates) {
 }
 
 if (!watchPass) {
-  throw new Error('No AbdoBest pre-scraped movie source produced a direct playable stream');
+  throw new Error('AbdoBest did not return a playable direct stream or source page');
 }
 
-console.log('WATCH_API_PLAYBACK=PASS');
+const watchMode = String(watchPass.response?.stream?.type || '').toLowerCase() === 'web'
+  ? 'source-page'
+  : 'direct-stream';
+
+console.log(watchMode === 'direct-stream'
+  ? 'WATCH_API_DIRECT_STREAM=PASS'
+  : 'WATCH_API_SOURCE_PAGE=PASS');
+
 console.log(JSON.stringify({
   tmdbId: watchPass.candidate.tmdbId,
   title: watchPass.candidate.title,
