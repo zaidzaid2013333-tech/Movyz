@@ -316,7 +316,8 @@ async function postWatch(candidate) {
           ['hls', 'mp4', 'dash', 'webm', 'web'].includes(streamType)) {
         return { candidate, sourceUrl, response: json };
       }
-      console.log('ABDO_PLAYBACK_TRY', candidate.title, sourceUrl ? 'source' : 'auto', response.status, streamType || 'none');
+      console.log('ABDO_PLAYBACK_TRY', candidate.title, sourceUrl ? 'source' : 'auto', response.status, streamType || 'none',
+        text.slice(0, 1800));
     } catch (error) {
       console.log('ABDO_PLAYBACK_ERROR', candidate.title, error instanceof Error ? error.message : String(error));
     }
