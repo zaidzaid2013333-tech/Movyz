@@ -1308,3 +1308,5 @@ export default {
     }
   },
 };
+
+// CI trigger: re-run playback deployment after media-type extraction hardening.
