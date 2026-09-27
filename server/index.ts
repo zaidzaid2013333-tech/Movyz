@@ -495,7 +495,12 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       `${WATCH_API_BASE}${mediaType === 'movie' ? '/watch/movie' : '/watch/episode'}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'User-Agent': 'Movyz-AbdoBest-Proxy/1.0',
+          'Cache-Control': 'no-cache',
+        },
         body: JSON.stringify(
           mediaType === 'movie'
             ? {
