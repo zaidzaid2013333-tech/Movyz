@@ -252,7 +252,7 @@ function extractSourceUrls(item) {
   const add = (value, priority = 0) => {
     if (typeof value !== "string") return;
     const url = value.trim();
-    if (!/^https?:///i.test(url) || seen.has(url)) return;
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) return;
     const lower = url.toLowerCase();
     if (/\.(?:jpg|jpeg|png|gif|webp|svg)(?:[?#]|$)/i.test(lower)) return;
     if (/^(?:https?:\/\/)?(?:image\.tmdb\.org|images\.|cdn\.jsdelivr\.net)/i.test(lower)) return;
@@ -535,7 +535,7 @@ function extractAkwamSourceUrls(item) {
     if (depth > 7 || value == null) return;
     if (typeof value === "string") {
       const url = normalizeAkwamUrl(value);
-      if (/^https?:///i.test(url) && isAkwamUrl(url) && !seen.has(url)) {
+      if (/^https?:\/\//i.test(url) && isAkwamUrl(url) && !seen.has(url)) {
         seen.add(url);
         found.push(url);
       }
@@ -589,7 +589,7 @@ async function browserSearchAkwam(payload, env) {
         ).catch(() => []);
 
         for (const row of rows) {
-          if (!row.href || !/^https?:///i.test(row.href)) continue;
+          if (!row.href || !/^https?:\/\//i.test(row.href)) continue;
           if (!isAkwamUrl(row.href)) continue;
           const title = cleanText(row.title);
           if (!title) continue;
@@ -641,7 +641,7 @@ async function browserExtractAkwam(pageUrl, env) {
   const page = await context.newPage();
   const mediaUrls = [];
   const add = (value) => {
-    if (typeof value !== "string" || !/^https?:///i.test(value)) return;
+    if (typeof value !== "string" || !/^https?:\/\//i.test(value)) return;
     const url = value.trim();
     if (!/(?:\.mp4|\.m3u8|\.mpd|\.webm)(?:$|[?#])/i.test(url) && !/(?:mp4|m3u8|mpd|webm)(?:[?&=]|$)/i.test(url)) return;
     if (!mediaUrls.includes(url)) mediaUrls.push(url);
@@ -713,8 +713,8 @@ async function browserExtractAkwam(pageUrl, env) {
           const qualityHtml = await qualityPage.content().catch(() => "");
           const downloadCandidates = [];
           const addCandidate = (value) => {
-            if (typeof value !== "string" || !/^https?:\/\///i.test(value)) return;
-            if (/\/download\///i.test(value) || /\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(value)) {
+            if (typeof value !== "string" || !/^https?:\/\//i.test(value)) return;
+            if (/\/download\//i.test(value) || /\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(value)) {
               if (!downloadCandidates.includes(value)) downloadCandidates.push(value);
             }
           };
@@ -731,12 +731,12 @@ async function browserExtractAkwam(pageUrl, env) {
               const finalHtml = await finalPage.content().catch(() => "");
               const finals = [];
               for (const match of finalHtml.match(/https?:\/\/[^"'<>\s]+/gi) || []) {
-                if (/\/download\///i.test(match) || /\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(match)) finals.push(match);
+                if (/\/download\//i.test(match) || /\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(match)) finals.push(match);
               }
               const finalLinks = await finalPage.locator("a[href], source[src], video[src]").evaluateAll((nodes) =>
                 nodes.map((node) => node.getAttribute("href") || node.getAttribute("src") || "").filter(Boolean)
               ).catch(() => []);
-              finals.push(...finalLinks.filter((value) => /^https?:\/\///i.test(value)));
+              finals.push(...finalLinks.filter((value) => /^https?:\/\//i.test(value)));
               for (const candidate of finals) add(candidate);
               if (mediaUrls.length) break;
             } finally {
@@ -774,7 +774,7 @@ async function browserExtractAkwam(pageUrl, env) {
 }
 
 function isLikelyMediaUrl(value) {
-  if (typeof value !== "string" || !/^https?:///i.test(value)) return false;
+  if (typeof value !== "string" || !/^https?:\/\//i.test(value)) return false;
   const url = value.trim().toLowerCase();
   if (!url) return false;
   // Do not reject a real media URL just because its CDN path contains
