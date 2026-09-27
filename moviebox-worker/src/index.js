@@ -10,7 +10,10 @@
  * AbdoBest is used only internally to resolve playable sources.
  */
 
-const ABdobest = "https://ogkushhh-abdobest.hf.space";
+const ABDOBEST_API_BASES = [
+  "https://ogkushhh-abdobest-api.hf.space",
+  "https://ogkushhh-abdobest.hf.space",
+];
 const TIMEOUT_MS = 120_000;
 
 const CORS = {
@@ -314,6 +317,7 @@ function findEpisode(payload, wantedSeason, wantedEpisode) {
 async function upstream(path, init = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let lastError = null;
 
   try {
     const headers = new Headers(init.headers || {});
@@ -322,12 +326,31 @@ async function upstream(path, init = {}) {
       headers.get("Accept") || "application/json, text/plain, */*",
     );
 
-    return await fetch(ABdobest + path, {
-      ...init,
-      headers,
-      signal: controller.signal,
-      redirect: "follow",
-    });
+    for (const base of ABDOBEST_API_BASES) {
+      try {
+        const response = await fetch(base + path, {
+          ...init,
+          headers,
+          signal: controller.signal,
+          redirect: "follow",
+        });
+
+        if (response.ok || ![404, 429, 500, 502, 503, 504].includes(response.status)) {
+          return response;
+        }
+
+        lastError = new Error(
+          "AbdoBest upstream " + response.status + " at " + base + path,
+        );
+      } catch (error) {
+        lastError = error instanceof Error
+          ? error
+          : new Error("AbdoBest upstream request failed");
+      }
+    }
+
+    if (lastError) throw lastError;
+    throw new Error("No AbdoBest upstream is configured");
   } finally {
     clearTimeout(timer);
   }
@@ -358,104 +381,7 @@ async function upstreamJson(path, init = {}) {
   };
 }
 
-async function browserExtractStream(pageUrl, env) {
-  if (!env?.BROWSER) throw new Error("Browser Run binding unavailable");
-
-  const { launch } = await import("@cloudflare/playwright");
-  const browser = await launch(env.BROWSER);
-  const context = await browser.newContext({
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-  });
-  const page = await context.newPage();
-  const urls = [];
-  const seen = new Set();
-
-  const add = (value) => {
-    if (typeof value !== "string" || !/\.m3u8(?:$|[?#])/i.test(value) || seen.has(value)) return;
-    seen.add(value);
-    urls.push(value);
-  };
-
-  page.on("request", (request) => add(request.url()));
-
-  try {
-    await page.setExtraHTTPHeaders({
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
-    });
-    await page.goto(pageUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 45_000,
-    });
-
-    await page.waitForTimeout(5_000);
-
-    const diagnostics = {
-      finalUrl: page.url(),
-      title: await page.title().catch(() => ""),
-      iframeCount: await page.locator("iframe").count().catch(() => 0),
-      playerIframeCount: await page.locator('iframe[name="player_iframe"]').count().catch(() => 0),
-      bodyText: (await page.locator("body").innerText().catch(() => "")).slice(0, 1200),
-      frameUrls: page.frames().map((frame) => frame.url()).slice(0, 12),
-    };
-
-    const playerFrame = page.frameLocator('iframe[name="player_iframe"]');
-
-    const selectors = [
-        ".jw-icon-display",
-        ".jw-icon.jw-icon-display",
-        ".jw-display-icon-container",
-        '[class*="jw-icon"][class*="play"]',
-        ".jw-media video",
-        "video",
-      ];
-
-    for (const selector of selectors) {
-      try {
-        const target = playerFrame.locator(selector).first();
-        if (await target.count()) {
-          await target.click({ force: true, timeout: 5_000 });
-          break;
-        }
-      } catch {}
-    }
-
-    const deadline = Date.now() + 15_000;
-    while (!urls.length && Date.now() < deadline) {
-      await page.waitForTimeout(1_000);
-    }
-
-    if (!urls.length) {
-      throw new Error(
-        "Browser extraction found no HLS playlist; diagnostics=" +
-          JSON.stringify({
-            ...diagnostics,
-            networkHits: urls,
-          }),
-      );
-    }
-
-    return {
-      url: urls[0],
-      type: "hls",
-      quality: "auto",
-      qualities: ["Auto"],
-      sources: urls.map((url) => ({
-        quality: "auto",
-        type: "hls",
-        url,
-      })),
-      cached: false,
-      via: "browser-run",
-    };
-  } finally {
-    await context.close().catch(() => {});
-    await browser.close().catch(() => {});
-  }
-}
-
-async function extractStream(pageUrl, env) {
+async function extractStream(pageUrl) {
   const result = await upstreamJson("/extract", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -464,18 +390,8 @@ async function extractStream(pageUrl, env) {
 
   if (!result.validJson) {
     throw new Error(
-      `AbdoBest extraction returned invalid JSON (HTTP ${result.response.status})`,
+      "AbdoBest extraction returned invalid JSON (HTTP " + result.response.status + ")",
     );
-  }
-
-  if (!result.response.ok) {
-    const message =
-      result.body?.error ||
-      `AbdoBest extraction failed with HTTP ${result.response.status}`;
-    if (/scraper not available/i.test(message)) {
-      return browserExtractStream(pageUrl, env);
-    }
-    throw new Error(message);
   }
 
   const videoUrl = firstString(
@@ -484,11 +400,10 @@ async function extractStream(pageUrl, env) {
     result.body?.url,
   );
 
-  if (!videoUrl) {
-    const message = result.body?.error || "No playable stream URL returned";
-    if (/scraper not available/i.test(message)) {
-      return browserExtractStream(pageUrl, env);
-    }
+  if (!result.response.ok || !videoUrl) {
+    const message =
+      result.body?.error ||
+      ("AbdoBest extraction failed with HTTP " + result.response.status);
     throw new Error(message);
   }
 
@@ -499,10 +414,10 @@ async function extractStream(pageUrl, env) {
   return {
     url: videoUrl,
     type: detectStreamType(videoUrl),
-    quality: qualities[0] || 'auto',
+    quality: qualities[0] || "auto",
     qualities,
     sources: [{
-      quality: qualities[0] || 'auto',
+      quality: qualities[0] || "auto",
       type: detectStreamType(videoUrl),
       url: videoUrl,
     }],
@@ -547,7 +462,7 @@ async function resolveMovie(payload, env) {
   const directSource = cleanText(payload?.source_url);
 
   if (directSource) {
-    return extractStream(directSource, env);
+    return extractStream(directSource);
   }
 
   const title = cleanText(payload?.title);
@@ -600,7 +515,7 @@ async function resolveMovie(payload, env) {
 
   for (const source of sources.slice(0, 3)) {
     try {
-      const stream = await extractStream(source, env);
+      const stream = await extractStream(source);
       return {
         ...stream,
         matched_title: extractTitle(match),
@@ -709,7 +624,7 @@ async function resolveEpisode(payload, env) {
 
   for (const source of urls.slice(0, 3)) {
     try {
-      const stream = await extractStream(source, env);
+      const stream = await extractStream(source);
       return {
         ...stream,
         matched_title: extractTitle(match),
