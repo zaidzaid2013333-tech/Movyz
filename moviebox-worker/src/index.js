@@ -579,7 +579,7 @@ async function browserExtractAkwam(pageUrl, env) {
       domUrls.forEach(add);
 
       const html = await page.content().catch(() => "");
-      for (const match of html.match(/https?:\\/\\/[^"'\\s<>]+\\.mp4(?:\\?[^"'\\s<>]*)?/gi) || []) add(match);
+      for (const match of html.match(/https?:\/\/[^"'\s<>]+\.mp4(?:\?[^"'\s<>]*)?/gi) || []) add(match);
 
       for (const selector of [
         "video",
