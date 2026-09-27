@@ -459,6 +459,12 @@ async function browserExtractStream(pageUrl, env) {
 }
 
 async function extractStream(pageUrl, env) {
+  // Fasel pages are currently failing through AbdoBest /extract; try the
+  // normal browser path first, without attempting to bypass any challenges.
+  if (isBrowserExtractionCandidate(pageUrl)) {
+    return browserExtractStream(pageUrl, env);
+  }
+
   let result;
   try {
     result = await upstreamJson("/extract", {
