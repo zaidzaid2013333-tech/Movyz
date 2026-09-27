@@ -60,22 +60,43 @@ function yearOf(item) {
 }
 
 function sourceUrlsOf(item) {
-  const values = [
-    item?.Sources,
-    item?.sources,
-    item?.Links,
-    item?.links,
-  ].flatMap((value) => Array.isArray(value) ? value : []);
-  return values
-    .map((value) => typeof value === 'string' ? value.trim() : '')
-    .filter((value) => /^https?:\/\//i.test(value))
-    .filter((value, index, arr) => arr.indexOf(value) === index)
-    .sort((a, b) => {
-      const score = (url) =>
-        (/(player_token=|video_player(?:\\?|\/))/i.test(url) ? 100 : 0) +
-        (/akwam\.it\/watch\//i.test(url) ? 80 : 0);
-      return score(b) - score(a);
-    });
+  const found = [];
+  const seen = new Set();
+
+  const visit = (value, key = '', depth = 0) => {
+    if (depth > 6 || value == null) return;
+    if (typeof value === 'string') {
+      const url = value.trim();
+      if (!/^https?:\/\//i.test(url)) return;
+      const lower = url.toLowerCase();
+      const useful =
+        /player_token=|video_player(?:\\?|\\/)|akwam\\.it\\/watch\\/|\\.m3u8(?:[?#]|$)|\\.mp4(?:[?#]|$)/i.test(lower) ||
+        /(source|stream|video|player|watch|link|url|href)/i.test(key);
+      if (!useful || seen.has(url)) return;
+      seen.add(url);
+      found.push(url);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const entry of value) visit(entry, key, depth + 1);
+      return;
+    }
+    if (typeof value !== 'object') return;
+    for (const [childKey, childValue] of Object.entries(value)) {
+      visit(childValue, childKey, depth + 1);
+    }
+  };
+
+  visit(item);
+
+  return found.sort((a, b) => {
+    const score = (url) =>
+      (/player_token=|video_player(?:\\?|\\/)/i.test(url) ? 100 : 0) +
+      (/akwam\\.it\\/watch\\//i.test(url) ? 80 : 0) +
+      (/\\.m3u8(?:[?#]|$)/i.test(url) ? 60 : 0) +
+      (/\\.mp4(?:[?#]|$)/i.test(url) ? 50 : 0);
+    return score(b) - score(a);
+  });
 }
 
 function candidatesFrom(payload) {
