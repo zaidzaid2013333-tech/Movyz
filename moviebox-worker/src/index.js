@@ -1,7 +1,13 @@
 /**
- * Movyz AbdoBest API — Cloudflare Worker
+ * Movyz Watch API — Cloudflare Worker
  *
- * This Worker exposes the AbdoBest API only.
+ * Public surface:
+ *   GET  /health
+ *   POST /watch/movie
+ *   POST /watch/episode
+ *
+ * TMDB remains the metadata/catalog source.
+ * AbdoBest is used only internally to resolve playable sources.
  */
 
 const ABdobest = "https://ogkushhh-abdobest.hf.space";
@@ -9,7 +15,7 @@ const TIMEOUT_MS = 120_000;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, HEAD, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Access-Control-Expose-Headers": "Content-Type, Content-Length",
 };
@@ -21,12 +27,260 @@ function json(body, status = 200) {
   });
 }
 
+function cleanText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeTitle(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toArray(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+
+  for (const key of ["results", "items", "data", "movies", "series", "episodes"]) {
+    if (Array.isArray(payload[key])) return payload[key];
+  }
+
+  return Object.values(payload).filter((value) => value && typeof value === "object");
+}
+
+function firstString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function firstNumber(...values) {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function extractTmdbId(item) {
+  return firstNumber(
+    item?.["TMDb ID"],
+    item?.tmdb_id,
+    item?.tmdbId,
+    item?.tmdb,
+    item?.themoviedb_id,
+    item?.themoviedbId,
+  );
+}
+
+function extractTitle(item) {
+  return firstString(
+    item?.Title,
+    item?.title,
+    item?.name,
+    item?.original_title,
+    item?.original_name,
+  );
+}
+
+function extractYear(item) {
+  const raw = firstString(
+    item?.Year,
+    item?.year,
+    item?.release_date,
+    item?.first_air_date,
+  );
+  if (!raw) return null;
+  const match = raw.match(/\b(19|20)\d{2}\b/);
+  return match ? Number(match[0]) : null;
+}
+
+function extractCategory(item) {
+  return firstString(
+    item?.Category,
+    item?.category,
+    item?.type,
+    item?.content_type,
+  ).toLowerCase();
+}
+
+function extractSourceUrls(item) {
+  const sources = [];
+
+  if (Array.isArray(item?.Sources)) {
+    for (const value of item.Sources) {
+      if (typeof value === "string" && /^https?:\/\//i.test(value)) {
+        sources.push(value);
+      }
+    }
+  }
+
+  for (const value of [
+    item?.Source,
+    item?.source,
+    item?.url,
+    item?.page_url,
+    item?.watch_url,
+  ]) {
+    if (typeof value === "string" && /^https?:\/\//i.test(value)) {
+      sources.push(value);
+    }
+  }
+
+  return [...new Set(sources)];
+}
+
+function scoreMatch(item, input) {
+  const wantedTmdb = Number(input.tmdb_id ?? input.tmdbId);
+  const itemTmdb = extractTmdbId(item);
+
+  if (
+    Number.isFinite(wantedTmdb) &&
+    Number.isFinite(itemTmdb) &&
+    wantedTmdb === itemTmdb
+  ) {
+    return 100;
+  }
+
+  const wanted = normalizeTitle(input.title);
+  const actual = normalizeTitle(extractTitle(item));
+  if (!wanted || !actual) return 0;
+
+  let score = 0;
+  if (wanted === actual) score += 70;
+  else if (actual.includes(wanted) || wanted.includes(actual)) score += 45;
+
+  const wantedYear = Number(input.year);
+  const actualYear = extractYear(item);
+
+  if (Number.isFinite(wantedYear) && Number.isFinite(actualYear)) {
+    if (wantedYear === actualYear) score += 20;
+    else if (Math.abs(wantedYear - actualYear) <= 1) score += 5;
+  }
+
+  return score;
+}
+
+function chooseBestResult(payload, input) {
+  const candidates = toArray(payload)
+    .map((item) => ({ item, score: scoreMatch(item, input) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return candidates[0]?.item ?? null;
+}
+
+function walkObjects(value, visitor, depth = 0) {
+  if (depth > 7 || value == null) return false;
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (walkObjects(entry, visitor, depth + 1)) return true;
+    }
+    return false;
+  }
+
+  if (typeof value !== "object") return false;
+
+  if (visitor(value)) return true;
+
+  for (const entry of Object.values(value)) {
+    if (walkObjects(entry, visitor, depth + 1)) return true;
+  }
+
+  return false;
+}
+
+function episodeNumberOf(item) {
+  return firstNumber(
+    item?.episode_number,
+    item?.episodeNumber,
+    item?.episode,
+    item?.number,
+    item?.Episode,
+    item?.ep,
+  );
+}
+
+function seasonNumberOf(item) {
+  return firstNumber(
+    item?.season_number,
+    item?.seasonNumber,
+    item?.season,
+    item?.Season,
+  );
+}
+
+function episodeUrls(item) {
+  const urls = [];
+
+  for (const value of [
+    item?.watch_url,
+    item?.video_url,
+    item?.stream_url,
+    item?.url,
+    item?.source,
+    item?.page_url,
+    item?.link,
+  ]) {
+    if (typeof value === "string" && /^https?:\/\//i.test(value)) {
+      urls.push(value);
+    }
+  }
+
+  if (Array.isArray(item?.Sources)) {
+    for (const value of item.Sources) {
+      if (typeof value === "string" && /^https?:\/\//i.test(value)) {
+        urls.push(value);
+      }
+    }
+  }
+
+  return [...new Set(urls)];
+}
+
+function findEpisode(payload, wantedSeason, wantedEpisode) {
+  const matches = [];
+
+  walkObjects(payload, (item) => {
+    const ep = episodeNumberOf(item);
+    const season = seasonNumberOf(item);
+
+    if (!Number.isFinite(ep) || ep !== wantedEpisode) return false;
+
+    if (
+      Number.isFinite(season) &&
+      Number.isFinite(wantedSeason) &&
+      season !== wantedSeason
+    ) {
+      return false;
+    }
+
+    const urls = episodeUrls(item);
+    if (!urls.length && !Array.isArray(item?.sources)) return false;
+
+    matches.push(item);
+    return false;
+  });
+
+  return matches[0] ?? null;
+}
+
 async function upstream(path, init = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
   try {
     const headers = new Headers(init.headers || {});
-    headers.set("Accept", headers.get("Accept") || "application/json, text/plain, */*");
+    headers.set(
+      "Accept",
+      headers.get("Accept") || "application/json, text/plain, */*",
+    );
 
     return await fetch(ABdobest + path, {
       ...init,
@@ -39,42 +293,238 @@ async function upstream(path, init = {}) {
   }
 }
 
-async function proxyJson(path, init = {}) {
+async function upstreamJson(path, init = {}) {
   const response = await upstream(path, init);
   const text = await response.text();
 
-  let body;
+  let body = {};
+
   try {
     body = text ? JSON.parse(text) : {};
   } catch {
-    return json({
-      error: "AbdoBest returned invalid JSON",
-      upstreamStatus: response.status,
-      response: text.slice(0, 500),
-    }, 502);
+    return {
+      response,
+      body: null,
+      raw: text,
+      validJson: false,
+    };
   }
 
-  return json(body, response.status);
+  return {
+    response,
+    body,
+    raw: text,
+    validJson: true,
+  };
 }
 
-async function handleExtract(request) {
-  let payload;
-  try {
-    payload = await request.json();
-  } catch {
-    return json({ error: "JSON body required" }, 400);
-  }
-
-  const sourceUrl = payload?.url;
-  if (!sourceUrl || typeof sourceUrl !== "string" || !/^https?:\\/\\//i.test(sourceUrl)) {
-    return json({ error: "A valid source URL is required" }, 400);
-  }
-
-  return proxyJson("/extract", {
+async function extractStream(pageUrl) {
+  const result = await upstreamJson("/extract", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: sourceUrl }),
+    body: JSON.stringify({ url: pageUrl }),
   });
+
+  if (!result.validJson) {
+    throw new Error(
+      `AbdoBest extraction returned invalid JSON (HTTP ${result.response.status})`,
+    );
+  }
+
+  if (!result.response.ok) {
+    throw new Error(
+      result.body?.error ||
+        `AbdoBest extraction failed with HTTP ${result.response.status}`,
+    );
+  }
+
+  const videoUrl = firstString(
+    result.body?.stream_url,
+    result.body?.video_url,
+    result.body?.url,
+  );
+
+  if (!videoUrl) {
+    throw new Error(result.body?.error || "No playable stream URL returned");
+  }
+
+  return {
+    url: videoUrl,
+    qualities: Array.isArray(result.body?.quality_options)
+      ? result.body.quality_options
+      : [],
+    cached: result.body?.cached === true,
+  };
+}
+
+async function resolveMovie(payload) {
+  const directSource = cleanText(payload?.source_url);
+
+  if (directSource) {
+    return extractStream(directSource);
+  }
+
+  const title = cleanText(payload?.title);
+  if (!title) {
+    throw new Error("title is required when source_url is omitted");
+  }
+
+  const search = await upstreamJson(
+    "/api/search?q=" + encodeURIComponent(title),
+  );
+
+  if (!search.validJson || !search.response.ok) {
+    throw new Error(
+      search.body?.error ||
+        `AbdoBest search failed with HTTP ${search.response?.status ?? 502}`,
+    );
+  }
+
+  const match = chooseBestResult(search.body, payload);
+
+  if (!match) {
+    throw new Error("No AbdoBest source matched this TMDB title");
+  }
+
+  const sources = extractSourceUrls(match);
+
+  if (!sources.length) {
+    throw new Error("Matched title has no playable source page");
+  }
+
+  let lastError = null;
+
+  for (const source of sources.slice(0, 3)) {
+    try {
+      const stream = await extractStream(source);
+      return {
+        ...stream,
+        matched_title: extractTitle(match),
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Unable to resolve a playable movie stream");
+}
+
+async function resolveEpisode(payload) {
+  const title = cleanText(payload?.title);
+  const season = Number(payload?.season);
+  const episode = Number(payload?.episode);
+
+  if (!title) throw new Error("title is required");
+  if (!Number.isInteger(season) || season < 0) {
+    throw new Error("season must be a valid integer");
+  }
+  if (!Number.isInteger(episode) || episode < 1) {
+    throw new Error("episode must be a valid integer");
+  }
+
+  const search = await upstreamJson(
+    "/api/search?q=" + encodeURIComponent(title),
+  );
+
+  if (!search.validJson || !search.response.ok) {
+    throw new Error(
+      search.body?.error ||
+        `AbdoBest search failed with HTTP ${search.response?.status ?? 502}`,
+    );
+  }
+
+  const match = chooseBestResult(search.body, payload);
+
+  if (!match) {
+    throw new Error("No AbdoBest series matched this TMDB title");
+  }
+
+  const category = extractCategory(match) || "series";
+  const id = firstString(match?.id, match?.ID);
+
+  if (!id) {
+    throw new Error("Matched series has no source ID");
+  }
+
+  const episodicPath =
+    category === "arabic-series"
+      ? `/api/arabic-series/episodes/${encodeURIComponent(id)}`
+      : `/api/episodes/${encodeURIComponent(category)}/${encodeURIComponent(id)}`;
+
+  const episodes = await upstreamJson(episodicPath);
+
+  if (!episodes.validJson || !episodes.response.ok) {
+    throw new Error(
+      episodes.body?.error ||
+        `AbdoBest episode lookup failed with HTTP ${episodes.response?.status ?? 502}`,
+    );
+  }
+
+  const found = findEpisode(episodes.body, season, episode);
+
+  if (!found) {
+    throw new Error(`Episode S${season}E${episode} was not found`);
+  }
+
+  // Arabic-series can expose direct quality URLs.
+  if (Array.isArray(found.sources) && found.sources.length) {
+    const directSources = found.sources
+      .map((source) => ({
+        quality: firstString(source?.quality),
+        url: firstString(
+          source?.watch_url,
+          source?.video_url,
+          source?.stream_url,
+        ),
+      }))
+      .filter((source) => source.url);
+
+    if (directSources.length) {
+      return {
+        url: directSources[0].url,
+        qualities: directSources.map((source) => source.quality).filter(Boolean),
+        sources: directSources,
+        cached: true,
+        matched_title: extractTitle(match),
+      };
+    }
+  }
+
+  const urls = episodeUrls(found);
+
+  if (!urls.length) {
+    throw new Error("Episode has no playable source URL");
+  }
+
+  let lastError = null;
+
+  for (const source of urls.slice(0, 3)) {
+    try {
+      const stream = await extractStream(source);
+      return {
+        ...stream,
+        matched_title: extractTitle(match),
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Unable to resolve a playable episode stream");
+}
+
+async function parseJsonRequest(request) {
+  try {
+    const payload = await request.json();
+
+    if (!payload || typeof payload !== "object") {
+      return { ok: false, error: "JSON object required" };
+    }
+
+    return { ok: true, payload };
+  } catch {
+    return { ok: false, error: "Valid JSON body required" };
+  }
 }
 
 export default {
@@ -84,80 +534,91 @@ export default {
     }
 
     const url = new URL(request.url);
-    const p = url.pathname.replace(/\\/+$/, "") || "/";
+    const path = url.pathname.replace(/\/+$/, "") || "/";
 
     try {
-      // Service info
-      if (p === "/") {
+      if (request.method === "GET" && path === "/") {
         return json({
-          api: "Movyz AbdoBest API",
-          version: "1.0.0",
+          api: "Movyz Watch API",
+          version: "2.0.0",
           provider: "AbdoBest",
-          upstream: ABdobest,
+          metadata: "TMDB",
           endpoints: {
-            health: "/health",
-            search: "/api/search?q={query}",
-            episodes: "/api/episodes/{category}/{id}",
-            extract: "POST /extract",
-            metadata: "/api/sorted/{category}",
+            health: "GET /health",
+            movie: "POST /watch/movie",
+            episode: "POST /watch/episode",
           },
         });
       }
 
-      if (p === "/health") {
-        const response = await upstream("/health", { method: "GET" });
-        let body = {};
-        try { body = await response.json(); } catch {}
+      if (request.method === "GET" && path === "/health") {
+        const result = await upstreamJson("/health", { method: "GET" });
+
+        return json(
+          {
+            ok: result.response.ok,
+            provider: "AbdoBest",
+            upstream_status: result.response.status,
+            ...(result.validJson &&
+            result.body &&
+            typeof result.body === "object"
+              ? result.body
+              : {}),
+          },
+          result.response.ok ? 200 : 502,
+        );
+      }
+
+      if (request.method === "POST" && path === "/watch/movie") {
+        const parsed = await parseJsonRequest(request);
+        if (!parsed.ok) return json({ error: parsed.error }, 400);
+
+        const payload = parsed.payload;
+        const tmdbId = firstNumber(payload.tmdb_id, payload.tmdbId);
+        const stream = await resolveMovie(payload);
+
         return json({
-          ok: response.ok,
-          provider: "AbdoBest",
-          upstreamStatus: response.status,
-          ...body,
-        }, response.ok ? 200 : 502);
+          ok: true,
+          type: "movie",
+          tmdb_id: Number.isFinite(tmdbId) ? tmdbId : null,
+          stream,
+        });
       }
 
-      // Video extraction
-      if (p === "/extract" && request.method === "POST") {
-        return handleExtract(request);
-      }
+      if (request.method === "POST" && path === "/watch/episode") {
+        const parsed = await parseJsonRequest(request);
+        if (!parsed.ok) return json({ error: parsed.error }, 400);
 
-      // Search
-      if (p === "/api/search" && request.method === "GET") {
-        const q = url.searchParams.get("q");
-        if (!q) return json({ error: "q parameter required" }, 400);
-        return proxyJson("/api/search?q=" + encodeURIComponent(q));
-      }
+        const payload = parsed.payload;
+        const tmdbId = firstNumber(payload.tmdb_id, payload.tmdbId);
+        const season = Number(payload.season);
+        const episode = Number(payload.episode);
+        const stream = await resolveEpisode(payload);
 
-      // Episodes
-      let m = p.match(/^\\/api\\/episodes\\/([^/]+)\\/([^/]+)$/);
-      if (m && request.method === "GET") {
-        return proxyJson("/api/episodes/" + encodeURIComponent(m[1]) + "/" + encodeURIComponent(m[2]));
-      }
-
-      // Arabic-series has a dedicated endpoint in AbdoBest.
-      m = p.match(/^\\/api\\/arabic-series\\/episodes\\/([^/]+)$/);
-      if (m && request.method === "GET") {
-        return proxyJson("/api/arabic-series/episodes/" + encodeURIComponent(m[1]));
-      }
-
-      // Metadata categories
-      m = p.match(/^\\/api\\/sorted\\/([^/]+)$/);
-      if (m && request.method === "GET") {
-        const allowed = new Set([
-          "movies", "dubbed-movies", "hindi", "asian-movies",
-          "anime", "anime-movies", "series", "tvshows",
-          "asian-series", "arabic-series",
-        ]);
-        const category = decodeURIComponent(m[1]);
-        if (!allowed.has(category)) return json({ error: "Unknown category" }, 404);
-        return proxyJson("/api/sorted/" + encodeURIComponent(category));
+        return json({
+          ok: true,
+          type: "episode",
+          tmdb_id: Number.isFinite(tmdbId) ? tmdbId : null,
+          season,
+          episode,
+          stream,
+        });
       }
 
       return json({ error: "Not found" }, 404);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Internal error";
-      console.error("AbdoBest Worker request failed", p, message);
-      return json({ error: message, provider: "AbdoBest" }, 502);
+      const message = error instanceof Error ? error.message : "Watch API error";
+
+      console.error("Movyz Watch API failed", path, message);
+
+      return json(
+        {
+          ok: false,
+          error: message,
+          provider: "AbdoBest",
+        },
+        502,
+      );
     }
   },
 };
