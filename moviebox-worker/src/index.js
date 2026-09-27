@@ -598,28 +598,48 @@ function sourcePageFallback(pageUrl, matchedTitle = '') {
   };
 }
 
-function findStreamUrl(value, depth = 0) {
+function isLikelyMediaUrl(value) {
+  if (typeof value !== "string" || !/^https?:\/\//i.test(value)) return false;
+  const url = value.trim().toLowerCase();
+  if (!url || /(?:fasel-hd|abdobest|watch|player|iframe|html)(?:[./?]|$)/i.test(url)) return false;
+  return /\.(?:m3u8|mp4|webm|mpd)(?:[?#]|$)/i.test(url) ||
+    /(?:m3u8|mp4|webm|mpd)(?:[?#=&]|$)/i.test(url);
+}
+
+function findStreamUrl(value, depth = 0, preferred = false) {
   if (depth > 8 || value == null) return "";
   if (typeof value === "string") {
-    return /^https?:\/\//i.test(value) ? value.trim() : "";
+    return preferred && isLikelyMediaUrl(value) ? value.trim() : "";
   }
   if (Array.isArray(value)) {
     for (const item of value) {
-      const found = findStreamUrl(item, depth + 1);
-      if (found && /(?:\.m3u8|\.mp4|\.webm|\.mpd)(?:[?#]|$)/i.test(found)) return found;
+      const found = findStreamUrl(item, depth + 1, preferred);
+      if (found) return found;
     }
     return "";
   }
   if (typeof value !== "object") return "";
-  for (const key of ["stream_url", "video_url", "videoUrl", "streamUrl", "url", "src"]) {
+
+  // AbdoBest's extractor can return signed media URLs without a literal
+  // ".m3u8" suffix (for example a CDN path with format/query parameters).
+  // Trust media-specific fields first instead of requiring a filename suffix.
+  for (const key of ["stream_url", "video_url", "videoUrl", "streamUrl", "media_url", "mediaUrl", "src"]) {
     const candidate = value[key];
-    if (typeof candidate === "string" && /^https?:\/\//i.test(candidate)) {
-      if (/\.(?:m3u8|mp4|webm|mpd)(?:[?#]|$)/i.test(candidate)) return candidate.trim();
+    if (typeof candidate === "string" && isLikelyMediaUrl(candidate)) {
+      return candidate.trim();
     }
   }
+
+  for (const key of ["url", "source", "stream", "video", "media"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && isLikelyMediaUrl(candidate)) {
+      return candidate.trim();
+    }
+  }
+
   for (const child of Object.values(value)) {
-    const found = findStreamUrl(child, depth + 1);
-    if (found && /(?:\.m3u8|\.mp4|\.webm|\.mpd)(?:[?#]|$)/i.test(found)) return found;
+    const found = findStreamUrl(child, depth + 1, true);
+    if (found) return found;
   }
   return "";
 }
