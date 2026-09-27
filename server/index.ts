@@ -395,7 +395,7 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 }));
 
 
-const WATCH_API_BASE = (process.env.MOVYZA_WATCH_API_BASE_URL || 'https://movyz-moviebox.sameranede.workers.dev').replace(/\/+$/, '');
+const WATCH_API_BASE = 'https://movyz-moviebox.sameranede.workers.dev';
 
 function streamTypeFromUrl(url: string) {
   const value = String(url || '').toLowerCase();
