@@ -424,7 +424,6 @@ function normalizeWatchSources(payload: any) {
   return rawSources
     .filter((source: any) => {
       if (typeof source?.url !== 'string' || !/^https:\/\//i.test(source.url)) return false;
-      const url = source.url.toLowerCase();
       return String(source?.providerKey || source?.provider || 'abdobest').toLowerCase() === 'abdobest';
     })
     .map((source: any, index: number) => ({
