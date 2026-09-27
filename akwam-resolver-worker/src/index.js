@@ -46,10 +46,12 @@ function detectType(url) {
 }
 
 function mediaLike(url) {
+  // Akwam's /download and /file routes are HTML redirect pages, not media.
+  // Returning one of them as an MP4 made the old resolver look successful
+  // while handing the player a document. Only advertise an actual media URL.
   return /^https?:\/\//i.test(url || "") && (
     /\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(url) ||
-    /(?:mp4|m3u8|mpd|webm)(?:[?#=&]|$)/i.test(url) ||
-    /\/(?:download|file)\//i.test(url)
+    /(?:mp4|m3u8|mpd|webm)(?:[?#=&]|$)/i.test(url)
   );
 }
 
@@ -116,7 +118,10 @@ async function quickContent(browser, url) {
 
   return {
     html,
-    finalUrl: url,
+    // Browser Run returns a standards-compatible Response. `url` is set when
+    // the browser followed a redirect; fall back for older Browser Run builds.
+    finalUrl: response.url || url,
+    contentType: response.headers.get("content-type") || "",
   };
 }
 
@@ -132,9 +137,16 @@ function mediaCandidates(html, baseUrl) {
   };
 
   for (const match of String(html || "").matchAll(
-    /https?:\/\/[^"'<>\s]+(?:\.(?:mp4|m3u8|mpd|webm)(?:\?[^"'<>\s]*)?|\/(?:download|file)\/[^"'<>\s]+)/gi
+    /https?:\/\/[^"'<>\s]+\.(?:mp4|m3u8|mpd|webm)(?:\?[^"'<>\s]*)?/gi
   )) {
     add(match[0]);
+  }
+
+  // Player configuration is often JSON encoded inside an inline script.
+  for (const match of String(html || "").matchAll(
+    /(?:file|src|source|stream)["'\s:=\\]+(https?:\\?\/\\?\/[^"'<>\s,}\\]+)/gi
+  )) {
+    add(match[1].replace(/\\\//g, "/"));
   }
 
   for (const node of extractAnchors(html)) {
@@ -143,6 +155,24 @@ function mediaCandidates(html, baseUrl) {
   }
 
   return found;
+}
+
+function navigationLinks(html, baseUrl) {
+  const links = [];
+  const seen = new Set();
+  const add = (value) => {
+    const url = absoluteUrl(value, baseUrl);
+    if (!url || seen.has(url)) return;
+    if (!/(?:\/download\/|\/file\/|\/link\/\d+|download|watch|play)/i.test(url)) return;
+    seen.add(url);
+    links.push(url);
+  };
+
+  for (const item of extractAnchors(html)) add(item.href);
+  for (const match of String(html || "").matchAll(
+    /(?:href|data-(?:url|link)|data-download)=["']([^"']+)["']/gi
+  )) add(match[1]);
+  return links;
 }
 
 function qualityLinks(html, baseUrl) {
@@ -203,9 +233,11 @@ async function pickSearchResult(browser, title, type) {
 
   for (const base of SEARCH_BASES) {
     const searchUrls = [
+      base + "/search?q=" + query + "&section=" + section + "s&page=1",
       base + "/search?q=" + query + "&section=" + section + "&page=1",
       base + "/search?q=" + query + "&section=" + section,
       base + "/search?q=" + query,
+      base + "/search?keyword=" + query,
     ];
 
     for (const searchUrl of searchUrls) {
@@ -290,6 +322,15 @@ async function extractFromPage(browser, pageUrl, episode) {
   }
 
   const first = await quickContent(browser, currentUrl);
+  if (mediaLike(first.finalUrl)) {
+    return {
+      ok: true,
+      page_url: currentUrl,
+      media_url: first.finalUrl,
+      type: detectType(first.finalUrl),
+      alternatives: [first.finalUrl],
+    };
+  }
   const direct = mediaCandidates(first.html, first.finalUrl);
 
   if (direct.length) {
@@ -308,9 +349,27 @@ async function extractFromPage(browser, pageUrl, episode) {
       Number(a.quality.replace(/\D/g, ""))
     );
 
-  for (const quality of qualities.slice(0, 8)) {
+  const pagesToFollow = [
+    ...qualities.map((item) => ({ ...item, quality: item.quality || "auto" })),
+    ...navigationLinks(first.html, first.finalUrl).map((url) => ({ url, quality: "auto" })),
+  ].filter((item, index, items) =>
+    item.url && items.findIndex((other) => other.url === item.url) === index
+  );
+
+  for (const quality of pagesToFollow.slice(0, 12)) {
     try {
       const second = await quickContent(browser, quality.url);
+
+      if (mediaLike(second.finalUrl)) {
+        return {
+          ok: true,
+          page_url: quality.url,
+          media_url: second.finalUrl,
+          type: detectType(second.finalUrl),
+          quality: quality.quality,
+          alternatives: [second.finalUrl],
+        };
+      }
 
       const secondDirect = mediaCandidates(
         second.html,
@@ -335,6 +394,17 @@ async function extractFromPage(browser, pageUrl, episode) {
         try {
           const third = await quickContent(browser, downloadUrl);
 
+          if (mediaLike(third.finalUrl)) {
+            return {
+              ok: true,
+              page_url: downloadUrl,
+              media_url: third.finalUrl,
+              type: detectType(third.finalUrl),
+              quality: quality.quality,
+              alternatives: [third.finalUrl],
+            };
+          }
+
           const thirdDirect = mediaCandidates(
             third.html,
             third.finalUrl
@@ -351,30 +421,12 @@ async function extractFromPage(browser, pageUrl, episode) {
             };
           }
 
-          const nested = downloadLinks(third.html, third.finalUrl);
-          for (const finalUrl of nested.slice(0, 3)) {
-            if (mediaLike(finalUrl)) {
-              return {
-                ok: true,
-                page_url: third.finalUrl,
-                media_url: finalUrl,
-                type: detectType(finalUrl),
-                quality: quality.quality,
-                alternatives: [finalUrl],
-              };
-            }
-          }
         } catch {}
       }
     } catch {}
   }
 
-  return {
-    ok: true,
-    page_url: first.finalUrl,
-    media_url: null,
-    type: null,
-  };
+  throw new Error("Akwam result contained no direct mp4, m3u8, or mpd media URL");
 }
 
 export default {

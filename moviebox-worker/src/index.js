@@ -429,7 +429,10 @@ async function resolveMovie(payload) {
   const directSource = normalizeAkwamUrl(payload?.source_url);
   if (directSource) {
     if (!isAkwamUrl(directSource)) throw new Error("Only Akwam playback sources are allowed");
-    return await abdoExtract(directSource);
+    return {
+      ...(await abdoExtract(directSource)),
+      source_url: directSource,
+    };
   }
 
   const titles = [
@@ -483,6 +486,7 @@ async function resolveMovie(payload) {
       const stream = await abdoExtract(source);
       return {
         ...stream,
+        source_url: source,
         matched_title: titleOf(best.item),
       };
     } catch (error) {
@@ -565,6 +569,7 @@ async function resolveEpisode(payload) {
       const stream = await abdoExtract(source);
       return {
         ...stream,
+        source_url: source,
         matched_title: titleOf(match),
       };
     } catch (error) {
@@ -706,6 +711,11 @@ export default {
           ok: true,
           type: "movie",
           tmdb_id: firstNumber(payload?.tmdb_id, payload?.tmdbId),
+          // Keep the direct-media contract explicit for callers which do not
+          // consume the legacy nested `stream` object.
+          source_url: stream.source_url || clean(payload?.source_url),
+          media_url: stream.url,
+          media_type: stream.type,
           stream,
         });
       }
@@ -724,6 +734,9 @@ export default {
           tmdb_id: firstNumber(payload?.tmdb_id, payload?.tmdbId),
           season: Number(payload?.season),
           episode: Number(payload?.episode),
+          source_url: stream.source_url || clean(payload?.source_url),
+          media_url: stream.url,
+          media_type: stream.type,
           stream,
         });
       }
