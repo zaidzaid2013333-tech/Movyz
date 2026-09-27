@@ -583,7 +583,14 @@ async function resolveMovie(payload, env) {
   const directSource = cleanText(payload?.source_url);
 
   if (directSource) {
-    return extractStream(directSource, env);
+    try {
+      return extractStream(directSource, env);
+    } catch (error) {
+      return {
+        ...sourcePageFallback(directSource, cleanText(payload?.title)),
+        extraction_error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   const title = cleanText(payload?.title);
