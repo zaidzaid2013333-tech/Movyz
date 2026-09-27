@@ -62,25 +62,36 @@ function yearOf(item) {
 function sourceUrlsOf(item) {
   const found = [];
   const seen = new Set();
+  const isHttp = (value) => value.startsWith('http://') || value.startsWith('https://');
+  const isUsefulKey = (key) => ['source', 'stream', 'video', 'player', 'watch', 'link', 'url', 'href'].some(part =>
+    String(key || '').toLowerCase().includes(part)
+  );
 
   const visit = (value, key = '', depth = 0) => {
     if (depth > 6 || value == null) return;
+
     if (typeof value === 'string') {
       const url = value.trim();
-      if (!/^https?:\/\//i.test(url)) return;
+      if (!isHttp(url)) return;
       const lower = url.toLowerCase();
       const useful =
-        /player_token=|video_player(?:\\?|\\/)|akwam\\.it\\/watch\\/|\\.m3u8(?:[?#]|$)|\\.mp4(?:[?#]|$)/i.test(lower) ||
-        /(source|stream|video|player|watch|link|url|href)/i.test(key);
+        lower.includes('player_token=') ||
+        lower.includes('video_player') ||
+        lower.includes('akwam.it/watch/') ||
+        lower.includes('.m3u8') ||
+        lower.includes('.mp4') ||
+        isUsefulKey(key);
       if (!useful || seen.has(url)) return;
       seen.add(url);
       found.push(url);
       return;
     }
+
     if (Array.isArray(value)) {
       for (const entry of value) visit(entry, key, depth + 1);
       return;
     }
+
     if (typeof value !== 'object') return;
     for (const [childKey, childValue] of Object.entries(value)) {
       visit(childValue, childKey, depth + 1);
@@ -90,11 +101,15 @@ function sourceUrlsOf(item) {
   visit(item);
 
   return found.sort((a, b) => {
-    const score = (url) =>
-      (/player_token=|video_player(?:\\?|\\/)/i.test(url) ? 100 : 0) +
-      (/akwam\\.it\\/watch\\//i.test(url) ? 80 : 0) +
-      (/\\.m3u8(?:[?#]|$)/i.test(url) ? 60 : 0) +
-      (/\\.mp4(?:[?#]|$)/i.test(url) ? 50 : 0);
+    const score = (url) => {
+      const lower = url.toLowerCase();
+      return (
+        (lower.includes('player_token=') || lower.includes('video_player') ? 100 : 0) +
+        (lower.includes('akwam.it/watch/') ? 80 : 0) +
+        (lower.includes('.m3u8') ? 60 : 0) +
+        (lower.includes('.mp4') ? 50 : 0)
+      );
+    };
     return score(b) - score(a);
   });
 }
