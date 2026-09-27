@@ -422,7 +422,14 @@ function normalizeWatchSources(payload: any) {
       }] : []);
 
   return rawSources
-    .filter((source: any) => typeof source?.url === 'string' && /^https:\/\//i.test(source.url))
+    .filter((source: any) => {
+      if (typeof source?.url !== 'string' || !/^https:\/\//i.test(source.url)) return false;
+      const url = source.url.toLowerCase();
+      // Playback is intentionally Akwam-only. Never pass legacy Fasel/source-page
+      // URLs to the client, even if an upstream response contains stale data.
+      if (url.includes('fasel-hd') || url.includes('faselhd')) return false;
+      return String(source?.providerKey || source?.provider || 'abdobest').toLowerCase() === 'abdobest';
+    })
     .map((source: any, index: number) => ({
       id: source.id || ['abdobest', source.type || streamTypeFromUrl(source.url), source.quality || 'auto', index].join('-'),
       type: String(source.type || streamTypeFromUrl(source.url)).toLowerCase(),
