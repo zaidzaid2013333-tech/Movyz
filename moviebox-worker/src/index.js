@@ -389,7 +389,70 @@ async function upstreamJson(path, init = {}) {
   };
 }
 
-async function extractStream(pageUrl) {
+function isPreScrapedPlayerUrl(url) {
+  return /player_token=/i.test(String(url || "")) || /video_player(?:\\?|\\/)/i.test(String(url || ""));
+}
+
+async function browserExtractStream(pageUrl, env) {
+  if (!env?.BROWSER) throw new Error("Browser Run binding unavailable");
+  if (!isPreScrapedPlayerUrl(pageUrl)) {
+    throw new Error("Browser extraction is only enabled for pre-scraped player URLs");
+  }
+
+  const { launch } = await import("@cloudflare/playwright");
+  const browser = await launch(env.BROWSER);
+  const context = await browser.newContext({
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  });
+  const page = await context.newPage();
+  const urls = [];
+  const add = (value) => {
+    if (typeof value !== "string" || !/\\.m3u8(?:$|[?#])/i.test(value)) return;
+    if (!urls.includes(value)) urls.push(value);
+  };
+
+  page.on("request", (request) => add(request.url()));
+
+  try {
+    await page.goto(pageUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 45_000,
+    });
+
+    await page.waitForTimeout(8_000);
+
+    const bodyText = (await page.locator("body").innerText().catch(() => "")).slice(0, 1500);
+    if (/turnstile|cloudflare|security check|verify you are human|إجراء التحقق من الأمان/i.test(bodyText)) {
+      throw new Error("Pre-scraped player is blocked by a security challenge");
+    }
+
+    if (!urls.length) {
+      throw new Error(
+        "Pre-scraped player returned no HLS playlist; finalUrl=" + page.url(),
+      );
+    }
+
+    return {
+      url: urls[0],
+      type: "hls",
+      quality: "auto",
+      qualities: ["Auto"],
+      sources: urls.map((url) => ({
+        quality: "auto",
+        type: "hls",
+        url,
+      })),
+      cached: false,
+      via: "browser-run-pre-scraped",
+    };
+  } finally {
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+  }
+}
+
+async function extractStream(pageUrl, env) {
   const result = await upstreamJson("/extract", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -397,6 +460,7 @@ async function extractStream(pageUrl) {
   });
 
   if (!result.validJson) {
+    if (isPreScrapedPlayerUrl(pageUrl)) return browserExtractStream(pageUrl, env);
     throw new Error(
       "AbdoBest extraction returned invalid JSON (HTTP " + result.response.status + ")",
     );
@@ -409,6 +473,7 @@ async function extractStream(pageUrl) {
   );
 
   if (!result.response.ok || !videoUrl) {
+    if (isPreScrapedPlayerUrl(pageUrl)) return browserExtractStream(pageUrl, env);
     const message =
       result.body?.error ||
       ("AbdoBest extraction failed with HTTP " + result.response.status);
@@ -470,7 +535,7 @@ async function resolveMovie(payload, env) {
   const directSource = cleanText(payload?.source_url);
 
   if (directSource) {
-    return extractStream(directSource);
+    return extractStream(directSource, env);
   }
 
   const title = cleanText(payload?.title);
@@ -523,7 +588,7 @@ async function resolveMovie(payload, env) {
 
   for (const source of sources.slice(0, 3)) {
     try {
-      const stream = await extractStream(source);
+      const stream = await extractStream(source, env);
       return {
         ...stream,
         matched_title: extractTitle(match),
@@ -632,7 +697,7 @@ async function resolveEpisode(payload, env) {
 
   for (const source of urls.slice(0, 3)) {
     try {
-      const stream = await extractStream(source);
+      const stream = await extractStream(source, env);
       return {
         ...stream,
         matched_title: extractTitle(match),
