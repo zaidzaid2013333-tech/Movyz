@@ -3,6 +3,8 @@ import { getProvider } from './registry';
 import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
 const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'webm']);
+// Legacy Fasel provider records are intentionally excluded; playback is routed through AbdoBest.
+const DISABLED_PROVIDERS = new Set(['fasel', 'faselhd']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
   streamprovider: 20,
