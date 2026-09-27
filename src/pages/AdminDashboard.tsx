@@ -251,7 +251,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                 <span>المزودات ومحرك المطابقة الذكي (Provider Matching)</span>
               </h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                يقوم النظام بالربط التلقائي بين معرفات TMDB وروابط المشاهدة واستخراج الجودات عبر محرك CloudStream و FaselHD و EgyBest مع نظام الثقة (Confidence Score).
+                يقوم النظام بالربط التلقائي بين معرفات TMDB وروابط المشاهدة واستخراج الجودات عبر مزودي المشاهدة النشطين مع نظام الثقة (Confidence Score).
               </p>
               <button
                 onClick={() => setActiveTab('providers')}
