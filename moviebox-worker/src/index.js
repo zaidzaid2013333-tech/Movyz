@@ -714,11 +714,11 @@ async function browserExtractAkwam(pageUrl, env) {
           const downloadCandidates = [];
           const addCandidate = (value) => {
             if (typeof value !== "string" || !/^https?:\/\///i.test(value)) return;
-            if (/\/download\///i.test(value) || /\\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(value)) {
+            if (/\/download\///i.test(value) || /\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(value)) {
               if (!downloadCandidates.includes(value)) downloadCandidates.push(value);
             }
           };
-          for (const match of qualityHtml.match(/https?:\/\/[^"'<>\\s]+/gi) || []) addCandidate(match);
+          for (const match of qualityHtml.match(/https?:\/\/[^"'<>\s]+/gi) || []) addCandidate(match);
           const links = await qualityPage.locator("a[href], source[src], video[src]").evaluateAll((nodes) =>
             nodes.map((node) => node.getAttribute("href") || node.getAttribute("src") || "").filter(Boolean)
           ).catch(() => []);
@@ -730,8 +730,8 @@ async function browserExtractAkwam(pageUrl, env) {
               await finalPage.goto(downloadUrl, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
               const finalHtml = await finalPage.content().catch(() => "");
               const finals = [];
-              for (const match of finalHtml.match(/https?:\/\/[^"'<>\\s]+/gi) || []) {
-                if (/\/download\///i.test(match) || /\\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(match)) finals.push(match);
+              for (const match of finalHtml.match(/https?:\/\/[^"'<>\s]+/gi) || []) {
+                if (/\/download\///i.test(match) || /\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(match)) finals.push(match);
               }
               const finalLinks = await finalPage.locator("a[href], source[src], video[src]").evaluateAll((nodes) =>
                 nodes.map((node) => node.getAttribute("href") || node.getAttribute("src") || "").filter(Boolean)
