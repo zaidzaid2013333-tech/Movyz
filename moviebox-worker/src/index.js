@@ -118,29 +118,61 @@ function extractCategory(item) {
 }
 
 function extractSourceUrls(item) {
-  const sources = [];
+  const candidates = [];
+  const seen = new Set();
 
-  if (Array.isArray(item?.Sources)) {
-    for (const value of item.Sources) {
-      if (typeof value === "string" && /^https?:\/\//i.test(value)) {
-        sources.push(value);
-      }
+  const add = (value, priority = 0) => {
+    if (typeof value !== "string") return;
+    const url = value.trim();
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) return;
+    const lower = url.toLowerCase();
+    if (/\.(?:jpg|jpeg|png|gif|webp|svg)(?:[?#]|$)/i.test(lower)) return;
+    if (/^(?:https?:\/\/)?(?:image\.tmdb\.org|images\.|cdn\.jsdelivr\.net)/i.test(lower)) return;
+    seen.add(url);
+    candidates.push({ url, priority });
+  };
+
+  const visit = (value, key = "", depth = 0) => {
+    if (depth > 6 || value == null) return;
+
+    if (typeof value === "string") {
+      const keyScore = /watch|stream|source|video|player|page|link|url|href/i.test(key) ? 50 : 0;
+      add(value, keyScore);
+      return;
     }
-  }
 
-  for (const value of [
-    item?.Source,
-    item?.source,
-    item?.url,
-    item?.page_url,
-    item?.watch_url,
+    if (Array.isArray(value)) {
+      for (const entry of value) visit(entry, key, depth + 1);
+      return;
+    }
+
+    if (typeof value !== "object") return;
+
+    for (const [childKey, childValue] of Object.entries(value)) {
+      visit(childValue, childKey, depth + 1);
+    }
+  };
+
+  // Prefer fields normally used for playback/source pages.
+  for (const key of [
+    "Source", "source", "source_url", "SourceUrl", "sourceUrl",
+    "URL", "Url", "url", "page_url", "pageUrl", "watch_url", "watchUrl",
+    "link", "Link", "href", "player", "player_url", "playerUrl",
   ]) {
-    if (typeof value === "string" && /^https?:\/\//i.test(value)) {
-      sources.push(value);
-    }
+    add(item?.[key], 100);
   }
 
-  return [...new Set(sources)];
+  for (const value of [item?.Sources, item?.sources, item?.Links, item?.links]) {
+    visit(value, "source", 0);
+  }
+
+  visit(item, "", 0);
+
+  return [...new Map(
+    candidates
+      .sort((a, b) => b.priority - a.priority)
+      .map((entry) => [entry.url, entry.url]),
+  ).values()];
 }
 
 function scoreMatch(item, input) {
