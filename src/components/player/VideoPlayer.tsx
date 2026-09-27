@@ -401,7 +401,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       `}</style>
       <div className="movyza-player-shell relative aspect-video w-full overflow-hidden bg-black">
-        {playerSource ? (
+        {streamType === 'web' && streamUrl ? (
+          <div className="absolute inset-0 bg-[#05070b]">
+            <iframe
+              src={streamUrl}
+              title={isMovie ? title : titleEn || title}
+              className="absolute inset-0 h-full w-full border-0 bg-black"
+              allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+              onLoad={() => {
+                setLoading(false);
+                setError('');
+              }}
+            />
+            <div className="absolute bottom-3 start-3 end-3 flex flex-wrap items-center justify-between gap-2">
+              <span className="rounded-full border border-amber-400/20 bg-black/75 px-3 py-1.5 text-[11px] text-amber-100 backdrop-blur">
+                {language === 'ar'
+                  ? 'وضع المصدر الخارجي — AbdoBest'
+                  : 'External source mode — AbdoBest'}
+              </span>
+              <a
+                href={streamUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-xl border border-white/15 bg-black/80 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-white/10"
+              >
+                {language === 'ar' ? 'فتح المصدر' : 'Open source'}
+              </a>
+            </div>
+          </div>
+        ) : playerSource ? (
           <MediaPlayer
             ref={playerRef}
             key={`movyza-player-${selectedSourceId}-${subtitleTracks.map((track) => `${track.language}:${track.url}`).join('|')}`}
@@ -558,8 +588,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </h3>
             <p className="text-[11px] text-slate-400">
               {language === 'ar'
-                ? 'يتم تشغيل HLS أو MP4 أو DASH أو WEBM مباشرة داخل مشغل Movyza فقط.' 
-                : 'Movyza plays HLS, MP4, DASH, or WEBM directly inside the native player.'}
+                ? 'يتم تشغيل الفيديو المباشر داخل مشغل Movyza، وعند تعذر استخراج الرابط الخام نعرض صفحة المصدر عبر AbdoBest.' 
+                : 'Movyza plays direct video streams in the native player and falls back to the AbdoBest source page when raw extraction is unavailable.'}
             </p>
           </div>
         </div>
@@ -609,8 +639,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
             <p className="text-[11px] leading-relaxed text-slate-400">
               {language === 'ar'
-                ? 'HLS وMP4 وDASH وWEBM تشغّل مباشرة داخل مشغل Movyza.'
-                : 'HLS, MP4, DASH, and WEBM play directly inside the Movyza player.'}
+                ? 'HLS وMP4 وDASH وWEBM تعمل مباشرة، مع وضع صفحة مصدر احتياطي عند الحاجة.'
+                : 'HLS, MP4, DASH, and WEBM play directly, with an AbdoBest source-page fallback when needed.'}
             </p>
           </div>
 
