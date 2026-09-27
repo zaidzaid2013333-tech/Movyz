@@ -492,9 +492,35 @@ function sourcePageFallback(pageUrl, matchedTitle = '') {
   };
 }
 
+function findStreamUrl(value, depth = 0) {
+  if (depth > 8 || value == null) return "";
+  if (typeof value === "string") {
+    return /^https?:\/\//i.test(value) ? value.trim() : "";
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findStreamUrl(item, depth + 1);
+      if (found && /(?:\.m3u8|\.mp4|\.webm|\.mpd)(?:[?#]|$)/i.test(found)) return found;
+    }
+    return "";
+  }
+  if (typeof value !== "object") return "";
+  for (const key of ["stream_url", "video_url", "videoUrl", "streamUrl", "url", "src"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && /^https?:\/\//i.test(candidate)) {
+      if (/\.(?:m3u8|mp4|webm|mpd)(?:[?#]|$)/i.test(candidate)) return candidate.trim();
+    }
+  }
+  for (const child of Object.values(value)) {
+    const found = findStreamUrl(child, depth + 1);
+    if (found && /(?:\.m3u8|\.mp4|\.webm|\.mpd)(?:[?#]|$)/i.test(found)) return found;
+  }
+  return "";
+}
+
 async function extractStream(pageUrl, env) {
-  // Prefer AbdoBest's own extractor first. Some Fasel source pages cannot be
-  // embedded in an iframe, so a web-page fallback must never be the first path.
+  // AbdoBest is the only playback source. We only return a real media URL.
+  // A source HTML page is never returned as a playable stream.
   let apiError = null;
   try {
     const result = await upstreamJson("/extract", {
@@ -504,11 +530,7 @@ async function extractStream(pageUrl, env) {
     });
 
     if (result.validJson) {
-      const videoUrl = firstString(
-        result.body?.stream_url,
-        result.body?.video_url,
-        result.body?.url,
-      );
+      const videoUrl = findStreamUrl(result.body);
 
       if (result.response.ok && videoUrl) {
         const qualities = Array.isArray(result.body?.quality_options)
@@ -607,14 +629,7 @@ async function resolveMovie(payload, env) {
   const directSource = cleanText(payload?.source_url);
 
   if (directSource) {
-    try {
-      return extractStream(directSource, env);
-    } catch (error) {
-      return {
-        ...sourcePageFallback(directSource, cleanText(payload?.title)),
-        extraction_error: error instanceof Error ? error.message : String(error),
-      };
-    }
+    return await extractStream(directSource, env); 
   }
 
   const titles = searchTitles(payload);
@@ -699,15 +714,10 @@ async function resolveMovie(payload, env) {
     }
   }
 
-  const fallbackSource = sources[0];
-  if (fallbackSource) {
-    return {
-      ...sourcePageFallback(fallbackSource, extractTitle(match)),
-      extraction_error: lastError instanceof Error ? lastError.message : String(lastError || ''),
-    };
-  }
-
-  throw new Error('Unable to resolve a playable movie source');
+  throw new Error(
+    "AbdoBest could not produce a direct playable stream" +
+      (lastError instanceof Error ? ": " + lastError.message : ""),
+  );
 }
 
 async function resolveEpisode(payload, env) {
