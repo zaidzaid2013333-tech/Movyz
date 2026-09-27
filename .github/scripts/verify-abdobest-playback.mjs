@@ -45,12 +45,21 @@ function firstString(...values) {
 }
 
 function tmdbIdOf(item) {
-  const value = Number(item?.['TMDb ID'] ?? item?.tmdb_id ?? item?.tmdbId ?? item?.themoviedb_id);
+  const value = Number(item?.['TMDb ID'] ?? item?.tmdb_id ?? item?.tmdbId ?? item?.themoviedb_id ?? item?.tmdb ?? 0);
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function titleOf(item) {
-  return firstString(item?.Title, item?.title, item?.name, item?.original_title, item?.original_name);
+  return firstString(
+    item?.Title,
+    item?.title,
+    item?.TitleAr,
+    item?.title_ar,
+    item?.name,
+    item?.name_ar,
+    item?.original_title,
+    item?.original_name,
+  );
 }
 
 function yearOf(item) {
@@ -239,9 +248,17 @@ if (!candidates.length) {
   throw new Error('AbdoBest metadata did not expose any pre-scraped movie Sources');
 }
 
+console.log('ABDO_CANDIDATES', JSON.stringify(candidates.slice(0, 8).map((candidate) => ({
+  title: candidate.title,
+  tmdbId: candidate.tmdbId,
+  sourceCount: candidate.sources.length,
+  sourceHosts: candidate.sources.slice(0, 3).map((url) => {
+    try { return new URL(url).host; } catch { return ''; }
+  }),
+})));
+
 let watchPass = null;
 for (const candidate of candidates) {
-  if (!candidate.tmdbId) continue;
   watchPass = await postWatch(candidate);
   if (watchPass) break;
 }
