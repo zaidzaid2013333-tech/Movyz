@@ -506,32 +506,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       `}</style>
       <div className="movyza-player-shell relative aspect-video w-full overflow-hidden bg-black">
         {streamType === 'web' && streamUrl ? (
-          <div className="absolute inset-0 bg-[#05070b]">
-            <iframe
-              src={streamUrl}
-              title={isMovie ? title : titleEn || title}
-              className="absolute inset-0 h-full w-full border-0 bg-black"
-              allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-              allowFullScreen
-              referrerPolicy="strict-origin-when-cross-origin"
-              onLoad={() => {
-                setLoading(false);
-                setError('');
-              }}
-            />
-            <div className="absolute bottom-3 start-3 end-3 flex flex-wrap items-center justify-between gap-2">
-              <span className="rounded-full border border-amber-400/20 bg-black/75 px-3 py-1.5 text-[11px] text-amber-100 backdrop-blur">
+          <div className="absolute inset-0 flex items-center justify-center bg-[#05070b] p-6">
+            <div className="max-w-md text-center">
+              <div className="mb-3 text-sm font-bold text-white">
+                {language === 'ar' ? 'تعذر استخراج الفيديو المباشر' : 'Direct video extraction unavailable'}
+              </div>
+              <p className="text-xs leading-6 text-slate-400">
                 {language === 'ar'
-                  ? 'وضع المصدر الخارجي — AbdoBest'
-                  : 'External source mode — AbdoBest'}
-              </span>
+                  ? 'المصدر موجود لدى AbdoBest، لكن صفحة المصدر تمنع التضمين داخل المشغل. لن نعرض صفحة مكسورة داخل Movyza.'
+                  : 'AbdoBest returned a source page, but that page blocks iframe embedding. Movyza will not display a broken embedded page.'}
+              </p>
               <a
                 href={streamUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-xl border border-white/15 bg-black/80 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-white/10"
+                className="mt-4 inline-flex rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-400/20"
               >
-                {language === 'ar' ? 'فتح المصدر' : 'Open source'}
+                {language === 'ar' ? 'فتح المصدر عبر AbdoBest' : 'Open AbdoBest source'}
               </a>
             </div>
           </div>
