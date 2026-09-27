@@ -56,211 +56,265 @@ function absoluteUrl(value, base) {
   try { return new URL(value, base).toString(); } catch { return ""; }
 }
 
-async function pickSearchResult(page, title, type) {
-  const query = encodeURIComponent(title);
-  const section = type === "series" ? "series" : "movie";
-  let lastDiagnostics = null;
-
-  for (const base of SEARCH_BASES) {
-    try {
-      await page.goto(base, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
-      const canonicalBase = new URL(page.url()).origin || base;
-
-      const searchUrls = [
-        canonicalBase + "/search?q=" + query + "&section=" + section + "&page=1",
-        canonicalBase + "/search?q=" + query + "&section=" + section,
-        canonicalBase + "/search?q=" + query,
-      ];
-
-      for (const searchUrl of searchUrls) {
-        try {
-          await page.goto(searchUrl, {
-            waitUntil: "domcontentloaded",
-            timeout: 25000,
-          });
-
-          await page.waitForTimeout(1200);
-
-          const rows = await page.locator(
-            ".widget-body .entry-box, .entry-box, a.box"
-          ).evaluateAll((nodes) =>
-            nodes.map((node) => {
-              const anchor = node.matches?.("a.box")
-                ? node
-                : node.querySelector?.("a.box, a[href]");
-              const titleNode =
-                node.matches?.(".entry-box") || node.matches?.("a.box")
-                  ? node
-                  : node.querySelector?.(".entry-title, h3");
-              return {
-                href: anchor?.getAttribute?.("href") || "",
-                title:
-                  titleNode?.textContent?.trim() ||
-                  anchor?.getAttribute?.("title") ||
-                  anchor?.textContent?.trim() ||
-                  "",
-              };
-            })
-          ).catch(() => []);
-
-          const fallbackRows = rows.length ? rows : await page.locator("a[href]").evaluateAll((nodes) =>
-            nodes.map((node) => ({
-              href: node.getAttribute("href") || "",
-              title: node.querySelector?.(".entry-title, h3")?.textContent?.trim() ||
-                node.getAttribute("title") ||
-                node.textContent?.trim() || "",
-            })).filter((x) => x.href && x.title)
-          ).catch(() => []);
-
-          const wanted = normalizeTitle(title);
-          const candidates = fallbackRows
-            .map((row) => {
-              const actual = normalizeTitle(row.title);
-              const score =
-                actual === wanted ? 120 :
-                actual.includes(wanted) ? 90 :
-                wanted.includes(actual) ? 80 :
-                0;
-              return {
-                href: absoluteUrl(row.href, page.url()),
-                title: row.title,
-                score,
-              };
-            })
-            .filter((x) => x.href && x.score > 0)
-            .sort((a, b) => b.score - a.score);
-
-          if (candidates[0]) return candidates[0];
-
-          lastDiagnostics = {
-            url: page.url(),
-            title: await page.title().catch(() => ""),
-            body: (await page.locator("body").innerText().catch(() => "")).slice(0, 1600),
-            anchors: fallbackRows.length,
-          };
-        } catch (error) {
-          lastDiagnostics = {
-            url: page.url(),
-            title: await page.title().catch(() => ""),
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
-      }
-    } catch (error) {
-      lastDiagnostics = {
-        url: page.url(),
-        title: await page.title().catch(() => ""),
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  const suffix = lastDiagnostics
-    ? " | diagnostics=" + JSON.stringify(lastDiagnostics)
-    : "";
-  throw new Error("Akwam search returned no matching result" + suffix);
+function stripHtml(value) {
+  return String(value || "")
+    .replace(/<script[\\s\\S]*?<\\/script>/gi, " ")
+    .replace(/<style[\\s\\S]*?<\\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/\\s+/g, " ")
+    .trim();
 }
-async function extractFromPage(context, pageUrl, season, episode) {
-  const page = await context.newPage();
-  const media = [];
+
+function challengePage(html) {
+  const text = String(html || "").toLowerCase();
+  return text.includes("just a moment") ||
+    text.includes("enable javascript and cookies to continue") ||
+    text.includes("cf-chl-") ||
+    text.includes("cloudflare ray id");
+}
+
+function extractAnchors(html) {
+  const out = [];
+  const re = /<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi;
+  for (const match of html.matchAll(re)) {
+    const href = clean(match[1]);
+    const text = stripHtml(match[2]);
+    if (href) out.push({ href, text });
+  }
+  return out;
+}
+
+async function quickContent(browser, url) {
+  const response = await browser.quickAction("content", {
+    url,
+    gotoOptions: { waitUntil: "domcontentloaded" },
+  });
+  const html = await response.text();
+  if (!response.ok) {
+    throw new Error("Browser Run content HTTP " + response.status);
+  }
+  if (challengePage(html)) {
+    throw new Error("Akwam returned a bot-protection challenge page");
+  }
+  return { html, finalUrl: url };
+}
+
+function extractMediaCandidates(html, baseUrl) {
+  const found = [];
+  const seen = new Set();
   const add = (value) => {
-    const url = clean(value);
-    if (!mediaLike(url) || media.includes(url)) return;
-    media.push(url);
+    const url = absoluteUrl(clean(value), baseUrl);
+    if (!mediaLike(url) || seen.has(url)) return;
+    seen.add(url);
+    found.push(url);
   };
 
-  page.on("request", (request) => add(request.url()));
-  page.on("response", (response) => {
-    const type = String(response.headers()["content-type"] || "").toLowerCase();
-    if (type.includes("video/") || type.includes("mpegurl") || type.includes("dash+xml")) {
-      add(response.url());
+  for (const match of String(html || "").matchAll(
+    /https?:\\/\\/[^"'<>\\s]+\\.(?:mp4|m3u8|mpd|webm)(?:\\?[^"'<>\\s]*)?/gi
+  )) add(match[0]);
+
+  for (const match of String(html || "").matchAll(
+    /https?:\\/\\/[^"'<>\\s]+\\/(?:download|file)\\/[^"'<>\\s]+/gi
+  )) add(match[0]);
+
+  return found;
+}
+
+function qualityLinks(html, baseUrl) {
+  return extractAnchors(html)
+    .filter((item) => /(?:2160p|1080p|720p|480p|360p)/i.test(item.text + " " + item.href))
+    .map((item) => ({
+      ...item,
+      url: absoluteUrl(item.href, baseUrl),
+      quality: (item.text.match(/(?:2160|1080|720|480|360)p/i) || [])[0] || "auto",
+    }))
+    .filter((item) => item.url);
+}
+
+function downloadLinks(html, baseUrl) {
+  const links = [];
+  const seen = new Set();
+
+  for (const item of extractAnchors(html)) {
+    const url = absoluteUrl(item.href, baseUrl);
+    if (!url || seen.has(url)) continue;
+    if (/\\/(?:download|file)\\//i.test(url) || /download/i.test(item.text)) {
+      seen.add(url);
+      links.push(url);
     }
-  });
+  }
 
-  try {
-    await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 25000 }).catch(() => {});
+  for (const match of String(html || "").matchAll(
+    /https?:\\/\\/[^"'<>\\s]+\\/(?:download|file)\\/[^"'<>\\s]+/gi
+  )) {
+    if (!seen.has(match[0])) {
+      seen.add(match[0]);
+      links.push(match[0]);
+    }
+  }
 
-    if (episode != null) {
+  return links;
+}
+
+async function pickSearchResult(browser, title, type) {
+  const query = encodeURIComponent(title);
+  const section = type === "series" ? "series" : "movie";
+  let lastError = "";
+
+  for (const base of SEARCH_BASES) {
+    const searchUrls = [
+      base + "/search?q=" + query + "&section=" + section + "&page=1",
+      base + "/search?q=" + query + "&section=" + section,
+      base + "/search?q=" + query,
+    ];
+
+    for (const searchUrl of searchUrls) {
+      try {
+        const page = await quickContent(browser, searchUrl);
+        const anchors = extractAnchors(page.html);
+        const candidates = anchors
+          .filter((item) => /\\bbox\\b/i.test(item.href) || /entry-title|entry-box/i.test(item.text))
+          .map((item) => {
+            const actual = normalizeTitle(item.text);
+            const wanted = normalizeTitle(title);
+            const score =
+              actual === wanted ? 120 :
+              actual.includes(wanted) ? 90 :
+              wanted.includes(actual) ? 80 : 0;
+            return {
+              href: absoluteUrl(item.href, page.finalUrl),
+              title: item.text,
+              score,
+            };
+          })
+          .filter((item) => item.href && item.score > 0)
+          .sort((a, b) => b.score - a.score);
+
+        if (candidates[0]) return candidates[0];
+
+        const fallback = anchors
+          .map((item) => {
+            const actual = normalizeTitle(item.text);
+            const wanted = normalizeTitle(title);
+            const score =
+              actual === wanted ? 100 :
+              actual.includes(wanted) ? 75 :
+              wanted.includes(actual) ? 60 : 0;
+            return {
+              href: absoluteUrl(item.href, page.finalUrl),
+              title: item.text,
+              score,
+            };
+          })
+          .filter((item) => item.href && item.score > 0)
+          .sort((a, b) => b.score - a.score);
+
+        if (fallback[0]) return fallback[0];
+
+        lastError = "no matching search result";
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+    }
+  }
+
+  throw new Error("Akwam search failed: " + lastError);
+}
+
+async function extractFromPage(browser, pageUrl, season, episode) {
+  let currentUrl = pageUrl;
+
+  if (episode != null) {
+    try {
+      const page = await quickContent(browser, currentUrl);
       const wanted = Number(episode);
-      const epLinks = await page.locator("a[href]").evaluateAll((nodes) =>
-        nodes.map((node) => ({
-          href: node.getAttribute("href") || "",
-          text: node.textContent?.trim() || "",
+      const episodes = extractAnchors(page.html)
+        .map((item) => ({
+          ...item,
+          url: absoluteUrl(item.href, page.finalUrl),
+          n: Number((item.text.match(/(?:حلقة|episode|ep|الحلقة)\\s*[-:#]?\\s*(\\d+)/i) || [])[1] || -1),
         }))
-      ).catch(() => []);
+        .filter((item) => item.n === wanted || /\\/episode\\/${wanted}(?:\\/|$)/i.test(item.url || ""));
+      if (episodes[0]?.url) currentUrl = episodes[0].url;
+    } catch {}
+  }
 
-      const ep = epLinks
-        .map((x) => ({
-          ...x,
-          url: absoluteUrl(x.href, page.url()),
-          n: Number((x.text.match(/(?:حلقة|episode|ep|الحلقة)\s*[-:#]?\s*(\d+)/i) || [])[1] || -1),
-        }))
-        .find((x) => x.n === wanted || new URL(x.url || "https://example.invalid").pathname.includes("/episode/" + wanted + "/"));
-
-      if (ep?.url) {
-        await page.goto(ep.url, { waitUntil: "domcontentloaded", timeout: 25000 }).catch(() => {});
-      }
-    }
-
-    for (let attempt = 0; attempt < 8 && !media.length; attempt++) {
-      const dom = await page.locator("video source[src], video[src], source[src], a[href]").evaluateAll((nodes) =>
-        nodes.map((node) => node.getAttribute("src") || node.getAttribute("href") || "").filter(Boolean)
-      ).catch(() => []);
-      dom.forEach(add);
-
-      const html = await page.content().catch(() => "");
-      for (const match of html.match(/https?:\/\/[^"'<>\s]+\.(?:mp4|m3u8|mpd|webm)(?:\?[^"'<>\s]*)?/gi) || []) add(match);
-
-      if (!media.length) await page.waitForTimeout(1000);
-    }
-
-    if (!media.length) {
-      const links = await page.locator("a[href]").evaluateAll((nodes) =>
-        nodes.map((node) => ({
-          href: node.getAttribute("href") || "",
-          text: node.textContent?.trim() || "",
-        })).filter((x) => /1080p|720p|480p|download/i.test(x.text + " " + x.href))
-      ).catch(() => []);
-
-      for (const link of links.slice(0, 5)) {
-        const next = absoluteUrl(link.href, page.url());
-        if (!next) continue;
-        const child = await context.newPage();
-        try {
-          await child.goto(next, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
-          const childHtml = await child.content().catch(() => "");
-          for (const match of childHtml.match(/https?:\/\/[^"'<>\s]+(?:\/download\/[^"'<>\s]+|\.(?:mp4|m3u8|mpd|webm)(?:\?[^"'<>\s]*)?)/gi) || []) add(match);
-          const childLinks = await child.locator("a[href],video source[src],video[src]").evaluateAll((nodes) =>
-            nodes.map((node) => node.getAttribute("href") || node.getAttribute("src") || "").filter(Boolean)
-          ).catch(() => []);
-          childLinks.forEach(add);
-          if (media.length) break;
-        } finally {
-          await child.close().catch(() => {});
-        }
-      }
-    }
-
-    if (!media.length) {
-      return {
-        ok: true,
-        page_url: page.url(),
-        media_url: null,
-        type: null,
-      };
-    }
-
+  const first = await quickContent(browser, currentUrl);
+  const direct = extractMediaCandidates(first.html, first.finalUrl);
+  if (direct.length) {
     return {
       ok: true,
-      page_url: page.url(),
-      media_url: media[0],
-      type: detectType(media[0]),
-      alternatives: media.slice(0, 8),
+      page_url: first.finalUrl,
+      media_url: direct[0],
+      type: detectType(direct[0]),
+      alternatives: direct.slice(0, 8),
     };
-  } finally {
-    await page.close().catch(() => {});
   }
+
+  const qualities = qualityLinks(first.html, first.finalUrl)
+    .sort((a, b) => Number(b.quality.replace(/\\D/g, "")) - Number(a.quality.replace(/\\D/g, "")));
+
+  for (const quality of qualities.slice(0, 6)) {
+    try {
+      const second = await quickContent(browser, quality.url);
+      const directSecond = extractMediaCandidates(second.html, second.finalUrl);
+      if (directSecond.length) {
+        return {
+          ok: true,
+          page_url: second.finalUrl,
+          media_url: directSecond[0],
+          type: detectType(directSecond[0]),
+          quality: quality.quality,
+          alternatives: directSecond.slice(0, 8),
+        };
+      }
+
+      const downloads = downloadLinks(second.html, second.finalUrl);
+      for (const downloadUrl of downloads.slice(0, 4)) {
+        try {
+          const third = await quickContent(browser, downloadUrl);
+          const directThird = extractMediaCandidates(third.html, third.finalUrl);
+          if (directThird.length) {
+            return {
+              ok: true,
+              page_url: third.finalUrl,
+              media_url: directThird[0],
+              type: detectType(directThird[0]),
+              quality: quality.quality,
+              alternatives: directThird.slice(0, 8),
+            };
+          }
+
+          const thirdDownloads = downloadLinks(third.html, third.finalUrl);
+          for (const finalCandidate of thirdDownloads.slice(0, 2)) {
+            if (isLikelyMediaUrl(finalCandidate)) {
+              return {
+                ok: true,
+                page_url: third.finalUrl,
+                media_url: finalCandidate,
+                type: detectType(finalCandidate),
+                quality: quality.quality,
+                alternatives: [finalCandidate],
+              };
+            }
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+
+  return {
+    ok: true,
+    page_url: first.finalUrl,
+    media_url: null,
+    type: null,
+  };
 }
+
 
 export default {
   async fetch(request, env) {
