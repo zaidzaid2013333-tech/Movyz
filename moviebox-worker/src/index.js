@@ -465,6 +465,23 @@ async function browserExtractStream(pageUrl, env) {
   }
 }
 
+function sourcePageFallback(pageUrl, matchedTitle = '') {
+  return {
+    url: pageUrl,
+    type: 'web',
+    quality: 'source-page',
+    qualities: [],
+    sources: [{
+      quality: 'source-page',
+      type: 'web',
+      url: pageUrl,
+    }],
+    source_page: pageUrl,
+    requires_browser: true,
+    matched_title: matchedTitle || undefined,
+  };
+}
+
 async function extractStream(pageUrl, env) {
   // Fasel pages are currently failing through AbdoBest /extract; try the
   // normal browser path first, without attempting to bypass any challenges.
