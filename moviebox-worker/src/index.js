@@ -211,13 +211,17 @@ function scoreMatch(item, input) {
     return 100;
   }
 
-  const wanted = normalizeTitle(input.title);
+  const wantedTitles = searchTitles(input).map(normalizeTitle).filter(Boolean);
   const actual = normalizeTitle(extractTitle(item));
-  if (!wanted || !actual) return 0;
+  if (!wantedTitles.length || !actual) return 0;
 
   let score = 0;
-  if (wanted === actual) score += 70;
-  else if (actual.includes(wanted) || wanted.includes(actual)) score += 45;
+  for (const wanted of wantedTitles) {
+    if (wanted === actual) score = Math.max(score, 70);
+    else if (actual.includes(wanted) || wanted.includes(actual)) {
+      score = Math.max(score, 45);
+    }
+  }
 
   const wantedYear = Number(input.year);
   const actualYear = extractYear(item);
