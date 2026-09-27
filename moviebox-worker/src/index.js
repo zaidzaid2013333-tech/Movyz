@@ -15,6 +15,7 @@
  * Smoke test fixture refresh.
  * Candidate discovery supports title-only entries.
  * Smoke logging syntax fixed in verification script.
+ * E2E fixture selection now matches AbdoBest content against Movyz catalog.
  */
 
 const ABDOBEST_API_BASES = [
