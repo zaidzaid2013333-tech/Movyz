@@ -201,6 +201,64 @@ async function discoverCandidates() {
   }).slice(0, 40);
 }
 
+function catalogQueryTitle(title) {
+  return String(title || '')
+    .replace(/^\s*(فيلم|مسلسل)\s*/u, '')
+    .replace(/\b(?:19|20)\d{2}\b/g, ' ')
+    .replace(/\b(?:مترجم|مدبلج)\b/giu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function titlesCompatible(a, b) {
+  const left = catalogQueryTitle(a).toLowerCase();
+  const right = catalogQueryTitle(b).toLowerCase();
+  return Boolean(left && right && (
+    left === right ||
+    left.includes(right) ||
+    right.includes(left)
+  ));
+}
+
+async function findCatalogFixture(candidates) {
+  for (const candidate of candidates.slice(0, 12)) {
+    const queryTitle = catalogQueryTitle(candidate.title);
+    if (!queryTitle) continue;
+
+    try {
+      const search = await getJson(
+        MAIN_BASE,
+        '/api/v1/search?q=' + encodeURIComponent(queryTitle),
+        60000,
+      );
+      if (!search.response.ok) continue;
+
+      const movies = Array.isArray(search.json?.data?.movies)
+        ? search.json.data.movies
+        : [];
+
+      const match = movies.find((movie) =>
+        titlesCompatible(
+          candidate.title,
+          String(movie?.titleEn || movie?.title || movie?.originalTitle || ''),
+        )
+      );
+
+      if (match?.tmdbId) {
+        return { candidate, mainMatch: match };
+      }
+    } catch (error) {
+      console.log(
+        'MAIN_CATALOG_SEARCH_ERROR',
+        candidate.title,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  return null;
+}
+
 async function postWatch(candidate) {
   const attempts = [undefined, ...candidate.sources.slice(0, 6)];
   for (const sourceUrl of attempts) {
@@ -248,7 +306,7 @@ if (!health.response.ok || health.json?.provider !== 'AbdoBest') {
 
 const candidates = await discoverCandidates();
 if (!candidates.length) {
-  throw new Error('AbdoBest metadata did not expose any pre-scraped movie Sources');
+  throw new Error('AbdoBest metadata did not expose usable movie candidates');
 }
 
 console.log('ABDO_CANDIDATES', JSON.stringify(candidates.slice(0, 8).map((candidate) => ({
@@ -258,16 +316,22 @@ console.log('ABDO_CANDIDATES', JSON.stringify(candidates.slice(0, 8).map((candid
   sourceHosts: candidate.sources.slice(0, 3).map((url) => {
     try { return new URL(url).host; } catch { return ''; }
   }),
-}))))
+}))));
 
-let watchPass = null;
-for (const candidate of candidates) {
-  watchPass = await postWatch(candidate);
-  if (watchPass) break;
+const fixture = await findCatalogFixture(candidates);
+if (!fixture) {
+  throw new Error('No AbdoBest candidate is currently present in the Movyz movie catalog');
 }
 
+console.log('MOVYZ_FIXTURE_SELECTED', JSON.stringify({
+  abdoTitle: fixture.candidate.title,
+  tmdbId: fixture.mainMatch.tmdbId,
+  movyzTitle: fixture.mainMatch.titleEn || fixture.mainMatch.title,
+}));
+
+const watchPass = await postWatch(fixture.candidate);
 if (!watchPass) {
-  throw new Error('AbdoBest did not return a playable direct stream or source page');
+  throw new Error('AbdoBest did not return a playable direct stream or source page for the selected Movyz fixture');
 }
 
 const watchMode = String(watchPass.response?.stream?.type || '').toLowerCase() === 'web'
@@ -279,37 +343,26 @@ console.log(watchMode === 'direct-stream'
   : 'WATCH_API_SOURCE_PAGE=PASS');
 
 console.log(JSON.stringify({
-  tmdbId: watchPass.candidate.tmdbId,
-  title: watchPass.candidate.title,
+  tmdbId: fixture.mainMatch.tmdbId,
+  title: fixture.mainMatch.titleEn || fixture.mainMatch.title,
   streamType: watchPass.response?.stream?.type,
   streamHost: (() => {
     try { return new URL(watchPass.response.stream.url).host; } catch { return ''; }
   })(),
 }));
 
-const search = await getJson(
+const mainWatch = await getJson(
   MAIN_BASE,
-  '/api/v1/search?q=' + encodeURIComponent(watchPass.candidate.title),
-  60000,
+  '/api/v1/watch/movie/' + encodeURIComponent(fixture.mainMatch.tmdbId),
+  120000,
 );
-if (!search.response.ok) {
-  throw new Error('Main API search failed: HTTP ' + search.response.status);
-}
-
-const movieMatches = Array.isArray(search.json?.data?.movies) ? search.json.data.movies : [];
-const mainMatch = movieMatches.find((movie) =>
-  Number(movie?.tmdbId) === Number(watchPass.candidate.tmdbId)
-) || movieMatches.find((movie) =>
-  String(movie?.titleEn || movie?.title || '').trim().toLowerCase() === watchPass.candidate.title.trim().toLowerCase()
-);
-
-if (!mainMatch?.tmdbId) {
-  throw new Error('Chosen AbdoBest fixture is not present in the Movyz catalog');
-}
-
-const mainWatch = await getJson(MAIN_BASE, '/api/v1/watch/movie/' + encodeURIComponent(mainMatch.tmdbId), 120000);
 if (!mainWatch.response.ok) {
-  throw new Error('Main API AbdoBest playback failed: HTTP ' + mainWatch.response.status + ' ' + JSON.stringify(mainWatch.json).slice(0, 1600));
+  throw new Error(
+    'Main API AbdoBest playback failed: HTTP ' +
+    mainWatch.response.status +
+    ' ' +
+    JSON.stringify(mainWatch.json).slice(0, 1600),
+  );
 }
 
 const mainSources = Array.isArray(mainWatch.json?.data) ? mainWatch.json.data : [];
@@ -320,18 +373,20 @@ const mainSource = mainSources.find((item) =>
 );
 
 if (!mainSource) {
-  throw new Error('Main API returned no supported direct AbdoBest source');
+  throw new Error('Main API returned no supported AbdoBest playback source');
 }
 
 console.log(String(mainSource.type || '').toLowerCase() === 'web'
   ? 'MAIN_API_SOURCE_PAGE=PASS'
   : 'MAIN_API_DIRECT_STREAM=PASS');
+
 console.log(JSON.stringify({
-  tmdbId: mainMatch.tmdbId,
-  title: mainMatch.titleEn || mainMatch.title,
+  tmdbId: fixture.mainMatch.tmdbId,
+  title: fixture.mainMatch.titleEn || fixture.mainMatch.title,
   provider: mainSource.provider,
   type: mainSource.type,
   sourceHost: new URL(mainSource.url).host,
 }));
+
 
 console.log('ABDOBEST_PLAYBACK_E2E=PASS');
