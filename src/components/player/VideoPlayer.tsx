@@ -33,7 +33,7 @@ interface VideoPlayerProps {
   onNavigateBack: () => void;
 }
 
-type StreamType = 'hls' | 'mp4' | 'dash' | 'webm';
+type StreamType = 'hls' | 'mp4' | 'dash' | 'webm' | 'web';
 
 type SubtitleTrack = {
   url: string;
@@ -277,7 +277,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           .filter(
             (source) =>
               Boolean(source.url) &&
-              ['hls', 'mp4', 'dash', 'webm'].includes(source.type),
+              ['hls', 'mp4', 'dash', 'webm', 'web'].includes(source.type),
           )
           .map((source, index) => ({
             id:
@@ -357,15 +357,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     subtitleAutoShownRef.current = false;
   }, [streamUrl, selectedSourceId]);
 
-  const playerSource = streamUrl
-    ? streamType === 'hls'
-      ? { src: streamUrl, type: 'application/x-mpegurl' as const }
-      : streamType === 'dash'
-        ? { src: streamUrl, type: 'application/dash+xml' as const }
-        : streamType === 'webm'
-          ? { src: streamUrl, type: 'video/webm' as const }
-          : { src: streamUrl, type: 'video/mp4' as const }
-    : undefined;
+  const playerSource =
+    streamUrl && streamType !== 'web'
+      ? streamType === 'hls'
+        ? { src: streamUrl, type: 'application/x-mpegurl' as const }
+        : streamType === 'dash'
+          ? { src: streamUrl, type: 'application/dash+xml' as const }
+          : streamType === 'webm'
+            ? { src: streamUrl, type: 'video/webm' as const }
+            : { src: streamUrl, type: 'video/mp4' as const }
+      : undefined;
 
   if (!safeTmdbId) {
     return (
