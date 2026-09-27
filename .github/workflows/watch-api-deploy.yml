@@ -40,10 +40,15 @@ jobs:
         run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
 
       - name: Cloudflare dry run
-        run: npx --yes wrangler@4 deploy --config moviebox-worker/wrangler.toml --dry-run
+        run: |
+          npx --yes wrangler@4 deploy --config moviebox-worker/wrangler.toml --dry-run
+          npx --yes wrangler@4 deploy --config akwam-resolver-worker/wrangler.toml --dry-run
 
       - name: Deploy Watch API
         run: npx --yes wrangler@4 deploy --config moviebox-worker/wrangler.toml
+
+      - name: Deploy Akwam Resolver
+        run: npx --yes wrangler@4 deploy --config akwam-resolver-worker/wrangler.toml
 
       - name: Smoke test
         run: |
