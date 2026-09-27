@@ -73,7 +73,7 @@ function sourceUrlsOf(item) {
     .sort((a, b) => {
       const score = (url) =>
         (/(player_token=|video_player(?:\\?|\/))/i.test(url) ? 100 : 0) +
-        (/akwam\\.it\\/watch\\//i.test(url) ? 80 : 0);
+        (/akwam\.it\/watch\//i.test(url) ? 80 : 0);
       return score(b) - score(a);
     });
 }
