@@ -11,7 +11,7 @@
  * Source discovery includes AbdoBest pre-scraped server URLs.
  * Verification is performed against a dynamically discovered AbdoBest source.
  * AbdoBest search is also used when sorted metadata lacks source fields.
- * Source-page fallback is rendered by the web player when extraction is unavailable.
+ * Only direct media streams are returned to the web player.
  * Smoke test fixture refresh.
  * Candidate discovery supports title-only entries.
  * Smoke logging syntax fixed in verification script.
@@ -943,15 +943,10 @@ async function resolveEpisode(payload, env) {
     }
   }
 
-  const fallbackSource = urls[0];
-  if (fallbackSource) {
-    return {
-      ...sourcePageFallback(fallbackSource, extractTitle(match)),
-      extraction_error: lastError instanceof Error ? lastError.message : String(lastError || ''),
-    };
-  }
-
-  throw lastError || new Error("Unable to resolve a playable episode source");
+  throw new Error(
+    "AbdoBest could not produce a direct playable episode stream" +
+      (lastError instanceof Error ? ": " + lastError.message : ""),
+  );
 }
 
 async function parseJsonRequest(request) {
