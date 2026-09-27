@@ -26,9 +26,11 @@ const ABDOBEST_API_BASES = [
 ];
 const TIMEOUT_MS = 120_000;
 const AKWAM_SEARCH_BASES = [
+  "https://ak.sv",
   "https://akwam.ss",
   "https://akwam.it",
-  "https://ak.sv",
+  "https://akwam.net",
+  "https://akwam.ee",
 ];
 
 const CORS = {
@@ -505,6 +507,10 @@ function isAkwamUrl(rawUrl) {
       host.endsWith(".akwam.ss") ||
       host === "ak.sv" ||
       host.endsWith(".ak.sv") ||
+      host === "akwam.net" ||
+      host.endsWith(".akwam.net") ||
+      host === "akwam.ee" ||
+      host.endsWith(".akwam.ee") ||
       host === "downet.net" ||
       host.endsWith(".downet.net");
   } catch {
@@ -677,6 +683,71 @@ async function browserExtractAkwam(pageUrl, env) {
       }
 
       if (!mediaUrls.length) await page.waitForTimeout(1500);
+    }
+
+    // Akwam commonly exposes playback through a quality -> download -> final
+    // download chain rather than a <video src>. Reproduce that flow in the
+    // browser instead of waiting forever for a media request that never occurs.
+    if (!mediaUrls.length) {
+      const html = await page.content().catch(() => "");
+      const qualityLinks = [];
+      for (const match of html.match(/(?:href|data-href|data-url)=["']([^"']+)["']/gi) || []) {
+        const value = match.replace(/^.*?=["']/i, "").replace(/["']$/, "");
+        if (/1080p|720p|480p|download/i.test(value)) qualityLinks.push(value);
+      }
+
+      const qualityAnchors = await page.locator("a[href], [data-href], [data-url]").evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("href") || node.getAttribute("data-href") || node.getAttribute("data-url") || "")
+          .filter((value) => /1080p|720p|480p|download/i.test(value))
+      ).catch(() => []);
+      for (const value of qualityAnchors) if (value) qualityLinks.push(value);
+
+      const uniqueQualityLinks = [...new Set(qualityLinks.map((value) => {
+        try { return new URL(value, normalizedPageUrl).toString(); } catch { return ""; }
+      }).filter(Boolean))];
+
+      for (const qualityUrl of uniqueQualityLinks.slice(0, 6)) {
+        const qualityPage = await context.newPage();
+        try {
+          await qualityPage.goto(qualityUrl, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
+          const qualityHtml = await qualityPage.content().catch(() => "");
+          const downloadCandidates = [];
+          const addCandidate = (value) => {
+            if (typeof value !== "string" || !/^https?:\\/\\//i.test(value)) return;
+            if (/\\/download\\//i.test(value) || /\\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(value)) {
+              if (!downloadCandidates.includes(value)) downloadCandidates.push(value);
+            }
+          };
+          for (const match of qualityHtml.match(/https?:\\/\\/[^"'<>\\s]+/gi) || []) addCandidate(match);
+          const links = await qualityPage.locator("a[href], source[src], video[src]").evaluateAll((nodes) =>
+            nodes.map((node) => node.getAttribute("href") || node.getAttribute("src") || "").filter(Boolean)
+          ).catch(() => []);
+          links.forEach(addCandidate);
+
+          for (const downloadUrl of downloadCandidates.slice(0, 4)) {
+            const finalPage = await context.newPage();
+            try {
+              await finalPage.goto(downloadUrl, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
+              const finalHtml = await finalPage.content().catch(() => "");
+              const finals = [];
+              for (const match of finalHtml.match(/https?:\\/\\/[^"'<>\\s]+/gi) || []) {
+                if (/\\/download\\//i.test(match) || /\\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(match)) finals.push(match);
+              }
+              const finalLinks = await finalPage.locator("a[href], source[src], video[src]").evaluateAll((nodes) =>
+                nodes.map((node) => node.getAttribute("href") || node.getAttribute("src") || "").filter(Boolean)
+              ).catch(() => []);
+              finals.push(...finalLinks.filter((value) => /^https?:\\/\\//i.test(value)));
+              for (const candidate of finals) add(candidate);
+              if (mediaUrls.length) break;
+            } finally {
+              await finalPage.close().catch(() => {});
+            }
+          }
+          if (mediaUrls.length) break;
+        } finally {
+          await qualityPage.close().catch(() => {});
+        }
+      }
     }
 
     if (!mediaUrls.length) {
