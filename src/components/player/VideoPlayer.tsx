@@ -98,7 +98,7 @@ async function fetchAbdoBestFallbackSources(args: {
 
   const body = await response.json().catch(() => null);
   if (!response.ok || !body?.ok) {
-    throw new Error(body?.error || \`AbdoBest fallback failed (\${response.status})\`);
+    throw new Error(body?.error || `AbdoBest fallback failed (${response.status})`);
   }
 
   const stream = body?.stream || {};
@@ -115,12 +115,12 @@ async function fetchAbdoBestFallbackSources(args: {
   return rawSources
     .filter((source: any) => typeof source?.url === 'string' && /^https?:\/\//i.test(source.url))
     .map((source: any, index: number) => ({
-      id: source.id || \`abdobest-fallback-\${source.type || 'source'}-\${index}\`,
+      id: source.id || `abdobest-fallback-${source.type || 'source'}-${index}`,
       url: source.url,
       type: (source.type || (String(source.url).toLowerCase().includes('.m3u8') ? 'hls' : 'mp4')) as StreamType,
       quality: source.quality || 'auto',
       language: source.language || 'und',
-      label: source.label || \`AbdoBest · \${source.quality || 'auto'}\`,
+      label: source.label || `AbdoBest · ${source.quality || 'auto'}`,
       provider: 'AbdoBest',
       providerKey: 'abdobest',
       providerReference: source.providerReference,
