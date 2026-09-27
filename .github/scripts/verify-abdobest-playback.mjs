@@ -258,7 +258,7 @@ console.log('ABDO_CANDIDATES', JSON.stringify(candidates.slice(0, 8).map((candid
   sourceHosts: candidate.sources.slice(0, 3).map((url) => {
     try { return new URL(url).host; } catch { return ''; }
   }),
-})));
+}))))
 
 let watchPass = null;
 for (const candidate of candidates) {
