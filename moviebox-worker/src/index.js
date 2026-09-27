@@ -390,7 +390,12 @@ async function upstreamJson(path, init = {}) {
 }
 
 function isPreScrapedPlayerUrl(url) {
-  return /player_token=/i.test(String(url || "")) || /video_player(?:\\?|\\/)/i.test(String(url || ""));
+  const value = String(url || "").toLowerCase();
+  return (
+    value.includes("player_token=") ||
+    value.includes("video_player?") ||
+    value.includes("video_player/")
+  );
 }
 
 async function browserExtractStream(pageUrl, env) {
