@@ -363,7 +363,11 @@ async function browserExtractStream(pageUrl, env) {
 
   const { launch } = await import("@cloudflare/playwright");
   const browser = await launch(env.BROWSER);
-  const page = await browser.newPage();
+  const context = await browser.newContext({
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  });
+  const page = await context.newPage();
   const urls = [];
   const seen = new Set();
 
@@ -380,10 +384,6 @@ async function browserExtractStream(pageUrl, env) {
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
     });
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    );
-
     await page.goto(pageUrl, {
       waitUntil: "domcontentloaded",
       timeout: 45_000,
@@ -439,6 +439,7 @@ async function browserExtractStream(pageUrl, env) {
       via: "browser-run",
     };
   } finally {
+    await context.close().catch(() => {});
     await browser.close().catch(() => {});
   }
 }
