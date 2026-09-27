@@ -256,13 +256,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
+  const playableUrl = (source: PlaybackSource) => {
+    if (source.type !== 'hls') return source.url;
+    try {
+      const proxy = new URL(DIRECT_WATCH_API_BASE + '/proxy');
+      proxy.searchParams.set('url', source.url);
+      proxy.searchParams.set(
+        'referer',
+        source.url.includes('fasel-hd')
+          ? 'https://www.fasel-hd.cam/'
+          : 'https://www.abdobest.com/',
+      );
+      return proxy.toString();
+    } catch {
+      return source.url;
+    }
+  };
+
   const selectSource = (source: PlaybackSource) => {
     failedSourceIdsRef.current.delete(source.id);
     setSelectedSourceId(source.id);
     setError('');
     setLoading(true);
     setStreamType(source.type);
-    setStreamUrl(source.url);
+    setStreamUrl(playableUrl(source));
   };
 
   const moveToNextSource = () => {
@@ -421,7 +438,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           setSources(normalized);
           setSelectedSourceId(initial.id);
           setStreamType(initial.type);
-          setStreamUrl(initial.url);
+          setStreamUrl(playableUrl(initial));
           setLoading(true);
         }
       } catch (loadError) {
