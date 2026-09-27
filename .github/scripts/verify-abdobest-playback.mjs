@@ -351,6 +351,33 @@ console.log('ABDO_CANDIDATES', JSON.stringify(candidates.slice(0, 8).map((candid
 let fixture = await findCatalogFixture(candidates);
 
 if (!fixture) {
+  // The upstream sorted/search payloads can legitimately omit playable URLs.
+  // Fall back to stable TMDB fixtures so the deployed worker itself is tested.
+  const stableFixtures = [
+    { tmdbId: 550, title: 'Fight Club', year: 1999, sources: [] },
+    { tmdbId: 157336, title: 'Interstellar', year: 2014, sources: [] },
+    { tmdbId: 27205, title: 'Inception', year: 2010, sources: [] },
+  ];
+
+  for (const candidate of stableFixtures) {
+    const main = await getJson(
+      MAIN_BASE,
+      '/api/v1/search?q=' + encodeURIComponent(candidate.title),
+      60000,
+    );
+    const items = [
+      ...(Array.isArray(main.json?.data?.movies) ? main.json.data.movies : []),
+      ...(Array.isArray(main.json?.data?.series) ? main.json.data.series : []),
+    ];
+    const match = items.find((item) => Number(item?.tmdbId) === candidate.tmdbId);
+    if (match) {
+      fixture = { candidate, mainMatch: match };
+      break;
+    }
+  }
+}
+
+if (!fixture) {
   throw new Error('No shared AbdoBest/Movyz movie fixture is currently available');
 }
 
