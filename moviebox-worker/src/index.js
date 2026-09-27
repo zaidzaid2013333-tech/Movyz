@@ -27,6 +27,14 @@ function json(body, status = 200) {
   });
 }
 
+function detectStreamType(url) {
+  const value = String(url || '').toLowerCase();
+  if (value.includes('.m3u8')) return 'hls';
+  if (value.includes('.mpd')) return 'dash';
+  if (value.includes('.webm')) return 'webm';
+  return 'mp4';
+}
+
 function cleanText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -348,11 +356,20 @@ async function extractStream(pageUrl) {
     throw new Error(result.body?.error || "No playable stream URL returned");
   }
 
+  const qualities = Array.isArray(result.body?.quality_options)
+    ? result.body.quality_options.filter(Boolean)
+    : [];
+
   return {
     url: videoUrl,
-    qualities: Array.isArray(result.body?.quality_options)
-      ? result.body.quality_options
-      : [],
+    type: detectStreamType(videoUrl),
+    quality: qualities[0] || 'auto',
+    qualities,
+    sources: [{
+      quality: qualities[0] || 'auto',
+      type: detectStreamType(videoUrl),
+      url: videoUrl,
+    }],
     cached: result.body?.cached === true,
   };
 }
@@ -482,8 +499,13 @@ async function resolveEpisode(payload) {
     if (directSources.length) {
       return {
         url: directSources[0].url,
+        type: detectStreamType(directSources[0].url),
+        quality: directSources[0].quality || 'auto',
         qualities: directSources.map((source) => source.quality).filter(Boolean),
-        sources: directSources,
+        sources: directSources.map((source) => ({
+          ...source,
+          type: detectStreamType(source.url),
+        })),
         cached: true,
         matched_title: extractTitle(match),
       };
