@@ -416,7 +416,7 @@ function normalizeWatchSources(payload: any) {
       }] : []);
 
   return rawSources
-    .filter((source: any) => typeof source?.url === 'string' && /^https:\\/\\//i.test(source.url))
+    .filter((source: any) => typeof source?.url === 'string' && /^https:\/\//i.test(source.url))
     .map((source: any, index: number) => ({
       id: source.id || ['abdobest', source.type || streamTypeFromUrl(source.url), source.quality || 'auto', index].join('-'),
       type: String(source.type || streamTypeFromUrl(source.url)).toLowerCase(),
