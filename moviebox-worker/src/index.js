@@ -378,6 +378,10 @@ async function resolveViaAkwamResolver(payload, type) {
       original_title: payload?.original_title ?? payload?.originalTitle,
       year: payload?.year,
       type,
+      // Preserve an Akwam content page (or the title::base64 URL format) so
+      // the dedicated resolver can skip search and run the real link chain.
+      content_url: payload?.content_url ?? payload?.contentUrl,
+      id: payload?.id,
       episode: type === "series" ? Number(payload?.episode) : undefined,
       season: type === "series" ? Number(payload?.season) : undefined,
     };
@@ -395,13 +399,15 @@ async function resolveViaAkwamResolver(payload, type) {
     }
 
     if (isLikelyMediaUrl(data.media_url)) {
-      const typeOfStream = detectStreamType(data.media_url);
+      const typeOfStream = ["mp4", "hls", "dash", "webm"].includes(data.type)
+        ? data.type
+        : detectStreamType(data.media_url);
       return {
         url: data.media_url,
         type: typeOfStream,
-        quality: "auto",
-        qualities: ["auto"],
-        sources: [{ quality: "auto", type: typeOfStream, url: data.media_url }],
+        quality: data.quality || "auto",
+        qualities: [data.quality || "auto"],
+        sources: [{ quality: data.quality || "auto", type: typeOfStream, url: data.media_url }],
         cached: false,
         via: "akwam-browser-resolver",
         source_url: data.source_url || data.page_url || "",
@@ -429,7 +435,18 @@ async function resolveMovie(payload) {
   const directSource = normalizeAkwamUrl(payload?.source_url);
   if (directSource) {
     if (!isAkwamUrl(directSource)) throw new Error("Only Akwam playback sources are allowed");
-    return await abdoExtract(directSource);
+    try {
+      return await resolveViaAkwamResolver({
+        ...payload,
+        content_url: directSource,
+      }, "movie");
+    } catch (error) {
+      console.warn("Akwam content URL resolver fallback:", error instanceof Error ? error.message : String(error));
+      return {
+        ...(await abdoExtract(directSource)),
+        source_url: directSource,
+      };
+    }
   }
 
   const titles = [
@@ -483,6 +500,7 @@ async function resolveMovie(payload) {
       const stream = await abdoExtract(source);
       return {
         ...stream,
+        source_url: source,
         matched_title: titleOf(best.item),
       };
     } catch (error) {
@@ -565,6 +583,7 @@ async function resolveEpisode(payload) {
       const stream = await abdoExtract(source);
       return {
         ...stream,
+        source_url: source,
         matched_title: titleOf(match),
       };
     } catch (error) {
@@ -706,6 +725,11 @@ export default {
           ok: true,
           type: "movie",
           tmdb_id: firstNumber(payload?.tmdb_id, payload?.tmdbId),
+          // Keep the direct-media contract explicit for callers which do not
+          // consume the legacy nested `stream` object.
+          source_url: stream.source_url || clean(payload?.source_url),
+          media_url: stream.url,
+          media_type: stream.type,
           stream,
         });
       }
@@ -724,6 +748,9 @@ export default {
           tmdb_id: firstNumber(payload?.tmdb_id, payload?.tmdbId),
           season: Number(payload?.season),
           episode: Number(payload?.episode),
+          source_url: stream.source_url || clean(payload?.source_url),
+          media_url: stream.url,
+          media_type: stream.type,
           stream,
         });
       }

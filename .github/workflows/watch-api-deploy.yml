@@ -5,6 +5,8 @@ on:
     branches: ["main"]
     paths:
       - "moviebox-worker/**"
+      - "akwam-resolver-worker/**"
+      - ".github/scripts/verify-akwam-playback.mjs"
       - ".github/workflows/watch-api-deploy.yml"
   workflow_dispatch:
 
@@ -52,4 +54,4 @@ jobs:
 
       - name: Smoke test
         run: |
-          node .github/scripts/verify-abdobest-playback.mjs
+          node .github/scripts/verify-akwam-playback.mjs
