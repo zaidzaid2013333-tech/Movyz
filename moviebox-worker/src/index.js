@@ -119,7 +119,8 @@ function normalizeAkwamUrl(value) {
 function isLikelyMediaUrl(value) {
   if (typeof value !== "string" || !/^https?:\/\//i.test(value)) return false;
   return /\.(?:m3u8|mp4|mpd|webm)(?:[?#]|$)/i.test(value) ||
-    /(?:m3u8|mp4|mpd|webm)(?:[?#=&]|$)/i.test(value);
+    /(?:m3u8|mp4|mpd|webm)(?:[?#=&]|$)/i.test(value) ||
+    /\/(?:download|file)\//i.test(value);
 }
 
 function detectStreamType(url) {
