@@ -12,6 +12,7 @@
  * Verification is performed against a dynamically discovered AbdoBest source.
  * AbdoBest search is also used when sorted metadata lacks source fields.
  * Source-page fallback is rendered by the web player when extraction is unavailable.
+ * Smoke tests accept this safe source-page mode when raw extraction is blocked upstream.
  */
 
 const ABDOBEST_API_BASES = [
