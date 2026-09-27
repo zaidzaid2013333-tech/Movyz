@@ -389,10 +389,18 @@ async function browserExtractStream(pageUrl, env) {
       timeout: 45_000,
     });
 
-    const iframe = await page.waitForSelector('iframe[name="player_iframe"]', {
-      timeout: 20_000,
-    }).catch(() => null);
+    await page.waitForTimeout(5_000);
 
+    const diagnostics = {
+      finalUrl: page.url(),
+      title: await page.title().catch(() => ""),
+      iframeCount: await page.locator("iframe").count().catch(() => 0),
+      playerIframeCount: await page.locator('iframe[name="player_iframe"]').count().catch(() => 0),
+      bodyText: (await page.locator("body").innerText().catch(() => "")).slice(0, 1200),
+      frameUrls: page.frames().map((frame) => frame.url()).slice(0, 12),
+    };
+
+    const iframe = await page.locator('iframe[name="player_iframe"]').first().catch(() => null);
     const frame = iframe ? await iframe.contentFrame() : null;
 
     if (frame) {
@@ -422,7 +430,13 @@ async function browserExtractStream(pageUrl, env) {
     }
 
     if (!urls.length) {
-      throw new Error("Browser extraction found no HLS playlist");
+      throw new Error(
+        "Browser extraction found no HLS playlist; diagnostics=" +
+          JSON.stringify({
+            ...diagnostics,
+            networkHits: urls,
+          }),
+      );
     }
 
     return {
