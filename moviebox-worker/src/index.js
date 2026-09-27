@@ -1,8 +1,7 @@
 /**
  * Movyz AbdoBest API — Cloudflare Worker
  *
- * MovieBox has been removed from this Worker.
- * This Worker now exposes the AbdoBest API only.
+ * This Worker exposes the AbdoBest API only.
  */
 
 const ABdobest = "https://ogkushhh-abdobest.hf.space";
@@ -95,7 +94,6 @@ export default {
           version: "1.0.0",
           provider: "AbdoBest",
           upstream: ABdobest,
-          moviebox: false,
           endpoints: {
             health: "/health",
             search: "/api/search?q={query}",
