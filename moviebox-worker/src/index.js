@@ -135,8 +135,12 @@ function extractSourceUrls(item) {
     // AbdoBest documents Sources[] as pre-scraped server-page URLs
     // (video_player?player_token=...), which should outrank legacy pages.
     let effectivePriority = priority;
-  return /player_token=/i.test(String(url || "")) || /video_player(?:\?|\/)/i.test(String(url || ""));
-    if (/https?:\/\/[^/]*akwam\.it\/watch\//i.test(lower)) effectivePriority += 180;
+    if (/player_token=/i.test(url) || /video_player(?:\?|\/)/i.test(url)) {
+      effectivePriority += 140;
+    }
+    if (/https?:\/\/[^/]*akwam\.it\/watch\//i.test(lower)) {
+      effectivePriority += 180;
+    }
 
     seen.add(url);
     candidates.push({ url, priority: effectivePriority });
