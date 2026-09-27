@@ -432,7 +432,7 @@ async function browserExtractStream(pageUrl, env) {
   const urls = [];
   const add = (value) => {
     if (typeof value !== "string") return;
-    if (!/\\.m3u8(?:$|[?#])/i.test(value)) return;
+    if (!/\.m3u8(?:$|[?#])/i.test(value)) return;
     if (!urls.includes(value)) urls.push(value);
   };
 
@@ -441,7 +441,7 @@ async function browserExtractStream(pageUrl, env) {
   await page.addInitScript(() => {
     const post = (url) => {
       try {
-        if (typeof url === "string" && /\\.m3u8(?:$|[?#])/i.test(url)) {
+        if (typeof url === "string" && /\.m3u8(?:$|[?#])/i.test(url)) {
           window.__MOVYZA_M3U8__ = window.__MOVYZA_M3U8__ || [];
           if (!window.__MOVYZA_M3U8__.includes(url)) window.__MOVYZA_M3U8__.push(url);
         }
@@ -498,7 +498,7 @@ async function browserExtractStream(pageUrl, env) {
     const tokenUrls = await page.locator(".tabs-ul li").evaluateAll((items) =>
       items.map((li) => {
         const onclick = li.getAttribute("onclick") || "";
-        const match = onclick.match(/player_iframe\\.location\\.href\\s*=\\s*['"]([^'"]+)['"]/);
+        const match = onclick.match(/player_iframe\.location\.href\s*=\s*['"]([^'"]+)['"]/);
         return match?.[1] || "";
       }).filter(Boolean)
     ).catch(() => []);
