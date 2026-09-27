@@ -366,6 +366,64 @@ async function abdoExtract(sourceUrl) {
   throw lastError || new Error("AbdoBest extraction failed");
 }
 
+const AKWAM_RESOLVER_URL = "https://movyz-akwam-resolver.sameranede.workers.dev/resolve";
+
+async function resolveViaAkwamResolver(payload, type) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 35_000);
+  try {
+    const body = {
+      title: payload?.title,
+      original_title: payload?.original_title ?? payload?.originalTitle,
+      year: payload?.year,
+      type,
+      episode: type === "series" ? Number(payload?.episode) : undefined,
+      season: type === "series" ? Number(payload?.season) : undefined,
+    };
+    const response = await fetch(AKWAM_RESOLVER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch {}
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || `Akwam resolver HTTP ${response.status}`);
+    }
+
+    if (isLikelyMediaUrl(data.media_url)) {
+      const typeOfStream = detectStreamType(data.media_url);
+      return {
+        url: data.media_url,
+        type: typeOfStream,
+        quality: "auto",
+        qualities: ["auto"],
+        sources: [{ quality: "auto", type: typeOfStream, url: data.media_url }],
+        cached: false,
+        via: "akwam-browser-resolver",
+        source_url: data.source_url || data.page_url || "",
+        matched_title: data.title || payload?.title || "",
+      };
+    }
+
+    if (data.source_url && isAkwamUrl(data.source_url)) {
+      const extracted = await abdoExtract(data.source_url);
+      return {
+        ...extracted,
+        via: "akwam-resolver-abdobest-extract",
+        source_url: data.source_url,
+        matched_title: data.title || payload?.title || "",
+      };
+    }
+
+    throw new Error("Akwam resolver returned no playable media");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function resolveMovie(payload) {
   const directSource = normalizeAkwamUrl(payload?.source_url);
   if (directSource) {
@@ -382,6 +440,12 @@ async function resolveMovie(payload) {
   ].map(clean).filter(Boolean);
 
   if (!titles.length) throw new Error("title is required");
+
+  try {
+    return await resolveViaAkwamResolver(payload, "movie");
+  } catch (error) {
+    console.warn("Akwam resolver movie fallback:", error instanceof Error ? error.message : String(error));
+  }
 
   let best = null;
   let lastError = null;
@@ -458,6 +522,13 @@ function findEpisode(payload, season, episode) {
 }
 
 async function resolveEpisode(payload) {
+  try {
+    return await resolveViaAkwamResolver(payload, "series");
+  } catch (error) {
+    console.warn("Akwam resolver episode fallback:", error instanceof Error ? error.message : String(error));
+  }
+
+
   const title = clean(payload?.title);
   const season = Number(payload?.season);
   const episode = Number(payload?.episode);
