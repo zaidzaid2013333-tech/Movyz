@@ -44,9 +44,22 @@ function isSafeProxyTarget(rawUrl) {
     const target = new URL(rawUrl);
     if (target.protocol !== "https:") return false;
     const host = target.hostname.toLowerCase();
-    if (!host || host === "localhost" || host.endsWith(".local")) return false;
-    if (/^(127\\.|10\\.|192\\.168\\.|172\\.(?:1[6-9]|2[0-9]|3[0-1])\\.)/.test(host)) return false;
-    return /(?:m3u8|\.mp4(?:$|[?#])|\.webm(?:$|[?#])|\.mpd(?:$|[?#]))/i.test(target.href);
+    if (
+      !host ||
+      host === "localhost" ||
+      host.endsWith(".local") ||
+      host.startsWith("127.") ||
+      host.startsWith("10.") ||
+      host.startsWith("192.168.") ||
+      host.startsWith("172.16.") ||
+      host.startsWith("172.17.") ||
+      host.startsWith("172.18.") ||
+      host.startsWith("172.19.") ||
+      host.startsWith("172.2") ||
+      host.startsWith("172.30.") ||
+      host.startsWith("172.31.")
+    ) return false;
+    return /m3u8|\\.mp4(?:$|[?#])|\\.webm(?:$|[?#])|\\.mpd(?:$|[?#])/i.test(target.href);
   } catch {
     return false;
   }
@@ -73,73 +86,50 @@ async function proxyMedia(request) {
   const target = new URL(mediaUrl);
   const headers = new Headers();
   headers.set("Accept", request.headers.get("Accept") || "*/*");
-  headers.set("User-Agent", request.headers.get("User-Agent") ||
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36");
+  headers.set(
+    "User-Agent",
+    request.headers.get("User-Agent") ||
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36",
+  );
   const range = request.headers.get("Range");
   if (range) headers.set("Range", range);
   if (referer) headers.set("Referer", referer);
-  headers.set("Origin", "https://movyza.local");
 
   const upstreamResponse = await fetch(target.toString(), {
-    method: request.method === "HEAD" ? "HEAD" : "GET",
+    method: "GET",
     headers,
     redirect: "follow",
     cache: "no-store",
   });
 
-  if (!upstreamResponse.ok && upstreamResponse.status !== 206) {
-    return new Response(JSON.stringify({
-      ok: false,
-      error: "Upstream media request failed",
-      status: upstreamResponse.status,
-    }), {
-      status: upstreamResponse.status,
-      headers: { "Content-Type": "application/json; charset=utf-8", ...CORS },
-    });
-  }
-
   const contentType = upstreamResponse.headers.get("Content-Type") || "";
-  const isPlaylist = /mpegurl|m3u8/i.test(contentType) || /\.m3u8(?:$|[?#])/i.test(target.pathname + target.search);
+  const isPlaylist =
+    /mpegurl|m3u8/i.test(contentType) ||
+    /\\.m3u8(?:$|[?#])/i.test(target.pathname + target.search);
 
-  if (!isPlaylist || request.method === "HEAD") {
+  if (!isPlaylist) {
     const outHeaders = new Headers();
     outHeaders.set("Content-Type", contentType || "application/octet-stream");
     outHeaders.set("Access-Control-Allow-Origin", "*");
     outHeaders.set("Cache-Control", "no-store");
-    const contentLength = upstreamResponse.headers.get("Content-Length");
-    if (contentLength) outHeaders.set("Content-Length", contentLength);
-    const acceptRanges = upstreamResponse.headers.get("Accept-Ranges");
-    if (acceptRanges) outHeaders.set("Accept-Ranges", acceptRanges);
     return new Response(upstreamResponse.body, {
       status: upstreamResponse.status,
       headers: outHeaders,
     });
   }
 
-  const text = await upstreamResponse.text();
-  const base = new URL(target.toString());
-  const makeProxy = (value) => {
-    try {
-      const absolute = new URL(value, base).toString();
-      return isSafeProxyTarget(absolute)
-        ? proxyUrlFor(request.url, absolute, referer || target.origin + "/")
-        : value;
-    } catch {
-      return value;
-    }
-  };
-
-  const rewritten = text
+  const body = await upstreamResponse.text();
+  const base = target.toString();
+  const rewritten = body
     .split("\n")
     .map((line) => {
       const trimmed = line.trim();
-      if (!trimmed) return line;
-
-      if (trimmed.startsWith("#")) {
-        return line.replace(/URI="([^"]+)"/g, (_match, uri) => `URI="${makeProxy(uri)}"`);
+      if (!trimmed || trimmed.startsWith("#")) return line;
+      try {
+        return new URL(trimmed, base).toString();
+      } catch {
+        return line;
       }
-
-      return makeProxy(trimmed);
     })
     .join("\n");
 
