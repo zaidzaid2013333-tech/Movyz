@@ -53,12 +53,15 @@ function normalizeQuality(value) {
     "sd": "480p",
   };
   if (aliases[text]) return aliases[text];
-  const match = text.match(/\b(2160|1440|1080|720|576|480|360|240)\s*p?\b/i);
+  const match = text.match(/\b(\d{3,4})\s*p?\b/i);
   return match ? `${match[1]}p` : "";
 }
 function qualityRank(value) {
-  const index = QUALITY_ORDER.indexOf(normalizeQuality(value));
-  return index === -1 ? QUALITY_ORDER.length : index;
+  const normalized = normalizeQuality(value);
+  const numeric = Number(String(normalized).replace(/p$/i, ""));
+  if (Number.isFinite(numeric) && numeric > 0) return 10_000 - numeric;
+  const index = QUALITY_ORDER.indexOf(normalized);
+  return index === -1 ? QUALITY_ORDER.length + 1 : QUALITY_ORDER.length + index;
 }
 function stripHtml(value) {
   return String(value || "").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -805,7 +808,11 @@ async function resolveAkwam(browser, payload) {
   const resolved = [];
   const failures = [];
 
-  for (const wanted of QUALITY_ORDER) {
+  const orderedQualities = [...candidatesByQuality.keys()].sort(
+    (a, b) => qualityRank(a) - qualityRank(b),
+  );
+
+  for (const wanted of orderedQualities) {
     const candidates = candidatesByQuality.get(wanted) || [];
     if (!candidates.length) continue;
 
