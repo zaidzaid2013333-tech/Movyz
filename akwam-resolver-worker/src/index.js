@@ -15,6 +15,7 @@ const PAGE_HOSTS = new Set([
   "akwam.net", "www.akwam.net",
   "akwam.ee", "www.akwam.ee",
   "akwam.com.co", "www.akwam.com.co", "go.akwam.com.co",
+  "go.ak.sv",
   "downet.net", "www.downet.net",
 ]);
 const QUALITY_ORDER = ["1080p", "720p", "480p"];
@@ -207,6 +208,13 @@ function scoreEntry(entry, payload) {
 }
 function mirrorPageUrls(rawUrl) {
   const original = new URL(rawUrl);
+  const host = original.hostname.toLowerCase();
+
+  // go.ak.sv is a dedicated playback router. Rewriting its path onto
+  // search/content mirrors produces unrelated routes (for example
+  // /watch/7057 on akwam.it), so keep the original host intact.
+  if (host === "go.ak.sv") return [original.toString()];
+
   const urls = [];
   for (const base of AKWAM_SEARCH_BASES) {
     const baseUrl = new URL(base);
@@ -294,69 +302,91 @@ function extractQualities(html, base) {
   const source = String(html);
   const out = [];
   const seen = new Set();
-
-  const add = (quality, rawUrl) => {
+  const add = (quality, rawUrl, kind) => {
+    const normalized = String(quality || "").toLowerCase().trim();
+    if (!QUALITY_ORDER.includes(normalized)) return;
     const url = safeUrl(rawUrl, base, { pageOnly: true });
     if (!url || seen.has(url)) return;
-    const normalized = String(quality || "").toLowerCase().replace(/^\s+|\s+$/g, "");
-    if (!QUALITY_ORDER.includes(normalized)) return;
     seen.add(url);
-    out.push({ quality: normalized, url });
+    out.push({ quality: normalized, url, kind });
   };
 
-  // Current Akwam structure:
-  // <div class="tab-content quality" id="tab-N">
-  //   <div data-quality="1080p"><a class="link-download" href="/download/...">...
-  const qualityLabels = {};
-  for (const match of source.matchAll(/<a\b[^>]*href=["']#(tab-\d+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-    const label = stripHtml(match[2]).match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase();
-    if (label) qualityLabels[match[1]] = label;
+  // Akwam's current movie page renders three quality tabs, followed by
+  // playback actions in the same order: 1080p, 720p, 480p. The action
+  // targets are currently go.ak.sv/watch/<id> (and matching download routes).
+  // Parse the tab labels independently, then pair watch/download targets by
+  // index instead of assuming /link/<id>.
+  const qualitySequence = [];
+  for (const match of source.matchAll(
+    /<a\b[^>]*href=["']#tab-\d+["'][^>]*>([\s\S]*?)<\/a>/gi,
+  )) {
+    const label = stripHtml(match[1]).match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase();
+    if (label && !qualitySequence.includes(label)) qualitySequence.push(label);
   }
 
-  for (const blockMatch of source.matchAll(/<div\b[^>]*class=["'][^"']*\b(?:tab-content\s+quality|quality\s+tab-content|quality-tab)\b[^"']*["'][^>]*>[\s\S]*?<\/div>/gi)) {
-    const fragment = blockMatch[0];
-    const blockId = fragment.match(/\bid=["'](tab-\d+)["']/i)?.[1] || "";
-    const defaultQuality = qualityLabels[blockId] || "";
+  const watchUrls = [];
+  const downloadUrls = [];
+  const seenWatch = new Set();
+  const seenDownload = new Set();
 
-    let rowFound = false;
-    for (const rowMatch of fragment.matchAll(/<div\b[^>]*data-quality=["']([^"']+)["'][^>]*>[\s\S]*?<a\b[^>]*class=["'][^"']*\blink-download\b[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
-      rowFound = true;
-      add(rowMatch[1] || defaultQuality, rowMatch[2]);
-    }
+  for (const match of source.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
+    const attrs = match[1];
+    const href = attrs.match(/\bhref=["']([^"']+)["']/i)?.[1];
+    if (!href) continue;
 
-    if (!rowFound) {
-      for (const rowMatch of fragment.matchAll(/<div\b[^>]*data-quality=["']([^"']+)["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']*\/(?:link|download)\/[^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
-        rowFound = true;
-        add(rowMatch[1] || defaultQuality, rowMatch[2]);
+    const normalized = safeUrl(href, base, { pageOnly: true });
+    if (!normalized) continue;
+
+    if (/\/watch\/\d+(?:[/?#]|$)/i.test(normalized)) {
+      if (!seenWatch.has(normalized)) {
+        seenWatch.add(normalized);
+        watchUrls.push(normalized);
       }
+      continue;
     }
 
-    if (!rowFound) {
-      for (const aMatch of fragment.matchAll(/<a\b[^>]*href=["']([^"']*\/(?:link|download)\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-        const label = stripHtml(aMatch[2]).match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase() || defaultQuality;
-        add(label, aMatch[1]);
+    if (/\/download\/[^/?#]+/i.test(normalized)) {
+      if (!seenDownload.has(normalized)) {
+        seenDownload.add(normalized);
+        downloadUrls.push(normalized);
       }
     }
   }
 
-  // Backward-compatible regex for older Akwam pages.
+  const labels = qualitySequence.length ? qualitySequence : QUALITY_ORDER;
+  const max = Math.min(labels.length, Math.max(watchUrls.length, downloadUrls.length));
+
+  for (let i = 0; i < max; i += 1) {
+    const quality = labels[i];
+    if (watchUrls[i]) add(quality, watchUrls[i], "watch");
+    if (downloadUrls[i]) add(quality, downloadUrls[i], "download");
+  }
+
+  // Fallback for older pages where the quality label appears beside the
+  // action itself rather than in tab navigation.
   if (!out.length) {
-    const re = /tab-content\s+quality[\s\S]*?<a\b[^>]*href=["'](https?:\/\/[^"']+\/(?:link|download)\/\d+[^"']*)["']/gi;
-    for (const match of source.matchAll(re)) {
-      const context = source.slice(Math.max(0, (match.index ?? 0) - 1800), Math.min(source.length, (match.index ?? 0) + 1800));
-      const label = context.match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase();
-      add(label, match[1]);
+    for (const match of source.matchAll(
+      /<a\b([^>]*)href=["']([^"']+\/watch\/\d+(?:[/?#][^"']*)?)["'][^>]*>([\s\S]*?)<\/a>/gi,
+    )) {
+      const context = stripHtml(
+        source.slice(Math.max(0, (match.index ?? 0) - 1200), Math.min(source.length, (match.index ?? 0) + 1200)),
+      );
+      const quality = context.match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase();
+      add(quality, match[2], "watch");
     }
   }
 
   diagnostic(
     "AKWAM_QUALITY",
-    "downloadLike=" + (source.match(/\/(?:link|download)\//gi) || []).length +
-      " tabBlocks=" + (source.match(/tab-content\s+quality/gi) || []).length +
+    "tabQualities=" + JSON.stringify(qualitySequence) +
+      " watch=" + watchUrls.length +
+      " download=" + downloadUrls.length +
       " extracted=" + JSON.stringify(out),
   );
 
-  return out.sort((a, b) => QUALITY_ORDER.indexOf(a.quality) - QUALITY_ORDER.indexOf(b.quality));
+  return out.sort((a, b) =>
+    QUALITY_ORDER.indexOf(a.quality) - QUALITY_ORDER.indexOf(b.quality),
+  );
 }
 function extractEpisode(html, base, episode) {
   const candidates = [...String(html).matchAll(/<div[^>]*class=["'][^"']*\bbg-primary2\b[^"']*["'][^>]*>[\s\S]*?<h2[^>]*class=["'][^"']*\bfont-size-18\b[^"']*["'][^>]*>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
@@ -390,23 +420,67 @@ function extractFinalMediaUrl(html, base) {
   const source = String(html);
   const found = [];
   const seen = new Set();
+
   const add = (raw) => {
     const url = normalizeFinalCandidate(raw, base);
-    if (!url || seen.has(url) || /\/link\/\d+(?:[/?#]|$)/i.test(url)) return;
+    if (!url || seen.has(url)) return;
+
+    const isAkwamPage = (() => {
+      try {
+        const u = new URL(url);
+        return isAllowedPageHost(u.hostname);
+      } catch {
+        return false;
+      }
+    })();
+
+    // Akwam page routes are intermediate targets, not final media. Keep
+    // download routes discoverable, but never promote /watch or /link pages
+    // to the media contract.
+    if (isAkwamPage && !/\/download\//i.test(url) && !looksLikeMediaUrl(url)) {
+      return;
+    }
+
     seen.add(url);
     found.push(url);
   };
 
-  for (const match of source.matchAll(/<[^>]*class=["'][^"']*\bbtn-loader\b[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*(?:href|data-(?:url|link|href|src))=["']([^"']+)["'][^>]*>/gi)) {
-    add(match[1]);
-  }
-  if (found.length) return found[0];
+  // HTML5 / player attributes.
+  for (const match of source.matchAll(
+    /<(?:video|source)\b[^>]*(?:src|data-src|data-file|data-url)=["']([^"']+)["']/gi,
+  )) add(match[1]);
 
-  for (const match of source.matchAll(/<a\b[^>]*(?:href|data-(?:url|link|href|src))=["']([^"']+)["'][^>]*>/gi)) add(match[1]);
-  for (const match of source.matchAll(/(?:window\.open|location(?:\.href)?|window\.location(?:\.href)?)\s*(?:\(|=)\s*["']([^"']+)["']/gi)) add(match[1]);
+  // Common player configuration objects (JWPlayer, Plyr, custom players).
+  for (const match of source.matchAll(
+    /(?:file|src|source|hls|dash|url)\s*[:=]\s*["']([^"']+)["']/gi,
+  )) add(match[1]);
+
+  for (const match of source.matchAll(
+    /(?:file|src|source|url)\s*[:=]\s*["']((?:\\\/|[^"'])+)["']/gi,
+  )) add(String(match[1]).replace(/\\\//g, "/"));
+
+  // Redirect/navigation code used by lightweight Akwam player pages.
+  for (const match of source.matchAll(
+    /(?:window\.open|location(?:\.href)?|window\.location(?:\.href)?)\s*(?:\(|=)\s*["']([^"']+)["']/gi,
+  )) add(match[1]);
+
+  // Meta refresh / direct anchors are secondary fallbacks.
+  for (const match of source.matchAll(
+    /<meta\b[^>]*http-equiv=["']refresh["'][^>]*content=["'][^"']*url=([^"']+)["']/gi,
+  )) add(match[1]);
+
+  for (const match of source.matchAll(
+    /<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi,
+  )) {
+    const candidate = String(match[1]);
+    if (looksLikeMediaUrl(candidate) || /\/download\//i.test(candidate)) add(candidate);
+  }
 
   found.sort((a, b) => {
-    const score = (url) => (looksLikeMediaUrl(url) ? 100 : 0) + (/\/download\//i.test(url) ? 60 : 0);
+    const score = (url) =>
+      (looksLikeMediaUrl(url) ? 100 : 0) +
+      (/\/(?:download)\//i.test(url) ? 60 : 0) +
+      (/^https:\/\/[^/]+\//i.test(url) ? 5 : 0);
     return score(b) - score(a);
   });
 
@@ -603,43 +677,48 @@ async function fetchDownloadTarget(initialUrl, referer = "") {
 }
 
 async function resolveQuality(browser, quality) {
-  if (/\/download\//i.test(quality.url)) {
-    diagnostic("AKWAM_DOWNLOAD", "direct quality download " + quality.url);
-    const target = await fetchDownloadTarget(quality.url);
+  const qualityUrl = quality.url;
+
+  // Current Akwam playback buttons point to go.ak.sv/watch/<id>. Treat the
+  // watch page as an intermediate player document and extract its real media
+  // source before returning anything to the caller.
+  const targetPage = await getContentPageResilient(
+    browser,
+    qualityUrl,
+    /\/watch\//i.test(qualityUrl) ? "AKWAM_WATCH" : "AKWAM_LINK",
+  );
+
+  const directFromPage = extractFinalMediaUrl(targetPage.html, targetPage.url);
+  if (directFromPage) {
+    return {
+      ...(await validateMediaUrl(directFromPage, targetPage.url)),
+      quality: quality.quality,
+    };
+  }
+
+  const downloadUrl = extractDownloadUrl(targetPage.html, targetPage.url);
+  if (downloadUrl) {
+    const target = await fetchDownloadTarget(downloadUrl, targetPage.url);
     if (target.kind === "media") {
       return {
-        ...(await validateMediaUrl(target.url, quality.url)),
+        ...(await validateMediaUrl(target.url, targetPage.url)),
         quality: quality.quality,
       };
     }
 
     const finalUrl = extractFinalMediaUrl(target.html, target.url);
-    if (!finalUrl) throw new Error("AKWAM_FINAL_MEDIA: no media URL on download page");
-    return {
-      ...(await validateMediaUrl(finalUrl, target.url)),
-      quality: quality.quality,
-    };
+    if (finalUrl) {
+      return {
+        ...(await validateMediaUrl(finalUrl, target.url)),
+        quality: quality.quality,
+      };
+    }
   }
 
-  const link = await getContentPageResilient(browser, quality.url, "AKWAM_LINK");
-  const downloadUrl = extractDownloadUrl(link.html, link.url);
-  if (!downloadUrl) throw new Error("AKWAM_DOWNLOAD: no download URL on quality page");
-  diagnostic("AKWAM_DOWNLOAD", downloadUrl);
-
-  const target = await fetchDownloadTarget(downloadUrl, link.url);
-  if (target.kind === "media") {
-    return {
-      ...(await validateMediaUrl(target.url, link.url)),
-      quality: quality.quality,
-    };
-  }
-
-  const finalUrl = extractFinalMediaUrl(target.html, target.url);
-  if (!finalUrl) throw new Error("AKWAM_FINAL_MEDIA: no media URL on download page");
-  return {
-    ...(await validateMediaUrl(finalUrl, target.url)),
-    quality: quality.quality,
-  };
+  throw new Error(
+    "AKWAM_FINAL_MEDIA: player/download page contained no direct media target; url=" +
+      targetPage.url,
+  );
 }
 async function resolveAkwamCached(browser, payload) {
   const key = JSON.stringify({
