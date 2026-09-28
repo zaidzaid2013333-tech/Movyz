@@ -419,28 +419,43 @@ async function resolveViaAkwamResolver(payload, type, env) {
         throw error;
       }
 
-      if (typeof data.media_url === "string" && /^https?:\/\//i.test(data.media_url)) {
-        const typeOfStream = ["mp4", "hls", "dash", "webm"].includes(data.type)
-          ? data.type
-          : detectStreamType(data.media_url);
+      const rawSources = Array.isArray(data.sources) && data.sources.length
+        ? data.sources
+        : typeof data.media_url === "string" && /^https?:\/\//i.test(data.media_url)
+          ? [{
+              url: data.media_url,
+              type: data.type,
+              quality: data.quality,
+            }]
+          : [];
 
-        return {
-          url: data.media_url,
-          type: typeOfStream,
-          quality: data.quality || "auto",
-          qualities: [data.quality || "auto"],
-          sources: [{
-            quality: data.quality || "auto",
+      const sources = rawSources
+        .filter((source) => typeof source?.url === "string" && /^https?:\/\//i.test(source.url))
+        .map((source) => {
+          const typeOfStream = ["mp4", "hls", "dash", "webm"].includes(source.type)
+            ? source.type
+            : detectStreamType(source.url);
+          return {
+            url: source.url,
             type: typeOfStream,
-            url: data.media_url,
-          }],
+            quality: source.quality || "auto",
+          };
+        });
+
+      if (sources.length) {
+        const primary = sources[0];
+        return {
+          url: primary.url,
+          type: primary.type,
+          quality: primary.quality,
+          qualities: sources.map((source) => source.quality),
+          sources,
           cached: false,
           via: "akwam-browser-resolver",
           source_url: data.source_url || data.page_url || "",
           matched_title: data.title || payload?.title || "",
         };
       }
-
       throw new Error("Akwam resolver returned no playable media");
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
