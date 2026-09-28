@@ -1,25 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  MediaPlayer,
-  MediaProvider,
-  Track,
-  isVideoProvider,
-  type MediaPlayerInstance,
-} from '@vidstack/react';
-import {
-  defaultLayoutIcons,
-  DefaultVideoLayout,
-} from '@vidstack/react/player/layouts/default';
-import '@vidstack/react/player/styles/default/theme.css';
-import '@vidstack/react/player/styles/default/layouts/video.css';
-import { CheckCircle2, Loader2, Settings2, Subtitles } from 'lucide-react';
-import { Episode, Season, ContentType } from '../../types';
+import React, { useEffect, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import { MovyzaApi } from '../../services/api';
 
 interface VideoPlayerProps {
   contentId: string;
-  contentType: ContentType;
+  contentType: 'movie' | 'series';
   title: string;
   titleEn: string;
   posterUrl: string;
@@ -27,760 +12,153 @@ interface VideoPlayerProps {
   tmdbId: number;
   seasonNumber?: number;
   episodeNumber?: number;
-  currentEpisode?: Episode;
-  allSeasons?: Season[];
+  currentEpisode?: {
+    id?: string;
+    title?: string;
+  };
+  allSeasons?: unknown[];
   onSelectEpisode?: (seasonNum: number, episodeNum: number) => void;
   onNavigateBack: () => void;
 }
 
-type StreamType = 'hls' | 'mp4' | 'dash' | 'webm' | 'web';
-
-type SubtitleTrack = {
-  url: string;
-  type: 'vtt' | 'srt';
-  language: string;
-  label: string;
-  labelEn: string;
-  default?: boolean;
-};
-
-const DIRECT_WATCH_API_BASE = 'https://movyz-moviebox.sameranede.workers.dev';
-// AbdoBest remains the single playback source. Movyza accepts direct media URLs only.
-
 type PlaybackSource = {
-  id: string;
-  url: string;
-  type: StreamType;
-  quality: string;
-  language: string;
-  label: string;
-  labelEn?: string;
-  provider: string;
+  id?: string;
+  url?: string;
+  type?: string;
+  quality?: string;
+  language?: string;
+  label?: string;
+  provider?: string;
   providerKey?: string;
-  providerReference?: string;
   iframeUrl?: string;
-  subtitleTracks?: SubtitleTrack[];
 };
-
-async function fetchAbdoBestFallbackSources(args: {
-  tmdbId: number;
-  contentType: 'movie' | 'series';
-  title: string;
-  titleEn: string;
-  season?: number;
-  episode?: number;
-}): Promise<PlaybackSource[]> {
-  const isMovie = args.contentType === 'movie';
-  const payload = isMovie
-    ? {
-        tmdb_id: args.tmdbId,
-        title: args.titleEn || args.title,
-        title_en: args.titleEn,
-        title_ar: args.title,
-        titles: [args.titleEn, args.title].filter(Boolean),
-      }
-    : {
-        tmdb_id: args.tmdbId,
-        title: args.titleEn || args.title,
-        title_en: args.titleEn,
-        title_ar: args.title,
-        titles: [args.titleEn, args.title].filter(Boolean),
-        season: args.season,
-        episode: args.episode,
-      };
-
-  const response = await fetch(
-    DIRECT_WATCH_API_BASE + (isMovie ? '/watch/movie' : '/watch/episode'),
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(payload),
-    },
-  );
-
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !body?.ok) {
-    throw new Error(body?.error || `AbdoBest fallback failed (${response.status})`);
-  }
-
-  const stream = body?.stream || {};
-  const rawSources = Array.isArray(stream.sources) && stream.sources.length
-    ? stream.sources
-    : stream.url
-      ? [{
-          url: stream.url,
-          type: stream.type,
-          quality: stream.quality,
-        }]
-      : [];
-
-  return rawSources
-    .filter((source: any) => typeof source?.url === 'string' && /^https?:\/\//i.test(source.url))
-    .map((source: any, index: number) => ({
-      id: source.id || `abdobest-fallback-${source.type || 'source'}-${index}`,
-      url: source.url,
-      type: (source.type || (String(source.url).toLowerCase().includes('.m3u8') ? 'hls' : 'mp4')) as StreamType,
-      quality: source.quality || 'auto',
-      language: source.language || 'und',
-      label: source.label || `AbdoBest · ${source.quality || 'auto'}`,
-      provider: 'AbdoBest',
-      providerKey: 'abdobest',
-      providerReference: source.providerReference,
-      subtitleTracks: Array.isArray(source.subtitleTracks) ? source.subtitleTracks : [],
-    }));
-}
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
-  contentId,
+  contentType,
   title,
   titleEn,
-  posterUrl,
-  backdropUrl,
   tmdbId,
-  contentType,
   seasonNumber,
   episodeNumber,
   currentEpisode,
 }) => {
   const { language } = useLanguage();
-  const playerRef = useRef<MediaPlayerInstance | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const failedSourceIdsRef = useRef<Set<string>>(new Set());
-  const lastSavedAtRef = useRef(0);
-  const progressLoadedRef = useRef(false);
-  const subtitleAutoShownRef = useRef(false);
-
-  const [sources, setSources] = useState<PlaybackSource[]>([]);
-  const [selectedSourceId, setSelectedSourceId] = useState('');
-  const [streamUrl, setStreamUrl] = useState('');
-  const [streamType, setStreamType] = useState<StreamType>('hls');
+  const [iframeUrl, setIframeUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [reportMessage, setReportMessage] = useState('');
+  const [retryNonce, setRetryNonce] = useState(0);
 
   const isMovie = contentType === 'movie';
-  const safeTmdbId = Number(tmdbId || 0);
-
-  const currentSource = useMemo(
-    () => sources.find((source) => source.id === selectedSourceId),
-    [selectedSourceId, sources],
-  );
-  const currentIframeUrl = currentSource?.iframeUrl || '';
-  const isIframeSource = Boolean(currentIframeUrl);
-
-  const subtitleTracks = currentSource?.subtitleTracks || [];
-  const subtitleEnabled = subtitleTracks.length > 0;
-
-  const showPreferredSubtitleTrack = () => {
-    const tracks = playerRef.current?.textTracks;
-    if (!tracks || tracks.length === 0) return;
-
-    const availableTracks = [];
-    for (let index = 0; index < tracks.length; index += 1) {
-      const track = tracks[index];
-      if (track) availableTracks.push(track);
-    }
-
-    const preferredTrack =
-      availableTracks.find((track) =>
-        String(track.language).toLowerCase().startsWith('ar'),
-      ) ||
-      availableTracks.find(
-        (track) => track.kind === 'subtitles' || track.kind === 'captions',
-      );
-
-    if (!preferredTrack) return;
-
-    for (const track of availableTracks) {
-      if (track.kind === 'subtitles' || track.kind === 'captions') {
-        track.mode = track === preferredTrack ? 'showing' : 'disabled';
-      }
-    }
-
-    subtitleAutoShownRef.current = true;
-  };
-
-  const currentLabel = useMemo(() => {
-    const source = sources.find((item) => item.id === selectedSourceId);
-    return source ? [source.provider, source.quality, source.type.toUpperCase()].filter(Boolean).join(' · ') : '';
-  }, [selectedSourceId, sources]);
-
-  const saveProgress = async (video: HTMLVideoElement, force = false) => {
-    const duration = Number.isFinite(video.duration) ? Math.floor(video.duration) : 0;
-    const position = Math.floor(video.currentTime || 0);
-    if (duration <= 0 || position < 0) return;
-
-    const now = Date.now();
-    if (!force && now - lastSavedAtRef.current < 8000) return;
-    lastSavedAtRef.current = now;
-
-    try {
-      await MovyzaApi.saveWatchProgress({
-        contentId,
-        contentType,
-        title,
-        titleEn,
-        posterUrl,
-        backdropUrl,
-        episodeId: currentEpisode?.id,
-        seasonNumber,
-        episodeNumber,
-        positionSeconds: position,
-        durationSeconds: duration,
-        percentage: Math.min(100, Math.floor((position / duration) * 100)),
-        lastWatchedAt: new Date().toISOString(),
-        completed: position >= Math.max(0, duration - 10),
-      });
-    } catch {
-      // Watch progress is best-effort.
-    }
-  };
-
-  const restoreProgress = async () => {
-    const video = videoRef.current;
-    if (!video || progressLoadedRef.current) return;
-
-    progressLoadedRef.current = true;
-
-    try {
-      const result = await MovyzaApi.getWatchProgress(contentId, currentEpisode?.id);
-      const progress = result.data;
-
-      if (
-        progress &&
-        progress.positionSeconds > 5 &&
-        Number.isFinite(video.duration) &&
-        progress.positionSeconds < video.duration - 5
-      ) {
-        video.currentTime = progress.positionSeconds;
-      }
-    } catch {
-      // Guests and expired sessions start from the beginning.
-    }
-  };
-
-  const playableUrl = (source: PlaybackSource) => {
-    if (source.type !== 'hls') return source.url;
-    try {
-      const proxy = new URL(DIRECT_WATCH_API_BASE + '/proxy');
-      proxy.searchParams.set('url', source.url);
-      proxy.searchParams.set('referer', 'https://www.abdobest.com/');
-      return proxy.toString();
-    } catch {
-      return source.url;
-    }
-  };
-
-  const selectSource = (source: PlaybackSource) => {
-    failedSourceIdsRef.current.delete(source.id);
-    setSelectedSourceId(source.id);
-    setError('');
-    setLoading(!source.iframeUrl);
-    setStreamType(source.type);
-    setStreamUrl(source.iframeUrl ? '' : playableUrl(source));
-  };
-
-  const moveToNextSource = () => {
-    const current = selectedSourceId;
-    if (current) failedSourceIdsRef.current.add(current);
-
-    const next = sources.find(
-      (source) => !failedSourceIdsRef.current.has(source.id),
-    );
-
-    if (next) {
-      selectSource(next);
-      return;
-    }
-
-    setLoading(false);
-    setError(
-      language === 'ar'
-        ? 'تعذر تشغيل جميع مصادر الفيديو.'
-        : 'All playback sources failed.',
-    );
-  };
-
-  const handleReportSource = async () => {
-    if (!selectedSourceId) return;
-
-    try {
-      await MovyzaApi.reportIssue({
-        contentId: isMovie ? contentId : (currentEpisode?.id || contentId),
-        contentType: isMovie ? 'movie' : 'episode',
-        contentTitle: isMovie ? title : (currentEpisode?.title || title),
-        sourceId: selectedSourceId,
-        issueType: 'broken_source',
-        description: language === 'ar'
-          ? 'المصدر الحالي لا يعمل.'
-          : 'The selected playback source is not working.',
-      });
-
-      setReportMessage(language === 'ar' ? 'تم إرسال البلاغ.' : 'Report sent.');
-    } catch {
-      setReportMessage(
-        language === 'ar'
-          ? 'سجّل الدخول أولًا لإرسال البلاغ.'
-          : 'Sign in to send a report.',
-      );
-    }
-
-    window.setTimeout(() => setReportMessage(''), 3000);
-  };
+  const displayTitle = isMovie ? (titleEn || title) : (currentEpisode?.title || titleEn || title);
 
   useEffect(() => {
     let cancelled = false;
 
-    const loadSources = async () => {
-      if (!safeTmdbId) {
+    const loadAkwamIframe = async () => {
+      if (!Number.isFinite(Number(tmdbId)) || Number(tmdbId) <= 0) {
         setLoading(false);
-        setError(
-          language === 'ar'
-            ? 'معرّف TMDB غير متاح لهذا العنوان.'
-            : 'TMDB id is unavailable for this title.',
-        );
+        setError(language === 'ar' ? 'معرّف TMDB غير متاح.' : 'TMDB id is unavailable.');
         return;
       }
 
       setLoading(true);
       setError('');
-      setSources([]);
-      setSelectedSourceId('');
-      setStreamUrl('');
-      setStreamType('hls');
-      failedSourceIdsRef.current.clear();
-      progressLoadedRef.current = false;
+      setIframeUrl('');
 
       try {
-        let response;
-        let lastLoadError;
-        try {
-          response = await MovyzaApi.getWatchSources(
-            safeTmdbId,
-            isMovie ? 'movie' : 'series',
-            seasonNumber,
-            episodeNumber,
-          );
-        } catch (requestError) {
-          // The API resolver already owns provider failover. Do not blindly
-          // retry the same request, which would recreate Browser Run work.
-          lastLoadError = requestError;
-        }
-
-        if (!response) {
-          try {
-            const fallbackSources = await fetchAbdoBestFallbackSources({
-              tmdbId: safeTmdbId,
-              contentType: isMovie ? 'movie' : 'series',
-              title,
-              titleEn,
-              season: seasonNumber,
-              episode: episodeNumber,
-            });
-            if (!fallbackSources.length) throw new Error('AbdoBest returned no playback sources');
-            response = { data: fallbackSources } as any;
-          } catch (fallbackError) {
-            console.warn('[movyza-player] AbdoBest direct fallback failed', fallbackError);
-            throw lastLoadError || fallbackError || new Error('No playback sources returned');
-          }
-        }
-
-        const normalized: PlaybackSource[] = (response.data || [])
-          .filter(
-            (source: any) => {
-              if (
-                !source?.url ||
-                !['hls', 'mp4', 'dash', 'webm'].includes(source.type)
-              ) return false;
-              return true;
-            },
-          )
-          .map((source: any, index: number) => ({
-            id:
-              source.id ||
-              `${source.provider || 'source'}-${source.type}-${index}`,
-            url: source.url,
-            type: source.type,
-            quality: source.quality || 'auto',
-            language: source.language || 'und',
-            label: source.label || source.provider || 'Source',
-            provider: source.provider || 'Provider',
-            providerKey: source.providerKey,
-            providerReference: source.providerReference,
-            iframeUrl: typeof source.iframeUrl === 'string' ? source.iframeUrl : '',
-            subtitleTracks: Array.isArray(source.subtitleTracks)
-              ? source.subtitleTracks
-                  .filter((track: any) => Boolean(track?.url))
-                  .map((track: any) => ({
-                  url: track.url,
-                  type: track.type === 'srt' ? 'srt' : 'vtt',
-                  language: track.language || 'und',
-                  label: track.label || track.labelEn || 'Subtitles',
-                  labelEn: track.labelEn || track.label || 'Subtitles',
-                  default: track.default === true,
-                }))
-              : [],
-          }));
-
-        const deduped = normalized.filter(
-          (source, index, list) =>
-            !source.iframeUrl ||
-            index === list.findIndex((candidate) => candidate.iframeUrl === source.iframeUrl),
+        const response = await MovyzaApi.getWatchSources(
+          Number(tmdbId),
+          isMovie ? 'movie' : 'series',
+          seasonNumber,
+          episodeNumber,
         );
 
-        if (!deduped.length) {
-          throw new Error('No playable stream returned');
+        const sources = Array.isArray(response?.data)
+          ? (response.data as PlaybackSource[])
+          : [];
+
+        const akwam =
+          sources.find((source) => typeof source.iframeUrl === 'string' && source.iframeUrl.trim()) ||
+          sources.find(
+            (source) =>
+              String(source.providerKey || '').toLowerCase() === 'akwam-iframe' &&
+              typeof source.url === 'string' &&
+              source.url.startsWith('https://'),
+          );
+
+        const url = String(akwam?.iframeUrl || '').trim();
+
+        if (!url) {
+          throw new Error('Akwam iframe URL was not returned by the Watch API.');
         }
 
-        const initial =
-          deduped.find((source) => source.iframeUrl) ||
-          deduped.find((source) => source.type === 'hls') ||
-          deduped.find((source) => source.type === 'dash') ||
-          deduped.find((source) => source.type === 'mp4') ||
-          deduped.find((source) => source.type === 'webm') ||
-          deduped[0];
-
         if (!cancelled) {
-          setSources(deduped);
-          setSelectedSourceId(initial.id);
-          setStreamType(initial.type);
-          setStreamUrl(initial.iframeUrl ? '' : playableUrl(initial));
-          setLoading(!initial.iframeUrl);
+          setIframeUrl(url);
+          setLoading(true);
         }
       } catch (loadError) {
         if (cancelled) return;
 
-        console.warn('[movyza-player] source list unavailable', loadError);
-        setSources([]);
-        setSelectedSourceId('');
-        setStreamUrl('');
+        console.error('[movyza-iframe-player] Akwam iframe unavailable', loadError);
         setLoading(false);
         setError(
           language === 'ar'
-            ? 'تعذر العثور على مصدر فيديو مباشر صالح حاليًا.'
-            : 'No valid direct video source is available right now.',
+            ? 'تعذر الحصول على رابط Akwam لهذه الحلقة حاليًا.'
+            : 'Unable to get the Akwam iframe for this title right now.',
         );
       }
     };
 
-    void loadSources();
+    void loadAkwamIframe();
 
     return () => {
       cancelled = true;
     };
-  }, [
-    contentId,
-    currentEpisode?.id,
-    isMovie,
-    safeTmdbId,
-    seasonNumber,
-    episodeNumber,
-  ]);
+  }, [episodeNumber, isMovie, language, retryNonce, seasonNumber, tmdbId]);
 
-  useEffect(() => {
-    progressLoadedRef.current = false;
-    subtitleAutoShownRef.current = false;
-  }, [streamUrl, selectedSourceId]);
-
-  const playerSource =
-    streamUrl
-      ? streamType === 'hls'
-        ? { src: streamUrl, type: 'application/x-mpegurl' as const }
-        : streamType === 'dash'
-          ? { src: streamUrl, type: 'application/dash+xml' as const }
-          : streamType === 'webm'
-            ? { src: streamUrl, type: 'video/webm' as const }
-            : { src: streamUrl, type: 'video/mp4' as const }
-      : undefined;
-
-  if (!safeTmdbId) {
+  if (error) {
     return (
-      <div className="aspect-video w-full flex items-center justify-center bg-black text-slate-400 text-sm">
-        {language === 'ar'
-          ? 'معرّف TMDB غير متاح لهذا العنوان.'
-          : 'TMDB id is unavailable for this title.'}
+      <div className="relative aspect-video w-full bg-black flex items-center justify-center px-6 text-center">
+        <div className="max-w-lg">
+          <p className="text-sm text-slate-300">{error}</p>
+          <button
+            type="button"
+            className="mt-4 rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15"
+            onClick={() => setRetryNonce((value) => value + 1)}
+          >
+            {language === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="movyza-player-root relative w-full bg-black" dir="rtl">
-      <style>{`
-        .movyza-player .vds-captions {
-          --media-cue-font-size: clamp(
-            24px,
-            calc(var(--media-height) / 100 * 7),
-            60px
-          );
-          --media-cue-line-height: 1.22;
-          --media-cue-color: #fff;
-          --media-cue-bg-color: rgba(0, 0, 0, 0.72);
-        }
+    <div className="relative aspect-video w-full overflow-hidden bg-black">
+      {iframeUrl ? (
+        <>
+          {loading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black text-sm text-slate-300">
+              {language === 'ar' ? 'جارٍ تحميل Akwam…' : 'Loading Akwam…'}
+            </div>
+          )}
 
-        .movyza-player .vds-captions [data-part="cue"] {
-          font-family: Arial, "Noto Sans Arabic", "Noto Sans", sans-serif;
-          font-weight: 800;
-          text-shadow:
-            0 2px 4px rgba(0, 0, 0, .98),
-            0 0 3px rgba(0, 0, 0, 1);
-        }
-      `}</style>
-      <div className="movyza-player-shell relative aspect-video w-full overflow-hidden bg-black">
-        {isIframeSource ? (
           <iframe
-            key={currentIframeUrl}
-            src={currentIframeUrl}
-            title={isMovie ? title : currentEpisode?.title || title}
+            key={iframeUrl}
+            src={iframeUrl}
+            title={displayTitle}
             className="absolute inset-0 h-full w-full border-0 bg-black"
-            allow="autoplay; fullscreen; picture-in-picture"
+            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             allowFullScreen
             referrerPolicy="no-referrer"
-            onLoad={() => {
-              setLoading(false);
-              setError('');
-            }}
+            onLoad={() => setLoading(false)}
           />
-        ) : playerSource ? (
-          <MediaPlayer
-            ref={playerRef}
-            key={`movyza-player-${selectedSourceId}-${subtitleTracks.map((track) => `${track.language}:${track.url}`).join('|')}`}
-            className="movyza-player absolute inset-0 h-full w-full"
-            load="eager"
-            title={isMovie ? title : titleEn || title}
-            src={playerSource}
-            playsInline
-            crossOrigin="anonymous"
-            onProviderSetup={(provider) => {
-              if (isVideoProvider(provider)) {
-                videoRef.current = provider.video;
-              }
-            }}
-            onTextTracksChange={(tracks) => {
-              const preferredTrack =
-                tracks.find(
-                  (track) =>
-                    (track.kind === 'subtitles' || track.kind === 'captions') &&
-                    String(track.language).toLowerCase().startsWith('ar'),
-                ) ||
-                tracks.find(
-                  (track) => track.kind === 'subtitles' || track.kind === 'captions',
-                );
-
-              if (preferredTrack) {
-                tracks.forEach((track) => {
-                  if (track.kind === 'subtitles' || track.kind === 'captions') {
-                    track.mode = track === preferredTrack ? 'showing' : 'disabled';
-                  }
-                });
-                subtitleAutoShownRef.current = true;
-              } else {
-                showPreferredSubtitleTrack();
-              }
-            }}
-            onCanPlay={() => {
-              setLoading(false);
-              setError('');
-              showPreferredSubtitleTrack();
-              void restoreProgress();
-            }}
-            onLoadedMetadata={() => {
-              showPreferredSubtitleTrack();
-              void restoreProgress();
-            }}
-            onTimeUpdate={() => {
-              const video = videoRef.current;
-              if (video) void saveProgress(video);
-            }}
-            onPause={() => {
-              const video = videoRef.current;
-              if (video) void saveProgress(video, true);
-            }}
-            onEnded={() => {
-              const video = videoRef.current;
-              if (video) void saveProgress(video, true);
-            }}
-            onError={(playbackError) => {
-              console.warn('[movyza-player] source error', playbackError);
-              setStreamUrl('');
-              setError('');
-              setLoading(true);
-              moveToNextSource();
-            }}
-            onWaiting={() => setLoading(true)}
-            onPlaying={() => {
-              setLoading(false);
-              setError('');
-              showPreferredSubtitleTrack();
-            }}
-          >
-            <MediaProvider>
-              {subtitleTracks.map((track) => (
-                <Track
-                  key={`${selectedSourceId}-${track.language}-${track.url}`}
-                  id={`subtitle-${selectedSourceId}-${track.language}`}
-                  src={track.url}
-                  kind="subtitles"
-                  label={track.label}
-                  lang={track.language}
-                  language={track.language}
-                  type={track.type}
-                  default={
-                    track.default === true ||
-                    track.url ===
-                      (subtitleTracks.find((item) =>
-                        String(item.language).toLowerCase().startsWith('ar'),
-                      )?.url || subtitleTracks[0]?.url)
-                  }
-                />
-              ))}
-            </MediaProvider>
-            <DefaultVideoLayout
-              colorScheme="dark"
-              icons={defaultLayoutIcons}
-              playbackRates={[0.5, 0.75, 1, 1.25, 1.5, 2]}
-              seekStep={10}
-              translations={{
-                Play: language === 'ar' ? 'تشغيل' : 'Play',
-                Pause: language === 'ar' ? 'إيقاف مؤقت' : 'Pause',
-                Mute: language === 'ar' ? 'كتم' : 'Mute',
-                Unmute: language === 'ar' ? 'إلغاء الكتم' : 'Unmute',
-                Fullscreen: language === 'ar' ? 'ملء الشاشة' : 'Fullscreen',
-                Settings: language === 'ar' ? 'الإعدادات' : 'Settings',
-              }}
-            />
-          </MediaPlayer>
-        ) : (
-          <div className="absolute inset-0 bg-black" />
-        )}
-
-        {(loading || error) && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/65 pointer-events-none">
-            <div className="flex flex-col items-center gap-3 px-6 text-center">
-              {loading && !error && (
-                <>
-                  <Loader2 className="h-8 w-8 animate-spin text-amber-300" />
-                  <span className="text-xs text-slate-300">
-                    {language === 'ar' ? 'جاري تشغيل المصدر…' : 'Loading source…'}
-                  </span>
-                </>
-              )}
-              {error && (
-                <span className="text-sm text-red-300">{error}</span>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="pointer-events-none absolute start-3 top-3 z-40 flex items-center gap-2">
-          <span className="movyza-player-badge rounded-full px-3 py-1 text-[10px] font-semibold text-white backdrop-blur border">
-{`MOVYZA · ${isIframeSource ? 'AKWAM' : streamType.toUpperCase()}`}
-          </span>
-          <span className="rounded-full border border-white/10 bg-black/65 px-2.5 py-1 text-[10px] text-slate-300 backdrop-blur">
-            {language === 'ar' ? 'مشغل Movyza' : 'Movyza Player'}
-          </span>
+        </>
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-400">
+          {language === 'ar' ? 'جارٍ الحصول على رابط Akwam…' : 'Getting Akwam link…'}
         </div>
-
-        <div className="pointer-events-none absolute bottom-3 end-3 z-40 flex items-center gap-2 rounded-full border border-white/10 bg-black/65 px-3 py-1 text-[10px] text-emerald-300 backdrop-blur">
-          <CheckCircle2 className="h-3 w-3" />
-          <span>
-            {isIframeSource ? 'Akwam · embedded' : (currentLabel || 'Movyza → direct stream')}
-          </span>
-        </div>
-      </div>
-
-      <section className="w-full border-t border-white/10 bg-[#0b0d13] p-3 sm:p-4" aria-label="إعدادات التشغيل">
-        <div className="mb-3 flex items-center gap-2">
-          <Settings2 className="h-4 w-4 text-amber-300" />
-          <div>
-            <h3 className="text-sm font-bold text-white">
-              {language === 'ar' ? 'مشغل Movyza' : 'Movyza Player'}
-            </h3>
-            <p className="text-[11px] text-slate-400">
-              {isIframeSource
-                ? (language === 'ar'
-                  ? 'يتم تشغيل مشغل Akwam داخل مساحة الفيديو في Movyza.'
-                  : 'The Akwam player is embedded inside the Movyza video area.')
-                : (language === 'ar'
-                  ? 'يتم تشغيل روابط الفيديو المباشرة من AbdoBest داخل مشغل Movyza.'
-                  : 'Movyza plays direct video streams resolved by AbdoBest.')}
-            </p>
-          </div>
-        </div>
-
-        {sources.length > 0 && (
-          <div className="mb-3 rounded-2xl border border-amber-400/20 bg-white/[0.03] p-3">
-            <label className="mb-2 block text-xs font-bold text-white">
-              {language === 'ar' ? 'مصدر التشغيل' : 'Playback source'}
-            </label>
-
-            <select
-              value={selectedSourceId}
-              onChange={(event) => {
-                const next = sources.find((source) => source.id === event.target.value);
-                if (next) selectSource(next);
-              }}
-              className="w-full rounded-xl border border-white/10 bg-[#10131d] px-3 py-2 text-xs text-white outline-none"
-            >
-              {sources.map((source) => (
-                <option key={source.id} value={source.id}>
-                  {[source.label, source.quality, source.type.toUpperCase(), source.language !== 'und' ? source.language : '']
-                    .filter(Boolean)
-                    .join(' · ')}
-                </option>
-              ))}
-            </select>
-
-            <button
-              type="button"
-              onClick={() => void handleReportSource()}
-              className="mt-2 rounded-xl border border-red-400/20 bg-red-400/10 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-400/15"
-            >
-              {language === 'ar' ? 'الإبلاغ عن المصدر' : 'Report source'}
-            </button>
-
-            {reportMessage && (
-              <div className="mt-2 text-[11px] text-slate-300">{reportMessage}</div>
-            )}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-            <div className="mb-2 flex items-center gap-2 text-xs font-bold text-white">
-              <span>⚡</span>
-              {language === 'ar' ? 'تشغيل موحّد' : 'Universal playback'}
-            </div>
-            <p className="text-[11px] leading-relaxed text-slate-400">
-              {language === 'ar'
-                ? 'HLS وMP4 وDASH وWEBM تعمل مباشرة داخل المشغل.'
-                : 'HLS, MP4, DASH, and WEBM play directly inside Movyza.'}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-            <div className="mb-2 flex items-center gap-2 text-xs font-bold text-white">
-              <Subtitles className="h-4 w-4" />
-              {language === 'ar' ? 'الترجمة' : 'Subtitles'}
-            </div>
-            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2">
-              <div className="text-xs font-semibold text-emerald-100">
-                {subtitleEnabled
-                  ? (language === 'ar' ? 'العربية مفعّلة تلقائيًا' : 'Arabic subtitles enabled')
-                  : (language === 'ar' ? 'تُعرض عند توفر مسار ترجمة' : 'Shown when a subtitle track is available')}
-              </div>
-              <div className="mt-1 text-[10px] text-emerald-100/65">
-                {subtitleEnabled
-                  ? (language === 'ar'
-                    ? 'مسار ترجمة مرتبط بمصدر التشغيل نفسه ويُعرض داخل المشغل من زر CC.'
-                    : 'A subtitle track attached to the selected playback source and available from CC.')
-                  : (language === 'ar'
-                    ? 'لا يوجد مسار ترجمة موثوق مرتبط بهذا المصدر.'
-                    : 'No trusted subtitle track is attached to this source.')}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      )}
     </div>
   );
 };
