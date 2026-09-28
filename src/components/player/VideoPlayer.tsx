@@ -58,6 +58,7 @@ type PlaybackSource = {
   provider: string;
   providerKey?: string;
   providerReference?: string;
+  iframeUrl?: string;
   subtitleTracks?: SubtitleTrack[];
 };
 
@@ -164,6 +165,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     () => sources.find((source) => source.id === selectedSourceId),
     [selectedSourceId, sources],
   );
+  const currentIframeUrl = currentSource?.iframeUrl || '';
+  const isIframeSource = Boolean(currentIframeUrl);
 
   const subtitleTracks = currentSource?.subtitleTracks || [];
   const subtitleEnabled = subtitleTracks.length > 0;
@@ -272,9 +275,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     failedSourceIdsRef.current.delete(source.id);
     setSelectedSourceId(source.id);
     setError('');
-    setLoading(true);
+    setLoading(!source.iframeUrl);
     setStreamType(source.type);
-    setStreamUrl(playableUrl(source));
+    setStreamUrl(source.iframeUrl ? '' : playableUrl(source));
   };
 
   const moveToNextSource = () => {
@@ -404,6 +407,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             provider: source.provider || 'Provider',
             providerKey: source.providerKey,
             providerReference: source.providerReference,
+            iframeUrl: typeof source.iframeUrl === 'string' ? source.iframeUrl : '',
             subtitleTracks: Array.isArray(source.subtitleTracks)
               ? source.subtitleTracks
                   .filter((track: any) => Boolean(track?.url))
@@ -418,23 +422,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               : [],
           }));
 
-        if (!normalized.length) {
+        const deduped = normalized.filter(
+          (source, index, list) =>
+            !source.iframeUrl ||
+            index === list.findIndex((candidate) => candidate.iframeUrl === source.iframeUrl),
+        );
+
+        if (!deduped.length) {
           throw new Error('No playable stream returned');
         }
 
         const initial =
-          normalized.find((source) => source.type === 'hls') ||
-          normalized.find((source) => source.type === 'dash') ||
-          normalized.find((source) => source.type === 'mp4') ||
-          normalized.find((source) => source.type === 'webm') ||
-          normalized[0];
+          deduped.find((source) => source.iframeUrl) ||
+          deduped.find((source) => source.type === 'hls') ||
+          deduped.find((source) => source.type === 'dash') ||
+          deduped.find((source) => source.type === 'mp4') ||
+          deduped.find((source) => source.type === 'webm') ||
+          deduped[0];
 
         if (!cancelled) {
-          setSources(normalized);
+          setSources(deduped);
           setSelectedSourceId(initial.id);
           setStreamType(initial.type);
-          setStreamUrl(playableUrl(initial));
-          setLoading(true);
+          setStreamUrl(initial.iframeUrl ? '' : playableUrl(initial));
+          setLoading(!initial.iframeUrl);
         }
       } catch (loadError) {
         if (cancelled) return;
@@ -515,7 +526,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       `}</style>
       <div className="movyza-player-shell relative aspect-video w-full overflow-hidden bg-black">
-        {playerSource ? (
+        {isIframeSource ? (
+          <iframe
+            key={currentIframeUrl}
+            src={currentIframeUrl}
+            title={isMovie ? title : currentEpisode?.title || title}
+            className="absolute inset-0 h-full w-full border-0 bg-black"
+            allow="autoplay; fullscreen; picture-in-picture"
+            allowFullScreen
+            referrerPolicy="no-referrer"
+            onLoad={() => {
+              setLoading(false);
+              setError('');
+            }}
+          />
+        ) : playerSource ? (
           <MediaPlayer
             ref={playerRef}
             key={`movyza-player-${selectedSourceId}-${subtitleTracks.map((track) => `${track.language}:${track.url}`).join('|')}`}
@@ -648,7 +673,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         <div className="pointer-events-none absolute start-3 top-3 z-40 flex items-center gap-2">
           <span className="movyza-player-badge rounded-full px-3 py-1 text-[10px] font-semibold text-white backdrop-blur border">
-{`MOVYZA · ${streamType.toUpperCase()}`}
+{`MOVYZA · ${isIframeSource ? 'AKWAM' : streamType.toUpperCase()}`}
           </span>
           <span className="rounded-full border border-white/10 bg-black/65 px-2.5 py-1 text-[10px] text-slate-300 backdrop-blur">
             {language === 'ar' ? 'مشغل Movyza' : 'Movyza Player'}
@@ -658,7 +683,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <div className="pointer-events-none absolute bottom-3 end-3 z-40 flex items-center gap-2 rounded-full border border-white/10 bg-black/65 px-3 py-1 text-[10px] text-emerald-300 backdrop-blur">
           <CheckCircle2 className="h-3 w-3" />
           <span>
-            {currentLabel || 'Movyza → direct stream'}
+            {isIframeSource ? 'Akwam · embedded' : (currentLabel || 'Movyza → direct stream')}
           </span>
         </div>
       </div>
@@ -671,9 +696,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               {language === 'ar' ? 'مشغل Movyza' : 'Movyza Player'}
             </h3>
             <p className="text-[11px] text-slate-400">
-              {language === 'ar'
-                ? 'يتم تشغيل روابط الفيديو المباشرة من AbdoBest داخل مشغل Movyza.'
-                : 'Movyza plays direct video streams resolved by AbdoBest.'}
+              {isIframeSource
+                ? (language === 'ar'
+                  ? 'يتم تشغيل مشغل Akwam داخل مساحة الفيديو في Movyza.'
+                  : 'The Akwam player is embedded inside the Movyza video area.')
+                : (language === 'ar'
+                  ? 'يتم تشغيل روابط الفيديو المباشرة من AbdoBest داخل مشغل Movyza.'
+                  : 'Movyza plays direct video streams resolved by AbdoBest.')}
             </p>
           </div>
         </div>
