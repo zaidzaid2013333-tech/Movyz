@@ -677,8 +677,67 @@ function seasonNumberOf(item) {
 }
 
 function parseSeasonKey(value) {
-  const match = String(value ?? "").trim().match(/^(\\d+)/);
+  const text = String(value ?? "").trim();
+  const match = text.match(/^(?:season|s)?\\s*(\\d{1,2})$/i) || text.match(/^(\\d{1,2})/);
   return match ? Number(match[1]) : null;
+}
+
+function asEpisodeUrlCandidate(value) {
+  if (typeof value !== "string") return "";
+  const raw = value.trim();
+  if (!raw) return "";
+
+  const normalized = normalizeAkwamUrl(raw);
+  if (isAkwamUrl(normalized)) return normalized;
+
+  // AbdoBest may return relative Akwam paths in episode catalogs.
+  if (/^(?:\\/|\\.\\/|\\.\\.\\/|watch\\/|episode(?:-|\\/)|link\\/|download\\/)/i.test(raw)) {
+    try {
+      const absolute = new URL(raw, "https://akwam.it").toString();
+      return isAkwamUrl(absolute) ? absolute : "";
+    } catch {
+      return "";
+    }
+  }
+
+  // Protocol-relative Akwam URLs.
+  if (raw.startsWith("//")) {
+    try {
+      const absolute = "https:" + raw;
+      return isAkwamUrl(absolute) ? absolute : "";
+    } catch {
+      return "";
+    }
+  }
+
+  return "";
+}
+
+function episodeUrlsOf(item) {
+  const found = [];
+  const seen = new Set();
+
+  const visit = (value, depth = 0) => {
+    if (depth > 8 || value == null) return;
+    if (typeof value === "string") {
+      const url = asEpisodeUrlCandidate(value);
+      if (url && !seen.has(url)) {
+        seen.add(url);
+        found.push(url);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child, depth + 1);
+      return;
+    }
+    if (typeof value === "object") {
+      for (const child of Object.values(value)) visit(child, depth + 1);
+    }
+  };
+
+  visit(item);
+  return found;
 }
 
 function findEpisode(payload, season, episode) {
@@ -688,7 +747,7 @@ function findEpisode(payload, season, episode) {
     if (!Array.isArray(episodes) || requestedEpisode < 1) return null;
     const candidate = episodes[requestedEpisode - 1];
     if (candidate == null) return null;
-    const urls = sourceUrlsOf(candidate);
+    const urls = episodeUrlsOf(candidate);
     return urls.length ? { item: candidate, urls } : null;
   };
 
@@ -696,8 +755,27 @@ function findEpisode(payload, season, episode) {
     if (value == null) return null;
 
     if (Array.isArray(value)) {
-      const direct = pickEpisodeFromArray(value, episode);
-      if (inheritedSeason === season && direct) return direct;
+      const direct = inheritedSeason === season
+        ? pickEpisodeFromArray(value, episode)
+        : (inheritedSeason == null && season === 1
+          ? pickEpisodeFromArray(value, episode)
+          : null);
+      if (direct) return direct;
+
+      // Structured episode arrays: each element may carry its own season/episode.
+      for (const [index, child] of value.entries()) {
+        if (child && typeof child === "object") {
+          const childSeason = seasonNumberOf(child);
+          const childEpisode = episodeNumberOf(child) ?? (index + 1);
+          if (
+            (childSeason == null || childSeason === season) &&
+            Number(childEpisode) === episode
+          ) {
+            const urls = episodeUrlsOf(child);
+            if (urls.length) return { item: child, urls };
+          }
+        }
+      }
 
       for (const child of value) {
         const match = visit(child, inheritedSeason);
@@ -709,17 +787,12 @@ function findEpisode(payload, season, episode) {
     if (typeof value !== "object" || seen.has(value)) return null;
     seen.add(value);
 
-    // AbdoBest's normal series/tvshows shape is:
-    // { seasons: { "1": { episodes: ["https://..."] } } }
-    // Episode numbers are array positions (1-based), not episode_number fields.
+    // Canonical shape:
+    // { seasons: { "1": { episodes: [...] }, "2": [...] } }
     const seasons = value.seasons;
     if (seasons && typeof seasons === "object" && !Array.isArray(seasons)) {
       const ordered = Object.entries(seasons)
-        .map(([key, child]) => ({
-          key,
-          seasonNumber: parseSeasonKey(key),
-          child,
-        }))
+        .map(([key, child]) => ({ key, seasonNumber: parseSeasonKey(key), child }))
         .filter((entry) => entry.seasonNumber === season);
 
       for (const entry of ordered) {
@@ -729,44 +802,56 @@ function findEpisode(payload, season, episode) {
           : seasonValue && typeof seasonValue === "object"
             ? seasonValue.episodes
             : null;
-
         const direct = pickEpisodeFromArray(episodes, episode);
         if (direct) return direct;
-      }
 
-      // Some providers nest the same data one level deeper.
-      for (const entry of ordered) {
-        const match = visit(entry.child, season);
-        if (match) return match;
+        const nested = visit(seasonValue, season);
+        if (nested) return nested;
       }
     }
 
-    // Flat endpoint form: { episodes: [url, ...] } is season 1.
-    if (Array.isArray(value.episodes) && (inheritedSeason === season || season === 1)) {
+    // Flat shape:
+    // { episodes: [".../episode-1", ".../episode-2"] }
+    if (Array.isArray(value.episodes) && season === 1) {
       const direct = pickEpisodeFromArray(value.episodes, episode);
       if (direct) return direct;
     }
 
-    // Some responses still expose structured episode objects. Keep supporting
-    // that contract as a fallback.
-    if (!Array.isArray(value)) {
-      const ep = episodeNumberOf(value);
-      const sn = seasonNumberOf(value);
+    // Top-level season map:
+    // { "1": ["url1", "url2"], "2": [...] }
+    for (const [key, child] of Object.entries(value)) {
+      const childSeason = parseSeasonKey(key);
+      if (childSeason === season) {
+        const episodes = Array.isArray(child)
+          ? child
+          : child && typeof child === "object"
+            ? child.episodes
+            : null;
+        const direct = pickEpisodeFromArray(episodes, episode);
+        if (direct) return direct;
 
-      if (
-        Number.isFinite(ep) &&
-        ep === episode &&
-        (!Number.isFinite(sn) || sn === season)
-      ) {
-        const urls = sourceUrlsOf(value);
-        if (urls.length) return { item: value, urls };
+        const nested = visit(child, season);
+        if (nested) return nested;
       }
     }
 
+    // Structured single episode object fallback.
+    const ep = episodeNumberOf(value);
+    const sn = seasonNumberOf(value);
+    if (
+      Number.isFinite(ep) &&
+      ep === episode &&
+      (!Number.isFinite(sn) || sn === season)
+    ) {
+      const urls = episodeUrlsOf(value);
+      if (urls.length) return { item: value, urls };
+    }
+
+    // Generic nested response wrappers: data/response/payload/result/etc.
     for (const [key, child] of Object.entries(value)) {
       if (key === "seasons" || key === "episodes") continue;
-      const childSeason = parseSeasonKey(key);
-      const match = visit(child, childSeason ?? inheritedSeason);
+      if (parseSeasonKey(key) === season) continue;
+      const match = visit(child, inheritedSeason);
       if (match) return match;
     }
 
