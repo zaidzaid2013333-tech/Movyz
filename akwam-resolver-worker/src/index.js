@@ -890,9 +890,6 @@ iframe{display:block;width:100%;height:82vh;min-height:420px;border:0;border-rad
   }
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-  const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "movyz-akwam-resolver", browser: Boolean(env.BROWSER), mode: "direct-akwam-pipeline" });
   if (request.method !== "POST" || url.pathname !== "/resolve") return json({ ok: false, error: "Not found" }, 404);
   let payload; try { payload = await request.json(); } catch { return json({ ok: false, error: "Valid JSON body required" }, 400); }
