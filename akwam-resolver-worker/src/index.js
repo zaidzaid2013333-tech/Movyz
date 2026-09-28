@@ -3,6 +3,7 @@ const AKWAM_SEARCH_BASES = [
   "https://akwam.it",
   "https://akwam.ss",
   "https://akwam.ee",
+  "https://akwam.com.co",
   "https://ak.sv",
 ];
 const PAGE_HOSTS = new Set([
@@ -173,6 +174,36 @@ function scoreEntry(entry, payload) {
   const year = Number(payload?.year); if (year && entry.year) score += year === entry.year ? 100 : Math.abs(year - entry.year) === 1 ? 10 : 0;
   return score;
 }
+function mirrorPageUrls(rawUrl) {
+  const original = new URL(rawUrl);
+  const urls = [];
+  for (const base of AKWAM_SEARCH_BASES) {
+    const baseUrl = new URL(base);
+    const candidate = new URL(original.toString());
+    candidate.protocol = baseUrl.protocol;
+    candidate.hostname = baseUrl.hostname;
+    candidate.port = baseUrl.port;
+    const value = candidate.toString();
+    if (!urls.includes(value)) urls.push(value);
+  }
+  return urls;
+}
+
+async function getContentPageResilient(browser, url, stage) {
+  let lastError = null;
+  const candidates = mirrorPageUrls(url);
+  for (const candidate of candidates) {
+    try {
+      return await getContentPage(browser, candidate, stage);
+    } catch (error) {
+      lastError = error;
+      if (error?.status !== 429) throw error;
+      diagnostic('AKWAM_RATE_LIMIT', stage + ' 429 on ' + candidate + '; trying mirror');
+    }
+  }
+  throw lastError || new Error(stage + ': no usable Akwam mirror');
+}
+
 async function searchAkwam(browser, payload) {
   const query = encodeURIComponent(clean(payload?.title));
   const section = payload?.type === "series" ? "series" : "movie";
@@ -357,11 +388,11 @@ async function validateMediaUrl(initialUrl) {
   throw new Error("AKWAM_FINAL_MEDIA: redirect limit exceeded");
 }
 async function resolveQuality(browser, quality) {
-  const link = await getContentPage(browser, quality.url, "AKWAM_LINK");
+  const link = await getContentPageResilient(browser, quality.url, "AKWAM_LINK");
   const downloadUrl = extractDownloadUrl(link.html, link.url);
   if (!downloadUrl) throw new Error("AKWAM_DOWNLOAD: no download URL on quality page");
   diagnostic("AKWAM_DOWNLOAD", downloadUrl);
-  const download = await getContentPage(browser, downloadUrl, "AKWAM_DOWNLOAD");
+  const download = await getContentPageResilient(browser, downloadUrl, "AKWAM_DOWNLOAD");
   const finalUrl = extractFinalMediaUrl(download.html, download.url);
   if (!finalUrl) throw new Error("AKWAM_FINAL_MEDIA: no media URL on download page");
   return { ...(await validateMediaUrl(finalUrl)), quality: quality.quality };
@@ -369,7 +400,7 @@ async function resolveQuality(browser, quality) {
 async function resolveAkwam(browser, payload) {
   const directContent = decodeContentUrl(payload);
   const entry = directContent ? { title: clean(payload?.title), url: directContent } : await searchAkwam(browser, payload);
-  const content = await getContentPage(browser, entry.url, "AKWAM_CONTENT");
+  const content = await getContentPageResilient(browser, entry.url, "AKWAM_CONTENT");
   const episodeUrl = payload?.type === "series" && payload?.episode ? extractEpisode(content.html, content.url, payload.episode) : "";
   const mediaPage = episodeUrl ? await getContentPage(browser, episodeUrl, "AKWAM_CONTENT") : content;
   const qualities = extractQualities(mediaPage.html, mediaPage.url);
