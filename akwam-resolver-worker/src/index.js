@@ -233,7 +233,50 @@ function extractQualities(html, base) {
     out.push({ quality: normalized, url });
   };
 
-  // Primary: quality/link pairs inside the current Akwam card markup.
+  const extractActionUrls = (context) => {
+    const found = [];
+    const addFound = (value) => {
+      const cleaned = String(value || "")
+        .replace(/\\\//g, "/")
+        .replace(/&amp;/gi, "&")
+        .trim();
+      if (!cleaned || found.includes(cleaned)) return;
+      if (/\/link\/\d+/i.test(cleaned) || /\/download\//i.test(cleaned) || /^https?:\/\//i.test(cleaned)) {
+        found.push(cleaned);
+      }
+    };
+
+    for (const match of context.matchAll(/(?:href|data-(?:url|link|href|src))=["']([^"']+)["']/gi)) {
+      addFound(match[1]);
+    }
+    for (const match of context.matchAll(/(?:window\.open|location(?:\.href)?|window\.location(?:\.href)?)\s*\(\s*["']([^"']+)["']/gi)) {
+      addFound(match[1]);
+    }
+    for (const match of context.matchAll(/(?:window\.open|location(?:\.href)?|window\.location(?:\.href)?)\s*=\s*["']([^"']+)["']/gi)) {
+      addFound(match[1]);
+    }
+    return found;
+  };
+
+  for (const qualityMatch of source.matchAll(/\b(1080p|720p|480p)\b/gi)) {
+    const quality = qualityMatch[1].toLowerCase();
+    const index = qualityMatch.index ?? 0;
+    const context = source.slice(Math.max(0, index - 2600), Math.min(source.length, index + 3600));
+    const candidates = extractActionUrls(context);
+
+    for (const candidate of candidates) {
+      add(quality, candidate);
+      if (out.some((item) => item.quality === quality)) break;
+    }
+
+    if (out.some((item) => item.quality === quality)) continue;
+
+    const idMatch =
+      context.match(/data-(?:id|link-id|quality-id)=["'](\d+)["']/i) ||
+      context.match(/(?:linkId|qualityId|downloadId)\s*[:=]\s*["']?(\d+)/i);
+    if (idMatch) add(quality, "/link/" + idMatch[1]);
+  }
+
   for (const match of source.matchAll(/<a\b([^>]*)href=["']([^"']*\/link\/\d+[^"']*)["']([^>]*)>([\s\S]*?)<\/a>/gi)) {
     const index = match.index ?? 0;
     const context = source.slice(Math.max(0, index - 900), Math.min(source.length, index + match[0].length + 1200));
@@ -243,7 +286,6 @@ function extractQualities(html, base) {
     add(label, match[2]);
   }
 
-  // Reference-compatible fallback: Akwam groups quality links under tab-content/quality.
   for (const quality of QUALITY_ORDER) {
     const re = new RegExp(
       "tab-content[^>]*\\bquality\\b[\\s\\S]{0,3500}?\\b" + quality + "\\b[\\s\\S]{0,3500}?<a\\b[^>]*href=[\\\"']([^\\\"']*\\/link\\/\\d+[^\\\"']*)",
@@ -253,21 +295,11 @@ function extractQualities(html, base) {
     if (match) add(quality, match[1]);
   }
 
-  // Last fallback: correlate a visible quality label with the nearest link URL.
-  for (const quality of QUALITY_ORDER) {
-    if (out.some((item) => item.quality === quality)) continue;
-    const labelMatch = source.match(new RegExp("\\b" + quality + "\\b", "i"));
-    if (!labelMatch) continue;
-    const start = Math.max(0, (labelMatch.index ?? 0) - 2200);
-    const end = Math.min(source.length, (labelMatch.index ?? 0) + 2200);
-    const context = source.slice(start, end);
-    const href = context.match(/(?:href|data-(?:url|link))=["']([^"']*\/link\/\d+[^"']*)["']/i)?.[1];
-    if (href) add(quality, href);
-  }
-
   diagnostic(
     "AKWAM_QUALITY",
-    `links=${(source.match(/\/link\/\d+/gi) || []).length} visibleQualities=${JSON.stringify(source.match(/\b(?:1080p|720p|480p)\b/gi) || [])} extracted=${JSON.stringify(out)}`,
+    "links=" + (source.match(/\/link\/\d+/gi) || []).length +
+      " visibleQualities=" + JSON.stringify(source.match(/\b(?:1080p|720p|480p)\b/gi) || []) +
+      " extracted=" + JSON.stringify(out),
   );
 
   return out.sort((a, b) => QUALITY_ORDER.indexOf(a.quality) - QUALITY_ORDER.indexOf(b.quality));
