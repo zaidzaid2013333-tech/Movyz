@@ -2,6 +2,8 @@ name: Live Worker playback smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 jobs:
   live:
