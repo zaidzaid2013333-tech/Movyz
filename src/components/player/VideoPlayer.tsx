@@ -351,21 +351,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       try {
         let response;
         let lastLoadError;
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          try {
-            response = await MovyzaApi.getWatchSources(
-              safeTmdbId,
-              isMovie ? 'movie' : 'series',
-              seasonNumber,
-              episodeNumber,
-            );
-            break;
-          } catch (requestError) {
-            lastLoadError = requestError;
-            if (attempt === 0) {
-              await new Promise((resolve) => window.setTimeout(resolve, 900));
-            }
-          }
+        try {
+          response = await MovyzaApi.getWatchSources(
+            safeTmdbId,
+            isMovie ? 'movie' : 'series',
+            seasonNumber,
+            episodeNumber,
+          );
+        } catch (requestError) {
+          // The API resolver already owns provider failover. Do not blindly
+          // retry the same request, which would recreate Browser Run work.
+          lastLoadError = requestError;
         }
 
         if (!response) {
