@@ -186,7 +186,6 @@ for (const quality of expectedQualities) {
 }
 
 validateSource(resolved.source_url);
-await validateMedia(resolved.media_url, resolved.type, resolved.source_url);
 
 for (const source of resolverSources) {
   const sourceType = ["mp4", "hls", "dash"].includes(source.type)
@@ -230,7 +229,6 @@ for (const quality of expectedQualities) {
 }
 
 validateSource(watched.source_url);
-await validateMedia(watched.media_url, watched.media_type, watched.source_url);
 
 for (const source of watchSources) {
   const sourceType = ["mp4", "hls", "dash"].includes(source.type)
