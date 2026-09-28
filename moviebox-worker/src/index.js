@@ -854,6 +854,8 @@ export default {
           source_url: stream.source_url || clean(payload?.source_url),
           media_url: stream.url,
           media_type: stream.type,
+          qualities: Array.isArray(stream.qualities) ? stream.qualities : [],
+          sources: Array.isArray(stream.sources) ? stream.sources : [],
           stream,
         });
       }
