@@ -431,6 +431,14 @@ async function resolveViaAkwamResolver(payload, type) {
   }
 }
 
+async function resolveDiscoveredAkwamContent(payload, type, source) {
+  console.warn("AKWAM_DISCOVERY: resolving real Akwam content_url from AbdoBest");
+  return await resolveViaAkwamResolver({
+    ...payload,
+    content_url: source,
+  }, type);
+}
+
 async function resolveMovie(payload) {
   const directSource = normalizeAkwamUrl(payload?.source_url);
   if (directSource) {
@@ -496,6 +504,14 @@ async function resolveMovie(payload) {
 
   let lastErrorExtract = null;
   for (const source of best.urls.slice(0, 3)) {
+    try {
+      // Akwam can rate-limit title search. AbdoBest's real Akwam page is a
+      // discovery fallback only; the dedicated resolver still owns extraction.
+      return await resolveDiscoveredAkwamContent(payload, "movie", source);
+    } catch (error) {
+      console.warn("AKWAM_DISCOVERY resolver fallback:", error instanceof Error ? error.message : String(error));
+    }
+
     try {
       const stream = await abdoExtract(source);
       return {
@@ -579,6 +595,12 @@ async function resolveEpisode(payload) {
 
   let lastError = null;
   for (const source of found.urls.slice(0, 3)) {
+    try {
+      return await resolveDiscoveredAkwamContent(payload, "series", source);
+    } catch (error) {
+      console.warn("AKWAM_DISCOVERY episode resolver fallback:", error instanceof Error ? error.message : String(error));
+    }
+
     try {
       const stream = await abdoExtract(source);
       return {
