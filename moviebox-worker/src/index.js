@@ -182,7 +182,7 @@ function mediaUrlOf(payload) {
   }) || "";
 }
 
-function sourceUrlsOf(item) {
+// Episode sources may arrive as escaped strings or mirror-host URLs from AbdoBest.\nfunction sourceUrlsOf(item) {
   const found = [];
   const seen = new Set();
 
