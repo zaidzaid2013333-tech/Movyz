@@ -119,7 +119,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const handleSelectEpisode = (newSeason: number, newEpisode: number) => {
     setSeasonNum(newSeason);
     setEpisodeNum(newEpisode);
-    onNavigate(`/watch/${contentId}?season=${newSeason}&episode=${newEpisode}`);
+    onNavigate(`/watch/${contentId}?type=series&season=${newSeason}&episode=${newEpisode}`);
   };
 
   const handleShare = () => {
@@ -143,7 +143,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       <div className="min-h-[60vh] flex items-center justify-center p-4">
         <ErrorState
           message={error || undefined}
-          onRetry={() => onNavigate(`/watch/${contentId}`)}
+          onRetry={() => onNavigate(`/watch/${contentId}?type=${contentTypeParam || (content?.type === 'series' ? 'series' : 'movie')}`)}
           onGoHome={() => onNavigate('/')}
         />
       </div>
