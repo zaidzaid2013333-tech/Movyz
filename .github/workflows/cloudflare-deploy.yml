@@ -6,6 +6,10 @@ on:
     paths-ignore:
       - "supabase/**"
       - ".github/workflows/tmdb-sync.yml"
+      - "moviebox-worker/**"
+      - "akwam-resolver-worker/**"
+      - ".github/scripts/verify-akwam-playback.mjs"
+      - ".github/workflows/watch-api-deploy.yml"
   workflow_dispatch:
 
 permissions:
@@ -55,7 +59,6 @@ jobs:
       - name: Validate Cloudflare configuration
         run: |
           npx wrangler deploy --dry-run
-          npx wrangler deploy --config akwam-resolver-worker/wrangler.toml --dry-run
 
       - name: Prepare deployment secrets
         run: |
@@ -69,13 +72,6 @@ jobs:
       - name: Deploy Movyz
         run: npx wrangler deploy --secrets-file .env.production
 
-      - name: Deploy Akwam Resolver
-        run: npx wrangler deploy --config akwam-resolver-worker/wrangler.toml
-
-      # This is a real Browser Run/Akwam media verification, not a health check.
-      - name: Verify deployed Akwam direct playback
-        run: |
-          node .github/scripts/verify-akwam-playback.mjs
 
       - name: Remove temporary secrets file
         if: always()

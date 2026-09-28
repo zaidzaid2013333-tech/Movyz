@@ -38,9 +38,6 @@ jobs:
         run: |
           node --check moviebox-worker/src/index.js
 
-      - name: Install Watch API dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-
       - name: Cloudflare dry run
         run: |
           npx --yes wrangler@4 deploy --config moviebox-worker/wrangler.toml --dry-run

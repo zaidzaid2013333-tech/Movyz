@@ -1,109 +1,125 @@
-// Production E2E test using a real, public Akwam content page as a deterministic fixture.
-// A passing run still requires the resolver and Watch API to return real direct media.
 const RESOLVER_BASE = (process.env.AKWAM_RESOLVER_BASE ||
-  'https://movyz-akwam-resolver.sameranede.workers.dev').replace(/\/+$/, '');
+  "https://movyz-akwam-resolver.sameranede.workers.dev").replace(/\/+$/, "");
 const WATCH_BASE = (process.env.WATCH_API_BASE ||
-  'https://movyz-moviebox.sameranede.workers.dev').replace(/\/+$/, '');
+  "https://movyz-moviebox.sameranede.workers.dev").replace(/\/+$/, "");
+
 const fixture = {
-  title: 'Inception',
+  title: "Inception",
   year: 2010,
-  type: 'movie',
+  type: "movie",
   tmdb_id: 27205,
-  content_url: 'https://akwam.it/movie/562/inception-1',
-  source_url: 'https://akwam.it/movie/562/inception-1',
+  content_url: "https://akwam.it/movie/562/inception-1",
+  source_url: "https://akwam.it/movie/562/inception-1",
 };
 
 function isHttp(value) {
-  return typeof value === 'string' && /^https:\/\//i.test(value);
+  return typeof value === "string" && /^https:\/\//i.test(value);
 }
 
-function isDirectMediaUrl(value) {
-  if (!isHttp(value) || /\/(?:download|file)\//i.test(value)) return false;
-  return /(?:\.(?:mp4|m3u8|mpd)(?:[?#]|$)|(?:mp4|m3u8|mpd)(?:[?#=&]|$))/i.test(value);
+function validateSource(value) {
+  if (!isHttp(value)) throw new Error("source_url is not HTTPS: " + value);
+  const host = new URL(value).hostname.toLowerCase();
+  const allowed = [
+    "ak.sv", "akwam.it", "go.akwam.it", "akwam.ss",
+    "akwam.ee", "akwam.com.co", "go.akwam.com.co", "downet.net",
+  ];
+  if (!allowed.some((base) => host === base || host.endsWith("." + base))) {
+    throw new Error("source_url is not an allowed Akwam host: " + host);
+  }
 }
 
-function streamType(url) {
-  if (/m3u8/i.test(url)) return 'hls';
-  if (/mpd/i.test(url)) return 'dash';
-  return 'mp4';
-}
-
-async function fetchWithTimeout(url, init = {}, ms = 60_000) {
-  return fetch(url, { ...init, signal: AbortSignal.timeout(ms), redirect: 'follow' });
+function inferType(url, contentType, contentDisposition, sample) {
+  const ct = String(contentType || "").toLowerCase();
+  const u = String(url || "").toLowerCase();
+  const cd = String(contentDisposition || "").toLowerCase();
+  if (/mpegurl|vnd\.apple\.mpegurl/.test(ct) || /#extm3u/i.test(sample)) return "hls";
+  if (/dash\+xml|application\/dash/.test(ct) || /<\s*mpd\b/i.test(sample)) return "dash";
+  if (/^video\//.test(ct) || /\.(?:mp4|m4v|webm)(?:[?#]|$)/.test(u) ||
+      /\.(?:mp4|m4v|webm)(?:[?#]|$)/.test(cd) || /ftyp/i.test(sample.slice(0, 64))) return "mp4";
+  return "";
 }
 
 async function jsonResponse(response, name) {
   const text = await response.text();
   let body;
   try { body = JSON.parse(text); } catch {
-    throw new Error(`${name} returned non-JSON HTTP ${response.status}: ${text.slice(0, 800)}`);
+    throw new Error(name + " returned non-JSON HTTP " + response.status + ": " + text.slice(0, 800));
   }
-  if (!response.ok) throw new Error(`${name} HTTP ${response.status}: ${text.slice(0, 1600)}`);
+  if (!response.ok) throw new Error(name + " HTTP " + response.status + ": " + text.slice(0, 1600));
   return body;
 }
 
-async function validateMedia(url, expectedType) {
-  if (!isDirectMediaUrl(url)) throw new Error(`media_url is not a direct MP4/M3U8/MPD URL: ${url}`);
-  const response = await fetchWithTimeout(url, {
-    headers: { Accept: '*/*', Range: 'bytes=0-1023' },
-  }, 60_000);
+async function validateMedia(url, expectedType, referer) {
+  if (!isHttp(url)) throw new Error("media_url is not HTTPS: " + url);
+  const response = await fetch(url, {
+    headers: {
+      Accept: "*/*",
+      Range: "bytes=0-1023",
+      ...(referer ? { Referer: referer } : {}),
+    },
+    redirect: "follow",
+    signal: AbortSignal.timeout(60_000),
+  });
+
   const finalUrl = response.url || url;
-  const contentType = (response.headers.get('content-type') || '').toLowerCase();
-  let sample = '';
-  let byteLength = 0;
+  const contentType = (response.headers.get("content-type") || "").toLowerCase();
+  const contentDisposition = response.headers.get("content-disposition") || "";
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const sample = new TextDecoder().decode(bytes.slice(0, 1024));
 
-  if (expectedType === 'hls' || expectedType === 'dash' ||
-      /mpegurl|dash\+xml|text\//i.test(contentType)) {
-    sample = await response.text();
-    byteLength = sample.length;
-  } else {
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    byteLength = bytes.byteLength;
-    sample = new TextDecoder().decode(bytes.slice(0, 512));
+  console.log("AKWAM_MEDIA_CHECK", response.status, finalUrl, contentType,
+    "bytes=" + bytes.byteLength);
+
+  if (!response.ok || response.status === 204) {
+    throw new Error("media_url unavailable: HTTP " + response.status + " " + finalUrl);
+  }
+  if (/text\/html|application\/xhtml/.test(contentType) ||
+      /<\s*(?:!doctype\s+html|html)\b/i.test(sample.slice(0, 512))) {
+    throw new Error("media_url returned HTML/challenge: " + finalUrl);
   }
 
-  console.log('AKWAM_MEDIA_CHECK', response.status, finalUrl, contentType, 'bytes=' + byteLength);
-  if (!response.ok || response.status === 204) throw new Error(`media_url is unavailable: HTTP ${response.status} ${finalUrl}`);
-  if (!isDirectMediaUrl(finalUrl)) throw new Error(`media_url redirected to a non-media page: ${finalUrl}`);
-  if (/text\/html|application\/xhtml|text\/plain/.test(contentType) ||
-      /<\s*!doctype html|<\s*html\b/i.test(sample.slice(0, 512))) {
-    throw new Error(`media_url returned HTML rather than media: ${finalUrl}`);
+  const actualType = inferType(finalUrl, contentType, contentDisposition, sample);
+  if (!actualType) throw new Error("media_url response is not recognized media: " + finalUrl);
+  if (expectedType !== actualType) {
+    throw new Error("media type mismatch: resolver=" + expectedType +
+      " actual=" + actualType + " url=" + finalUrl);
   }
-  if (expectedType !== streamType(finalUrl) && expectedType !== streamType(url)) {
-    throw new Error(`media type mismatch: resolver=${expectedType}, URL=${finalUrl}`);
-  }
+
+  return { finalUrl, contentType, actualType, bytes: bytes.byteLength };
 }
-let resolverResponse = await fetchWithTimeout(RESOLVER_BASE + '/resolve', {
-  method: 'POST',
-  headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+
+const resolverResponse = await fetch(RESOLVER_BASE + "/resolve", {
+  method: "POST",
+  headers: { Accept: "application/json", "Content-Type": "application/json" },
   body: JSON.stringify(fixture),
-}, 120_000);
-let resolved;
-try {
-  resolved = await jsonResponse(resolverResponse, 'Akwam resolver');
-} catch (error) {
-  throw error;
-}
-console.log('AKWAM_RESOLVER_RESPONSE', JSON.stringify(resolved));
+  signal: AbortSignal.timeout(120_000),
+});
+const resolved = await jsonResponse(resolverResponse, "Akwam resolver");
+console.log("AKWAM_RESOLVER_RESPONSE", JSON.stringify(resolved));
 
-if (!resolved?.ok || !isHttp(resolved.source_url) || !isDirectMediaUrl(resolved.media_url) ||
-    !['mp4', 'hls', 'dash'].includes(resolved.type)) {
-  throw new Error('Resolver did not return ok:true plus a real source_url, media_url, and supported type');
+if (!resolved?.ok || !isHttp(resolved.source_url) ||
+    !isHttp(resolved.media_url) ||
+    !["mp4", "hls", "dash"].includes(resolved.type)) {
+  throw new Error("Resolver did not return a valid direct-media contract");
 }
-await validateSource(resolved.source_url);
-await validateMedia(resolved.media_url, resolved.type);
+validateSource(resolved.source_url);
+await validateMedia(resolved.media_url, resolved.type, resolved.source_url);
 
-const watchResponse = await fetchWithTimeout(WATCH_BASE + '/watch/movie', {
-  method: 'POST',
-  headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+const watchResponse = await fetch(WATCH_BASE + "/watch/movie", {
+  method: "POST",
+  headers: { Accept: "application/json", "Content-Type": "application/json" },
   body: JSON.stringify(fixture),
-}, 120_000);
-const watched = await jsonResponse(watchResponse, 'Watch API');
-console.log('AKWAM_WATCH_RESPONSE', JSON.stringify(watched));
-if (!watched?.ok || !isHttp(watched.source_url) || !isDirectMediaUrl(watched.media_url) ||
-    !['mp4', 'hls', 'dash'].includes(watched.media_type)) {
-  throw new Error('Watch API did not return a direct Akwam media contract');
+  signal: AbortSignal.timeout(120_000),
+});
+const watched = await jsonResponse(watchResponse, "Watch API");
+console.log("AKWAM_WATCH_RESPONSE", JSON.stringify(watched));
+
+if (!watched?.ok || !isHttp(watched.source_url) ||
+    !isHttp(watched.media_url) ||
+    !["mp4", "hls", "dash"].includes(watched.media_type)) {
+  throw new Error("Watch API did not return a valid direct-media contract");
 }
-await validateSource(watched.source_url);
-await validateMedia(watched.media_url, watched.media_type);
-console.log('AKWAM_PLAYBACK_E2E=PASS');
+validateSource(watched.source_url);
+await validateMedia(watched.media_url, watched.media_type, watched.source_url);
+
+console.log("AKWAM_PLAYBACK_E2E=PASS");

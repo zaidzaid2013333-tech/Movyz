@@ -20,6 +20,9 @@ const PAGE_HOSTS = new Set([
 const QUALITY_ORDER = ["1080p", "720p", "480p"];
 const MAX_REDIRECTS = 6;
 const SEARCH_BACKOFF_MS = [750, 1_750];
+const PLAYBACK_CACHE_TTL_MS = 90_000;
+const playbackCache = new Map();
+const playbackInflight = new Map();
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -369,40 +372,95 @@ function extractDownloadUrl(html, base) {
     String(html).match(/(?:href|data-(?:url|link))=["']([^"']*\/download\/[^"']*)["']/i);
   return safeUrl(match?.[1] || match?.[0], base, { pageOnly: true });
 }
+function normalizeFinalCandidate(rawValue, base) {
+  let value = String(rawValue || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#x2f;|&#47;/gi, "/")
+    .replace(/\\\//g, "/")
+    .trim()
+    .replace(/^['"]|['"]$/g, "");
+  if (!value || /^(?:javascript:|data:|blob:)/i.test(value)) return "";
+  if (value.startsWith("//")) value = "https:" + value;
+  return safeUrl(value, base);
+}
+
 function extractFinalMediaUrl(html, base) {
-  const matches = String(html).matchAll(/https?:\\?\/\\?\/[^"'<>\s]+/gi);
-  for (const match of matches) {
-    const url = safeUrl(match[0].replace(/\\\//g, "/"), base);
-    // Akwam can put the final download route in script state without a file
-    // extension. It is only accepted after validateMediaUrl verifies bytes and
-    // MIME; /link pages never qualify as a final candidate.
-    if (url && !/\/link\/\d+(?:[/?#]|$)/i.test(url) &&
-        (looksLikeMediaUrl(url) || /\/download\//i.test(url))) return url;
+  const source = String(html);
+  const found = [];
+  const seen = new Set();
+  const add = (raw) => {
+    const url = normalizeFinalCandidate(raw, base);
+    if (!url || seen.has(url) || /\/link\/\d+(?:[/?#]|$)/i.test(url)) return;
+    seen.add(url);
+    found.push(url);
+  };
+
+  for (const match of source.matchAll(/<[^>]*class=["'][^"']*\bbtn-loader\b[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*(?:href|data-(?:url|link|href|src))=["']([^"']+)["'][^>]*>/gi)) {
+    add(match[1]);
   }
+  if (found.length) return found[0];
+
+  for (const match of source.matchAll(/<a\b[^>]*(?:href|data-(?:url|link|href|src))=["']([^"']+)["'][^>]*>/gi)) add(match[1]);
+  for (const match of source.matchAll(/(?:window\.open|location(?:\.href)?|window\.location(?:\.href)?)\s*(?:\(|=)\s*["']([^"']+)["']/gi)) add(match[1]);
+
+  found.sort((a, b) => {
+    const score = (url) => (looksLikeMediaUrl(url) ? 100 : 0) + (/\/download\//i.test(url) ? 60 : 0);
+    return score(b) - score(a);
+  });
+
+  return found[0] || "";
+}
+
+function inferMediaType(url, contentType, contentDisposition, sample) {
+  const ct = String(contentType || "").toLowerCase();
+  const value = String(url || "").toLowerCase();
+  const cd = String(contentDisposition || "").toLowerCase();
+  if (/mpegurl|vnd\.apple\.mpegurl/.test(ct) || /#extm3u/i.test(sample)) return "hls";
+  if (/dash\+xml|application\/dash/.test(ct) || /<\s*mpd\b/i.test(sample)) return "dash";
+  if (/^video\//.test(ct) || /\.(?:mp4|m4v|webm)(?:[?#]|$)/.test(value) || /\.(?:mp4|m4v|webm)(?:[?#]|$)/.test(cd) || /ftyp/i.test(sample.slice(0, 64))) return "mp4";
   return "";
 }
-async function validateMediaUrl(initialUrl) {
-  let url = safeUrl(initialUrl, AKWAM_BASE); if (!url) throw new Error("AKWAM_FINAL_MEDIA: unsafe URL");
+
+async function validateMediaUrl(initialUrl, referer = "") {
+  let url = safeUrl(initialUrl, AKWAM_BASE);
+  if (!url) throw new Error("AKWAM_FINAL_MEDIA: unsafe URL");
   for (let count = 0; count <= MAX_REDIRECTS; count += 1) {
     diagnostic("AKWAM_FINAL_MEDIA", url);
-    const response = await fetch(url, { headers: { Accept: "*/*", Range: "bytes=0-1023", "User-Agent": UA }, redirect: "manual", signal: AbortSignal.timeout(30_000) });
-    if ([301, 302, 303, 307, 308].includes(response.status)) { const next = safeUrl(response.headers.get("location"), url); if (!next) throw new Error("AKWAM_FINAL_MEDIA: unsafe redirect"); url = next; continue; }
-    if (!response.ok) throw new Error(`AKWAM_FINAL_MEDIA: HTTP ${response.status}`);
-    const contentType = (response.headers.get("content-type") || "").toLowerCase();
-    const type = /mpegurl|m3u8/.test(contentType) ? "hls" : /dash\+xml|mpd/.test(contentType) ? "dash" : mediaTypeFromUrl(url);
-    let sample = "";
-    if (type === "hls" || type === "dash" || /mpegurl|dash\+xml|text\//.test(contentType)) {
-      sample = await response.text();
-    } else {
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      sample = new TextDecoder().decode(bytes.slice(0, 512));
+    const headers = {
+      Accept: "*/*",
+      Range: "bytes=0-1023",
+      "User-Agent": UA,
+      ...(referer ? { Referer: referer } : {}),
+    };
+    const response = await fetch(url, {
+      headers,
+      redirect: "manual",
+      signal: AbortSignal.timeout(30_000),
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const next = safeUrl(response.headers.get("location"), url);
+      if (!next) throw new Error("AKWAM_FINAL_MEDIA: unsafe redirect");
+      url = next;
+      continue;
     }
-    if (challengePage(sample) || /text\/html|application\/xhtml/.test(contentType) || /<\s*(?:!doctype\s+html|html)\b/i.test(sample.slice(0, 512))) {
+    if (!response.ok) throw new Error("AKWAM_FINAL_MEDIA: HTTP " + response.status);
+
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    const contentDisposition = response.headers.get("content-disposition") || "";
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const sample = new TextDecoder().decode(bytes.slice(0, 1024));
+
+    if (!bytes.byteLength) throw new Error("AKWAM_FINAL_MEDIA: media response is empty");
+    if (challengePage(sample) || /text\/html|application\/xhtml/.test(contentType) ||
+        /<\s*(?:!doctype\s+html|html)\b/i.test(sample.slice(0, 512))) {
       throw new Error("AKWAM_FINAL_MEDIA: HTML/challenge response");
     }
-    if (!looksLikeMediaUrl(url) && !/^video\//.test(contentType) && !/mpegurl|dash\+xml/.test(contentType)) {
-      throw new Error("AKWAM_FINAL_MEDIA: response is not recognized media");
-    }
+
+    const type = inferMediaType(url, contentType, contentDisposition, sample);
+    diagnostic("AKWAM_FINAL_MEDIA", "status=" + response.status + " type=" + (type || "unknown") + " contentType=" + contentType + " bytes=" + bytes.byteLength);
+    if (!type) throw new Error("AKWAM_FINAL_MEDIA: response is not recognized media");
     return { media_url: url, type, content_type: contentType };
   }
   throw new Error("AKWAM_FINAL_MEDIA: redirect limit exceeded");
@@ -413,7 +471,7 @@ async function resolveQuality(browser, quality) {
     const downloadPage = await getContentPageResilient(browser, quality.url, "AKWAM_DOWNLOAD");
     const finalUrl = extractFinalMediaUrl(downloadPage.html, downloadPage.url);
     if (!finalUrl) throw new Error("AKWAM_FINAL_MEDIA: no media URL on direct download page");
-    return { ...(await validateMediaUrl(finalUrl)), quality: quality.quality };
+    return { ...(await validateMediaUrl(finalUrl, downloadPage.url)), quality: quality.quality };
   }
 
   const link = await getContentPageResilient(browser, quality.url, "AKWAM_LINK");
@@ -423,8 +481,34 @@ async function resolveQuality(browser, quality) {
   const download = await getContentPageResilient(browser, downloadUrl, "AKWAM_DOWNLOAD");
   const finalUrl = extractFinalMediaUrl(download.html, download.url);
   if (!finalUrl) throw new Error("AKWAM_FINAL_MEDIA: no media URL on download page");
-  return { ...(await validateMediaUrl(finalUrl)), quality: quality.quality };
+  return { ...(await validateMediaUrl(finalUrl, download.url)), quality: quality.quality };
 }
+async function resolveAkwamCached(browser, payload) {
+  const key = JSON.stringify({
+    content_url: clean(payload?.content_url || payload?.contentUrl),
+    title: normalizeTitle(payload?.title),
+    year: Number(payload?.year) || 0,
+    type: payload?.type === "series" ? "series" : "movie",
+    season: Number(payload?.season) || 0,
+    episode: Number(payload?.episode) || 0,
+  });
+  const cached = playbackCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const inflight = playbackInflight.get(key);
+  if (inflight) return await inflight;
+  const task = (async () => {
+    const value = await resolveAkwam(browser, payload);
+    playbackCache.set(key, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
+    return value;
+  })();
+  playbackInflight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    playbackInflight.delete(key);
+  }
+}
+
 async function resolveAkwam(browser, payload) {
   const directContent = decodeContentUrl(payload);
   const entry = directContent ? { title: clean(payload?.title), url: directContent } : await searchAkwam(browser, payload);
@@ -473,6 +557,6 @@ export default { async fetch(request, env) {
   let payload; try { payload = await request.json(); } catch { return json({ ok: false, error: "Valid JSON body required" }, 400); }
   if (!clean(payload?.title) && !decodeContentUrl(payload)) return json({ ok: false, error: "title or Akwam content_url is required" }, 400);
   if (!env.BROWSER?.quickAction) return json({ ok: false, error: "Browser Run Quick Actions unavailable" }, 500);
-  try { return json({ ok: true, ...(await resolveAkwam(env.BROWSER, { ...payload, type: payload?.type === "series" ? "series" : "movie" })) }); }
+  try { return json({ ok: true, ...(await resolveAkwamCached(env.BROWSER, { ...payload, type: payload?.type === "series" ? "series" : "movie" })) }); }
   catch (error) { const message = error instanceof Error ? error.message : String(error); diagnostic("AKWAM_FAILED", message); return json({ ok: false, error: message }, 502); }
 } };

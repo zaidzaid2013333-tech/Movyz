@@ -398,7 +398,7 @@ async function resolveViaAkwamResolver(payload, type) {
       throw new Error(data?.error || `Akwam resolver HTTP ${response.status}`);
     }
 
-    if (isLikelyMediaUrl(data.media_url)) {
+    if (typeof data.media_url === "string" && /^https?:\/\//i.test(data.media_url)) {
       const typeOfStream = ["mp4", "hls", "dash", "webm"].includes(data.type)
         ? data.type
         : detectStreamType(data.media_url);
