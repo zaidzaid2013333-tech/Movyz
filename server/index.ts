@@ -403,6 +403,68 @@ export function setWatchApiFetch(fetcher: typeof fetch): void {
   watchApiFetch = fetcher;
 }
 
+type WatchSourceCacheEntry = {
+  sources: any[];
+  expiresAt: number;
+};
+
+const watchSourceCache = new Map<string, WatchSourceCacheEntry>();
+const watchSourceInflight = new Map<string, Promise<any[]>>();
+const WATCH_SOURCE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function watchSourceCacheKey(
+  mediaType: 'movie' | 'series',
+  tmdbId: number,
+  season?: number,
+  episode?: number,
+) {
+  return [
+    mediaType,
+    tmdbId,
+    season ?? '',
+    episode ?? '',
+  ].join(':');
+}
+
+function getFreshWatchCache(key: string) {
+  const entry = watchSourceCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    watchSourceCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+async function resolveWatchSourcesWithCache(
+  key: string,
+  resolver: () => Promise<any[]>,
+) {
+  const cached = getFreshWatchCache(key);
+  if (cached) {
+    return { sources: cached.sources, cacheStatus: 'HIT' as const };
+  }
+
+  const existing = watchSourceInflight.get(key);
+  if (existing) {
+    return { sources: await existing, cacheStatus: 'COALESCED' as const };
+  }
+
+  const pending = resolver();
+  watchSourceInflight.set(key, pending);
+
+  try {
+    const sources = await pending;
+    watchSourceCache.set(key, {
+      sources,
+      expiresAt: Date.now() + WATCH_SOURCE_CACHE_TTL_MS,
+    });
+    return { sources, cacheStatus: 'MISS' as const };
+  } finally {
+    watchSourceInflight.delete(key);
+  }
+}
+
 function streamTypeFromUrl(url: string) {
   const value = String(url || '').toLowerCase();
   if (value.includes('.m3u8')) return 'hls';
@@ -506,48 +568,66 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       year = series.first_air_date ? Number(String(series.first_air_date).slice(0, 4)) : undefined;
     }
 
-    const response = await watchApiFetch(
-      `${WATCH_API_BASE}${mediaType === 'movie' ? '/watch/movie' : '/watch/episode'}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'User-Agent': 'Movyz-AbdoBest-Proxy/1.0',
-          'Cache-Control': 'no-cache',
+    const cacheKey = watchSourceCacheKey(mediaType, tmdbId, season, episode);
+    let cacheStatus: 'HIT' | 'MISS' | 'COALESCED' = 'MISS';
+
+    const cachedResolution = await resolveWatchSourcesWithCache(cacheKey, async () => {
+      const response = await watchApiFetch(
+        `${WATCH_API_BASE}${mediaType === 'movie' ? '/watch/movie' : '/watch/episode'}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'User-Agent': 'Movyz-AbdoBest-Proxy/1.0',
+            'Cache-Control': 'no-cache',
+          },
+          body: JSON.stringify(
+            mediaType === 'movie'
+              ? {
+                  tmdb_id: tmdbId,
+                  title: titleEn || titleAr || originalTitle || title,
+                  title_en: titleEn,
+                  title_ar: titleAr,
+                  original_title: originalTitle,
+                  titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
+                  year,
+                }
+              : {
+                  tmdb_id: tmdbId,
+                  title: titleEn || title,
+                  year,
+                  season,
+                  episode,
+                },
+          ),
+          redirect: 'follow',
         },
-        body: JSON.stringify(
-          mediaType === 'movie'
-            ? {
-                tmdb_id: tmdbId,
-                title: titleEn || titleAr || originalTitle || title,
-                title_en: titleEn,
-                title_ar: titleAr,
-                original_title: originalTitle,
-                titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
-                year,
-              }
-            : {
-                tmdb_id: tmdbId,
-                title: titleEn || title,
-                year,
-                season,
-                episode,
-              },
-        ),
-        redirect: 'follow',
-      },
+      );
+
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok || !payload?.ok) {
+        const message = payload?.error || `Watch API request failed (${response.status})`;
+        console.error('[watch-api]', mediaType, tmdbId, message);
+        throw new Error(message);
+      }
+
+      const resolvedSources = normalizeWatchSources(payload);
+      if (!resolvedSources.length) {
+        throw new Error('No playable AbdoBest source is currently available');
+      }
+
+      return resolvedSources;
+    });
+
+    cacheStatus = cachedResolution.cacheStatus;
+    const sources = cachedResolution.sources;
+    res.setHeader('x-movyz-watch-cache', cacheStatus);
+    res.setHeader(
+      'cache-control',
+      'public, max-age=15, s-maxage=300, stale-while-revalidate=60',
     );
-
-    const payload = await response.json().catch(() => null);
-
-    if (!response.ok || !payload?.ok) {
-      const message = payload?.error || `Watch API request failed (${response.status})`;
-      console.error('[watch-api]', mediaType, tmdbId, message);
-      return fail(res, 502, 'WATCH_API_FAILED', message);
-    }
-
-    const sources = normalizeWatchSources(payload);
 
     if (!sources.length) {
       return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable AbdoBest source is currently available');
