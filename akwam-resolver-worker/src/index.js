@@ -189,23 +189,54 @@ async function getContentPage(browser, url, stage) {
 function entryBlocks(html) { return [...String(html).matchAll(/<[^>]*class=["'][^"']*\bentry-box\b[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi)].map((m) => m[0]); }
 function searchEntries(html, base) {
   const source = String(html);
-  const cardMatches = [...source.matchAll(/<div[^>]*class=["'][^"']*\bentry-box\b[^"']*["'][^>]*>/gi)];
   const entries = [];
+  const seen = new Set();
+
+  const add = (title, href) => {
+    const cleanTitle = stripHtml(title);
+    const url = safeUrl(href, base, { pageOnly: true });
+    if (!cleanTitle || !url || seen.has(url)) return;
+    seen.add(url);
+    const year = Number((cleanTitle.match(/\b(19|20)\d{2}\b/) || [])[0]) || null;
+    entries.push({ title: cleanTitle, url, year });
+  };
+
+  // Current/legacy card markup.
+  const cardMatches = [...source.matchAll(
+    /<div[^>]*class=["'][^"']*\bentry-box\b[^"']*["'][^>]*>/gi,
+  )];
   for (let i = 0; i < cardMatches.length; i += 1) {
     const start = cardMatches[i].index ?? 0;
     const end = cardMatches[i + 1]?.index ?? source.length;
     const fragment = source.slice(start, end);
     const title =
-      stripHtml(fragment.match(/<h3[^>]*class=["'][^"']*\bentry-title\b[^"']*["'][^>]*>([\s\S]*?)<\/h3>/i)?.[1] || "") ||
-      stripHtml(fragment.match(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/i)?.[1] || "");
+      fragment.match(/<h3[^>]*class=["'][^"']*\bentry-title\b[^"']*["'][^>]*>([\s\S]*?)<\/h3>/i)?.[1] ||
+      fragment.match(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/i)?.[1] ||
+      "";
     const href =
       fragment.match(/<a[^>]*class=["'][^"']*\bbox\b[^"']*["'][^>]*href=["']([^"']+)/i)?.[1] ||
       fragment.match(/<a[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*\bbox\b/i)?.[1] ||
       fragment.match(/<a[^>]+href=["']([^"']+)["'][^>]*>/i)?.[1];
-    const url = safeUrl(href, base, { pageOnly: true });
-    const year = Number((stripHtml(fragment).match(/\b(19|20)\d{2}\b/) || [])[0]) || null;
-    if (title && url && !entries.some((entry) => entry.url === url)) entries.push({ title, url, year });
+    add(title, href);
   }
+
+  // Fallback for newer Akwam search markup: discover content links directly
+  // instead of relying on a specific CSS class.
+  for (const match of source.matchAll(
+    /<a\b([^>]*)href=["']([^"']*\/(?:series|movie)\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+  )) {
+    const href = match[2];
+    const text = stripHtml(match[3]);
+    add(text, href);
+  }
+
+  // Some cards keep the title in an attribute or adjacent heading.
+  for (const match of source.matchAll(
+    /<(?:h2|h3|h4)\b[^>]*>([\s\S]*?)<\/(?:h2|h3|h4)>[\s\S]{0,800}?<a\b[^>]*href=["']([^"']*\/(?:series|movie)\/[^"']+)["']/gi,
+  )) {
+    add(match[1], match[2]);
+  }
+
   return entries;
 }
 function scoreEntry(entry, payload) {
@@ -501,7 +532,7 @@ function normalizeFinalCandidate(rawValue, base) {
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&#x2f;|&#47;/gi, "/")
-    .replace(/\\\//g, "/")
+    .replace(/\\//g, "/")
     .trim()
     .replace(/^['"]|['"]$/g, "");
   if (!value || /^(?:javascript:|data:|blob:)/i.test(value)) return "";
@@ -549,8 +580,8 @@ function extractFinalMediaUrl(html, base) {
   )) add(match[1]);
 
   for (const match of source.matchAll(
-    /(?:file|src|source|url)\s*[:=]\s*["']((?:\\\/|[^"'])+)["']/gi,
-  )) add(String(match[1]).replace(/\\\//g, "/"));
+    /(?:file|src|source|url)\s*[:=]\s*["']((?:\\/|[^"'])+)["']/gi,
+  )) add(String(match[1]).replace(/\\//g, "/"));
 
   // Redirect/navigation code used by lightweight Akwam player pages.
   for (const match of source.matchAll(

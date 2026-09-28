@@ -543,7 +543,40 @@ async function resolveAkwamIframeOnly(payload, type, env) {
   const title = clean(payload?.title);
   if (!title) throw new Error("title is required");
 
-  const search = await abdoJson("/api/search?q=" + encodeURIComponent(title), { method: "GET" });
+  // Prefer the dedicated Akwam resolver for series. It searches Akwam directly
+  // and can resolve the requested season/episode without depending on AbdoBest.
+  if (type === "series") {
+    try {
+      const resolved = await resolveViaAkwamResolver(payload, "series", env);
+      const source = normalizeAkwamUrl(
+        resolved?.source_url || resolved?.page_url || resolved?.sourceUrl || "",
+      );
+      if (source && isAkwamUrl(source)) {
+        return build(source, resolved?.title || resolved?.matched_title || title);
+      }
+    } catch (error) {
+      console.warn(
+        "AKWAM_IFRAME_DIRECT_RESOLVER_FALLBACK:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  let search;
+  try {
+    search = await abdoJson("/api/search?q=" + encodeURIComponent(title), { method: "GET" });
+  } catch (error) {
+    // AbdoBest search is an optional discovery fallback; do not let a 404/5xx
+    // prevent the direct Akwam path above from being used.
+    console.warn(
+      "ABDOBEST_SEARCH_UNAVAILABLE:",
+      error instanceof Error ? error.message : String(error),
+    );
+    throw new Error(
+      "Akwam episode discovery failed and AbdoBest search is unavailable: " +
+      (error instanceof Error ? error.message : String(error)),
+    );
+  }
   const ranked = asArray(search.body)
     .map((item) => ({ item, score: scoreMatch(item, payload) }))
     .filter((entry) => entry.score > 0)
