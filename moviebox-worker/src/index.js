@@ -543,6 +543,7 @@ async function resolveAkwamIframeOnly(payload, type, env) {
   if (!ranked.length) throw new Error("No Akwam series matched this title");
 
   const candidateErrors = [];
+  let lastEpisodeBody = null;
 
   // Search can return the same title under different AbdoBest categories/IDs.
   // Do not trust only ranked[0]; try the best matching unique candidates until
@@ -567,6 +568,7 @@ async function resolveAkwamIframeOnly(payload, type, env) {
 
     try {
       const episodes = await abdoJson(episodePath);
+      lastEpisodeBody = episodes.body;
       const found = findEpisode(episodes.body, season, episode);
       if (found?.urls?.length) {
         return build(found.urls[0], titleOf(match));
@@ -580,6 +582,30 @@ async function resolveAkwamIframeOnly(payload, type, env) {
         (error instanceof Error ? error.message : String(error)),
       );
     }
+  }
+
+  if (payload?.diagnostic === true) {
+    throw new Error(
+      "EPISODE_DIAGNOSTIC " +
+      JSON.stringify({
+        match: {
+          title: titleOf(ranked[0]?.item),
+          category: categoryOf(ranked[0]?.item),
+          id: firstString(ranked[0]?.item?.id, ranked[0]?.item?.ID),
+          tmdb_id: tmdbIdOf(ranked[0]?.item),
+        },
+        ranked: ranked.slice(0, 8).map((entry) => ({
+          title: titleOf(entry.item),
+          category: categoryOf(entry.item),
+          id: firstString(entry.item?.id, entry.item?.ID),
+          tmdb_id: tmdbIdOf(entry.item),
+          score: entry.score,
+        })),
+        candidates: candidateErrors,
+        catalog: summarizeEpisodePayload(lastEpisodeBody),
+        urls: collectEpisodeUrls(lastEpisodeBody),
+      }),
+    );
   }
 
   // AbdoBest's episode catalog is a useful fast path, but some series expose
@@ -771,6 +797,59 @@ function episodeUrlsOf(item) {
 
   visit(item);
   return found;
+}
+
+function summarizeEpisodePayload(value, depth = 0) {
+  if (depth > 4) return { type: Array.isArray(value) ? "array" : typeof value };
+
+  if (Array.isArray(value)) {
+    return {
+      type: "array",
+      length: value.length,
+      sample: value.slice(0, 3).map((item) => (
+        typeof item === "string"
+          ? item.slice(0, 500)
+          : summarizeEpisodePayload(item, depth + 1)
+      )),
+    };
+  }
+
+  if (value && typeof value === "object") {
+    const out = { type: "object", keys: Object.keys(value).slice(0, 40) };
+    for (const key of ["seasons", "episodes", "data", "response", "payload", "result"]) {
+      if (value[key] !== undefined) {
+        out[key] = summarizeEpisodePayload(value[key], depth + 1);
+      }
+    }
+    return out;
+  }
+
+  return {
+    type: typeof value,
+    value: typeof value === "string" ? value.slice(0, 500) : value,
+  };
+}
+
+function collectEpisodeUrls(value, out = [], seen = new Set(), depth = 0) {
+  if (depth > 8 || value == null) return out;
+  if (typeof value === "string") {
+    const raw = value.trim();
+    if (/^https?:\/\//i.test(raw) && !seen.has(raw)) {
+      seen.add(raw);
+      out.push(raw.slice(0, 800));
+    }
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 100)) collectEpisodeUrls(item, out, seen, depth + 1);
+    return out;
+  }
+  if (typeof value === "object") {
+    for (const child of Object.values(value).slice(0, 100)) {
+      collectEpisodeUrls(child, out, seen, depth + 1);
+    }
+  }
+  return out;
 }
 
 function findEpisode(payload, season, episode) {
