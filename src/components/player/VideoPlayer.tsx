@@ -419,16 +419,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     subtitleAutoShownRef.current = false;
   }, [streamUrl, selectedSourceId]);
 
-  const playerSource =
-    streamUrl
-      ? streamType === 'hls'
-        ? { src: streamUrl, type: 'application/x-mpegurl' as const }
-        : streamType === 'dash'
-          ? { src: streamUrl, type: 'application/dash+xml' as const }
-          : streamType === 'webm'
-            ? { src: streamUrl, type: 'video/webm' as const }
-            : { src: streamUrl, type: 'video/mp4' as const }
-      : undefined;
+  const playerSource = useMemo(() => {
+    if (!streamUrl) return undefined;
+    if (streamType === 'hls') {
+      return { src: streamUrl, type: 'application/x-mpegurl' as const };
+    }
+    if (streamType === 'dash') {
+      return { src: streamUrl, type: 'application/dash+xml' as const };
+    }
+    if (streamType === 'webm') {
+      return { src: streamUrl, type: 'video/webm' as const };
+    }
+    return { src: streamUrl, type: 'video/mp4' as const };
+  }, [streamUrl, streamType]);
 
   if (!safeTmdbId) {
     return (
