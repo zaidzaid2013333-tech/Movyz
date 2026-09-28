@@ -196,7 +196,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
                   <button
                     onClick={() =>
                       onNavigate(
-                        `/watch/${series.id}?season=${selectedSeasonNumber}&episode=1`
+                        `/watch/${series.id}?type=series&season=${selectedSeasonNumber}&episode=1`
                       )
                     }
                     className="min-h-[46px] px-8 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-sm flex items-center gap-3 shadow-xl shadow-amber-500/30 transition-all active:scale-[0.98] cursor-pointer"
@@ -314,7 +314,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
                 key={episode.id}
                 onClick={() =>
                   onNavigate(
-                    `/watch/${series.id}?season=${selectedSeasonNumber}&episode=${episode.episodeNumber}`
+                    `/watch/${series.id}?type=series&season=${selectedSeasonNumber}&episode=${episode.episodeNumber}`
                   )
                 }
                 className="group relative rounded-2xl bg-[#0c0e15] border border-amber-500/15 hover:border-amber-500/50 overflow-hidden transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/10 cursor-pointer flex flex-col"

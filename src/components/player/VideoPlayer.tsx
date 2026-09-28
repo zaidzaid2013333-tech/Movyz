@@ -45,7 +45,9 @@ type SubtitleTrack = {
 };
 
 const DIRECT_WATCH_API_BASE = 'https://movyz-moviebox.sameranede.workers.dev';
-// AbdoBest remains the single playback source. Movyza accepts direct media URLs only.
+const SOURCE_CACHE_TTL_MS = 45_000;
+const sourceCache = new Map<string, { expiresAt: number; data: PlaybackSource[] }>();
+const sourceInflight = new Map<string, Promise<PlaybackSource[]>>();
 
 type PlaybackSource = {
   id: string;
@@ -58,75 +60,52 @@ type PlaybackSource = {
   provider: string;
   providerKey?: string;
   providerReference?: string;
+  sourceUrl?: string;
   subtitleTracks?: SubtitleTrack[];
 };
 
-async function fetchAbdoBestFallbackSources(args: {
+function sourceKey(args: { tmdbId: number; contentType: 'movie' | 'series'; season?: number; episode?: number }) {
+  return [args.tmdbId, args.contentType, args.season ?? '', args.episode ?? ''].join('|');
+}
+
+async function fetchWatchSourcesCached(args: {
   tmdbId: number;
   contentType: 'movie' | 'series';
-  title: string;
-  titleEn: string;
   season?: number;
   episode?: number;
 }): Promise<PlaybackSource[]> {
-  const isMovie = args.contentType === 'movie';
-  const payload = isMovie
-    ? {
-        tmdb_id: args.tmdbId,
-        title: args.titleEn || args.title,
-        title_en: args.titleEn,
-        title_ar: args.title,
-        titles: [args.titleEn, args.title].filter(Boolean),
-      }
-    : {
-        tmdb_id: args.tmdbId,
-        title: args.titleEn || args.title,
-        title_en: args.titleEn,
-        title_ar: args.title,
-        titles: [args.titleEn, args.title].filter(Boolean),
-        season: args.season,
-        episode: args.episode,
-      };
+  const key = sourceKey(args);
+  const cached = sourceCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
 
-  const response = await fetch(
-    DIRECT_WATCH_API_BASE + (isMovie ? '/watch/movie' : '/watch/episode'),
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(payload),
-    },
-  );
+  const existing = sourceInflight.get(key);
+  if (existing) return existing;
 
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !body?.ok) {
-    throw new Error(body?.error || `AbdoBest fallback failed (${response.status})`);
+  const task = (async () => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 18_000);
+    try {
+      const response = await MovyzaApi.getWatchSources(
+        args.tmdbId,
+        args.contentType,
+        args.season,
+        args.episode,
+        controller.signal,
+      );
+      const data = Array.isArray(response.data) ? response.data : [];
+      sourceCache.set(key, { expiresAt: Date.now() + SOURCE_CACHE_TTL_MS, data });
+      return data;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  })();
+
+  sourceInflight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    sourceInflight.delete(key);
   }
-
-  const stream = body?.stream || {};
-  const rawSources = Array.isArray(stream.sources) && stream.sources.length
-    ? stream.sources
-    : stream.url
-      ? [{
-          url: stream.url,
-          type: stream.type,
-          quality: stream.quality,
-        }]
-      : [];
-
-  return rawSources
-    .filter((source: any) => typeof source?.url === 'string' && /^https?:\/\//i.test(source.url))
-    .map((source: any, index: number) => ({
-      id: source.id || `abdobest-fallback-${source.type || 'source'}-${index}`,
-      url: source.url,
-      type: (source.type || (String(source.url).toLowerCase().includes('.m3u8') ? 'hls' : 'mp4')) as StreamType,
-      quality: source.quality || 'auto',
-      language: source.language || 'und',
-      label: source.label || `AbdoBest · ${source.quality || 'auto'}`,
-      provider: 'AbdoBest',
-      providerKey: 'abdobest',
-      providerReference: source.providerReference,
-      subtitleTracks: Array.isArray(source.subtitleTracks) ? source.subtitleTracks : [],
-    }));
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -148,12 +127,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const lastSavedAtRef = useRef(0);
   const progressLoadedRef = useRef(false);
   const subtitleAutoShownRef = useRef(false);
+  const hasStartedRef = useRef(false);
 
   const [sources, setSources] = useState<PlaybackSource[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState('');
   const [streamUrl, setStreamUrl] = useState('');
   const [streamType, setStreamType] = useState<StreamType>('hls');
-  const [loading, setLoading] = useState(true);
+  const [sourceLoading, setSourceLoading] = useState(true);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [buffering, setBuffering] = useState(false);
   const [error, setError] = useState('');
   const [reportMessage, setReportMessage] = useState('');
 
@@ -261,7 +243,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try {
       const proxy = new URL(DIRECT_WATCH_API_BASE + '/proxy');
       proxy.searchParams.set('url', source.url);
-      proxy.searchParams.set('referer', 'https://www.abdobest.com/');
+      if (source.sourceUrl) proxy.searchParams.set('referer', source.sourceUrl);
       return proxy.toString();
     } catch {
       return source.url;
@@ -272,7 +254,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     failedSourceIdsRef.current.delete(source.id);
     setSelectedSourceId(source.id);
     setError('');
-    setLoading(true);
+    setMediaLoading(true);
+    setBuffering(false);
+    hasStartedRef.current = false;
     setStreamType(source.type);
     setStreamUrl(playableUrl(source));
   };
@@ -290,7 +274,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return;
     }
 
-    setLoading(false);
+    setMediaLoading(false);
     setError(
       language === 'ar'
         ? 'تعذر تشغيل جميع مصادر الفيديو.'
@@ -326,11 +310,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   useEffect(() => {
-    let cancelled = false;
+    let active = true;
 
     const loadSources = async () => {
       if (!safeTmdbId) {
-        setLoading(false);
+        setSourceLoading(false);
         setError(
           language === 'ar'
             ? 'معرّف TMDB غير متاح لهذا العنوان.'
@@ -339,67 +323,34 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         return;
       }
 
-      setLoading(true);
+      setSourceLoading(true);
       setError('');
       setSources([]);
       setSelectedSourceId('');
       setStreamUrl('');
       setStreamType('hls');
+      setMediaLoading(false);
+      setBuffering(false);
       failedSourceIdsRef.current.clear();
       progressLoadedRef.current = false;
+      hasStartedRef.current = false;
 
       try {
-        let response;
-        let lastLoadError;
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          try {
-            response = await MovyzaApi.getWatchSources(
-              safeTmdbId,
-              isMovie ? 'movie' : 'series',
-              seasonNumber,
-              episodeNumber,
-            );
-            break;
-          } catch (requestError) {
-            lastLoadError = requestError;
-            if (attempt === 0) {
-              await new Promise((resolve) => window.setTimeout(resolve, 900));
-            }
-          }
-        }
+        const rawSources = await fetchWatchSourcesCached({
+          tmdbId: safeTmdbId,
+          contentType: isMovie ? 'movie' : 'series',
+          season: seasonNumber,
+          episode: episodeNumber,
+        });
 
-        if (!response) {
-          try {
-            const fallbackSources = await fetchAbdoBestFallbackSources({
-              tmdbId: safeTmdbId,
-              contentType: isMovie ? 'movie' : 'series',
-              title,
-              titleEn,
-              season: seasonNumber,
-              episode: episodeNumber,
-            });
-            if (!fallbackSources.length) throw new Error('AbdoBest returned no playback sources');
-            response = { data: fallbackSources } as any;
-          } catch (fallbackError) {
-            console.warn('[movyza-player] AbdoBest direct fallback failed', fallbackError);
-            throw lastLoadError || fallbackError || new Error('No playback sources returned');
-          }
-        }
+        if (!active) return;
 
-        const normalized: PlaybackSource[] = (response.data || [])
-          .filter(
-            (source: any) => {
-              if (
-                !source?.url ||
-                !['hls', 'mp4', 'dash', 'webm'].includes(source.type)
-              ) return false;
-              return true;
-            },
+        const normalized: PlaybackSource[] = rawSources
+          .filter((source: any) =>
+            Boolean(source?.url) && ['hls', 'mp4', 'dash', 'webm'].includes(source.type),
           )
           .map((source: any, index: number) => ({
-            id:
-              source.id ||
-              `${source.provider || 'source'}-${source.type}-${index}`,
+            id: source.id || `${source.provider || 'source'}-${source.type}-${index}-${source.quality || 'auto'}`,
             url: source.url,
             type: source.type,
             quality: source.quality || 'auto',
@@ -408,23 +359,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             provider: source.provider || 'Provider',
             providerKey: source.providerKey,
             providerReference: source.providerReference,
+            sourceUrl: source.sourceUrl,
             subtitleTracks: Array.isArray(source.subtitleTracks)
               ? source.subtitleTracks
                   .filter((track: any) => Boolean(track?.url))
                   .map((track: any) => ({
-                  url: track.url,
-                  type: track.type === 'srt' ? 'srt' : 'vtt',
-                  language: track.language || 'und',
-                  label: track.label || track.labelEn || 'Subtitles',
-                  labelEn: track.labelEn || track.label || 'Subtitles',
-                  default: track.default === true,
-                }))
+                    url: track.url,
+                    type: track.type === 'srt' ? 'srt' : 'vtt',
+                    language: track.language || 'und',
+                    label: track.label || track.labelEn || 'Subtitles',
+                    labelEn: track.labelEn || track.label || 'Subtitles',
+                    default: track.default === true,
+                  }))
               : [],
           }));
 
-        if (!normalized.length) {
-          throw new Error('No playable stream returned');
-        }
+        if (!normalized.length) throw new Error('No playable stream returned');
 
         const initial =
           normalized.find((source) => source.type === 'hls') ||
@@ -433,21 +383,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           normalized.find((source) => source.type === 'webm') ||
           normalized[0];
 
-        if (!cancelled) {
-          setSources(normalized);
-          setSelectedSourceId(initial.id);
-          setStreamType(initial.type);
-          setStreamUrl(playableUrl(initial));
-          setLoading(true);
-        }
+        setSources(normalized);
+        setSelectedSourceId(initial.id);
+        setStreamType(initial.type);
+        setStreamUrl(playableUrl(initial));
+        setMediaLoading(true);
+        setBuffering(false);
+        setSourceLoading(false);
       } catch (loadError) {
-        if (cancelled) return;
-
+        if (!active) return;
         console.warn('[movyza-player] source list unavailable', loadError);
         setSources([]);
         setSelectedSourceId('');
         setStreamUrl('');
-        setLoading(false);
+        setSourceLoading(false);
+        setMediaLoading(false);
+        setBuffering(false);
         setError(
           language === 'ar'
             ? 'تعذر العثور على مصدر فيديو مباشر صالح حاليًا.'
@@ -459,33 +410,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     void loadSources();
 
     return () => {
-      cancelled = true;
+      active = false;
     };
-  }, [
-    contentId,
-    currentEpisode?.id,
-    isMovie,
-    language,
-    safeTmdbId,
-    seasonNumber,
-    episodeNumber,
-  ]);
+  }, [contentId, currentEpisode?.id, isMovie, safeTmdbId, seasonNumber, episodeNumber]);
 
   useEffect(() => {
     progressLoadedRef.current = false;
     subtitleAutoShownRef.current = false;
   }, [streamUrl, selectedSourceId]);
 
-  const playerSource =
-    streamUrl
-      ? streamType === 'hls'
-        ? { src: streamUrl, type: 'application/x-mpegurl' as const }
-        : streamType === 'dash'
-          ? { src: streamUrl, type: 'application/dash+xml' as const }
-          : streamType === 'webm'
-            ? { src: streamUrl, type: 'video/webm' as const }
-            : { src: streamUrl, type: 'video/mp4' as const }
-      : undefined;
+  const playerSource = useMemo(() => {
+    if (!streamUrl) return undefined;
+    if (streamType === 'hls') {
+      return { src: streamUrl, type: 'application/x-mpegurl' as const };
+    }
+    if (streamType === 'dash') {
+      return { src: streamUrl, type: 'application/dash+xml' as const };
+    }
+    if (streamType === 'webm') {
+      return { src: streamUrl, type: 'video/webm' as const };
+    }
+    return { src: streamUrl, type: 'video/mp4' as const };
+  }, [streamUrl, streamType]);
 
   if (!safeTmdbId) {
     return (
@@ -523,7 +469,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         {playerSource ? (
           <MediaPlayer
             ref={playerRef}
-            key={`movyza-player-${selectedSourceId}-${subtitleTracks.map((track) => `${track.language}:${track.url}`).join('|')}`}
             className="movyza-player absolute inset-0 h-full w-full"
             load="eager"
             title={isMovie ? title : titleEn || title}
@@ -558,7 +503,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
             }}
             onCanPlay={() => {
-              setLoading(false);
+              setMediaLoading(false);
+              setBuffering(false);
               setError('');
               showPreferredSubtitleTrack();
               void restoreProgress();
@@ -581,14 +527,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onError={(playbackError) => {
               console.warn('[movyza-player] source error', playbackError);
-              setStreamUrl('');
+              setBuffering(false);
+              setMediaLoading(true);
               setError('');
-              setLoading(true);
               moveToNextSource();
             }}
-            onWaiting={() => setLoading(true)}
+            onWaiting={() => {
+              if (hasStartedRef.current) setBuffering(true);
+              else setMediaLoading(true);
+            }}
             onPlaying={() => {
-              setLoading(false);
+              hasStartedRef.current = true;
+              setMediaLoading(false);
+              setBuffering(false);
               setError('');
               showPreferredSubtitleTrack();
             }}
@@ -633,21 +584,32 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="absolute inset-0 bg-black" />
         )}
 
-        {(loading || error) && (
+        {sourceLoading && !error && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/65 pointer-events-none">
             <div className="flex flex-col items-center gap-3 px-6 text-center">
-              {loading && !error && (
-                <>
-                  <Loader2 className="h-8 w-8 animate-spin text-amber-300" />
-                  <span className="text-xs text-slate-300">
-                    {language === 'ar' ? 'جاري تشغيل المصدر…' : 'Loading source…'}
-                  </span>
-                </>
-              )}
-              {error && (
-                <span className="text-sm text-red-300">{error}</span>
-              )}
+              <Loader2 className="h-8 w-8 animate-spin text-amber-300" />
+              <span className="text-xs text-slate-300">
+                {language === 'ar' ? 'جاري تجهيز المصدر…' : 'Preparing source…'}
+              </span>
             </div>
+          </div>
+        )}
+
+        {!sourceLoading && mediaLoading && !error && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/20 pointer-events-none">
+            <Loader2 className="h-7 w-7 animate-spin text-white/80" />
+          </div>
+        )}
+
+        {buffering && !error && (
+          <div className="absolute start-1/2 top-1/2 z-40 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+            <Loader2 className="h-6 w-6 animate-spin text-white/80 drop-shadow-lg" />
+          </div>
+        )}
+
+        {error && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/65 pointer-events-none">
+            <span className="px-6 text-center text-sm text-red-300">{error}</span>
           </div>
         )}
 

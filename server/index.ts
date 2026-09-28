@@ -396,6 +396,8 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 
 
 const WATCH_API_BASE = 'https://movyz-moviebox.sameranede.workers.dev';
+const WATCH_CACHE_TTL_MS = 60_000;
+const watchSourceCache = new Map<string, { expiresAt: number; sources: any[]; meta: Record<string, unknown> }>();
 
 let watchApiFetch: typeof fetch = fetch;
 
@@ -424,20 +426,21 @@ function normalizeWatchSources(payload: any) {
   return rawSources
     .filter((source: any) => {
       if (typeof source?.url !== 'string' || !/^https:\/\//i.test(source.url)) return false;
-      return String(source?.providerKey || source?.provider || 'abdobest').toLowerCase() === 'abdobest';
+      return String(source?.providerKey || source?.provider || 'akwam').toLowerCase() === 'akwam';
     })
     .map((source: any, index: number) => ({
-      id: source.id || ['abdobest', source.type || streamTypeFromUrl(source.url), source.quality || 'auto', index].join('-'),
+      id: source.id || ['akwam', source.type || streamTypeFromUrl(source.url), source.quality || 'auto', index].join('-'),
       type: String(source.type || streamTypeFromUrl(source.url)).toLowerCase(),
       quality: source.quality || 'auto',
       language: source.language || 'und',
-      label: source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · '),
-      labelEn: source.labelEn || source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · '),
+      label: source.label || ['Akwam', source.quality || 'auto'].filter(Boolean).join(' · '),
+      labelEn: source.labelEn || source.label || ['Akwam', source.quality || 'auto'].filter(Boolean).join(' · '),
       url: source.url,
       isWorking: true,
-      provider: 'AbdoBest',
-      providerKey: 'abdobest',
+      provider: 'Akwam',
+      providerKey: 'akwam',
       providerReference: source.providerReference,
+      sourceUrl: source.sourceUrl || stream.source_url || stream.sourceUrl || undefined,
       subtitleTracks: Array.isArray(source.subtitleTracks) ? source.subtitleTracks : [],
     }));
 }
@@ -460,6 +463,13 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   }
 
   const { mediaType, tmdbId, season, episode } = parsed.data;
+
+  const cacheKey = [mediaType, tmdbId, season ?? '', episode ?? ''].join('|');
+  const cached = watchSourceCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return ok(res, cached.sources, cached.meta);
+  }
+
 
   if (mediaType === 'series' && (season == null || episode == null)) {
     return fail(res, 400, 'EPISODE_REQUIRED', 'Season and episode are required for series playback');
@@ -513,7 +523,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
-          'User-Agent': 'Movyz-AbdoBest-Proxy/1.0',
+          'User-Agent': 'Movyz-Akwam-Proxy/1.0',
           'Cache-Control': 'no-cache',
         },
         body: JSON.stringify(
@@ -550,19 +560,25 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     const sources = normalizeWatchSources(payload);
 
     if (!sources.length) {
-      return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable AbdoBest source is currently available');
+      return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable Akwam source is currently available');
     }
 
-    return ok(res, sources, {
-      source: 'abdobest_watch_api',
+    const meta = {
+      source: 'akwam_watch_api',
       mediaType,
       tmdbId,
       season,
       episode,
+    };
+    watchSourceCache.set(cacheKey, {
+      expiresAt: Date.now() + WATCH_CACHE_TTL_MS,
+      sources,
+      meta,
     });
+    return ok(res, sources, meta);
   } catch (error) {
     console.error('[watch-api]', error instanceof Error ? error.message : error);
-    return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load AbdoBest playback sources');
+    return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load Akwam playback sources');
   }
 }));
 

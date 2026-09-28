@@ -23,6 +23,7 @@ import {
 
 interface WatchPageProps {
   contentId: string;
+  contentTypeParam?: 'movie' | 'series';
   seasonParam?: number;
   episodeParam?: number;
   onNavigate: (path: string) => void;
@@ -30,6 +31,7 @@ interface WatchPageProps {
 
 export const WatchPage: React.FC<WatchPageProps> = ({
   contentId,
+  contentTypeParam,
   seasonParam,
   episodeParam,
   onNavigate,
@@ -49,47 +51,75 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setLoading(true);
     setError(null);
 
-    // Try finding as Movie or Series
-    Promise.allSettled([
-      MovyzaApi.getMovieById(contentId),
-      MovyzaApi.getSeriesById(contentId),
-    ]).then(async ([movieRes, seriesRes]) => {
-      if (!isMounted) return;
-
-      if (movieRes.status === 'fulfilled') {
-        const movie = movieRes.value.data.movie;
-        setContent(movie);
-        setLoading(false);
-      } else if (seriesRes.status === 'fulfilled') {
-        const series = seriesRes.value.data.series;
-        setContent(series);
-
-        const currentSeason =
-          series.seasons.find((s) => s.seasonNumber === seasonNum) ||
-          series.seasons[0];
-        const episode =
-          currentSeason?.episodes.find((ep) => ep.episodeNumber === episodeNum) ||
-          currentSeason?.episodes[0];
-
-        setCurrentEpisode(episode);
-        if (episode) {
+    const loadContent = async () => {
+      try {
+        if (contentTypeParam === 'movie') {
+          const response = await MovyzaApi.getMovieById(contentId);
+          if (!isMounted) return;
+          setContent(response.data.movie);
+          setCurrentEpisode(undefined);
+          setLoading(false);
+          return;
         }
-        setLoading(false);
-      } else {
+
+        if (contentTypeParam === 'series') {
+          const response = await MovyzaApi.getSeriesById(contentId);
+          if (!isMounted) return;
+          setContent(response.data.series);
+          setLoading(false);
+          return;
+        }
+
+        // Legacy/direct links without a type still work, but avoid two
+        // simultaneous catalog requests.
+        try {
+          const movieResponse = await MovyzaApi.getMovieById(contentId);
+          if (!isMounted) return;
+          setContent(movieResponse.data.movie);
+          setCurrentEpisode(undefined);
+          setLoading(false);
+          return;
+        } catch {
+          const seriesResponse = await MovyzaApi.getSeriesById(contentId);
+          if (!isMounted) return;
+          setContent(seriesResponse.data.series);
+          setLoading(false);
+        }
+      } catch {
+        if (!isMounted) return;
         setError('تعذر العثور على المحتوى المطلوب في خوادم العرض');
         setLoading(false);
       }
-    });
+    };
+
+    void loadContent();
 
     return () => {
       isMounted = false;
     };
-  }, [contentId, seasonNum, episodeNum]);
+  }, [contentId, contentTypeParam]);
+
+  useEffect(() => {
+    if (!content || content.type !== 'series') {
+      setCurrentEpisode(undefined);
+      return;
+    }
+
+    const series = content as Series;
+    const currentSeason =
+      series.seasons.find((s) => s.seasonNumber === seasonNum) ||
+      series.seasons[0];
+    const episode =
+      currentSeason?.episodes.find((ep) => ep.episodeNumber === episodeNum) ||
+      currentSeason?.episodes[0];
+
+    setCurrentEpisode(episode);
+  }, [content, seasonNum, episodeNum]);
 
   const handleSelectEpisode = (newSeason: number, newEpisode: number) => {
     setSeasonNum(newSeason);
     setEpisodeNum(newEpisode);
-    onNavigate(`/watch/${contentId}?season=${newSeason}&episode=${newEpisode}`);
+    onNavigate(`/watch/${contentId}?type=series&season=${newSeason}&episode=${newEpisode}`);
   };
 
   const handleShare = () => {
@@ -113,7 +143,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       <div className="min-h-[60vh] flex items-center justify-center p-4">
         <ErrorState
           message={error || undefined}
-          onRetry={() => onNavigate(`/watch/${contentId}`)}
+          onRetry={() => onNavigate(`/watch/${contentId}?type=${contentTypeParam || (content?.type === 'series' ? 'series' : 'movie')}`)}
           onGoHome={() => onNavigate('/')}
         />
       </div>

@@ -22,7 +22,9 @@ const QUALITY_ORDER = ["1080p", "720p", "480p"];
 const MAX_REDIRECTS = 6;
 const SEARCH_BACKOFF_MS = [750, 1_750];
 const PLAYBACK_CACHE_TTL_MS = 90_000;
+const PAGE_CACHE_TTL_MS = 180_000;
 const playbackCache = new Map();
+const pageCache = new Map();
 const playbackInflight = new Map();
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -147,7 +149,7 @@ async function getContentPageDirect(url, stage) {
       Referer: new URL(pageUrl).origin + "/",
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36",
     },
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(12_000),
   });
   const html = await response.text();
   if (!response.ok) {
@@ -210,10 +212,10 @@ function mirrorPageUrls(rawUrl) {
   const original = new URL(rawUrl);
   const host = original.hostname.toLowerCase();
 
-  // go.ak.sv is a dedicated playback router. Rewriting its path onto
-  // search/content mirrors produces unrelated routes (for example
-  // /watch/7057 on akwam.it), so keep the original host intact.
-  if (host === "go.ak.sv") return [original.toString()];
+  // Akwam's current canonical host and its dedicated playback router must
+  // keep their paths intact; rewriting them onto older mirrors can produce
+  // unrelated routes and adds avoidable latency.
+  if (host === "go.ak.sv" || host === "ak.sv" || host === "www.ak.sv") return [original.toString()];
 
   const urls = [];
   for (const base of AKWAM_SEARCH_BASES) {
@@ -233,14 +235,23 @@ async function getContentPageResilient(browser, url, stage) {
   const candidates = mirrorPageUrls(url);
 
   for (const candidate of candidates) {
+    const cached = pageCache.get(candidate);
+    if (cached && cached.expiresAt > Date.now()) {
+      diagnostic(stage, "page-cache hit " + candidate);
+      return cached.value;
+    }
     try {
-      return await getContentPage(browser, candidate, stage);
+      const value = await getContentPage(browser, candidate, stage);
+      pageCache.set(candidate, { value, expiresAt: Date.now() + PAGE_CACHE_TTL_MS });
+      return value;
     } catch (error) {
       lastError = error;
       if (error?.status !== 429) throw error;
       diagnostic("AKWAM_RATE_LIMIT", stage + " Browser Run 429 on " + candidate + "; trying direct fetch");
       try {
-        return await getContentPageDirect(candidate, stage);
+        const value = await getContentPageDirect(candidate, stage);
+        pageCache.set(candidate, { value, expiresAt: Date.now() + PAGE_CACHE_TTL_MS });
+        return value;
       } catch (directError) {
         lastError = directError;
         if (directError?.status !== 429) throw directError;
@@ -552,7 +563,7 @@ async function validateMediaUrl(initialUrl, referer = "") {
     const response = await fetch(url, {
       headers,
       redirect: "manual",
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(10_000),
     });
 
     if ([301, 302, 303, 307, 308].includes(response.status)) {
@@ -625,7 +636,7 @@ async function fetchDownloadTarget(initialUrl, referer = "") {
         const response = await fetch(url, {
           headers,
           redirect: "manual",
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.timeout(12_000),
         });
 
         if ([301, 302, 303, 307, 308].includes(response.status)) {
