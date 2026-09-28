@@ -418,14 +418,77 @@ function extractQualities(html, base) {
 
   return out.sort((a, b) => qualityRank(a.quality) - qualityRank(b.quality));
 }
-function extractEpisode(html, base, episode) {
-  const candidates = [...String(html).matchAll(/<div[^>]*class=["'][^"']*\bbg-primary2\b[^"']*["'][^>]*>[\s\S]*?<h2[^>]*class=["'][^"']*\bfont-size-18\b[^"']*["'][^>]*>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
-  for (const match of candidates) {
-    const text = stripHtml(match[2]); const path = safeUrl(match[1], base, { pageOnly: true });
-    const number = Number((text.match(/(?:حلقة|الحلقة|episode|ep)\s*[-:#]?\s*(\d+)/i) || path.match(/\/episode\/(\d+)/i) || [])[1]);
-    if (number === Number(episode) && path) return path;
+function extractEpisode(html, base, season, episode) {
+  const requestedSeason = Number(season);
+  const requestedEpisode = Number(episode);
+  if (!Number.isInteger(requestedEpisode) || requestedEpisode < 1) return "";
+
+  const ordinalSeasons = {
+    "الاول": 1, "الأول": 1, "الثاني": 2, "الثالث": 3, "الرابع": 4, "الخامس": 5,
+    "السادس": 6, "السابع": 7, "الثامن": 8, "التاسع": 9, "العاشر": 10,
+    "الحادي عشر": 11, "الثاني عشر": 12,
+  };
+
+  const decode = (value) => {
+    try { return decodeURIComponent(String(value || "")); } catch { return String(value || ""); }
+  };
+
+  const seasonFromText = (value) => {
+    const text = decode(value).toLowerCase().replace(/[_-]+/g, " ");
+    const numeric =
+      text.match(/\b(?:season|الموسم)\s*#?\s*(\d{1,2})\b/i) ||
+      text.match(/\bs(\d{1,2})\b[^a-z0-9]?/i);
+    if (numeric) return Number(numeric[1]);
+
+    const arabic = text.match(/الموسم\s*(الاول|الأول|الثاني|الثالث|الرابع|الخامس|السادس|السابع|الثامن|التاسع|العاشر|الحادي عشر|الثاني عشر)/i);
+    if (arabic) return ordinalSeasons[arabic[1]] || null;
+    return null;
+  };
+
+  const episodeFromText = (value) => {
+    const text = decode(value);
+    const patterns = [
+      /(?:الحلقة|حلقة|episode|ep)\s*[-:#]?\s*(\d{1,3})\b/i,
+      /(?:episode|ep)[-_ ]?(\d{1,3})\b/i,
+      /(?:s\d{1,2})e(\d{1,3})\b/i,
+      /\/episode[-_ ](\d{1,3})(?:\b|\/)/i,
+    ];
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) return Number(match[1]);
+    }
+    return null;
+  };
+
+  const candidates = [];
+  for (const match of String(html).matchAll(
+    /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+  )) {
+    const rawHref = match[1];
+    const path = safeUrl(rawHref, base, { pageOnly: true });
+    if (!path) continue;
+
+    const label = stripHtml(match[2]);
+    const hrefDecoded = decode(path);
+    const episodeNumber = episodeFromText(label) ?? episodeFromText(hrefDecoded);
+    if (episodeNumber !== requestedEpisode) continue;
+
+    const seasonNumber = seasonFromText(label + " " + hrefDecoded);
+    let score = 0;
+    if (Number.isInteger(requestedSeason) && requestedSeason >= 0) {
+      if (seasonNumber === requestedSeason) score += 100;
+      else if (seasonNumber == null) score += 20;
+      else score -= 100;
+    }
+
+    if (/\/episode\//i.test(path)) score += 30;
+    if (/episode[-_]\d+/i.test(hrefDecoded)) score += 10;
+    if (/(?:الحلقة|episode)/i.test(label)) score += 5;
+    candidates.push({ path, score });
   }
-  return "";
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.path || "";
 }
 function extractDownloadUrl(html, base) {
   const match = String(html).match(/https?:\/\/[^"'<>\s]+\/download\/[^"'<>\s]*/i) ||
@@ -780,7 +843,7 @@ async function resolveAkwam(browser, payload) {
   const directContent = decodeContentUrl(payload);
   const entry = directContent ? { title: clean(payload?.title), url: directContent } : await searchAkwam(browser, payload);
   const content = await getContentPageResilient(browser, entry.url, "AKWAM_CONTENT");
-  const episodeUrl = payload?.type === "series" && payload?.episode ? extractEpisode(content.html, content.url, payload.episode) : "";
+  const episodeUrl = payload?.type === "series" && payload?.episode ? extractEpisode(content.html, content.url, payload?.season, payload.episode) : "";
   const mediaPage = episodeUrl ? await getContentPage(browser, episodeUrl, "AKWAM_CONTENT") : content;
   const qualities = extractQualities(mediaPage.html, mediaPage.url);
   diagnostic("AKWAM_QUALITY", qualities.map((item) => item.quality).join(",") || "none");
