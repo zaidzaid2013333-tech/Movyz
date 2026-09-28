@@ -461,7 +461,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     contentId,
     currentEpisode?.id,
     isMovie,
-    language,
     safeTmdbId,
     seasonNumber,
     episodeNumber,
