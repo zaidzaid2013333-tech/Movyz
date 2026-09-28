@@ -182,7 +182,8 @@ function mediaUrlOf(payload) {
   }) || "";
 }
 
-// Episode sources may arrive as escaped strings or mirror-host URLs from AbdoBest.\nfunction sourceUrlsOf(item) {
+// Episode sources may arrive as escaped strings or mirror-host URLs from AbdoBest.
+function sourceUrlsOf(item) {
   const found = [];
   const seen = new Set();
 
@@ -191,17 +192,15 @@ function mediaUrlOf(payload) {
 
     if (typeof value === "string") {
       const raw = value
-        .replace(/\\\\\\//g, "/")
+        .replace(/\\\//g, "/")
         .replace(/&amp;/gi, "&")
         .trim();
 
       const candidates = [raw];
-      // AbdoBest has returned episode URLs both as plain strings and as
-      // escaped/embedded JSON strings. Recover HTTPS URLs from the latter
-      // instead of silently dropping an otherwise valid episode source.
-      for (const match of raw.matchAll(/https?:\\/\\/[^\\s"'<>\\\\]+/gi)) {
-        candidates.push(match[0]);
-      }
+
+      // AbdoBest may return an episode URL embedded inside JSON/escaped text.
+      const embedded = raw.match(/https?:\/\/[^\s"'<>\\]+/gi) || [];
+      candidates.push(...embedded);
 
       for (const candidate of candidates) {
         const url = normalizeAkwamUrl(candidate);
@@ -210,9 +209,15 @@ function mediaUrlOf(payload) {
           found.push(url);
         }
       }
+
+      try {
+        const parsed = JSON.parse(raw);
+        visit(parsed, depth + 1);
+      } catch {
+        // Plain URL/string.
+      }
       return;
     }
-
     if (Array.isArray(value)) {
       for (const child of value) visit(child, depth + 1);
       return;
@@ -795,18 +800,39 @@ function episodeUrlsOf(item) {
 
   const visit = (value, depth = 0) => {
     if (depth > 8 || value == null) return;
+
     if (typeof value === "string") {
-      const url = asEpisodeUrlCandidate(value);
-      if (url && !seen.has(url)) {
-        seen.add(url);
-        found.push(url);
+      const raw = value
+        .replace(/\\\//g, "/")
+        .replace(/&amp;/gi, "&")
+        .trim();
+
+      const candidates = [raw];
+      const embedded = raw.match(/https?:\/\/[^\s"'<>\\]+/gi) || [];
+      candidates.push(...embedded);
+
+      for (const candidate of candidates) {
+        const url = asEpisodeUrlCandidate(candidate);
+        if (url && !seen.has(url)) {
+          seen.add(url);
+          found.push(url);
+        }
+      }
+
+      try {
+        const parsed = JSON.parse(raw);
+        visit(parsed, depth + 1);
+      } catch {
+        // Plain string.
       }
       return;
     }
+
     if (Array.isArray(value)) {
       for (const child of value) visit(child, depth + 1);
       return;
     }
+
     if (typeof value === "object") {
       for (const child of Object.values(value)) visit(child, depth + 1);
     }
