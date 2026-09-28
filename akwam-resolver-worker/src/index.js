@@ -1,9 +1,11 @@
 const AKWAM_BASE = "https://akwam.it";
 const AKWAM_SEARCH_BASES = [
   "https://akwam.it",
+  "https://go.akwam.it",
   "https://akwam.ss",
   "https://akwam.ee",
   "https://akwam.com.co",
+  "https://go.akwam.com.co",
   "https://ak.sv",
 ];
 const PAGE_HOSTS = new Set([
