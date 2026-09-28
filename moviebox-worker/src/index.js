@@ -381,6 +381,9 @@ async function resolveViaAkwamResolver(payload, type, env) {
     try {
       const body = {
         title: payload?.title,
+        title_en: payload?.title_en,
+        title_ar: payload?.title_ar,
+        titles: Array.isArray(payload?.titles) ? payload.titles : undefined,
         original_title: payload?.original_title ?? payload?.originalTitle,
         year: payload?.year,
         type,
