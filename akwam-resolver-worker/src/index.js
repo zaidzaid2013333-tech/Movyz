@@ -563,7 +563,7 @@ async function validateMediaUrl(initialUrl, referer = "") {
     const response = await fetch(url, {
       headers,
       redirect: "manual",
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(10_000),
     });
 
     if ([301, 302, 303, 307, 308].includes(response.status)) {
@@ -636,7 +636,7 @@ async function fetchDownloadTarget(initialUrl, referer = "") {
         const response = await fetch(url, {
           headers,
           redirect: "manual",
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.timeout(12_000),
         });
 
         if ([301, 302, 303, 307, 308].includes(response.status)) {
