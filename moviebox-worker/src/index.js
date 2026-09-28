@@ -494,7 +494,7 @@ async function resolveDiscoveredAkwamContent(payload, type, source, env) {
 }
 
 
-async function resolveAkwamIframeOnly(payload, type) {
+async function resolveAkwamIframeOnly(payload, type, env) {
   const explicitSource = normalizeAkwamUrl(
     payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
   );
@@ -553,15 +553,32 @@ async function resolveAkwamIframeOnly(payload, type) {
 
   const episodes = await abdoJson(path);
   const found = findEpisode(episodes.body, season, episode);
-  if (!found?.urls?.length) {
-    throw new Error(`Episode S${season}E${episode} has no Akwam page URL`);
+  if (found?.urls?.length) {
+    return build(found.urls[0], titleOf(match));
   }
 
-  return build(found.urls[0], titleOf(match));
+  // AbdoBest's episode catalog is a useful fast path, but some series expose
+  // episode links in a shape/domain that is not an Akwam page. Fall back to
+  // the dedicated Akwam resolver, which searches Akwam directly and already
+  // knows how to locate the real episode page before media extraction.
+  try {
+    const resolved = await resolveViaAkwamResolver(payload, "series", env);
+    const source = normalizeAkwamUrl(resolved?.source_url || resolved?.page_url || "");
+    if (source && isAkwamUrl(source)) {
+      return build(source, resolved?.title || resolved?.matched_title || title);
+    }
+  } catch (error) {
+    console.warn(
+      "AKWAM_IFRAME_RESOLVER_FALLBACK:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  throw new Error(`Episode S${season}E${episode} has no Akwam page URL`);
 }
 
 async function resolveMovie(payload, env) {
-  if (payload?.mode === "iframe") return await resolveAkwamIframeOnly(payload, "movie");
+  if (payload?.mode === "iframe") return await resolveAkwamIframeOnly(payload, "movie", env);
   const directSource = normalizeAkwamUrl(
     payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
   );
@@ -760,7 +777,7 @@ function findEpisode(payload, season, episode) {
 }
 
 async function resolveEpisode(payload, env) {
-  if (payload?.mode === "iframe") return await resolveAkwamIframeOnly(payload, "series");
+  if (payload?.mode === "iframe") return await resolveAkwamIframeOnly(payload, "series", env);
   const explicitSource = normalizeAkwamUrl(
     payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
   );
