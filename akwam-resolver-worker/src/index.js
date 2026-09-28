@@ -2,6 +2,7 @@ const AKWAM_BASE = "https://ak.sv";
 const PAGE_HOSTS = new Set(["ak.sv", "www.ak.sv"]);
 const QUALITY_ORDER = ["1080p", "720p", "480p"];
 const MAX_REDIRECTS = 6;
+const SEARCH_BACKOFF_MS = [750, 1_750];
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -68,7 +69,11 @@ async function getContentPage(browser, url, stage) {
   diagnostic(stage, pageUrl);
   const response = await browser.quickAction("content", { url: pageUrl, userAgent: UA, gotoOptions: { waitUntil: "domcontentloaded", timeout: 30_000 } });
   const html = await response.text();
-  if (!response.ok) throw new Error(`${stage}: HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(`${stage}: HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
   if (challengePage(html)) { diagnostic("AKWAM_CLOUDFLARE", pageUrl); throw new Error(`${stage}: Cloudflare challenge detected`); }
   return { url: safeUrl(response.url || pageUrl, AKWAM_BASE, { pageOnly: true }) || pageUrl, html };
 }
@@ -96,10 +101,24 @@ function scoreEntry(entry, payload) {
 async function searchAkwam(browser, payload) {
   const query = encodeURIComponent(clean(payload?.title)); const section = payload?.type === "series" ? "series" : "movie";
   if (!query) throw new Error("AKWAM_SEARCH: title is required");
-  const page = await getContentPage(browser, `${AKWAM_BASE}/search?q=${query}&section=${section}&page=1`, "AKWAM_SEARCH");
-  const result = searchEntries(page.html, page.url).map((entry) => ({ ...entry, score: scoreEntry(entry, payload) })).sort((a, b) => b.score - a.score)[0];
-  if (!result || result.score <= 0) throw new Error("AKWAM_SEARCH: no matching entry in widget-body.row.flex-wrap");
-  return result;
+  const searchUrl = `${AKWAM_BASE}/search?q=${query}&section=${section}&page=1`;
+
+  for (let attempt = 0; attempt <= SEARCH_BACKOFF_MS.length; attempt += 1) {
+    try {
+      const page = await getContentPage(browser, searchUrl, "AKWAM_SEARCH");
+      const result = searchEntries(page.html, page.url).map((entry) => ({ ...entry, score: scoreEntry(entry, payload) })).sort((a, b) => b.score - a.score)[0];
+      if (!result || result.score <= 0) throw new Error("AKWAM_SEARCH: no matching entry in widget-body.row.flex-wrap");
+      return result;
+    } catch (error) {
+      if (error?.status !== 429) throw error;
+      const delay = SEARCH_BACKOFF_MS[attempt];
+      diagnostic("AKWAM_RATE_LIMIT", `search HTTP 429 (attempt ${attempt + 1}/${SEARCH_BACKOFF_MS.length + 1})`);
+      if (delay == null) {
+        throw new Error("AKWAM_RATE_LIMIT: Akwam search HTTP 429 after bounded backoff; a real content_url is required");
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }
 function extractQualities(html, base) {
   const out = []; const seen = new Set();
