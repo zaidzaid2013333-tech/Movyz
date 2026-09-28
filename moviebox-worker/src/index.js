@@ -442,6 +442,7 @@ async function resolveViaAkwamResolver(payload, type, env) {
             url: source.url,
             type: typeOfStream,
             quality: source.quality || "auto",
+            iframe_url: data.source_url || data.page_url || "",
           };
         });
 

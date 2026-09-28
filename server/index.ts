@@ -473,6 +473,28 @@ function streamTypeFromUrl(url: string) {
   return 'mp4';
 }
 
+function normalizeAkwamIframeUrl(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  try {
+    const url = new URL(value.trim());
+    const host = url.hostname.toLowerCase();
+    const allowed =
+      host === 'akwam.ss' ||
+      host.endsWith('.akwam.ss') ||
+      host === 'akwam.it' ||
+      host.endsWith('.akwam.it') ||
+      host === 'ak.sv' ||
+      host.endsWith('.ak.sv') ||
+      host === 'akwam.ee' ||
+      host.endsWith('.akwam.ee') ||
+      host === 'downet.net' ||
+      host.endsWith('.downet.net');
+    return allowed ? url.toString() : '';
+  } catch {
+    return '';
+  }
+}
+
 function normalizeWatchSources(payload: any) {
   const stream = payload?.stream || {};
   const rawSources = Array.isArray(stream.sources) && stream.sources.length
@@ -488,20 +510,26 @@ function normalizeWatchSources(payload: any) {
       if (typeof source?.url !== 'string' || !/^https:\/\//i.test(source.url)) return false;
       return String(source?.providerKey || source?.provider || 'abdobest').toLowerCase() === 'abdobest';
     })
-    .map((source: any, index: number) => ({
-      id: source.id || ['abdobest', source.type || streamTypeFromUrl(source.url), source.quality || 'auto', index].join('-'),
-      type: String(source.type || streamTypeFromUrl(source.url)).toLowerCase(),
-      quality: source.quality || 'auto',
-      language: source.language || 'und',
-      label: source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · '),
-      labelEn: source.labelEn || source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · '),
-      url: source.url,
-      isWorking: true,
-      provider: 'AbdoBest',
-      providerKey: 'abdobest',
-      providerReference: source.providerReference,
-      subtitleTracks: Array.isArray(source.subtitleTracks) ? source.subtitleTracks : [],
-    }));
+    .map((source: any, index: number) => {
+      const iframeUrl = normalizeAkwamIframeUrl(stream.iframe_url);
+      const isAkwamIframe = Boolean(iframeUrl);
+
+      return {
+        id: source.id || [isAkwamIframe ? 'akwam-iframe' : 'abdobest', source.type || streamTypeFromUrl(source.url), source.quality || 'auto', index].join('-'),
+        type: String(source.type || streamTypeFromUrl(source.url)).toLowerCase(),
+        quality: isAkwamIframe ? 'auto' : (source.quality || 'auto'),
+        language: source.language || 'und',
+        label: isAkwamIframe ? 'Akwam' : (source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · ')),
+        labelEn: isAkwamIframe ? 'Akwam' : (source.labelEn || source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · ')),
+        url: source.url,
+        iframeUrl,
+        isWorking: true,
+        provider: isAkwamIframe ? 'Akwam' : 'AbdoBest',
+        providerKey: isAkwamIframe ? 'akwam-iframe' : 'abdobest',
+        providerReference: source.providerReference,
+        subtitleTracks: Array.isArray(source.subtitleTracks) ? source.subtitleTracks : [],
+      };
+    });
 }
 
 app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
