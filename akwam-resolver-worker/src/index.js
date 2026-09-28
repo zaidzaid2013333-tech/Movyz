@@ -18,7 +18,16 @@ const PAGE_HOSTS = new Set([
   "go.ak.sv",
   "downet.net", "www.downet.net",
 ]);
-const QUALITY_ORDER = ["1080p", "720p", "480p"];
+const QUALITY_ORDER = ["2160p", "1440p", "1080p", "900p", "720p", "576p", "540p", "480p", "360p", "240p"];
+const QUALITY_PATTERN = /\b(2160|1440|1080|900|720|576|540|480|360|240)p?\b/i;
+function normalizeQuality(value) {
+  const match = String(value || "").match(QUALITY_PATTERN);
+  return match ? match[1] + "p" : "";
+}
+function qualityRank(value) {
+  const index = QUALITY_ORDER.indexOf(normalizeQuality(value));
+  return index >= 0 ? index : QUALITY_ORDER.length;
+}
 const MAX_REDIRECTS = 6;
 const SEARCH_BACKOFF_MS = [750, 1_750];
 const PLAYBACK_CACHE_TTL_MS = 90_000;
@@ -262,6 +271,14 @@ async function getContentPageResilient(browser, url, stage) {
 
   throw lastError || new Error(stage + ": no usable Akwam mirror");
 }
+async function getContentPageDirectFirst(browser, url, stage) {
+  try {
+    return await getContentPageDirect(url, stage);
+  } catch (directError) {
+    diagnostic("AKWAM_DIRECT_FIRST_FALLBACK", stage + ": " + String(directError?.message || directError || "direct fetch failed"));
+    return await getContentPageResilient(browser, url, stage);
+  }
+}
 async function searchAkwam(browser, payload) {
   const query = encodeURIComponent(clean(payload?.title));
   const section = payload?.type === "series" ? "series" : "movie";
@@ -313,8 +330,8 @@ function extractQualities(html, base) {
   const out = [];
   const seen = new Set();
   const add = (quality, rawUrl, kind) => {
-    const normalized = String(quality || "").toLowerCase().trim();
-    if (!QUALITY_ORDER.includes(normalized)) return;
+    const normalized = normalizeQuality(quality);
+    if (!normalized) return;
     const url = safeUrl(rawUrl, base, { pageOnly: true });
     if (!url || seen.has(url)) return;
     seen.add(url);
@@ -363,7 +380,7 @@ function extractQualities(html, base) {
     }
   }
 
-  const labels = qualitySequence.length ? qualitySequence : QUALITY_ORDER;
+  const labels = qualitySequence.length ? qualitySequence.map(normalizeQuality).filter(Boolean) : QUALITY_ORDER;
   const max = Math.min(labels.length, Math.max(watchUrls.length, downloadUrls.length));
 
   for (let i = 0; i < max; i += 1) {
@@ -381,7 +398,7 @@ function extractQualities(html, base) {
       const context = stripHtml(
         source.slice(Math.max(0, (match.index ?? 0) - 1200), Math.min(source.length, (match.index ?? 0) + 1200)),
       );
-      const quality = context.match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase();
+      const quality = context.match(QUALITY_PATTERN)?.[0];
       add(quality, match[2], "watch");
     }
   }
@@ -394,9 +411,7 @@ function extractQualities(html, base) {
       " extracted=" + JSON.stringify(out),
   );
 
-  return out.sort((a, b) =>
-    QUALITY_ORDER.indexOf(a.quality) - QUALITY_ORDER.indexOf(b.quality),
-  );
+  return out.sort((a, b) => qualityRank(a.quality) - qualityRank(b.quality));
 }
 function extractEpisode(html, base, episode) {
   const candidates = [...String(html).matchAll(/<div[^>]*class=["'][^"']*\bbg-primary2\b[^"']*["'][^>]*>[\s\S]*?<h2[^>]*class=["'][^"']*\bfont-size-18\b[^"']*["'][^>]*>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
@@ -692,7 +707,7 @@ async function resolveQuality(browser, quality) {
   // Current Akwam playback buttons point to go.ak.sv/watch/<id>. Treat the
   // watch page as an intermediate player document and extract its real media
   // source before returning anything to the caller.
-  const targetPage = await getContentPageResilient(
+  const targetPage = await getContentPageDirectFirst(
     browser,
     qualityUrl,
     /\/watch\//i.test(qualityUrl) ? "AKWAM_WATCH" : "AKWAM_LINK",
@@ -787,13 +802,38 @@ async function resolveAkwam(browser, payload) {
       "; snippet=" + snippet
     );
   }
-  let lastError;
-  for (const wanted of QUALITY_ORDER) {
-    const quality = qualities.find((item) => item.quality === wanted); if (!quality) continue;
-    try { return { title: entry.title, source_url: mediaPage.url, ...(await resolveQuality(browser, quality)) }; }
-    catch (error) { lastError = error; diagnostic("AKWAM_QUALITY", `${wanted} failed: ${error.message}`); }
+  const resolved = [];
+  let lastError = null;
+
+  for (const quality of qualities.sort((a, b) => qualityRank(a.quality) - qualityRank(b.quality))) {
+    try {
+      const stream = await resolveQuality(browser, quality);
+      resolved.push(stream);
+      diagnostic("AKWAM_QUALITY", quality.quality + " resolved");
+    } catch (error) {
+      lastError = error;
+      diagnostic("AKWAM_QUALITY", quality.quality + " failed: " + error.message);
+    }
   }
-  throw lastError || new Error("AKWAM_QUALITY: no usable quality");
+
+  if (!resolved.length) throw lastError || new Error("AKWAM_QUALITY: no usable quality");
+
+  const primary = resolved[0];
+  const sources = resolved.map((item) => ({
+    quality: item.quality || "auto",
+    type: item.type || mediaTypeFromUrl(item.media_url || item.url),
+    url: item.media_url || item.url,
+  }));
+
+  return {
+    title: entry.title,
+    source_url: mediaPage.url,
+    media_url: primary.media_url || primary.url,
+    type: primary.type || mediaTypeFromUrl(primary.media_url || primary.url),
+    quality: primary.quality || "auto",
+    qualities: sources.map((item) => item.quality),
+    sources,
+  };
 }
 
 export default { async fetch(request, env) {
