@@ -15,7 +15,7 @@ const PAGE_HOSTS = new Set([
   "akwam.net", "www.akwam.net",
   "akwam.ee", "www.akwam.ee",
   "akwam.com.co", "www.akwam.com.co", "go.akwam.com.co",
-  "ak.sv", "go.ak.sv",
+  "go.ak.sv",
   "downet.net", "www.downet.net",
 ]);
 const QUALITY_ORDER = ["1080p", "720p", "480p"];
