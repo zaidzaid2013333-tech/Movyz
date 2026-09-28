@@ -81,16 +81,15 @@ async function getContentPage(browser, url, stage) {
 function entryBlocks(html) { return [...String(html).matchAll(/<[^>]*class=["'][^"']*\bentry-box\b[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi)].map((m) => m[0]); }
 function searchEntries(html, base) {
   const source = String(html);
-  const widget = source.match(/<[^>]*class=["'][^"']*\bwidget-body\b[^"']*\brow\b[^"']*\bflex-wrap\b[^"']*["'][^>]*>([\s\S]*)/i)?.[1] || source;
+  const cardMatches = [...source.matchAll(/<div[^>]*class=["'][^"']*\bentry-box\b[^"']*["'][^>]*>/gi)];
   const entries = [];
-  const titleRe = /<h3[^>]*class=["'][^"']*\bentry-title\b[^"']*["'][^>]*>([\s\S]*?)<\/h3>/gi;
-  for (const match of widget.matchAll(titleRe)) {
-    const title = stripHtml(match[1]);
-    const index = match.index ?? 0;
-    // Entry cards contain nested divs; do not stop at the first </div>.
-    const start = Math.max(0, index - 1800);
-    const end = Math.min(widget.length, index + match[0].length + 1800);
-    const fragment = widget.slice(start, end);
+  for (let i = 0; i < cardMatches.length; i += 1) {
+    const start = cardMatches[i].index ?? 0;
+    const end = cardMatches[i + 1]?.index ?? source.length;
+    const fragment = source.slice(start, end);
+    const title =
+      stripHtml(fragment.match(/<h3[^>]*class=["'][^"']*\bentry-title\b[^"']*["'][^>]*>([\s\S]*?)<\/h3>/i)?.[1] || "") ||
+      stripHtml(fragment.match(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/i)?.[1] || "");
     const href =
       fragment.match(/<a[^>]*class=["'][^"']*\bbox\b[^"']*["'][^>]*href=["']([^"']+)/i)?.[1] ||
       fragment.match(/<a[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*\bbox\b/i)?.[1] ||
