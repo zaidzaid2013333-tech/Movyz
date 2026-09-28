@@ -396,6 +396,8 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 
 
 const WATCH_API_BASE = 'https://movyz-moviebox.sameranede.workers.dev';
+const WATCH_CACHE_TTL_MS = 60_000;
+const watchSourceCache = new Map<string, { expiresAt: number; sources: any[]; meta: Record<string, unknown> }>();
 
 let watchApiFetch: typeof fetch = fetch;
 
@@ -435,9 +437,10 @@ function normalizeWatchSources(payload: any) {
       labelEn: source.labelEn || source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · '),
       url: source.url,
       isWorking: true,
-      provider: 'AbdoBest',
-      providerKey: 'abdobest',
+      provider: 'Akwam',
+      providerKey: 'akwam',
       providerReference: source.providerReference,
+      sourceUrl: source.sourceUrl || stream.source_url || stream.sourceUrl || undefined,
       subtitleTracks: Array.isArray(source.subtitleTracks) ? source.subtitleTracks : [],
     }));
 }
@@ -460,6 +463,13 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   }
 
   const { mediaType, tmdbId, season, episode } = parsed.data;
+
+  const cacheKey = [mediaType, tmdbId, season ?? '', episode ?? ''].join('|');
+  const cached = watchSourceCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return ok(res, cached.sources, cached.meta);
+  }
+
 
   if (mediaType === 'series' && (season == null || episode == null)) {
     return fail(res, 400, 'EPISODE_REQUIRED', 'Season and episode are required for series playback');
@@ -553,13 +563,19 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable AbdoBest source is currently available');
     }
 
-    return ok(res, sources, {
-      source: 'abdobest_watch_api',
+    const meta = {
+      source: 'akwam_watch_api',
       mediaType,
       tmdbId,
       season,
       episode,
+    };
+    watchSourceCache.set(cacheKey, {
+      expiresAt: Date.now() + WATCH_CACHE_TTL_MS,
+      sources,
+      meta,
     });
+    return ok(res, sources, meta);
   } catch (error) {
     console.error('[watch-api]', error instanceof Error ? error.message : error);
     return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load AbdoBest playback sources');
