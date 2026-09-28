@@ -18,7 +18,7 @@ const PAGE_HOSTS = new Set([
   "go.ak.sv",
   "downet.net", "www.downet.net",
 ]);
-const QUALITY_ORDER = ["1080p", "720p", "480p"];
+const QUALITY_ORDER = ["2160p", "1440p", "1080p", "720p", "576p", "480p", "360p", "240p"];
 const MAX_REDIRECTS = 6;
 const SEARCH_BACKOFF_MS = [750, 1_750];
 const PLAYBACK_CACHE_TTL_MS = 90_000;
@@ -39,6 +39,26 @@ function diagnostic(stage, message) { console.log(`[${stage}] ${message}`); }
 function normalizeTitle(value) {
   return clean(value).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+}
+function normalizeQuality(value) {
+  const text = stripHtml(value).toLowerCase().replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const aliases = {
+    "4k": "2160p",
+    "uhd": "2160p",
+    "2k": "1440p",
+    "qhd": "1440p",
+    "fhd": "1080p",
+    "hd": "720p",
+    "sd": "480p",
+  };
+  if (aliases[text]) return aliases[text];
+  const match = text.match(/\b(2160|1440|1080|720|576|480|360|240)\s*p?\b/i);
+  return match ? `${match[1]}p` : "";
+}
+function qualityRank(value) {
+  const index = QUALITY_ORDER.indexOf(normalizeQuality(value));
+  return index === -1 ? QUALITY_ORDER.length : index;
 }
 function stripHtml(value) {
   return String(value || "").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -303,8 +323,8 @@ function extractQualities(html, base) {
   const out = [];
   const seen = new Set();
   const add = (quality, rawUrl, kind) => {
-    const normalized = String(quality || "").toLowerCase().trim();
-    if (!QUALITY_ORDER.includes(normalized)) return;
+    const normalized = normalizeQuality(quality);
+    if (!normalized) return;
     const url = safeUrl(rawUrl, base, { pageOnly: true });
     if (!url || seen.has(url)) return;
     seen.add(url);
@@ -320,7 +340,7 @@ function extractQualities(html, base) {
   for (const match of source.matchAll(
     /<a\b[^>]*href=["']#tab-\d+["'][^>]*>([\s\S]*?)<\/a>/gi,
   )) {
-    const label = stripHtml(match[1]).match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase();
+    const label = normalizeQuality(stripHtml(match[1]));
     if (label && !qualitySequence.includes(label)) qualitySequence.push(label);
   }
 
@@ -371,7 +391,7 @@ function extractQualities(html, base) {
       const context = stripHtml(
         source.slice(Math.max(0, (match.index ?? 0) - 1200), Math.min(source.length, (match.index ?? 0) + 1200)),
       );
-      const quality = context.match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase();
+      const quality = normalizeQuality(context);
       add(quality, match[2], "watch");
     }
   }
@@ -384,9 +404,7 @@ function extractQualities(html, base) {
       " extracted=" + JSON.stringify(out),
   );
 
-  return out.sort((a, b) =>
-    QUALITY_ORDER.indexOf(a.quality) - QUALITY_ORDER.indexOf(b.quality),
-  );
+  return out.sort((a, b) => qualityRank(a.quality) - qualityRank(b.quality));
 }
 function extractEpisode(html, base, episode) {
   const candidates = [...String(html).matchAll(/<div[^>]*class=["'][^"']*\bbg-primary2\b[^"']*["'][^>]*>[\s\S]*?<h2[^>]*class=["'][^"']*\bfont-size-18\b[^"']*["'][^>]*>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
@@ -777,13 +795,72 @@ async function resolveAkwam(browser, payload) {
       "; snippet=" + snippet
     );
   }
-  let lastError;
-  for (const wanted of QUALITY_ORDER) {
-    const quality = qualities.find((item) => item.quality === wanted); if (!quality) continue;
-    try { return { title: entry.title, source_url: mediaPage.url, ...(await resolveQuality(browser, quality)) }; }
-    catch (error) { lastError = error; diagnostic("AKWAM_QUALITY", `${wanted} failed: ${error.message}`); }
+  const candidatesByQuality = new Map();
+  for (const quality of qualities) {
+    const list = candidatesByQuality.get(quality.quality) || [];
+    list.push(quality);
+    candidatesByQuality.set(quality.quality, list);
   }
-  throw lastError || new Error("AKWAM_QUALITY: no usable quality");
+
+  const resolved = [];
+  const failures = [];
+
+  for (const wanted of QUALITY_ORDER) {
+    const candidates = candidatesByQuality.get(wanted) || [];
+    if (!candidates.length) continue;
+
+    let resolvedQuality = null;
+    for (const candidate of candidates) {
+      try {
+        resolvedQuality = await resolveQuality(browser, candidate);
+        break;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push({ quality: wanted, message });
+        diagnostic("AKWAM_QUALITY", `${wanted} candidate failed: ${message}`);
+      }
+    }
+
+    if (resolvedQuality?.media_url) {
+      resolved.push({
+        quality: wanted,
+        url: resolvedQuality.media_url,
+        type: resolvedQuality.type,
+        content_type: resolvedQuality.content_type,
+      });
+    }
+  }
+
+  if (!resolved.length) {
+    const details = failures.slice(0, 6).map((item) => `${item.quality}: ${item.message}`).join(" | ");
+    throw new Error("AKWAM_QUALITY: no usable quality" + (details ? "; " + details : ""));
+  }
+
+  resolved.sort((a, b) => qualityRank(a.quality) - qualityRank(b.quality));
+  const primary = resolved[0];
+
+  diagnostic(
+    "AKWAM_QUALITY",
+    "resolvedQualities=" + JSON.stringify(resolved.map((item) => item.quality)) +
+      (failures.length ? " failures=" + JSON.stringify(failures.slice(0, 6)) : ""),
+  );
+
+  return {
+    title: entry.title,
+    source_url: mediaPage.url,
+    url: primary.url,
+    media_url: primary.url,
+    type: primary.type,
+    quality: primary.quality,
+    qualities: resolved.map((item) => item.quality),
+    available_qualities: resolved.map((item) => item.quality),
+    sources: resolved.map((item) => ({
+      quality: item.quality,
+      type: item.type,
+      url: item.url,
+      label: item.quality,
+    })),
+  };
 }
 
 export default { async fetch(request, env) {
