@@ -81,22 +81,22 @@ async function getContentPage(browser, url, stage) {
 function entryBlocks(html) { return [...String(html).matchAll(/<[^>]*class=["'][^"']*\bentry-box\b[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi)].map((m) => m[0]); }
 function searchEntries(html, base) {
   const source = String(html);
-  const widget = source.match(/<[^>]*class=["'][^"']*\\bwidget-body\\b[^"']*\\brow\\b[^"']*\\bflex-wrap\\b[^"']*["'][^>]*>([\\s\\S]*)/i)?.[1] || source;
+  const widget = source.match(/<[^>]*class=["'][^"']*\bwidget-body\b[^"']*\brow\b[^"']*\bflex-wrap\b[^"']*["'][^>]*>([\s\S]*)/i)?.[1] || source;
   const entries = [];
-  const titleRe = /<h3[^>]*class=["'][^"']*\\bentry-title\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/h3>/gi;
+  const titleRe = /<h3[^>]*class=["'][^"']*\bentry-title\b[^"']*["'][^>]*>([\s\S]*?)<\/h3>/gi;
   for (const match of widget.matchAll(titleRe)) {
     const title = stripHtml(match[1]);
-    // Do not parse entry-box with a naive closing-tag regex: Akwam cards contain
-    // nested divs, so that approach truncates the card before its title/link.
-    const start = Math.max(0, match.index ?? 0 - 1200);
-    const end = Math.min(widget.length, (match.index ?? 0) + match[0].length + 1800);
+    const index = match.index ?? 0;
+    // Entry cards contain nested divs; do not stop at the first </div>.
+    const start = Math.max(0, index - 1800);
+    const end = Math.min(widget.length, index + match[0].length + 1800);
     const fragment = widget.slice(start, end);
     const href =
-      fragment.match(/<a[^>]*class=["'][^"']*\\bbox\\b[^"']*["'][^>]*href=["']([^"']+)/i)?.[1] ||
-      fragment.match(/<a[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*\\bbox\\b/i)?.[1] ||
+      fragment.match(/<a[^>]*class=["'][^"']*\bbox\b[^"']*["'][^>]*href=["']([^"']+)/i)?.[1] ||
+      fragment.match(/<a[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*\bbox\b/i)?.[1] ||
       fragment.match(/<a[^>]+href=["']([^"']+)["'][^>]*>/i)?.[1];
     const url = safeUrl(href, base, { pageOnly: true });
-    const year = Number((stripHtml(fragment).match(/\\b(19|20)\\d{2}\\b/) || [])[0]) || null;
+    const year = Number((stripHtml(fragment).match(/\b(19|20)\d{2}\b/) || [])[0]) || null;
     if (title && url && !entries.some((entry) => entry.url === url)) entries.push({ title, url, year });
   }
   return entries;
