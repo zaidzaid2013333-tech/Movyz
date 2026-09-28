@@ -220,12 +220,56 @@ async function searchAkwam(browser, payload) {
   throw lastError || new Error("AKWAM_SEARCH: no matching entry");
 }
 function extractQualities(html, base) {
-  const out = []; const seen = new Set();
-  for (const match of String(html).matchAll(/<a\b([^>]*)href=["']([^"']*\/link\/\d+[^"']*)["']([^>]*)>([\s\S]*?)<\/a>/gi)) {
-    const label = stripHtml(match[4] + " " + match[1] + " " + match[3]).match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase();
-    const url = safeUrl(match[2], base, { pageOnly: true });
-    if (label && url && !seen.has(url)) { seen.add(url); out.push({ quality: label, url }); }
+  const source = String(html);
+  const out = [];
+  const seen = new Set();
+
+  const add = (quality, rawUrl) => {
+    const url = safeUrl(rawUrl, base, { pageOnly: true });
+    if (!url || seen.has(url)) return;
+    const normalized = String(quality || "").toLowerCase();
+    if (!["1080p", "720p", "480p"].includes(normalized)) return;
+    seen.add(url);
+    out.push({ quality: normalized, url });
+  };
+
+  // Primary: quality/link pairs inside the current Akwam card markup.
+  for (const match of source.matchAll(/<a\b([^>]*)href=["']([^"']*\/link\/\d+[^"']*)["']([^>]*)>([\s\S]*?)<\/a>/gi)) {
+    const index = match.index ?? 0;
+    const context = source.slice(Math.max(0, index - 900), Math.min(source.length, index + match[0].length + 1200));
+    const label =
+      stripHtml(match[4] + " " + match[1] + " " + match[3]).match(/\b(1080p|720p|480p)\b/i)?.[1] ||
+      stripHtml(context).match(/\b(1080p|720p|480p)\b/i)?.[1];
+    add(label, match[2]);
   }
+
+  // Reference-compatible fallback: Akwam groups quality links under tab-content/quality.
+  for (const quality of QUALITY_ORDER) {
+    const re = new RegExp(
+      "tab-content[^>]*\\bquality\\b[\\s\\S]{0,3500}?\\b" + quality + "\\b[\\s\\S]{0,3500}?<a\\b[^>]*href=[\\\"']([^\\\"']*\\/link\\/\\d+[^\\\"']*)",
+      "i",
+    );
+    const match = source.match(re);
+    if (match) add(quality, match[1]);
+  }
+
+  // Last fallback: correlate a visible quality label with the nearest link URL.
+  for (const quality of QUALITY_ORDER) {
+    if (out.some((item) => item.quality === quality)) continue;
+    const labelMatch = source.match(new RegExp("\\b" + quality + "\\b", "i"));
+    if (!labelMatch) continue;
+    const start = Math.max(0, (labelMatch.index ?? 0) - 2200);
+    const end = Math.min(source.length, (labelMatch.index ?? 0) + 2200);
+    const context = source.slice(start, end);
+    const href = context.match(/(?:href|data-(?:url|link))=["']([^"']*\/link\/\d+[^"']*)["']/i)?.[1];
+    if (href) add(quality, href);
+  }
+
+  diagnostic(
+    "AKWAM_QUALITY",
+    `links=${(source.match(/\/link\/\d+/gi) || []).length} visibleQualities=${JSON.stringify(source.match(/\b(?:1080p|720p|480p)\b/gi) || [])} extracted=${JSON.stringify(out)}`,
+  );
+
   return out.sort((a, b) => QUALITY_ORDER.indexOf(a.quality) - QUALITY_ORDER.indexOf(b.quality));
 }
 function extractEpisode(html, base, episode) {
