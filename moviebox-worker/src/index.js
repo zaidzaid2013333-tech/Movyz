@@ -188,14 +188,36 @@ function sourceUrlsOf(item) {
     if (depth > 7 || value == null) return;
 
     if (typeof value === "string") {
-      const url = normalizeAkwamUrl(value);
-      if (isAkwamUrl(url) && !seen.has(url)) {
-        seen.add(url);
-        found.push(url);
+      const normalizedText = value
+        .replace(/\\\\\//g, "/")
+        .replace(/&amp;/gi, "&")
+        .trim();
+      const candidates = new Set([value, normalizedText]);
+
+      // AbdoBest may serialize an episode object as a JSON/escaped string.
+      // Recover embedded Akwam URLs instead of treating the whole string as
+      // if it were already the URL.
+      for (const match of normalizedText.matchAll(/https?:\\/\\/[^\\s"'<>\\\\]+/gi)) {
+        candidates.add(match[0]);
+      }
+
+      for (const candidate of candidates) {
+        const url = asEpisodeUrlCandidate(candidate);
+        if (url && !seen.has(url)) {
+          seen.add(url);
+          found.push(url);
+        }
+      }
+
+      // Also support a JSON-encoded episode object/string.
+      try {
+        const parsed = JSON.parse(normalizedText);
+        visit(parsed, depth + 1);
+      } catch {
+        // Plain strings are already handled above.
       }
       return;
     }
-
     if (Array.isArray(value)) {
       for (const child of value) visit(child, depth + 1);
       return;
