@@ -91,11 +91,13 @@ export const MovyzaApi = {
     contentType: 'movie' | 'series',
     seasonNumber?: number,
     episodeNumber?: number,
+    signal?: AbortSignal,
   ) => request<import('../types').PlaybackSource[]>(
     `/watch/${contentType}/${encodeURIComponent(String(tmdbId))}${query({
       season: contentType === 'series' ? seasonNumber : undefined,
       episode: contentType === 'series' ? episodeNumber : undefined,
     })}`,
+    { signal },
   ),
 
   // Backward-compatible legacy endpoint; the Watch page does not use it.
