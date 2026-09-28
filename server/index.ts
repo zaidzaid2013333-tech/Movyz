@@ -613,6 +613,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
           body: JSON.stringify(
             mediaType === 'movie'
               ? {
+                  mode: 'iframe',
                   tmdb_id: tmdbId,
                   title: titleEn || titleAr || originalTitle || title,
                   title_en: titleEn,
@@ -622,6 +623,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
                   year,
                 }
               : {
+                  mode: 'iframe',
                   tmdb_id: tmdbId,
                   title: titleEn || title,
                   year,

@@ -493,7 +493,75 @@ async function resolveDiscoveredAkwamContent(payload, type, source, env) {
   }, type, env);
 }
 
+
+async function resolveAkwamIframeOnly(payload, type) {
+  const explicitSource = normalizeAkwamUrl(
+    payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
+  );
+
+  const build = (source, matchedTitle = "") => ({
+    url: source,
+    type: "web",
+    quality: "auto",
+    qualities: ["auto"],
+    sources: [{ url: source, type: "web", quality: "auto" }],
+    source_url: source,
+    iframe_url: source,
+    matched_title: matchedTitle || payload?.title || "",
+    via: "akwam-iframe-discovery",
+  });
+
+  if (explicitSource) {
+    if (!isAkwamUrl(explicitSource)) {
+      throw new Error("Only Akwam playback sources are allowed");
+    }
+    return build(explicitSource);
+  }
+
+  const title = clean(payload?.title);
+  if (!title) throw new Error("title is required");
+
+  const search = await abdoJson("/api/search?q=" + encodeURIComponent(title), { method: "GET" });
+  const ranked = asArray(search.body)
+    .map((item) => ({ item, score: scoreMatch(item, payload) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (type === "movie") {
+    for (const entry of ranked) {
+      const urls = sourceUrlsOf(entry.item);
+      if (urls.length) return build(urls[0], titleOf(entry.item));
+    }
+    throw new Error("No Akwam movie page matched this title");
+  }
+
+  const season = Number(payload?.season);
+  const episode = Number(payload?.episode);
+  if (!Number.isInteger(season) || season < 0) throw new Error("season must be a valid integer");
+  if (!Number.isInteger(episode) || episode < 1) throw new Error("episode must be a valid integer");
+
+  const match = ranked[0]?.item;
+  if (!match) throw new Error("No Akwam series matched this title");
+
+  const category = categoryOf(match) || "series";
+  const id = firstString(match?.id, match?.ID);
+  if (!id) throw new Error("Matched series has no source ID");
+
+  const path = category === "arabic-series"
+    ? "/api/arabic-series/episodes/" + encodeURIComponent(id)
+    : "/api/episodes/" + encodeURIComponent(category) + "/" + encodeURIComponent(id);
+
+  const episodes = await abdoJson(path);
+  const found = findEpisode(episodes.body, season, episode);
+  if (!found?.urls?.length) {
+    throw new Error(`Episode S${season}E${episode} has no Akwam page URL`);
+  }
+
+  return build(found.urls[0], titleOf(match));
+}
+
 async function resolveMovie(payload, env) {
+  if (payload?.mode === "iframe") return await resolveAkwamIframeOnly(payload, "movie");
   const directSource = normalizeAkwamUrl(
     payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
   );
@@ -610,6 +678,7 @@ function findEpisode(payload, season, episode) {
 }
 
 async function resolveEpisode(payload, env) {
+  if (payload?.mode === "iframe") return await resolveAkwamIframeOnly(payload, "series");
   const explicitSource = normalizeAkwamUrl(
     payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
   );
