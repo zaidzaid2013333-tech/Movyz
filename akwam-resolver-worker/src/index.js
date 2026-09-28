@@ -168,7 +168,7 @@ async function getContentPage(browser, url, stage) {
   const pageUrl = safeUrl(url, AKWAM_BASE, { pageOnly: true });
   if (!pageUrl) throw new Error(`${stage}: rejected unsafe or non-Akwam URL`);
   diagnostic(stage, pageUrl);
-  const response = await browser.quickAction("content", { url: pageUrl, userAgent: UA, gotoOptions: { waitUntil: "networkidle2", timeout: 45_000 } });
+  const response = await browser.quickAction("content", { url: pageUrl, userAgent: UA, gotoOptions: { waitUntil: "domcontentloaded", timeout: 20_000 } });
   const html = await getBrowserHtml(response);
   if (!response.ok) {
     const error = new Error(`${stage}: HTTP ${response.status}`);
@@ -788,13 +788,60 @@ async function resolveAkwam(browser, payload) {
       "; snippet=" + snippet
     );
   }
-  let lastError;
-  for (const wanted of QUALITY_ORDER) {
-    const quality = qualities.find((item) => item.quality === wanted); if (!quality) continue;
-    try { return { title: entry.title, source_url: mediaPage.url, ...(await resolveQuality(browser, quality)) }; }
-    catch (error) { lastError = error; diagnostic("AKWAM_QUALITY", `${wanted} failed: ${error.message}`); }
+  const orderedQualities = QUALITY_ORDER
+    .map((wanted) => qualities.find((item) => item.quality === wanted))
+    .filter(Boolean);
+
+  // Resolve advertised qualities concurrently: these are independent watch pages.
+  // A failed quality is isolated; successful sources remain ordered by preference.
+  const startedAt = Date.now();
+  const attempts = await Promise.allSettled(
+    orderedQualities.map(async (quality) => {
+      const qualityStartedAt = Date.now();
+      try {
+        const stream = await resolveQuality(browser, quality);
+        diagnostic("AKWAM_TIMING", `${quality.quality}=${Date.now() - qualityStartedAt}ms`);
+        return {
+          quality: quality.quality,
+          type: stream.type,
+          url: stream.url,
+          content_type: stream.content_type,
+        };
+      } catch (error) {
+        diagnostic("AKWAM_TIMING", `${quality.quality}=${Date.now() - qualityStartedAt}ms failed`);
+        throw error;
+      }
+    }),
+  );
+  const resolved = [];
+  let lastError = null;
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index];
+    if (attempt.status === "fulfilled") {
+      resolved.push(attempt.value);
+      diagnostic("AKWAM_QUALITY", `${attempt.value.quality} PASS -> ${attempt.value.url}`);
+    } else {
+      lastError = attempt.reason;
+      diagnostic("AKWAM_QUALITY", `${orderedQualities[index].quality} failed: ${attempt.reason?.message || String(attempt.reason)}`);
+    }
   }
-  throw lastError || new Error("AKWAM_QUALITY: no usable quality");
+  diagnostic("AKWAM_TIMING", `quality_batch=${Date.now() - startedAt}ms count=${orderedQualities.length} resolved=${resolved.length}`);
+
+  if (!resolved.length) {
+    throw lastError || new Error("AKWAM_QUALITY: no usable quality");
+  }
+
+  const primary = resolved[0];
+  return {
+    title: entry.title,
+    source_url: mediaPage.url,
+    url: primary.url,
+    type: primary.type,
+    content_type: primary.content_type,
+    quality: primary.quality,
+    qualities: resolved.map((item) => item.quality),
+    sources: resolved,
+  };
 }
 
 export default { async fetch(request, env) {
