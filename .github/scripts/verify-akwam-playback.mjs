@@ -8,8 +8,8 @@ const fixture = {
   year: 2010,
   type: "movie",
   tmdb_id: 27205,
-  content_url: "https://akwam.it/movie/562/inception-1",
-  source_url: "https://akwam.it/movie/562/inception-1",
+  content_url: "https://ak.sv/movie/562/inception-1",
+  source_url: "https://ak.sv/movie/562/inception-1",
 };
 
 function isHttp(value) {
