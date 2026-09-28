@@ -413,56 +413,108 @@ function extractFinalMediaUrl(html, base) {
   return found[0] || "";
 }
 
-function inferMediaType(url, contentType, contentDisposition, sample) {
+function hasMp4Signature(bytes) {
+  return bytes.length >= 8 &&
+    bytes[4] === 0x66 &&
+    bytes[5] === 0x74 &&
+    bytes[6] === 0x79 &&
+    bytes[7] === 0x70;
+}
+
+function inferMediaType(url, contentType, contentDisposition, sample, bytes) {
   const ct = String(contentType || "").toLowerCase();
   const value = String(url || "").toLowerCase();
   const cd = String(contentDisposition || "").toLowerCase();
   if (/mpegurl|vnd\.apple\.mpegurl/.test(ct) || /#extm3u/i.test(sample)) return "hls";
   if (/dash\+xml|application\/dash/.test(ct) || /<\s*mpd\b/i.test(sample)) return "dash";
-  if (/^video\//.test(ct) || /\.(?:mp4|m4v|webm)(?:[?#]|$)/.test(value) || /\.(?:mp4|m4v|webm)(?:[?#]|$)/.test(cd) || /ftyp/i.test(sample.slice(0, 64))) return "mp4";
+  if (/^video\//.test(ct) ||
+      /\.(?:mp4|m4v|webm)(?:[?#]|$)/.test(value) ||
+      /\.(?:mp4|m4v|webm)(?:[?#]|$)/.test(cd) ||
+      hasMp4Signature(bytes)) return "mp4";
   return "";
+}
+
+async function readProbeBytes(response, limit = 65_536) {
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (total < limit) {
+      const part = await reader.read();
+      if (part.done) break;
+      if (!part.value || !part.value.byteLength) continue;
+      const remaining = limit - total;
+      const chunk = part.value.slice(0, remaining);
+      chunks.push(chunk);
+      total += chunk.byteLength;
+      if (chunk.byteLength < part.value.byteLength) break;
+    }
+  } finally {
+    try { await reader.cancel(); } catch {}
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
 }
 
 async function validateMediaUrl(initialUrl, referer = "") {
   let url = safeUrl(initialUrl, AKWAM_BASE);
   if (!url) throw new Error("AKWAM_FINAL_MEDIA: unsafe URL");
+
   for (let count = 0; count <= MAX_REDIRECTS; count += 1) {
     diagnostic("AKWAM_FINAL_MEDIA", url);
     const headers = {
       Accept: "*/*",
-      Range: "bytes=0-1023",
+      Range: "bytes=0-65535",
       "User-Agent": UA,
       ...(referer ? { Referer: referer } : {}),
     };
+
     const response = await fetch(url, {
       headers,
       redirect: "manual",
       signal: AbortSignal.timeout(30_000),
     });
+
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const next = safeUrl(response.headers.get("location"), url);
       if (!next) throw new Error("AKWAM_FINAL_MEDIA: unsafe redirect");
       url = next;
       continue;
     }
+
     if (!response.ok) throw new Error("AKWAM_FINAL_MEDIA: HTTP " + response.status);
 
     const contentType = (response.headers.get("content-type") || "").toLowerCase();
     const contentDisposition = response.headers.get("content-disposition") || "";
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    const sample = new TextDecoder().decode(bytes.slice(0, 1024));
+    const bytes = await readProbeBytes(response);
+    const sample = new TextDecoder().decode(bytes.slice(0, 4096));
 
     if (!bytes.byteLength) throw new Error("AKWAM_FINAL_MEDIA: media response is empty");
-    if (challengePage(sample) || /text\/html|application\/xhtml/.test(contentType) ||
+    if (challengePage(sample) ||
+        /text\/html|application\/xhtml/.test(contentType) ||
         /<\s*(?:!doctype\s+html|html)\b/i.test(sample.slice(0, 512))) {
       throw new Error("AKWAM_FINAL_MEDIA: HTML/challenge response");
     }
 
-    const type = inferMediaType(url, contentType, contentDisposition, sample);
-    diagnostic("AKWAM_FINAL_MEDIA", "status=" + response.status + " type=" + (type || "unknown") + " contentType=" + contentType + " bytes=" + bytes.byteLength);
+    const type = inferMediaType(url, contentType, contentDisposition, sample, bytes);
+    diagnostic(
+      "AKWAM_FINAL_MEDIA",
+      "status=" + response.status +
+      " type=" + (type || "unknown") +
+      " contentType=" + contentType +
+      " bytes=" + bytes.byteLength
+    );
+
     if (!type) throw new Error("AKWAM_FINAL_MEDIA: response is not recognized media");
     return { media_url: url, type, content_type: contentType };
   }
+
   throw new Error("AKWAM_FINAL_MEDIA: redirect limit exceeded");
 }
 async function resolveQuality(browser, quality) {
