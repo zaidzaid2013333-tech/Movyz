@@ -17,6 +17,7 @@ jobs:
       - name: Inspect live AbdoBest episode response
         run: |
           node <<'NODE'
+          (async () => {
           const bases = [
             "https://ogkushhh-abdobest.hf.space",
             "https://ogkushhh-abdobest-api.hf.space",
@@ -140,4 +141,5 @@ jobs:
           };
           walk(body);
           console.log("EPISODE_URLS", JSON.stringify(urls.slice(0, 80), null, 2));
+          })().catch((error) => { console.error(error); process.exit(1); });
           NODE
