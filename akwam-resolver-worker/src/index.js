@@ -76,22 +76,58 @@ function decodeContentUrl(payload) {
   } catch { return ""; }
 }
 
+function unwrapBrowserPayload(rawValue) {
+  let current = String(rawValue ?? "").replace(/^\uFEFF/, "").trim();
+
+  for (let depth = 0; depth < 3; depth += 1) {
+    try {
+      const parsed = JSON.parse(current);
+
+      if (typeof parsed === "string") {
+        current = parsed.trim();
+        continue;
+      }
+
+      if (parsed && typeof parsed.result === "string") {
+        current = parsed.result.trim();
+        continue;
+      }
+
+      if (parsed && typeof parsed.html === "string") {
+        current = parsed.html.trim();
+        continue;
+      }
+
+      if (parsed && parsed.result && typeof parsed.result.html === "string") {
+        current = parsed.result.html.trim();
+        continue;
+      }
+    } catch {}
+
+    const resultMatch = current.match(/"result"\s*:\s*"((?:\\.|[^"\\])*)"/s);
+    if (resultMatch) {
+      try {
+        current = JSON.parse('"' + resultMatch[1] + '"').trim();
+        continue;
+      } catch {}
+    }
+
+    break;
+  }
+
+  return current;
+}
+
 async function getBrowserHtml(response) {
   const raw = await response.text();
-  try {
-    const payload = JSON.parse(raw);
-    if (payload && typeof payload.result === "string") return payload.result;
-    if (payload && typeof payload.html === "string") return payload.html;
-    if (payload && payload.result && typeof payload.result.html === "string") return payload.result.html;
-  } catch {}
-  return raw;
+  return unwrapBrowserPayload(raw);
 }
 
 async function getContentPage(browser, url, stage) {
   const pageUrl = safeUrl(url, AKWAM_BASE, { pageOnly: true });
   if (!pageUrl) throw new Error(`${stage}: rejected unsafe or non-Akwam URL`);
   diagnostic(stage, pageUrl);
-  const response = await browser.quickAction("content", { url: pageUrl, userAgent: UA, gotoOptions: { waitUntil: "domcontentloaded", timeout: 30_000 } });
+  const response = await browser.quickAction("content", { url: pageUrl, userAgent: UA, gotoOptions: { waitUntil: "networkidle2", timeout: 45_000 } });
   const html = await getBrowserHtml(response);
   if (!response.ok) {
     const error = new Error(`${stage}: HTTP ${response.status}`);
