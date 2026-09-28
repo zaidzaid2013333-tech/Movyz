@@ -788,53 +788,13 @@ async function resolveAkwam(browser, payload) {
       "; snippet=" + snippet
     );
   }
-  const orderedQualities = QUALITY_ORDER
-    .map((wanted) => qualities.find((item) => item.quality === wanted))
-    .filter(Boolean);
-
-  // Resolve advertised qualities sequentially so Browser Run rate limits cannot
-  // reject a fan-out of browser actions. A failed quality stays isolated; successful
-  // sources remain ordered by preference.
-  const startedAt = Date.now();
-  const resolved = [];
-  let lastError = null;
-
-  for (const quality of orderedQualities) {
-    const qualityStartedAt = Date.now();
-    try {
-      const stream = await resolveQuality(browser, quality);
-      resolved.push({
-        quality: quality.quality,
-        type: stream.type,
-        url: stream.url,
-        content_type: stream.content_type,
-      });
-      diagnostic("AKWAM_TIMING", `${quality.quality}=${Date.now() - qualityStartedAt}ms`);
-      diagnostic("AKWAM_QUALITY", `${quality.quality} PASS -> ${stream.url}`);
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      diagnostic("AKWAM_TIMING", `${quality.quality}=${Date.now() - qualityStartedAt}ms failed`);
-      diagnostic("AKWAM_QUALITY", `${quality.quality} failed: ${lastError.message}`);
-    }
+  let lastError;
+  for (const wanted of QUALITY_ORDER) {
+    const quality = qualities.find((item) => item.quality === wanted); if (!quality) continue;
+    try { return { title: entry.title, source_url: mediaPage.url, ...(await resolveQuality(browser, quality)) }; }
+    catch (error) { lastError = error; diagnostic("AKWAM_QUALITY", `${wanted} failed: ${error.message}`); }
   }
-
-  diagnostic("AKWAM_TIMING", `quality_batch=${Date.now() - startedAt}ms count=${orderedQualities.length} resolved=${resolved.length}`);
-
-  if (!resolved.length) {
-    throw lastError || new Error("AKWAM_QUALITY: no usable quality");
-  }
-
-  const primary = resolved[0];
-  return {
-    title: entry.title,
-    source_url: mediaPage.url,
-    url: primary.url,
-    type: primary.type,
-    content_type: primary.content_type,
-    quality: primary.quality,
-    qualities: resolved.map((item) => item.quality),
-    sources: resolved,
-  };
+  throw lastError || new Error("AKWAM_QUALITY: no usable quality");
 }
 
 export default { async fetch(request, env) {

@@ -420,37 +420,20 @@ async function resolveViaAkwamResolver(payload, type, env) {
       }
 
       if (typeof data.media_url === "string" && /^https?:\/\//i.test(data.media_url)) {
-        const rawSources = Array.isArray(data.sources) ? data.sources : [];
-        const normalizedSources = rawSources
-          .filter((source) => source && typeof source.url === "string" && /^https?:\/\//i.test(source.url))
-          .map((source) => {
-            const typeOfStream = ["mp4", "hls", "dash", "webm"].includes(source.type)
-              ? source.type
-              : detectStreamType(source.url);
-            return {
-              quality: source.quality || "auto",
-              type: typeOfStream,
-              url: source.url,
-            };
-          });
-
-        const primaryType = ["mp4", "hls", "dash", "webm"].includes(data.type)
+        const typeOfStream = ["mp4", "hls", "dash", "webm"].includes(data.type)
           ? data.type
           : detectStreamType(data.media_url);
-        const primaryQuality = data.quality || normalizedSources[0]?.quality || "auto";
-        const sources = normalizedSources.length
-          ? normalizedSources
-          : [{ quality: primaryQuality, type: primaryType, url: data.media_url }];
 
-        // Keep the direct-media contract backward compatible while carrying
-        // every successfully resolved Akwam quality to the player.
-        const primary = sources[0];
         return {
-          url: primary.url,
-          type: primary.type,
-          quality: primary.quality,
-          qualities: sources.map((source) => source.quality),
-          sources,
+          url: data.media_url,
+          type: typeOfStream,
+          quality: data.quality || "auto",
+          qualities: [data.quality || "auto"],
+          sources: [{
+            quality: data.quality || "auto",
+            type: typeOfStream,
+            url: data.media_url,
+          }],
           cached: false,
           via: "akwam-browser-resolver",
           source_url: data.source_url || data.page_url || "",
