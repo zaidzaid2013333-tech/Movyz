@@ -106,9 +106,11 @@ function MainApp() {
       const contentId = pathOnly.replace('/watch/', '');
       const season = searchParams.get('season') ? Number(searchParams.get('season')) : undefined;
       const episode = searchParams.get('episode') ? Number(searchParams.get('episode')) : undefined;
+      const contentType = searchParams.get('type');
       return (
         <WatchPage
           contentId={contentId}
+          contentTypeParam={contentType === 'movie' || contentType === 'series' ? contentType : undefined}
           seasonParam={season}
           episodeParam={episode}
           onNavigate={navigate}
