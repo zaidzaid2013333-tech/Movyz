@@ -1,0 +1,144 @@
+name: Debug AbdoBest Episode Shape
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/debug-abdobest.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: startsWith(github.event.head_commit.message, 'debug: abdobest episode shape')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Inspect live AbdoBest episode response
+        run: |
+          node <<'NODE'
+          const bases = [
+            "https://ogkushhh-abdobest.hf.space",
+            "https://ogkushhh-abdobest-api.hf.space",
+          ];
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+          async function getJson(path) {
+            let last;
+            for (const base of bases) {
+              const ctl = new AbortController();
+              const timer = setTimeout(() => ctl.abort(), 30000);
+              try {
+                const r = await fetch(base + path, {
+                  headers: { Accept: "application/json" },
+                  redirect: "follow",
+                  signal: ctl.signal,
+                });
+                const text = await r.text();
+                let body = null;
+                try { body = text ? JSON.parse(text) : null; } catch {}
+                console.log("FETCH", base + path, "HTTP", r.status, "bytes", text.length);
+                if (r.ok) return { body, base, path };
+                last = new Error(body?.error || "HTTP " + r.status);
+              } catch (e) {
+                last = e;
+                console.log("FETCH_ERROR", base + path, String(e?.message || e));
+              } finally {
+                clearTimeout(timer);
+              }
+              await sleep(500);
+            }
+            throw last || new Error("No AbdoBest base worked");
+          }
+
+          const search = await getJson("/api/search?q=The%20Mentalist");
+          const root = search.body;
+          const rawItems =
+            Array.isArray(root) ? root :
+            Array.isArray(root?.results) ? root.results :
+            Array.isArray(root?.items) ? root.items :
+            Array.isArray(root?.series) ? root.series :
+            Array.isArray(root?.data) ? root.data : [];
+
+          const items = rawItems.map((x) => ({
+            id: x?.id ?? x?.ID ?? null,
+            title: x?.Title ?? x?.title ?? x?.name ?? x?.original_title ?? x?.original_name ?? null,
+            category: x?.Category ?? x?.category ?? x?.type ?? x?.content_type ?? null,
+            tmdb_id: x?.["TMDb ID"] ?? x?.tmdb_id ?? x?.tmdbId ?? x?.themoviedb_id ?? null,
+            year: x?.Year ?? x?.year ?? x?.first_air_date ?? null,
+          }));
+          console.log("SEARCH_ITEMS", JSON.stringify(items.slice(0, 20)));
+
+          const match = items.find((x) => Number(x.tmdb_id) === 5920) ||
+                        items.find((x) => String(x.title || "").toLowerCase() === "the mentalist");
+          if (!match) throw new Error("No The Mentalist match in AbdoBest search");
+          const category = String(match.category || "series").toLowerCase();
+          const id = String(match.id || "");
+          if (!id) throw new Error("Matched item has no id");
+          const path = category === "arabic-series"
+            ? "/api/arabic-series/episodes/" + encodeURIComponent(id)
+            : "/api/episodes/" + encodeURIComponent(category) + "/" + encodeURIComponent(id);
+
+          console.log("SELECTED_MATCH", JSON.stringify(match));
+          console.log("EPISODE_ENDPOINT", path);
+
+          const episodes = await getJson(path);
+          const body = episodes.body;
+
+          function typeOf(v) {
+            if (Array.isArray(v)) return "array";
+            if (v === null) return "null";
+            return typeof v;
+          }
+          function summarize(v, depth = 0, label = "root") {
+            if (depth > 4) return { label, type: typeOf(v) };
+            if (Array.isArray(v)) {
+              const sample = v.slice(0, 3).map((x, i) => ({
+                index: i,
+                type: typeOf(x),
+                value: typeof x === "string" ? x.slice(0, 500) : undefined,
+                keys: x && typeof x === "object" && !Array.isArray(x) ? Object.keys(x).slice(0, 30) : undefined,
+              }));
+              return { label, type: "array", length: v.length, sample };
+            }
+            if (v && typeof v === "object") {
+              const out = { label, type: "object", keys: Object.keys(v).slice(0, 50) };
+              if (v.seasons && typeof v.seasons === "object") {
+                out.seasons = {};
+                for (const [k, s] of Object.entries(v.seasons).slice(0, 15)) {
+                  out.seasons[k] = summarize(s, depth + 1, "season:" + k);
+                }
+              }
+              if (Array.isArray(v.episodes)) out.episodes = summarize(v.episodes, depth + 1, "episodes");
+              for (const k of ["data", "response", "payload", "result"]) {
+                if (v[k] && typeof v[k] === "object") out[k] = summarize(v[k], depth + 1, k);
+              }
+              return out;
+            }
+            return { label, type: typeOf(v), value: typeof v === "string" ? v.slice(0, 500) : v };
+          }
+
+          console.log("EPISODE_SHAPE", JSON.stringify(summarize(body), null, 2));
+
+          const urls = [];
+          const seen = new Set();
+          const walk = (v, path = "root", depth = 0) => {
+            if (depth > 8 || v == null) return;
+            if (typeof v === "string") {
+              if (/^(https?:)?\\/\\//i.test(v) || v.startsWith("/")) {
+                if (!seen.has(v)) { seen.add(v); urls.push({path, value: v.slice(0, 800)}); }
+              }
+              return;
+            }
+            if (Array.isArray(v)) {
+              v.slice(0, 30).forEach((x, i) => walk(x, path + "[" + i + "]", depth + 1));
+              return;
+            }
+            if (typeof v === "object") {
+              for (const [k, x] of Object.entries(v).slice(0, 80)) walk(x, path + "." + k, depth + 1);
+            }
+          };
+          walk(body);
+          console.log("EPISODE_URLS", JSON.stringify(urls.slice(0, 80), null, 2));
+          NODE
