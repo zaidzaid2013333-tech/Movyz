@@ -147,7 +147,7 @@ async function getContentPageDirect(url, stage) {
       Referer: new URL(pageUrl).origin + "/",
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36",
     },
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(15_000),
   });
   const html = await response.text();
   if (!response.ok) {
@@ -166,7 +166,7 @@ async function getContentPage(browser, url, stage) {
   const pageUrl = safeUrl(url, AKWAM_BASE, { pageOnly: true });
   if (!pageUrl) throw new Error(`${stage}: rejected unsafe or non-Akwam URL`);
   diagnostic(stage, pageUrl);
-  const response = await browser.quickAction("content", { url: pageUrl, userAgent: UA, gotoOptions: { waitUntil: "networkidle2", timeout: 45_000 } });
+  const response = await browser.quickAction("content", { url: pageUrl, userAgent: UA, gotoOptions: { waitUntil: "domcontentloaded", timeout: 20_000 } });
   const html = await getBrowserHtml(response);
   if (!response.ok) {
     const error = new Error(`${stage}: HTTP ${response.status}`);
@@ -237,21 +237,31 @@ async function getContentPageResilient(browser, url, stage) {
       return await getContentPage(browser, candidate, stage);
     } catch (error) {
       lastError = error;
-      if (error?.status !== 429) throw error;
-      diagnostic("AKWAM_RATE_LIMIT", stage + " Browser Run 429 on " + candidate + "; trying direct fetch");
+      const status = Number(error?.status || 0);
+      const message = String(error?.message || error || "");
+      const shouldDirectFallback = status === 429 || /timeout|timed out|aborted|navigation/i.test(message);
+
+      if (!shouldDirectFallback) throw error;
+
+      diagnostic(
+        status === 429 ? "AKWAM_RATE_LIMIT" : "AKWAM_BROWSER_FALLBACK",
+        stage + " Browser Run fallback on " + candidate + (message ? ": " + message : ""),
+      );
+
       try {
         return await getContentPageDirect(candidate, stage);
       } catch (directError) {
         lastError = directError;
-        if (directError?.status !== 429) throw directError;
-        diagnostic("AKWAM_RATE_LIMIT", stage + " direct fetch 429 on " + candidate + "; trying mirror");
+        const directMessage = String(directError?.message || directError || "");
+        if (directError?.status !== 429 && !/timeout|timed out|aborted|navigation/i.test(directMessage)) {
+          throw directError;
+        }
       }
     }
   }
 
   throw lastError || new Error(stage + ": no usable Akwam mirror");
 }
-
 async function searchAkwam(browser, payload) {
   const query = encodeURIComponent(clean(payload?.title));
   const section = payload?.type === "series" ? "series" : "movie";
