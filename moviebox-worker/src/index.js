@@ -370,65 +370,94 @@ async function abdoExtract(sourceUrl) {
 const AKWAM_RESOLVER_URL = "https://movyz-akwam-resolver.sameranede.workers.dev/resolve";
 
 async function resolveViaAkwamResolver(payload, type) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 35_000);
-  try {
-    const body = {
-      title: payload?.title,
-      original_title: payload?.original_title ?? payload?.originalTitle,
-      year: payload?.year,
-      type,
-      // Preserve an Akwam content page (or the title::base64 URL format) so
-      // the dedicated resolver can skip search and run the real link chain.
-      content_url: payload?.content_url ?? payload?.contentUrl,
-      id: payload?.id,
-      episode: type === "series" ? Number(payload?.episode) : undefined,
-      season: type === "series" ? Number(payload?.season) : undefined,
-    };
-    const response = await fetch(AKWAM_RESOLVER_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    const text = await response.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch {}
-    if (!response.ok || !data?.ok) {
-      throw new Error(data?.error || `Akwam resolver HTTP ${response.status}`);
-    }
+  const maxAttempts = 3;
+  const retryDelays = [1200, 2500];
+  let lastError = null;
 
-    if (typeof data.media_url === "string" && /^https?:\/\//i.test(data.media_url)) {
-      const typeOfStream = ["mp4", "hls", "dash", "webm"].includes(data.type)
-        ? data.type
-        : detectStreamType(data.media_url);
-      return {
-        url: data.media_url,
-        type: typeOfStream,
-        quality: data.quality || "auto",
-        qualities: [data.quality || "auto"],
-        sources: [{ quality: data.quality || "auto", type: typeOfStream, url: data.media_url }],
-        cached: false,
-        via: "akwam-browser-resolver",
-        source_url: data.source_url || data.page_url || "",
-        matched_title: data.title || payload?.title || "",
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 35_000);
+
+    try {
+      const body = {
+        title: payload?.title,
+        original_title: payload?.original_title ?? payload?.originalTitle,
+        year: payload?.year,
+        type,
+        content_url: payload?.content_url ?? payload?.contentUrl,
+        source_url: payload?.source_url,
+        id: payload?.id,
+        episode: type === "series" ? Number(payload?.episode) : undefined,
+        season: type === "series" ? Number(payload?.season) : undefined,
       };
-    }
 
-    if (data.source_url && isAkwamUrl(data.source_url)) {
-      const extracted = await abdoExtract(data.source_url);
-      return {
-        ...extracted,
-        via: "akwam-resolver-abdobest-extract",
-        source_url: data.source_url,
-        matched_title: data.title || payload?.title || "",
-      };
-    }
+      const response = await fetch(AKWAM_RESOLVER_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
 
-    throw new Error("Akwam resolver returned no playable media");
-  } finally {
-    clearTimeout(timer);
+      const text = await response.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch {}
+
+      if (!response.ok || !data?.ok) {
+        const error = new Error(
+          data?.error || `Akwam resolver HTTP ${response.status}`,
+        );
+        error.status = response.status;
+        throw error;
+      }
+
+      if (typeof data.media_url === "string" && /^https?:\/\//i.test(data.media_url)) {
+        const typeOfStream = ["mp4", "hls", "dash", "webm"].includes(data.type)
+          ? data.type
+          : detectStreamType(data.media_url);
+
+        return {
+          url: data.media_url,
+          type: typeOfStream,
+          quality: data.quality || "auto",
+          qualities: [data.quality || "auto"],
+          sources: [{
+            quality: data.quality || "auto",
+            type: typeOfStream,
+            url: data.media_url,
+          }],
+          cached: false,
+          via: "akwam-browser-resolver",
+          source_url: data.source_url || data.page_url || "",
+          matched_title: data.title || payload?.title || "",
+        };
+      }
+
+      throw new Error("Akwam resolver returned no playable media");
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const transient =
+        lastError.name === "AbortError" ||
+        [408, 425, 429, 500, 502, 503, 504].includes(Number(lastError.status));
+
+      if (!transient || attempt === maxAttempts) break;
+
+      const delay = retryDelays[attempt - 1] || 2500;
+      console.warn(
+        "AKWAM_WATCH_RESOLVER_RETRY",
+        "attempt=" + attempt,
+        "status=" + (lastError.status ?? "timeout"),
+        "delayMs=" + delay,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    } finally {
+      clearTimeout(timer);
+    }
   }
+
+  throw lastError || new Error("Akwam resolver failed");
 }
 
 async function resolveDiscoveredAkwamContent(payload, type, source) {
@@ -440,21 +469,20 @@ async function resolveDiscoveredAkwamContent(payload, type, source) {
 }
 
 async function resolveMovie(payload) {
-  const directSource = normalizeAkwamUrl(payload?.source_url);
+  const directSource = normalizeAkwamUrl(
+    payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
+  );
+
   if (directSource) {
-    if (!isAkwamUrl(directSource)) throw new Error("Only Akwam playback sources are allowed");
-    try {
-      return await resolveViaAkwamResolver({
-        ...payload,
-        content_url: directSource,
-      }, "movie");
-    } catch (error) {
-      console.warn("Akwam content URL resolver fallback:", error instanceof Error ? error.message : String(error));
-      return {
-        ...(await abdoExtract(directSource)),
-        source_url: directSource,
-      };
+    if (!isAkwamUrl(directSource)) {
+      throw new Error("Only Akwam playback sources are allowed");
     }
+
+    return await resolveViaAkwamResolver({
+      ...payload,
+      content_url: directSource,
+      source_url: directSource,
+    }, "movie");
   }
 
   const titles = [
@@ -557,10 +585,29 @@ function findEpisode(payload, season, episode) {
 }
 
 async function resolveEpisode(payload) {
+  const explicitSource = normalizeAkwamUrl(
+    payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
+  );
+
+  if (explicitSource) {
+    if (!isAkwamUrl(explicitSource)) {
+      throw new Error("Only Akwam playback sources are allowed");
+    }
+
+    return await resolveViaAkwamResolver({
+      ...payload,
+      content_url: explicitSource,
+      source_url: explicitSource,
+    }, "series");
+  }
+
   try {
     return await resolveViaAkwamResolver(payload, "series");
   } catch (error) {
-    console.warn("Akwam resolver episode fallback:", error instanceof Error ? error.message : String(error));
+    console.warn(
+      "Akwam resolver episode fallback:",
+      error instanceof Error ? error.message : String(error),
+    );
   }
 
 
