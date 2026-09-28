@@ -662,23 +662,36 @@ function seasonNumberOf(item) {
 function findEpisode(payload, season, episode) {
   const seen = new Set();
 
-  const visit = (value) => {
+  const makeMatch = (value, assumedSeason = null, assumedEpisode = null) => {
+    if (typeof value === "string") {
+      const url = normalizeAkwamUrl(value);
+      return isAkwamUrl(url) ? { item: { season_number: assumedSeason, episode_number: assumedEpisode, url }, urls: [url] } : null;
+    }
+
+    if (!value || typeof value !== "object") return null;
+    const urls = sourceUrlsOf(value);
+    if (!urls.length) return null;
+
+    const ep = episodeNumberOf(value);
+    const sn = seasonNumberOf(value);
+    const effectiveEpisode = Number.isFinite(ep) ? ep : assumedEpisode;
+    const effectiveSeason = Number.isFinite(sn) ? sn : assumedSeason;
+    if (effectiveEpisode === episode &&
+        (effectiveSeason == null || effectiveSeason === season)) {
+      return { item: value, urls };
+    }
+    return null;
+  };
+
+  const visit = (value, contextSeason = null) => {
     if (!value || typeof value !== "object" || seen.has(value)) return null;
     seen.add(value);
 
-    // Inspect the object itself before descending. The previous implementation
-    // routed this through walk(), which only invokes its visitor for string
-    // leaves, so episode objects could never match and every series lookup
-    // eventually returned "Episode ... was not found".
     if (!Array.isArray(value)) {
       const ep = episodeNumberOf(value);
       const sn = seasonNumberOf(value);
-
-      if (
-        Number.isFinite(ep) &&
-        ep === episode &&
-        (!Number.isFinite(sn) || sn === season)
-      ) {
+      if (Number.isFinite(ep) && ep === episode &&
+          (!Number.isFinite(sn) || sn === season)) {
         const urls = sourceUrlsOf(value);
         if (urls.length) return { item: value, urls };
       }
@@ -686,15 +699,45 @@ function findEpisode(payload, season, episode) {
 
     if (Array.isArray(value)) {
       for (const child of value) {
-        const match = visit(child);
+        const match = makeMatch(child, contextSeason,
+          contextSeason != null && Array.isArray(value) ? value.indexOf(child) + 1 : null);
         if (match) return match;
+        const nested = visit(child, contextSeason);
+        if (nested) return nested;
       }
       return null;
     }
 
-    for (const child of Object.values(value)) {
-      const match = visit(child);
+    // AbdoBest's normal series/tvshows contract is:
+    // { seasons: { "1": { episodes: ["https://akwam...", ...] } } }
+    // The episode position in that array is the episode number.
+    if (value.seasons && typeof value.seasons === "object" && !Array.isArray(value.seasons)) {
+      for (const [seasonKey, bucket] of Object.entries(value.seasons)) {
+        const matchSeason = Number(String(seasonKey).match(/^\d+/)?.[0]);
+        if (!Number.isFinite(matchSeason) || matchSeason !== season) continue;
+        const episodes = Array.isArray(bucket)
+          ? bucket
+          : Array.isArray(bucket?.episodes) ? bucket.episodes : null;
+        if (!episodes) continue;
+        const candidate = episodes[episode - 1];
+        const match = makeMatch(candidate, season, episode);
+        if (match) return match;
+      }
+    }
+
+    // Some provider responses flatten season 1 as { episodes: [...] }.
+    if (Array.isArray(value.episodes) && (contextSeason === season || contextSeason == null && season === 1)) {
+      const candidate = value.episodes[episode - 1];
+      const match = makeMatch(candidate, contextSeason ?? season, episode);
       if (match) return match;
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      let nextSeason = contextSeason;
+      const keyMatch = String(key).match(/^season[_ -]?(\d+)$/i) || String(key).match(/^(\d+)(?:[_ -].*)?$/);
+      if (keyMatch) nextSeason = Number(keyMatch[1]);
+      const nested = visit(child, nextSeason);
+      if (nested) return nested;
     }
 
     return null;
@@ -702,7 +745,6 @@ function findEpisode(payload, season, episode) {
 
   return visit(payload);
 }
-
 async function resolveEpisode(payload, env) {
   if (payload?.mode === "iframe") return await resolveAkwamIframeOnly(payload, "series");
   const explicitSource = normalizeAkwamUrl(
