@@ -333,22 +333,22 @@ async function resolveAkwam(browser, payload) {
   const qualities = extractQualities(mediaPage.html, mediaPage.url);
   diagnostic("AKWAM_QUALITY", qualities.map((item) => item.quality).join(",") || "none");
   if (!qualities.length) {
-    const hrefs = [...String(mediaPage.html).matchAll(/<a\\b[^>]*href=["\']([^"\']+)["\']/gi)]
+    const hrefs = [...String(mediaPage.html).matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)]
       .map((match) => match[1])
       .filter(Boolean)
       .slice(0, 20);
-    const linkHrefs = hrefs.filter((value) => /\\/link\\/\\d+/i.test(value)).slice(0, 12);
-    const qualityMentions = String(mediaPage.html).match(/\\b(?:1080p|720p|480p|1080|720|480)\\b/gi) || [];
-    const titleMatch = String(mediaPage.html).match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i);
+    const linkHrefs = hrefs.filter((value) => /\/link\/\d+/i.test(value)).slice(0, 12);
+    const qualityMentions = String(mediaPage.html).match(/\b(?:1080p|720p|480p|1080|720|480)\b/gi) || [];
+    const titleMatch = String(mediaPage.html).match(/<title[^>]*>([\s\S]*?)<\/title>/i);
     const pageTitle = stripHtml(titleMatch ? titleMatch[1] : "");
-    const firstLinkIndex = String(mediaPage.html).search(/\\/link\\/\\d+/i);
+    const firstLinkIndex = String(mediaPage.html).search(/\/link\/\d+/i);
     const snippet = firstLinkIndex >= 0
       ? stripHtml(String(mediaPage.html).slice(Math.max(0, firstLinkIndex - 1200), firstLinkIndex + 1800))
       : stripHtml(String(mediaPage.html)).slice(0, 3000);
     throw new Error(
       "AKWAM_QUALITY: no quality links; page=" + mediaPage.url +
       "; bytes=" + mediaPage.html.length +
-      "; linkCount=" + (String(mediaPage.html).match(/\\/link\\/\\d+/gi) || []).length +
+      "; linkCount=" + (String(mediaPage.html).match(/\/link\/\d+/gi) || []).length +
       "; linkHrefs=" + JSON.stringify(linkHrefs) +
       "; qualityMentions=" + JSON.stringify(qualityMentions.slice(0, 30)) +
       "; title=" + pageTitle +
