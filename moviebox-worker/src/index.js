@@ -678,68 +678,9 @@ function seasonNumberOf(item) {
 
 function parseSeasonKey(value) {
   const text = String(value ?? "").trim();
-  const match = text.match(/^(?:season|s)?\\s*(\\d{1,2})$/i) || text.match(/^(\\d{1,2})/);
+  const match = text.match(/^(?:season|s)?\s*(\d{1,2})$/i) || text.match(/^(\d{1,2})/);
   return match ? Number(match[1]) : null;
 }
-
-function asEpisodeUrlCandidate(value) {
-  if (typeof value !== "string") return "";
-  const raw = value.trim();
-  if (!raw) return "";
-
-  const normalized = normalizeAkwamUrl(raw);
-  if (isAkwamUrl(normalized)) return normalized;
-
-  // AbdoBest may return relative Akwam paths in episode catalogs.
-  if (/^(?:\\/|\\.\\/|\\.\\.\\/|watch\\/|episode(?:-|\\/)|link\\/|download\\/)/i.test(raw)) {
-    try {
-      const absolute = new URL(raw, "https://akwam.it").toString();
-      return isAkwamUrl(absolute) ? absolute : "";
-    } catch {
-      return "";
-    }
-  }
-
-  // Protocol-relative Akwam URLs.
-  if (raw.startsWith("//")) {
-    try {
-      const absolute = "https:" + raw;
-      return isAkwamUrl(absolute) ? absolute : "";
-    } catch {
-      return "";
-    }
-  }
-
-  return "";
-}
-
-function episodeUrlsOf(item) {
-  const found = [];
-  const seen = new Set();
-
-  const visit = (value, depth = 0) => {
-    if (depth > 8 || value == null) return;
-    if (typeof value === "string") {
-      const url = asEpisodeUrlCandidate(value);
-      if (url && !seen.has(url)) {
-        seen.add(url);
-        found.push(url);
-      }
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (const child of value) visit(child, depth + 1);
-      return;
-    }
-    if (typeof value === "object") {
-      for (const child of Object.values(value)) visit(child, depth + 1);
-    }
-  };
-
-  visit(item);
-  return found;
-}
-
 function findEpisode(payload, season, episode) {
   const seen = new Set();
 
