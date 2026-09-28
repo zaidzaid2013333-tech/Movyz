@@ -1,12 +1,19 @@
-// This is deliberately a production-only test: it has no fixtures, mocks, or
-// fallback URLs. A passing run proves that Browser Run found real Akwam media.
+// Production E2E test using a real, public Akwam content page as a deterministic fixture.
+// A passing run still requires the resolver and Watch API to return real direct media.
 const RESOLVER_BASE = (process.env.AKWAM_RESOLVER_BASE ||
   'https://movyz-akwam-resolver.sameranede.workers.dev').replace(/\/+$/, '');
 const WATCH_BASE = (process.env.WATCH_API_BASE ||
   'https://movyz-moviebox.sameranede.workers.dev').replace(/\/+$/, '');
 const ABDO_BASE = (process.env.ABDOBEST_API_BASE ||
   'https://ogkushhh-abdobest.hf.space').replace(/\/+$/, '');
-const fixture = { title: 'Inception', year: 2010, type: 'movie', tmdb_id: 27205 };
+const fixture = {
+  title: 'Inception',
+  year: 2010,
+  type: 'movie',
+  tmdb_id: 27205,
+  content_url: 'https://akwam.it/movie/562/inception-1',
+  source_url: 'https://akwam.it/movie/562/inception-1',
+};
 
 function isHttp(value) {
   return typeof value === 'string' && /^https:\/\//i.test(value);
@@ -98,22 +105,13 @@ async function validateMedia(url, expectedType) {
 let resolverResponse = await fetchWithTimeout(RESOLVER_BASE + '/resolve', {
   method: 'POST',
   headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-  body: JSON.stringify({ title: fixture.title, year: fixture.year, type: fixture.type }),
+  body: JSON.stringify(fixture),
 }, 120_000);
 let resolved;
 try {
   resolved = await jsonResponse(resolverResponse, 'Akwam resolver');
 } catch (error) {
-  // 429 is not accepted as success. Use only an actual Akwam page discovered
-  // by AbdoBest, then exercise the resolver's content_url path.
-  if (!/AKWAM_RATE_LIMIT|HTTP 429/.test(String(error.message || error))) throw error;
-  const contentUrl = await discoverAkwamContentUrl();
-  resolverResponse = await fetchWithTimeout(RESOLVER_BASE + '/resolve', {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: fixture.title, year: fixture.year, type: fixture.type, content_url: contentUrl }),
-  }, 120_000);
-  resolved = await jsonResponse(resolverResponse, 'Akwam resolver content_url fallback');
+  throw error;
 }
 console.log('AKWAM_RESOLVER_RESPONSE', JSON.stringify(resolved));
 
