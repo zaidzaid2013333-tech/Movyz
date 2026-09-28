@@ -46,6 +46,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [iframeUrl, setIframeUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [retryNonce, setRetryNonce] = useState(0);
 
   const isMovie = contentType === 'movie';
   const displayTitle = isMovie ? (titleEn || title) : (currentEpisode?.title || titleEn || title);
@@ -113,7 +114,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [episodeNumber, isMovie, language, seasonNumber, tmdbId]);
+  }, [episodeNumber, isMovie, language, retryNonce, seasonNumber, tmdbId]);
 
   if (error) {
     return (
@@ -123,7 +124,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <button
             type="button"
             className="mt-4 rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15"
-            onClick={() => window.location.reload()}
+            onClick={() => setRetryNonce((value) => value + 1)}
           >
             {language === 'ar' ? 'إعادة المحاولة' : 'Retry'}
           </button>
