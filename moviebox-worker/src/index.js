@@ -545,6 +545,7 @@ async function resolveAkwamIframeOnly(payload, type, env) {
 
   // Prefer the dedicated Akwam resolver for series. It searches Akwam directly
   // and can resolve the requested season/episode without depending on AbdoBest.
+  let directResolverError = "";
   if (type === "series") {
     try {
       const resolved = await resolveViaAkwamResolver(payload, "series", env);
@@ -555,6 +556,7 @@ async function resolveAkwamIframeOnly(payload, type, env) {
         return build(source, resolved?.title || resolved?.matched_title || title);
       }
     } catch (error) {
+      directResolverError = error instanceof Error ? error.message : String(error);
       console.warn(
         "AKWAM_IFRAME_DIRECT_RESOLVER_FALLBACK:",
         error instanceof Error ? error.message : String(error),
@@ -573,7 +575,9 @@ async function resolveAkwamIframeOnly(payload, type, env) {
       error instanceof Error ? error.message : String(error),
     );
     throw new Error(
-      "Akwam episode discovery failed and AbdoBest search is unavailable: " +
+      "Akwam episode discovery failed; direct resolver: " +
+      (directResolverError || "unknown") +
+      "; AbdoBest search: " +
       (error instanceof Error ? error.message : String(error)),
     );
   }
