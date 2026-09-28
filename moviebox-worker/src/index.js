@@ -660,21 +660,47 @@ function seasonNumberOf(item) {
 }
 
 function findEpisode(payload, season, episode) {
-  let result = null;
+  const seen = new Set();
 
-  walk(payload, (value) => {
-    if (!value || typeof value !== "object") return "";
-    const ep = episodeNumberOf(value);
-    const sn = seasonNumberOf(value);
-    if (!Number.isFinite(ep) || ep !== episode) return "";
-    if (Number.isFinite(sn) && sn !== season) return "";
-    const urls = sourceUrlsOf(value);
-    if (!urls.length) return "";
-    result = { item: value, urls };
-    return "found";
-  });
+  const visit = (value) => {
+    if (!value || typeof value !== "object" || seen.has(value)) return null;
+    seen.add(value);
 
-  return result;
+    // Inspect the object itself before descending. The previous implementation
+    // routed this through walk(), which only invokes its visitor for string
+    // leaves, so episode objects could never match and every series lookup
+    // eventually returned "Episode ... was not found".
+    if (!Array.isArray(value)) {
+      const ep = episodeNumberOf(value);
+      const sn = seasonNumberOf(value);
+
+      if (
+        Number.isFinite(ep) &&
+        ep === episode &&
+        (!Number.isFinite(sn) || sn === season)
+      ) {
+        const urls = sourceUrlsOf(value);
+        if (urls.length) return { item: value, urls };
+      }
+    }
+
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        const match = visit(child);
+        if (match) return match;
+      }
+      return null;
+    }
+
+    for (const child of Object.values(value)) {
+      const match = visit(child);
+      if (match) return match;
+    }
+
+    return null;
+  };
+
+  return visit(payload);
 }
 
 async function resolveEpisode(payload, env) {
