@@ -1,5 +1,13 @@
 const AKWAM_BASE = "https://ak.sv";
-const PAGE_HOSTS = new Set(["ak.sv", "www.ak.sv"]);
+const PAGE_HOSTS = new Set([
+  "ak.sv", "www.ak.sv",
+  "akwam.it", "www.akwam.it", "go.akwam.it",
+  "akwam.ss", "www.akwam.ss",
+  "akwam.net", "www.akwam.net",
+  "akwam.ee", "www.akwam.ee",
+  "akwam.com.co", "www.akwam.com.co", "go.akwam.com.co",
+  "downet.net", "www.downet.net",
+]);
 const QUALITY_ORDER = ["1080p", "720p", "480p"];
 const MAX_REDIRECTS = 6;
 const SEARCH_BACKOFF_MS = [750, 1_750];
@@ -31,12 +39,17 @@ function isPrivateHost(host) {
   if (/^127\./.test(value) || /^10\./.test(value) || /^192\.168\./.test(value) || /^169\.254\./.test(value)) return true;
   const match = value.match(/^172\.(\d+)\./); return Boolean(match && Number(match[1]) >= 16 && Number(match[1]) <= 31);
 }
+function isAllowedPageHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  if (PAGE_HOSTS.has(host)) return true;
+  return [...PAGE_HOSTS].some((base) => base.startsWith("www.") ? false : host.endsWith("." + base));
+}
 function safeUrl(value, base, { pageOnly = false } = {}) {
   const href = absoluteUrl(value, base);
   try {
     const url = new URL(href);
     if (!/^https?:$/.test(url.protocol) || isPrivateHost(url.hostname)) return "";
-    if (pageOnly && !PAGE_HOSTS.has(url.hostname.toLowerCase())) return "";
+    if (pageOnly && !isAllowedPageHost(url.hostname)) return "";
     return url.toString();
   } catch { return ""; }
 }
@@ -115,6 +128,7 @@ async function searchAkwam(browser, payload) {
   for (let attempt = 0; attempt <= SEARCH_BACKOFF_MS.length; attempt += 1) {
     try {
       const page = await getContentPage(browser, searchUrl, "AKWAM_SEARCH");
+      diagnostic("AKWAM_SEARCH", `host=${new URL(page.url).hostname} bytes=${page.html.length}`);
       const result = searchEntries(page.html, page.url).map((entry) => ({ ...entry, score: scoreEntry(entry, payload) })).sort((a, b) => b.score - a.score)[0];
       if (!result || result.score <= 0) throw new Error("AKWAM_SEARCH: no matching entry in widget-body.row.flex-wrap");
       return result;
