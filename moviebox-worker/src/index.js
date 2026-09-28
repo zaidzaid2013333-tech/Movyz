@@ -101,7 +101,9 @@ function isAkwamUrl(value) {
       host === "akwam.ee" ||
       host.endsWith(".akwam.ee") ||
       host === "downet.net" ||
-      host.endsWith(".downet.net");
+      host.endsWith(".downet.net") ||
+      /^(?:[a-z0-9-]+\\.)*akwam\\.[a-z]{2,}$/i.test(host) ||
+      /^ak\\.[a-z]{2,}$/i.test(host);
   } catch {
     return false;
   }
@@ -188,10 +190,25 @@ function sourceUrlsOf(item) {
     if (depth > 7 || value == null) return;
 
     if (typeof value === "string") {
-      const url = normalizeAkwamUrl(value);
-      if (isAkwamUrl(url) && !seen.has(url)) {
-        seen.add(url);
-        found.push(url);
+      const raw = value
+        .replace(/\\\\\\//g, "/")
+        .replace(/&amp;/gi, "&")
+        .trim();
+
+      const candidates = [raw];
+      // AbdoBest has returned episode URLs both as plain strings and as
+      // escaped/embedded JSON strings. Recover HTTPS URLs from the latter
+      // instead of silently dropping an otherwise valid episode source.
+      for (const match of raw.matchAll(/https?:\\/\\/[^\\s"'<>\\\\]+/gi)) {
+        candidates.push(match[0]);
+      }
+
+      for (const candidate of candidates) {
+        const url = normalizeAkwamUrl(candidate);
+        if (isAkwamUrl(url) && !seen.has(url)) {
+          seen.add(url);
+          found.push(url);
+        }
       }
       return;
     }
