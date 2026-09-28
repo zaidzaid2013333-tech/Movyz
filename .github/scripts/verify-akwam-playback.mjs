@@ -22,6 +22,7 @@ const episodeFixture = {
   tmdb_id: 5920,
   season: 1,
   episode: 1,
+  diagnostic: true,
 };
 
 function isHttp(value) {
