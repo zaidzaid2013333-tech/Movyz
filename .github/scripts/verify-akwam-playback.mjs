@@ -19,7 +19,7 @@ const episodeFixture = {
   title_en: "The Mentalist",
   original_title: "The Mentalist",
   year: 2008,
-  tmdb_id: 4020,
+  tmdb_id: 5920,
   season: 1,
   episode: 1,
 };
