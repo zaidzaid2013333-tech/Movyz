@@ -28,15 +28,53 @@ function validateSource(value) {
   }
 }
 
-function inferType(url, contentType, contentDisposition, sample) {
+function hasMp4Signature(bytes) {
+  return bytes.length >= 8 &&
+    bytes[4] === 0x66 &&
+    bytes[5] === 0x74 &&
+    bytes[6] === 0x79 &&
+    bytes[7] === 0x70;
+}
+
+function inferType(url, contentType, contentDisposition, sample, bytes) {
   const ct = String(contentType || "").toLowerCase();
   const u = String(url || "").toLowerCase();
   const cd = String(contentDisposition || "").toLowerCase();
   if (/mpegurl|vnd\.apple\.mpegurl/.test(ct) || /#extm3u/i.test(sample)) return "hls";
   if (/dash\+xml|application\/dash/.test(ct) || /<\s*mpd\b/i.test(sample)) return "dash";
-  if (/^video\//.test(ct) || /\.(?:mp4|m4v|webm)(?:[?#]|$)/.test(u) ||
-      /\.(?:mp4|m4v|webm)(?:[?#]|$)/.test(cd) || /ftyp/i.test(sample.slice(0, 64))) return "mp4";
+  if (/^video\//.test(ct) ||
+      /\.(?:mp4|m4v|webm)(?:[?#]|$)/.test(u) ||
+      /\.(?:mp4|m4v|webm)(?:[?#]|$)/.test(cd) ||
+      hasMp4Signature(bytes)) return "mp4";
   return "";
+}
+
+async function readProbeBytes(response, limit = 65_536) {
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (total < limit) {
+      const part = await reader.read();
+      if (part.done) break;
+      if (!part.value || !part.value.byteLength) continue;
+      const remaining = limit - total;
+      const chunk = part.value.slice(0, remaining);
+      chunks.push(chunk);
+      total += chunk.byteLength;
+      if (chunk.byteLength < part.value.byteLength) break;
+    }
+  } finally {
+    try { await reader.cancel(); } catch {}
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
 }
 
 async function jsonResponse(response, name) {
@@ -51,10 +89,11 @@ async function jsonResponse(response, name) {
 
 async function validateMedia(url, expectedType, referer) {
   if (!isHttp(url)) throw new Error("media_url is not HTTPS: " + url);
+
   const response = await fetch(url, {
     headers: {
       Accept: "*/*",
-      Range: "bytes=0-1023",
+      Range: "bytes=0-65535",
       ...(referer ? { Referer: referer } : {}),
     },
     redirect: "follow",
@@ -64,29 +103,54 @@ async function validateMedia(url, expectedType, referer) {
   const finalUrl = response.url || url;
   const contentType = (response.headers.get("content-type") || "").toLowerCase();
   const contentDisposition = response.headers.get("content-disposition") || "";
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  const sample = new TextDecoder().decode(bytes.slice(0, 1024));
+  const bytes = await readProbeBytes(response);
+  const sample = new TextDecoder().decode(bytes.slice(0, 4096));
 
-  console.log("AKWAM_MEDIA_CHECK", response.status, finalUrl, contentType,
-    "bytes=" + bytes.byteLength);
+  console.log(
+    "AKWAM_MEDIA_CHECK",
+    response.status,
+    finalUrl,
+    contentType,
+    "bytes=" + bytes.byteLength,
+  );
 
   if (!response.ok || response.status === 204) {
     throw new Error("media_url unavailable: HTTP " + response.status + " " + finalUrl);
   }
+
   if (/text\/html|application\/xhtml/.test(contentType) ||
       /<\s*(?:!doctype\s+html|html)\b/i.test(sample.slice(0, 512))) {
     throw new Error("media_url returned HTML/challenge: " + finalUrl);
   }
 
-  const actualType = inferType(finalUrl, contentType, contentDisposition, sample);
-  if (!actualType) throw new Error("media_url response is not recognized media: " + finalUrl);
-  if (expectedType !== actualType) {
-    throw new Error("media type mismatch: resolver=" + expectedType +
-      " actual=" + actualType + " url=" + finalUrl);
+  const actualType = inferType(
+    finalUrl,
+    contentType,
+    contentDisposition,
+    sample,
+    bytes,
+  );
+
+  if (!actualType) {
+    throw new Error("media_url response is not recognized media: " + finalUrl);
   }
 
-  return { finalUrl, contentType, actualType, bytes: bytes.byteLength };
+  if (expectedType !== actualType) {
+    throw new Error(
+      "media type mismatch: resolver=" + expectedType +
+      " actual=" + actualType +
+      " url=" + finalUrl,
+    );
+  }
+
+  return {
+    finalUrl,
+    contentType,
+    actualType,
+    bytes: bytes.byteLength,
+  };
 }
+
 
 const resolverResponse = await fetch(RESOLVER_BASE + "/resolve", {
   method: "POST",
