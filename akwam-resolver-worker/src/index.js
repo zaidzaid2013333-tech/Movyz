@@ -467,7 +467,6 @@ function extractEpisode(html, base, season, episode) {
       text.match(/\b(?:season|الموسم)\s*#?\s*(\d{1,2})\b/i) ||
       text.match(/\bs(\d{1,2})\b[^a-z0-9]?/i);
     if (numeric) return Number(numeric[1]);
-
     const arabic = text.match(/الموسم\s*(الاول|الأول|الثاني|الثالث|الرابع|الخامس|السادس|السابع|الثامن|التاسع|العاشر|الحادي عشر|الثاني عشر)/i);
     if (arabic) return ordinalSeasons[arabic[1]] || null;
     return null;
@@ -488,35 +487,63 @@ function extractEpisode(html, base, season, episode) {
     return null;
   };
 
-  const candidates = [];
+  const links = [];
   for (const match of String(html).matchAll(
     /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
   )) {
-    const rawHref = match[1];
-    const path = safeUrl(rawHref, base, { pageOnly: true });
+    const path = safeUrl(match[1], base, { pageOnly: true });
     if (!path) continue;
-
     const label = stripHtml(match[2]);
-    const hrefDecoded = decode(path);
-    const episodeNumber = episodeFromText(label) ?? episodeFromText(hrefDecoded);
-    if (episodeNumber !== requestedEpisode) continue;
-
-    const seasonNumber = seasonFromText(label + " " + hrefDecoded);
-    let score = 0;
-    if (Number.isInteger(requestedSeason) && requestedSeason >= 0) {
-      if (seasonNumber === requestedSeason) score += 100;
-      else if (seasonNumber == null) score += 20;
-      else score -= 100;
-    }
-
-    if (/\/episode\//i.test(path)) score += 30;
-    if (/episode[-_]\d+/i.test(hrefDecoded)) score += 10;
-    if (/(?:الحلقة|episode)/i.test(label)) score += 5;
-    candidates.push({ path, score });
+    const decoded = decode(path);
+    const seasonNumber = seasonFromText(label + " " + decoded);
+    const episodeNumber = episodeFromText(label) ?? episodeFromText(decoded);
+    links.push({ path, label, decoded, seasonNumber, episodeNumber, index: links.length });
   }
 
-  candidates.sort((a, b) => b.score - a.score);
-  return candidates[0]?.path || "";
+  // Primary: explicit SxxEyy / episode-number links.
+  const explicit = links
+    .filter((item) => item.episodeNumber === requestedEpisode)
+    .map((item) => ({
+      ...item,
+      score:
+        (Number.isInteger(requestedSeason) && item.seasonNumber === requestedSeason ? 100 : 0) +
+        (Number.isInteger(requestedSeason) && item.seasonNumber == null ? 20 : 0) +
+        (/\/episode\//i.test(item.path) ? 30 : 0) +
+        (/(?:episode|ep)[-_ ]?\d+/i.test(item.decoded + " " + item.label) ? 10 : 0),
+    }))
+    .filter((item) => !Number.isInteger(requestedSeason) || item.seasonNumber == null || item.seasonNumber === requestedSeason)
+    .sort((a, b) => b.score - a.score);
+
+  if (explicit[0]) return explicit[0].path;
+
+  // Fallback: some Akwam series pages expose a plain ordered list of episode
+  // links without the episode number in either the label or URL. Restrict the
+  // candidates to episode-like routes and use their 1-based DOM order.
+  const episodeLike = links.filter((item) =>
+    /\/(?:episode|episodes)(?:\/|[-_])/i.test(item.path) ||
+    /(?:episode|episodes|الحلقة|حلقة)/i.test(item.label + " " + item.decoded)
+  );
+
+  if (episodeLike.length >= requestedEpisode) {
+    const seasonFiltered = Number.isInteger(requestedSeason)
+      ? episodeLike.filter((item) => item.seasonNumber == null || item.seasonNumber === requestedSeason)
+      : episodeLike;
+    const pool = seasonFiltered.length >= requestedEpisode ? seasonFiltered : episodeLike;
+    return pool[requestedEpisode - 1]?.path || "";
+  }
+
+  // Last-resort fallback for pages that use opaque numeric episode routes:
+  // exclude navigation/player/download links and select the requested item from
+  // links whose href stays on the same Akwam host.
+  const opaque = links.filter((item) =>
+    !/\/(?:watch|download|link|search|login|register)(?:\/|[?#]|$)/i.test(item.path) &&
+    /\/(?:\d+|e\d+|ep\d+)(?:[/?#]|$)/i.test(new URL(item.path).pathname)
+  );
+  if (opaque.length >= requestedEpisode) {
+    return opaque[requestedEpisode - 1]?.path || "";
+  }
+
+  return "";
 }
 function extractDownloadUrl(html, base) {
   const match = String(html).match(/https?:\/\/[^"'<>\s]+\/download\/[^"'<>\s]*/i) ||
