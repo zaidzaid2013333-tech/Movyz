@@ -842,6 +842,55 @@ async function resolveAkwam(browser, payload) {
 }
 
 export default { async fetch(request, env) {
+  const url = new URL(request.url);
+
+  if (request.method === "GET" && /^\/akwam-iframe-test\/?$/.test(url.pathname)) {
+    const akwamEpisode =
+      "https://akwam.ss/watch/22879/9725/the-mentalist-%D8%A7%D9%84%D9%85%D9%88%D8%B3%D9%85-%D8%A7%D9%84%D8%A7%D9%88%D9%84/%D8%A7%D9%84%D8%AD%D9%84%D9%82%D8%A9-1";
+
+    return new Response(`<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Akwam iframe test · separate origin</title>
+<style>
+html,body{margin:0;background:#050507;color:#fff;font-family:system-ui,sans-serif}
+body{min-height:100vh}
+main{padding:16px;box-sizing:border-box;max-width:1400px;margin:0 auto}
+h1{font-size:18px;margin:0 0 8px}
+p{font-size:13px;color:#a1a1aa;margin:0 0 12px}
+.badge{display:inline-block;padding:6px 9px;border-radius:7px;background:#111827;color:#93c5fd;font-size:12px;margin-bottom:12px}
+iframe{display:block;width:100%;height:82vh;min-height:420px;border:0;border-radius:12px;background:#000}
+</style>
+</head>
+<body>
+<main>
+<div class="badge">SEPARATE WORKER ORIGIN · NO MOVYZA PWA</div>
+<h1>Akwam iframe — The Mentalist S01E01</h1>
+<p>هذا الاختبار لا يمر عبر تطبيق Movyza ولا Service Worker الخاص به.</p>
+<iframe
+  src="${akwamEpisode}"
+  title="Akwam playback test"
+  allow="autoplay; fullscreen; picture-in-picture"
+  allowfullscreen
+  referrerpolicy="no-referrer"></iframe>
+</main>
+</body>
+</html>`, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Referrer-Policy": "no-referrer",
+        "Content-Security-Policy": "default-src 'none'; frame-src https://akwam.ss https://*.akwam.ss; style-src 'unsafe-inline'",
+        "X-Movyz-Iframe-Test": "akwam-separate-origin-v1",
+      },
+    });
+  }
+
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "movyz-akwam-resolver", browser: Boolean(env.BROWSER), mode: "direct-akwam-pipeline" });
