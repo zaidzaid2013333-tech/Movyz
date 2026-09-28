@@ -540,21 +540,46 @@ async function resolveAkwamIframeOnly(payload, type, env) {
   if (!Number.isInteger(season) || season < 0) throw new Error("season must be a valid integer");
   if (!Number.isInteger(episode) || episode < 1) throw new Error("episode must be a valid integer");
 
-  const match = ranked[0]?.item;
-  if (!match) throw new Error("No Akwam series matched this title");
+  if (!ranked.length) throw new Error("No Akwam series matched this title");
 
-  const category = categoryOf(match) || "series";
-  const id = firstString(match?.id, match?.ID);
-  if (!id) throw new Error("Matched series has no source ID");
+  const candidateErrors = [];
 
-  const path = category === "arabic-series"
-    ? "/api/arabic-series/episodes/" + encodeURIComponent(id)
-    : "/api/episodes/" + encodeURIComponent(category) + "/" + encodeURIComponent(id);
+  // Search can return the same title under different AbdoBest categories/IDs.
+  // Do not trust only ranked[0]; try the best matching unique candidates until
+  // one actually exposes the requested season/episode.
+  const tried = new Set();
+  for (const entry of ranked.slice(0, 8)) {
+    const match = entry.item;
+    const category = categoryOf(match) || "series";
+    const id = firstString(match?.id, match?.ID);
+    if (!id) {
+      candidateErrors.push("missing source id for " + titleOf(match));
+      continue;
+    }
 
-  const episodes = await abdoJson(path);
-  const found = findEpisode(episodes.body, season, episode);
-  if (found?.urls?.length) {
-    return build(found.urls[0], titleOf(match));
+    const candidateKey = category + ":" + id;
+    if (tried.has(candidateKey)) continue;
+    tried.add(candidateKey);
+
+    const episodePath = category === "arabic-series"
+      ? "/api/arabic-series/episodes/" + encodeURIComponent(id)
+      : "/api/episodes/" + encodeURIComponent(category) + "/" + encodeURIComponent(id);
+
+    try {
+      const episodes = await abdoJson(episodePath);
+      const found = findEpisode(episodes.body, season, episode);
+      if (found?.urls?.length) {
+        return build(found.urls[0], titleOf(match));
+      }
+      candidateErrors.push(
+        "no S" + season + "E" + episode + " match at " + episodePath,
+      );
+    } catch (error) {
+      candidateErrors.push(
+        "episode lookup failed at " + episodePath + ": " +
+        (error instanceof Error ? error.message : String(error)),
+      );
+    }
   }
 
   // AbdoBest's episode catalog is a useful fast path, but some series expose
@@ -574,7 +599,7 @@ async function resolveAkwamIframeOnly(payload, type, env) {
     );
   }
 
-  throw new Error(`Episode S${season}E${episode} has no Akwam page URL`);
+  throw new Error(`Episode S${season}E${episode} has no Akwam page URL` + (candidateErrors.length ? ": " + candidateErrors.slice(0, 4).join(" | ") : ""));
 }
 
 async function resolveMovie(payload, env) {
