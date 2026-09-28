@@ -517,23 +517,129 @@ async function validateMediaUrl(initialUrl, referer = "") {
 
   throw new Error("AKWAM_FINAL_MEDIA: redirect limit exceeded");
 }
+function isMediaResponse(contentType, contentDisposition, url, bytes) {
+  const ct = String(contentType || "").toLowerCase();
+  const cd = String(contentDisposition || "").toLowerCase();
+  const value = String(url || "").toLowerCase();
+  return /^video\//.test(ct) ||
+    /mpegurl|vnd\.apple\.mpegurl/.test(ct) ||
+    /dash\+xml|application\/dash/.test(ct) ||
+    /filename\s*=.*\.(?:mp4|m4v|webm|m3u8|mpd)/i.test(cd) ||
+    /\.(?:mp4|m4v|webm|m3u8|mpd)(?:[?#]|$)/.test(value) ||
+    hasMp4Signature(bytes);
+}
+
+async function fetchDownloadTarget(initialUrl, referer = "") {
+  const candidates = mirrorPageUrls(initialUrl);
+  let lastError = null;
+
+  for (const candidate of candidates) {
+    let url = safeUrl(candidate, AKWAM_BASE, { pageOnly: true });
+    if (!url) continue;
+
+    try {
+      for (let count = 0; count <= MAX_REDIRECTS; count += 1) {
+        diagnostic("AKWAM_DOWNLOAD", url);
+
+        const headers = {
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,video/*;q=0.8,*/*;q=0.5",
+          Range: "bytes=0-65535",
+          "User-Agent": UA,
+          ...(referer ? { Referer: referer } : {}),
+        };
+
+        const response = await fetch(url, {
+          headers,
+          redirect: "manual",
+          signal: AbortSignal.timeout(30_000),
+        });
+
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          const next = safeUrl(response.headers.get("location"), url);
+          if (!next) throw new Error("AKWAM_DOWNLOAD: unsafe redirect");
+          url = next;
+          continue;
+        }
+
+        const contentType = (response.headers.get("content-type") || "").toLowerCase();
+        const contentDisposition = response.headers.get("content-disposition") || "";
+
+        // Never consume a potentially large media response. Return the URL
+        // after proving the response is media by headers/first bounded probe.
+        if (isMediaResponse(contentType, contentDisposition, url, new Uint8Array())) {
+          return { kind: "media", url, content_type: contentType };
+        }
+
+        const bytes = await readProbeBytes(response, 524_288);
+        const sample = new TextDecoder().decode(bytes.slice(0, 64_000));
+
+        if (!response.ok) {
+          const error = new Error("AKWAM_DOWNLOAD: HTTP " + response.status);
+          error.status = response.status;
+          throw error;
+        }
+
+        if (challengePage(sample) ||
+            /text\/html|application\/xhtml/.test(contentType) ||
+            /<\s*(?:!doctype\s+html|html)\b/i.test(sample.slice(0, 1024))) {
+          return { kind: "page", url, html: sample, content_type: contentType };
+        }
+
+        if (isMediaResponse(contentType, contentDisposition, url, bytes)) {
+          return { kind: "media", url, content_type: contentType };
+        }
+
+        throw new Error("AKWAM_DOWNLOAD: response is neither an HTML page nor recognized media");
+      }
+
+      throw new Error("AKWAM_DOWNLOAD: redirect limit exceeded");
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (lastError.status !== 429 && lastError.status !== 403) break;
+    }
+  }
+
+  throw lastError || new Error("AKWAM_DOWNLOAD: no usable download target");
+}
+
 async function resolveQuality(browser, quality) {
   if (/\/download\//i.test(quality.url)) {
     diagnostic("AKWAM_DOWNLOAD", "direct quality download " + quality.url);
-    const downloadPage = await getContentPageResilient(browser, quality.url, "AKWAM_DOWNLOAD");
-    const finalUrl = extractFinalMediaUrl(downloadPage.html, downloadPage.url);
-    if (!finalUrl) throw new Error("AKWAM_FINAL_MEDIA: no media URL on direct download page");
-    return { ...(await validateMediaUrl(finalUrl, downloadPage.url)), quality: quality.quality };
+    const target = await fetchDownloadTarget(quality.url);
+    if (target.kind === "media") {
+      return {
+        ...(await validateMediaUrl(target.url, quality.url)),
+        quality: quality.quality,
+      };
+    }
+
+    const finalUrl = extractFinalMediaUrl(target.html, target.url);
+    if (!finalUrl) throw new Error("AKWAM_FINAL_MEDIA: no media URL on download page");
+    return {
+      ...(await validateMediaUrl(finalUrl, target.url)),
+      quality: quality.quality,
+    };
   }
 
   const link = await getContentPageResilient(browser, quality.url, "AKWAM_LINK");
   const downloadUrl = extractDownloadUrl(link.html, link.url);
   if (!downloadUrl) throw new Error("AKWAM_DOWNLOAD: no download URL on quality page");
   diagnostic("AKWAM_DOWNLOAD", downloadUrl);
-  const download = await getContentPageResilient(browser, downloadUrl, "AKWAM_DOWNLOAD");
-  const finalUrl = extractFinalMediaUrl(download.html, download.url);
+
+  const target = await fetchDownloadTarget(downloadUrl, link.url);
+  if (target.kind === "media") {
+    return {
+      ...(await validateMediaUrl(target.url, link.url)),
+      quality: quality.quality,
+    };
+  }
+
+  const finalUrl = extractFinalMediaUrl(target.html, target.url);
   if (!finalUrl) throw new Error("AKWAM_FINAL_MEDIA: no media URL on download page");
-  return { ...(await validateMediaUrl(finalUrl, download.url)), quality: quality.quality };
+  return {
+    ...(await validateMediaUrl(finalUrl, target.url)),
+    quality: quality.quality,
+  };
 }
 async function resolveAkwamCached(browser, payload) {
   const key = JSON.stringify({
