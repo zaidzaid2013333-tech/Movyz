@@ -376,7 +376,7 @@ async function resolveViaAkwamResolver(payload, type, env) {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 35_000);
+    const timer = setTimeout(() => controller.abort(), 90_000);
 
     try {
       const body = {
