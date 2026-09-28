@@ -26,74 +26,6 @@ import { MovyzaApi } from './services/api';
 import { Movie, Series } from './types';
 
 
-function AkwamIframeTestPage() {
-  const [status, setStatus] = useState<'loading' | 'loaded' | 'timeout'>('loading');
-  const akwamEpisode =
-    'https://akwam.ss/watch/22879/9725/the-mentalist-%D8%A7%D9%84%D9%85%D9%88%D8%B3%D9%85-%D8%A7%D9%84%D8%A7%D9%88%D9%84/%D8%A7%D9%84%D8%AD%D9%84%D9%82%D8%A9-1';
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setStatus((current) => (current === 'loading' ? 'timeout' : current));
-    }, 10000);
-
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  return (
-    <div
-      dir="rtl"
-      style={{
-        minHeight: '100vh',
-        background: '#050507',
-        color: '#fff',
-        padding: '16px',
-        boxSizing: 'border-box',
-        fontFamily: 'system-ui, sans-serif',
-      }}
-    >
-      <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-        <h1 style={{ margin: '0 0 8px', fontSize: 18 }}>Akwam iframe test</h1>
-        <p style={{ margin: '0 0 12px', color: '#a1a1aa', fontSize: 13 }}>
-          الاختبار معزول عن مشغل Movyza. الصفحة المضمّنة هنا هي صفحة Akwam نفسها.
-        </p>
-        <div
-          style={{
-            marginBottom: 10,
-            padding: '8px 10px',
-            borderRadius: 8,
-            background: '#111318',
-            color: status === 'loaded' ? '#86efac' : status === 'timeout' ? '#fca5a5' : '#fcd34d',
-            fontSize: 12,
-          }}
-        >
-          {status === 'loaded'
-            ? 'استلم الـiframe إشارة تحميل.'
-            : status === 'timeout'
-              ? 'الـiframe لم يعطِ إشارة تحميل خلال 10 ثوانٍ؛ قد يكون الحجب من Akwam أو من المتصفح.'
-              : 'جاري تحميل صفحة Akwam داخل iframe…'}
-        </div>
-        <iframe
-          src={akwamEpisode}
-          title="Akwam playback test"
-          allow="autoplay; fullscreen; picture-in-picture"
-          allowFullScreen
-          referrerPolicy="no-referrer"
-          onLoad={() => setStatus('loaded')}
-          style={{
-            display: 'block',
-            width: '100%',
-            height: '82vh',
-            minHeight: 420,
-            border: 0,
-            borderRadius: 12,
-            background: '#000',
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
 function MainApp() {
   const { direction } = useLanguage();
   const { user, isAdmin } = useAuth();
@@ -352,10 +284,6 @@ function MainApp() {
 }
 
 export default function App() {
-  if (window.location.pathname === '/akwam-iframe-test') {
-    return <AkwamIframeTestPage />;
-  }
-
   return (
     <LanguageProvider>
       <AuthProvider>
