@@ -404,8 +404,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ? 'تعذر العثور على مصدر فيديو مباشر صالح حاليًا.'
             : 'No valid direct video source is available right now.',
         );
+      }
     };
-
 
     void loadSources();
 
