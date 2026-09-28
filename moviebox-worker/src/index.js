@@ -659,17 +659,79 @@ function seasonNumberOf(item) {
   return firstNumber(item?.season_number, item?.seasonNumber, item?.season, item?.Season);
 }
 
+function parseSeasonKey(value) {
+  const match = String(value ?? "").trim().match(/^(\\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
 function findEpisode(payload, season, episode) {
   const seen = new Set();
 
-  const visit = (value) => {
-    if (!value || typeof value !== "object" || seen.has(value)) return null;
+  const pickEpisodeFromArray = (episodes, requestedEpisode) => {
+    if (!Array.isArray(episodes) || requestedEpisode < 1) return null;
+    const candidate = episodes[requestedEpisode - 1];
+    if (candidate == null) return null;
+    const urls = sourceUrlsOf(candidate);
+    return urls.length ? { item: candidate, urls } : null;
+  };
+
+  const visit = (value, inheritedSeason = null) => {
+    if (value == null) return null;
+
+    if (Array.isArray(value)) {
+      const direct = pickEpisodeFromArray(value, episode);
+      if (inheritedSeason === season && direct) return direct;
+
+      for (const child of value) {
+        const match = visit(child, inheritedSeason);
+        if (match) return match;
+      }
+      return null;
+    }
+
+    if (typeof value !== "object" || seen.has(value)) return null;
     seen.add(value);
 
-    // Inspect the object itself before descending. The previous implementation
-    // routed this through walk(), which only invokes its visitor for string
-    // leaves, so episode objects could never match and every series lookup
-    // eventually returned "Episode ... was not found".
+    // AbdoBest's normal series/tvshows shape is:
+    // { seasons: { "1": { episodes: ["https://..."] } } }
+    // Episode numbers are array positions (1-based), not episode_number fields.
+    const seasons = value.seasons;
+    if (seasons && typeof seasons === "object" && !Array.isArray(seasons)) {
+      const ordered = Object.entries(seasons)
+        .map(([key, child]) => ({
+          key,
+          seasonNumber: parseSeasonKey(key),
+          child,
+        }))
+        .filter((entry) => entry.seasonNumber === season);
+
+      for (const entry of ordered) {
+        const seasonValue = entry.child;
+        const episodes = Array.isArray(seasonValue)
+          ? seasonValue
+          : seasonValue && typeof seasonValue === "object"
+            ? seasonValue.episodes
+            : null;
+
+        const direct = pickEpisodeFromArray(episodes, episode);
+        if (direct) return direct;
+      }
+
+      // Some providers nest the same data one level deeper.
+      for (const entry of ordered) {
+        const match = visit(entry.child, season);
+        if (match) return match;
+      }
+    }
+
+    // Flat endpoint form: { episodes: [url, ...] } is season 1.
+    if (Array.isArray(value.episodes) && (inheritedSeason === season || season === 1)) {
+      const direct = pickEpisodeFromArray(value.episodes, episode);
+      if (direct) return direct;
+    }
+
+    // Some responses still expose structured episode objects. Keep supporting
+    // that contract as a fallback.
     if (!Array.isArray(value)) {
       const ep = episodeNumberOf(value);
       const sn = seasonNumberOf(value);
@@ -684,16 +746,10 @@ function findEpisode(payload, season, episode) {
       }
     }
 
-    if (Array.isArray(value)) {
-      for (const child of value) {
-        const match = visit(child);
-        if (match) return match;
-      }
-      return null;
-    }
-
-    for (const child of Object.values(value)) {
-      const match = visit(child);
+    for (const [key, child] of Object.entries(value)) {
+      if (key === "seasons" || key === "episodes") continue;
+      const childSeason = parseSeasonKey(key);
+      const match = visit(child, childSeason ?? inheritedSeason);
       if (match) return match;
     }
 
