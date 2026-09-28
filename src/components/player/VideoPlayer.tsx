@@ -73,7 +73,6 @@ async function fetchWatchSourcesCached(args: {
   contentType: 'movie' | 'series';
   season?: number;
   episode?: number;
-  signal: AbortSignal;
 }): Promise<PlaybackSource[]> {
   const key = sourceKey(args);
   const cached = sourceCache.get(key);
@@ -83,16 +82,22 @@ async function fetchWatchSourcesCached(args: {
   if (existing) return existing;
 
   const task = (async () => {
-    const response = await MovyzaApi.getWatchSources(
-      args.tmdbId,
-      args.contentType,
-      args.season,
-      args.episode,
-      args.signal,
-    );
-    const data = Array.isArray(response.data) ? response.data : [];
-    sourceCache.set(key, { expiresAt: Date.now() + SOURCE_CACHE_TTL_MS, data });
-    return data;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 18_000);
+    try {
+      const response = await MovyzaApi.getWatchSources(
+        args.tmdbId,
+        args.contentType,
+        args.season,
+        args.episode,
+        controller.signal,
+      );
+      const data = Array.isArray(response.data) ? response.data : [];
+      sourceCache.set(key, { expiresAt: Date.now() + SOURCE_CACHE_TTL_MS, data });
+      return data;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
   })();
 
   sourceInflight.set(key, task);
@@ -305,7 +310,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   useEffect(() => {
-    const controller = new AbortController();
     let active = true;
 
     const loadSources = async () => {
@@ -331,15 +335,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       progressLoadedRef.current = false;
       hasStartedRef.current = false;
 
-      const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
-
       try {
         const rawSources = await fetchWatchSourcesCached({
           tmdbId: safeTmdbId,
           contentType: isMovie ? 'movie' : 'series',
           season: seasonNumber,
           episode: episodeNumber,
-          signal: controller.signal,
         });
 
         if (!active) return;
@@ -403,16 +404,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ? 'تعذر العثور على مصدر فيديو مباشر صالح حاليًا.'
             : 'No valid direct video source is available right now.',
         );
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
     };
+
 
     void loadSources();
 
     return () => {
       active = false;
-      controller.abort();
     };
   }, [contentId, currentEpisode?.id, isMovie, safeTmdbId, seasonNumber, episodeNumber]);
 
