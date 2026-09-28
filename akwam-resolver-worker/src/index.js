@@ -76,12 +76,23 @@ function decodeContentUrl(payload) {
   } catch { return ""; }
 }
 
+async function getBrowserHtml(response) {
+  const raw = await response.text();
+  try {
+    const payload = JSON.parse(raw);
+    if (payload && typeof payload.result === "string") return payload.result;
+    if (payload && typeof payload.html === "string") return payload.html;
+    if (payload && payload.result && typeof payload.result.html === "string") return payload.result.html;
+  } catch {}
+  return raw;
+}
+
 async function getContentPage(browser, url, stage) {
   const pageUrl = safeUrl(url, AKWAM_BASE, { pageOnly: true });
   if (!pageUrl) throw new Error(`${stage}: rejected unsafe or non-Akwam URL`);
   diagnostic(stage, pageUrl);
   const response = await browser.quickAction("content", { url: pageUrl, userAgent: UA, gotoOptions: { waitUntil: "domcontentloaded", timeout: 30_000 } });
-  const html = await response.text();
+  const html = await getBrowserHtml(response);
   if (!response.ok) {
     const error = new Error(`${stage}: HTTP ${response.status}`);
     error.status = response.status;
