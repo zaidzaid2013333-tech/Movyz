@@ -197,7 +197,7 @@ function searchEntries(html, base) {
     const url = safeUrl(href, base, { pageOnly: true });
     if (!cleanTitle || !url || seen.has(url)) return;
     seen.add(url);
-    const year = Number((cleanTitle.match(/\b(19|20)\\d{2}\b/) || [])[0]) || null;
+    const year = Number((cleanTitle.match(/\b(19|20)\d{2}\b/) || [])[0]) || null;
     entries.push({ title: cleanTitle, url, year });
   };
 
