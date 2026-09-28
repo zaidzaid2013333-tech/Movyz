@@ -4,10 +4,12 @@ const WATCH_BASE = (process.env.WATCH_API_BASE ||
   "https://movyz-moviebox.sameranede.workers.dev").replace(/\/+$/, "");
 
 const fixture = {
-  title: "The Shawshank Redemption",
-  year: 1994,
+  title: "Inception",
+  year: 2010,
   type: "movie",
-  tmdb_id: 278,
+  tmdb_id: 27205,
+  content_url: "https://ak.sv/movie/562/inception-1",
+  source_url: "https://ak.sv/movie/562/inception-1",
 };
 
 function isHttp(value) {

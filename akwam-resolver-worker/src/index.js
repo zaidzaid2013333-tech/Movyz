@@ -274,7 +274,7 @@ async function searchAkwam(browser, payload) {
 
     for (let attempt = 0; attempt <= SEARCH_BACKOFF_MS.length; attempt += 1) {
       try {
-        const page = await getContentPage(browser, searchUrl, "AKWAM_SEARCH");
+        const page = await getContentPageResilient(browser, searchUrl, "AKWAM_SEARCH");
         const entries = searchEntries(page.html, page.url);
         const ranked = entries
           .map((entry) => ({ ...entry, score: scoreEntry(entry, payload) }))
