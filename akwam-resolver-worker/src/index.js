@@ -53,8 +53,10 @@ function normalizeQuality(value) {
     "sd": "480p",
   };
   if (aliases[text]) return aliases[text];
-  const match = text.match(/\b(\d{3,4})\s*p?\b/i);
-  return match ? `${match[1]}p` : "";
+  const withP = text.match(/\b(\d{3,4})\s*p\b/i);
+  if (withP) return `${withP[1]}p`;
+  const common = text.match(/\b(2160|1440|1080|720|576|480|360|240)\b/i);
+  return common ? `${common[1]}p` : "";
 }
 function qualityRank(value) {
   const normalized = normalizeQuality(value);
