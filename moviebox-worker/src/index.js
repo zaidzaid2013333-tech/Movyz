@@ -602,9 +602,9 @@ export default {
         return json({
           api: "Movyz Watch API",
           version: "3.0.0",
-          provider: "AbdoBest",
+          provider: "Akwam",
           metadata: "TMDB",
-          mode: "lightweight-abdobest",
+          mode: "akwam-resolver",
           endpoints: {
             health: "GET /health",
             movie: "POST /watch/movie",
@@ -615,21 +615,12 @@ export default {
       }
 
       if (request.method === "GET" && path === "/health") {
-        try {
-          const upstream = await abdoJson("/health", { method: "GET" });
-          return json({
-            ok: upstream.response.ok,
-            provider: "AbdoBest",
-            upstream_status: upstream.response.status,
-            ...(upstream.body && typeof upstream.body === "object" ? upstream.body : {}),
-          }, upstream.response.ok ? 200 : 502);
-        } catch (error) {
-          return json({
-            ok: false,
-            provider: "AbdoBest",
-            error: error instanceof Error ? error.message : String(error),
-          }, 502);
-        }
+        return json({
+          ok: true,
+          service: "Movyz Watch API",
+          provider: "Akwam",
+          resolver: Boolean(env?.AKWAM_RESOLVER),
+        });
       }
 
       if (request.method === "GET" && path === "/proxy") {
