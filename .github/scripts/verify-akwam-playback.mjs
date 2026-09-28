@@ -166,8 +166,34 @@ if (!resolved?.ok || !isHttp(resolved.source_url) ||
     !["mp4", "hls", "dash"].includes(resolved.type)) {
   throw new Error("Resolver did not return a valid direct-media contract");
 }
+
+const resolverSources = Array.isArray(resolved.sources)
+  ? resolved.sources.filter((source) => isHttp(source?.url))
+  : [];
+
+const resolverQualities = [...new Set(
+  resolverSources.map((source) => String(source.quality || "").toLowerCase()).filter(Boolean),
+)];
+
+const expectedQualities = ["1080p", "720p", "480p"];
+for (const quality of expectedQualities) {
+  if (!resolverQualities.includes(quality)) {
+    throw new Error(
+      "Resolver is missing expected quality " + quality +
+      "; returned=" + JSON.stringify(resolverQualities),
+    );
+  }
+}
+
 validateSource(resolved.source_url);
 await validateMedia(resolved.media_url, resolved.type, resolved.source_url);
+
+for (const source of resolverSources) {
+  const sourceType = ["mp4", "hls", "dash"].includes(source.type)
+    ? source.type
+    : inferType(source.url, "", "", "", new Uint8Array());
+  await validateMedia(source.url, sourceType, resolved.source_url);
+}
 
 const watchResponse = await fetch(WATCH_BASE + "/watch/movie", {
   method: "POST",
@@ -183,7 +209,34 @@ if (!watched?.ok || !isHttp(watched.source_url) ||
     !["mp4", "hls", "dash"].includes(watched.media_type)) {
   throw new Error("Watch API did not return a valid direct-media contract");
 }
+
+const watchSources = Array.isArray(watched.sources)
+  ? watched.sources.filter((source) => isHttp(source?.url))
+  : Array.isArray(watched.stream?.sources)
+    ? watched.stream.sources.filter((source) => isHttp(source?.url))
+    : [];
+
+const watchQualities = [...new Set(
+  watchSources.map((source) => String(source.quality || "").toLowerCase()).filter(Boolean),
+)];
+
+for (const quality of expectedQualities) {
+  if (!watchQualities.includes(quality)) {
+    throw new Error(
+      "Watch API is missing expected quality " + quality +
+      "; returned=" + JSON.stringify(watchQualities),
+    );
+  }
+}
+
 validateSource(watched.source_url);
 await validateMedia(watched.media_url, watched.media_type, watched.source_url);
+
+for (const source of watchSources) {
+  const sourceType = ["mp4", "hls", "dash"].includes(source.type)
+    ? source.type
+    : inferType(source.url, "", "", "", new Uint8Array());
+  await validateMedia(source.url, sourceType, watched.source_url);
+}
 
 console.log("AKWAM_PLAYBACK_E2E=PASS");
