@@ -485,6 +485,8 @@ function normalizeAkwamIframeUrl(value: unknown) {
       host.endsWith('.akwam.it') ||
       host === 'ak.sv' ||
       host.endsWith('.ak.sv') ||
+      host === 'go.ak.sv' ||
+      host.endsWith('.go.ak.sv') ||
       host === 'akwam.ee' ||
       host.endsWith('.akwam.ee') ||
       host === 'downet.net' ||
@@ -511,7 +513,7 @@ function normalizeWatchSources(payload: any) {
       return String(source?.providerKey || source?.provider || 'abdobest').toLowerCase() === 'abdobest';
     })
     .map((source: any, index: number) => {
-      const iframeUrl = normalizeAkwamIframeUrl(stream.iframe_url);
+      const iframeUrl = normalizeAkwamIframeUrl(source.iframe_url || stream.iframe_url || stream.source_url);
       const isAkwamIframe = Boolean(iframeUrl);
 
       return {
