@@ -128,10 +128,24 @@ async function searchAkwam(browser, payload) {
   for (let attempt = 0; attempt <= SEARCH_BACKOFF_MS.length; attempt += 1) {
     try {
       const page = await getContentPage(browser, searchUrl, "AKWAM_SEARCH");
-      diagnostic("AKWAM_SEARCH", `host=${new URL(page.url).hostname} bytes=${page.html.length}`);
-      const result = searchEntries(page.html, page.url).map((entry) => ({ ...entry, score: scoreEntry(entry, payload) })).sort((a, b) => b.score - a.score)[0];
-      if (!result || result.score <= 0) throw new Error("AKWAM_SEARCH: no matching entry in widget-body.row.flex-wrap");
-      return result;
+      const entries = searchEntries(page.html, page.url);
+      const ranked = entries
+        .map((entry) => ({ ...entry, score: scoreEntry(entry, payload) }))
+        .sort((a, b) => b.score - a.score);
+      diagnostic("AKWAM_SEARCH", `host=${new URL(page.url).hostname} bytes=${page.html.length} entries=${entries.length}`);
+      if (!ranked[0] || ranked[0].score <= 0) {
+        const entryBoxCount = (page.html.match(/\bentry-box\b/gi) || []).length;
+        const titleCount = (page.html.match(/\bentry-title\b/gi) || []).length;
+        const boxLinkCount = (page.html.match(/\bbox\b/gi) || []).length;
+        const topTitles = ranked.slice(0, 5).map((item) => item.title).filter(Boolean);
+        const preview = stripHtml(page.html).slice(0, 500);
+        throw new Error(
+          `AKWAM_SEARCH: no matching entry; host=${new URL(page.url).hostname}; bytes=${page.html.length}; ` +
+          `entryBox=${entryBoxCount}; entryTitle=${titleCount}; box=${boxLinkCount}; ` +
+          `topTitles=${JSON.stringify(topTitles)}; preview=${preview}`
+        );
+      }
+      return ranked[0];
     } catch (error) {
       if (error?.status !== 429) throw error;
       const delay = SEARCH_BACKOFF_MS[attempt];
