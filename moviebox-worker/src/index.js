@@ -935,26 +935,68 @@ function collectEpisodeUrls(value, out = [], seen = new Set(), depth = 0) {
 function findEpisode(payload, season, episode) {
   const seen = new Set();
 
-  const pickEpisodeFromArray = (episodes, requestedEpisode) => {
-    if (!Array.isArray(episodes) || requestedEpisode < 1) return null;
-    const candidate = episodes[requestedEpisode - 1];
-    if (candidate == null) return null;
-    const urls = episodeUrlsOf(candidate);
-    return urls.length ? { item: candidate, urls } : null;
+  const pickEpisode = (collection, requestedEpisode) => {
+    if (collection == null || requestedEpisode < 1) return null;
+
+    if (Array.isArray(collection)) {
+      const candidates = [
+        collection[requestedEpisode - 1],
+        ...collection.filter((item) => {
+          if (!item || typeof item !== "object") return false;
+          const n = episodeNumberOf(item);
+          return Number.isFinite(n) && n === requestedEpisode;
+        }),
+      ];
+      for (const candidate of candidates) {
+        const urls = episodeUrlsOf(candidate);
+        if (urls.length) return { item: candidate, urls };
+      }
+      return null;
+    }
+
+    if (typeof collection === "object") {
+      const directKeys = [
+        String(requestedEpisode),
+        String(requestedEpisode).padStart(2, "0"),
+        "episode_" + requestedEpisode,
+        "episode-" + requestedEpisode,
+        "ep" + requestedEpisode,
+      ];
+
+      for (const key of directKeys) {
+        if (Object.prototype.hasOwnProperty.call(collection, key)) {
+          const candidate = collection[key];
+          const urls = episodeUrlsOf(candidate);
+          if (urls.length) return { item: candidate, urls };
+        }
+      }
+
+      for (const [key, candidate] of Object.entries(collection)) {
+        const keyNumber = Number(String(key).match(/\d+/)?.[0]);
+        const candidateEpisode = episodeNumberOf(candidate);
+        if (
+          (Number.isFinite(keyNumber) && keyNumber === requestedEpisode) ||
+          (Number.isFinite(candidateEpisode) && candidateEpisode === requestedEpisode)
+        ) {
+          const urls = episodeUrlsOf(candidate);
+          if (urls.length) return { item: candidate, urls };
+        }
+      }
+    }
+
+    return null;
   };
 
   const visit = (value, inheritedSeason = null) => {
     if (value == null) return null;
 
     if (Array.isArray(value)) {
-      const direct = inheritedSeason === season
-        ? pickEpisodeFromArray(value, episode)
-        : (inheritedSeason == null && season === 1
-          ? pickEpisodeFromArray(value, episode)
-          : null);
+      const direct = inheritedSeason === season ||
+        (inheritedSeason == null && season === 1)
+        ? pickEpisode(value, episode)
+        : null;
       if (direct) return direct;
 
-      // Structured episode arrays: each element may carry its own season/episode.
       for (const [index, child] of value.entries()) {
         if (child && typeof child === "object") {
           const childSeason = seasonNumberOf(child);
@@ -967,9 +1009,6 @@ function findEpisode(payload, season, episode) {
             if (urls.length) return { item: child, urls };
           }
         }
-      }
-
-      for (const child of value) {
         const match = visit(child, inheritedSeason);
         if (match) return match;
       }
@@ -979,22 +1018,18 @@ function findEpisode(payload, season, episode) {
     if (typeof value !== "object" || seen.has(value)) return null;
     seen.add(value);
 
-    // Canonical shape:
-    // { seasons: { "1": { episodes: [...] }, "2": [...] } }
     const seasons = value.seasons;
     if (seasons && typeof seasons === "object" && !Array.isArray(seasons)) {
-      const ordered = Object.entries(seasons)
-        .map(([key, child]) => ({ key, seasonNumber: parseSeasonKey(key), child }))
-        .filter((entry) => entry.seasonNumber === season);
+      for (const [key, seasonValue] of Object.entries(seasons)) {
+        if (parseSeasonKey(key) !== season) continue;
 
-      for (const entry of ordered) {
-        const seasonValue = entry.child;
-        const episodes = Array.isArray(seasonValue)
-          ? seasonValue
-          : seasonValue && typeof seasonValue === "object"
+        const episodes =
+          Array.isArray(seasonValue) ? seasonValue :
+          seasonValue && typeof seasonValue === "object" && seasonValue.episodes !== undefined
             ? seasonValue.episodes
-            : null;
-        const direct = pickEpisodeFromArray(episodes, episode);
+            : seasonValue;
+
+        const direct = pickEpisode(episodes, episode);
         if (direct) return direct;
 
         const nested = visit(seasonValue, season);
@@ -1002,32 +1037,23 @@ function findEpisode(payload, season, episode) {
       }
     }
 
-    // Flat shape:
-    // { episodes: [".../episode-1", ".../episode-2"] }
-    if (Array.isArray(value.episodes) && season === 1) {
-      const direct = pickEpisodeFromArray(value.episodes, episode);
+    if (value.episodes !== undefined && (season === 1 || inheritedSeason === season)) {
+      const direct = pickEpisode(value.episodes, episode);
       if (direct) return direct;
     }
 
-    // Top-level season map:
-    // { "1": ["url1", "url2"], "2": [...] }
     for (const [key, child] of Object.entries(value)) {
+      if (key === "seasons" || key === "episodes") continue;
+
       const childSeason = parseSeasonKey(key);
       if (childSeason === season) {
-        const episodes = Array.isArray(child)
-          ? child
-          : child && typeof child === "object"
-            ? child.episodes
-            : null;
-        const direct = pickEpisodeFromArray(episodes, episode);
+        const direct = pickEpisode(child, episode);
         if (direct) return direct;
-
         const nested = visit(child, season);
         if (nested) return nested;
       }
     }
 
-    // Structured single episode object fallback.
     const ep = episodeNumberOf(value);
     const sn = seasonNumberOf(value);
     if (
@@ -1039,7 +1065,6 @@ function findEpisode(payload, season, episode) {
       if (urls.length) return { item: value, urls };
     }
 
-    // Generic nested response wrappers: data/response/payload/result/etc.
     for (const [key, child] of Object.entries(value)) {
       if (key === "seasons" || key === "episodes") continue;
       if (parseSeasonKey(key) === season) continue;
