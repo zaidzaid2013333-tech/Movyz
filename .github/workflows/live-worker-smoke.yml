@@ -22,16 +22,16 @@ jobs:
           };
           const health = await getJson('/health', 15000);
           if (!health?.success || health?.data?.status !== 'ok') throw new Error('Worker health check failed');
-          const catalog = await getJson('/api/v1/movies?page=1&limit=1', 20000);
-          const items = Array.isArray(catalog?.data) ? catalog.data : catalog?.data?.items ?? catalog?.data?.movies ?? [];
-          if (!Array.isArray(items) || !items.length) throw new Error('Published movie catalog is empty');
-          const movie = items[0];
-          const contentId = String(movie?.id || '');
-          const playback = await getJson('/api/v1/playback/sources?contentType=movie&contentId=' + encodeURIComponent(contentId), 30000);
-          const sources = Array.isArray(playback?.data) ? playback.data : [];
-          if (!sources.length) throw new Error('No playable sources returned for ' + contentId);
-          const source = sources[0];
-          if (!source?.url || !/^https:\/\//i.test(String(source.url))) throw new Error('Invalid playback source');
-          console.log('LIVE_PLAYBACK_TARGET=PASS');
-          console.log(JSON.stringify({ contentId, tmdbId: movie?.tmdbId || movie?.tmdb_id, provider: source.provider, type: source.type, host: new URL(source.url).host }));
+          const exactContentId = 'ede72834-fcbb-4172-8a16-224b8dd96cb7';
+          const watch = await getJson('/api/v1/watch/movie/278', 45000);
+          const sources = Array.isArray(watch?.data) ? watch.data : [];
+          if (!sources.length) throw new Error('Shawshank /api/v1/watch/movie/278 returned no sources: ' + JSON.stringify(watch));
+          for (const source of sources) {
+            if (!source?.url || !/^https:\/\//i.test(String(source.url))) throw new Error('Invalid Shawshank source: ' + JSON.stringify(source));
+            if (!['mp4','hls','dash','webm'].includes(String(source.type||'').toLowerCase())) throw new Error('Invalid Shawshank type: ' + JSON.stringify(source));
+          }
+          const legacy = await getJson('/watch/' + exactContentId, 20000);
+          if (legacy?.data?.id !== exactContentId) throw new Error('UUID watch route mismatch');
+          console.log('SHAWSHANK_PLAYBACK_TARGET=PASS');
+          console.log(JSON.stringify(sources));
           NODE
