@@ -426,15 +426,15 @@ function normalizeWatchSources(payload: any) {
   return rawSources
     .filter((source: any) => {
       if (typeof source?.url !== 'string' || !/^https:\/\//i.test(source.url)) return false;
-      return String(source?.providerKey || source?.provider || 'abdobest').toLowerCase() === 'abdobest';
+      return String(source?.providerKey || source?.provider || 'akwam').toLowerCase() === 'akwam';
     })
     .map((source: any, index: number) => ({
-      id: source.id || ['abdobest', source.type || streamTypeFromUrl(source.url), source.quality || 'auto', index].join('-'),
+      id: source.id || ['akwam', source.type || streamTypeFromUrl(source.url), source.quality || 'auto', index].join('-'),
       type: String(source.type || streamTypeFromUrl(source.url)).toLowerCase(),
       quality: source.quality || 'auto',
       language: source.language || 'und',
-      label: source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · '),
-      labelEn: source.labelEn || source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · '),
+      label: source.label || ['Akwam', source.quality || 'auto'].filter(Boolean).join(' · '),
+      labelEn: source.labelEn || source.label || ['Akwam', source.quality || 'auto'].filter(Boolean).join(' · '),
       url: source.url,
       isWorking: true,
       provider: 'Akwam',
@@ -523,7 +523,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
-          'User-Agent': 'Movyz-AbdoBest-Proxy/1.0',
+          'User-Agent': 'Movyz-Akwam-Proxy/1.0',
           'Cache-Control': 'no-cache',
         },
         body: JSON.stringify(
@@ -560,7 +560,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     const sources = normalizeWatchSources(payload);
 
     if (!sources.length) {
-      return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable AbdoBest source is currently available');
+      return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable Akwam source is currently available');
     }
 
     const meta = {
@@ -578,7 +578,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     return ok(res, sources, meta);
   } catch (error) {
     console.error('[watch-api]', error instanceof Error ? error.message : error);
-    return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load AbdoBest playback sources');
+    return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load Akwam playback sources');
   }
 }));
 
