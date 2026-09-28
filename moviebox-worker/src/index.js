@@ -419,21 +419,47 @@ async function resolveViaAkwamResolver(payload, type, env) {
         throw error;
       }
 
-      if (typeof data.media_url === "string" && /^https?:\/\//i.test(data.media_url)) {
-        const typeOfStream = ["mp4", "hls", "dash", "webm"].includes(data.type)
-          ? data.type
-          : detectStreamType(data.media_url);
+      const rawSources = Array.isArray(data.sources) ? data.sources : [];
+      const normalizedSources = rawSources
+        .filter((source) => source && typeof source.url === "string" && /^https?:\/\//i.test(source.url))
+        .map((source) => {
+          const sourceType = ["mp4", "hls", "dash", "webm"].includes(source.type)
+            ? source.type
+            : detectStreamType(source.url);
+          return {
+            url: source.url,
+            type: sourceType,
+            quality: source.quality || "auto",
+            label: source.label || source.quality || "auto",
+          };
+        });
+
+      if (
+        typeof data.media_url === "string" &&
+        /^https?:\/\//i.test(data.media_url) &&
+        !normalizedSources.some((source) => source.url === data.media_url)
+      ) {
+        normalizedSources.unshift({
+          url: data.media_url,
+          type: ["mp4", "hls", "dash", "webm"].includes(data.type)
+            ? data.type
+            : detectStreamType(data.media_url),
+          quality: data.quality || "auto",
+          label: data.quality || "auto",
+        });
+      }
+
+      if (normalizedSources.length) {
+        const primary =
+          normalizedSources.find((source) => source.quality === data.quality) ||
+          normalizedSources[0];
 
         return {
-          url: data.media_url,
-          type: typeOfStream,
-          quality: data.quality || "auto",
-          qualities: [data.quality || "auto"],
-          sources: [{
-            quality: data.quality || "auto",
-            type: typeOfStream,
-            url: data.media_url,
-          }],
+          url: primary.url,
+          type: primary.type,
+          quality: primary.quality,
+          qualities: normalizedSources.map((source) => source.quality),
+          sources: normalizedSources,
           cached: false,
           via: "akwam-browser-resolver",
           source_url: data.source_url || data.page_url || "",
@@ -805,6 +831,8 @@ export default {
           source_url: stream.source_url || clean(payload?.source_url),
           media_url: stream.url,
           media_type: stream.type,
+          qualities: Array.isArray(stream.qualities) ? stream.qualities : [],
+          sources: Array.isArray(stream.sources) ? stream.sources : [],
           stream,
         });
       }
