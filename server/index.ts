@@ -413,13 +413,15 @@ function streamTypeFromUrl(url: string) {
 
 function normalizeWatchSources(payload: any) {
   const stream = payload?.stream || {};
-  const rawSources = Array.isArray(stream.sources) && stream.sources.length
-    ? stream.sources
-    : (stream.url ? [{
-        url: stream.url,
-        type: stream.type || streamTypeFromUrl(stream.url),
-        quality: stream.quality || (Array.isArray(stream.qualities) ? stream.qualities[0] : 'auto') || 'auto',
-      }] : []);
+  const rawSources = Array.isArray(payload?.sources) && payload.sources.length
+    ? payload.sources
+    : Array.isArray(stream.sources) && stream.sources.length
+      ? stream.sources
+      : (stream.url ? [{
+          url: stream.url,
+          type: stream.type || streamTypeFromUrl(stream.url),
+          quality: stream.quality || (Array.isArray(stream.qualities) ? stream.qualities[0] : 'auto') || 'auto',
+        }] : []);
 
   return rawSources
     .filter((source: any) => {
