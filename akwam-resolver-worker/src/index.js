@@ -295,78 +295,61 @@ function extractQualities(html, base) {
   const add = (quality, rawUrl) => {
     const url = safeUrl(rawUrl, base, { pageOnly: true });
     if (!url || seen.has(url)) return;
-    const normalized = String(quality || "").toLowerCase();
-    if (!["1080p", "720p", "480p"].includes(normalized)) return;
+    const normalized = String(quality || "").toLowerCase().replace(/^\s+|\s+$/g, "");
+    if (!QUALITY_ORDER.includes(normalized)) return;
     seen.add(url);
     out.push({ quality: normalized, url });
   };
 
-  const extractActionUrls = (context) => {
-    const found = [];
-    const addFound = (value) => {
-      const cleaned = String(value || "")
-        .replace(/\\\//g, "/")
-        .replace(/&amp;/gi, "&")
-        .trim();
-      if (!cleaned || found.includes(cleaned)) return;
-      if (/\/link\/\d+/i.test(cleaned) || /\/download\//i.test(cleaned) || /^https?:\/\//i.test(cleaned)) {
-        found.push(cleaned);
+  // Current Akwam structure:
+  // <div class="tab-content quality" id="tab-N">
+  //   <div data-quality="1080p"><a class="link-download" href="/download/...">...
+  const qualityLabels = {};
+  for (const match of source.matchAll(/<a\b[^>]*href=["']#(tab-\d+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const label = stripHtml(match[2]).match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase();
+    if (label) qualityLabels[match[1]] = label;
+  }
+
+  for (const blockMatch of source.matchAll(/<div\b[^>]*class=["'][^"']*\b(?:tab-content\s+quality|quality\s+tab-content|quality-tab)\b[^"']*["'][^>]*>[\s\S]*?<\/div>/gi)) {
+    const fragment = blockMatch[0];
+    const blockId = fragment.match(/\bid=["'](tab-\d+)["']/i)?.[1] || "";
+    const defaultQuality = qualityLabels[blockId] || "";
+
+    let rowFound = false;
+    for (const rowMatch of fragment.matchAll(/<div\b[^>]*data-quality=["']([^"']+)["'][^>]*>[\s\S]*?<a\b[^>]*class=["'][^"']*\blink-download\b[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
+      rowFound = true;
+      add(rowMatch[1] || defaultQuality, rowMatch[2]);
+    }
+
+    if (!rowFound) {
+      for (const rowMatch of fragment.matchAll(/<div\b[^>]*data-quality=["']([^"']+)["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']*\/(?:link|download)\/[^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
+        rowFound = true;
+        add(rowMatch[1] || defaultQuality, rowMatch[2]);
       }
-    };
-
-    for (const match of context.matchAll(/(?:href|data-(?:url|link|href|src))=["']([^"']+)["']/gi)) {
-      addFound(match[1]);
-    }
-    for (const match of context.matchAll(/(?:window\.open|location(?:\.href)?|window\.location(?:\.href)?)\s*\(\s*["']([^"']+)["']/gi)) {
-      addFound(match[1]);
-    }
-    for (const match of context.matchAll(/(?:window\.open|location(?:\.href)?|window\.location(?:\.href)?)\s*=\s*["']([^"']+)["']/gi)) {
-      addFound(match[1]);
-    }
-    return found;
-  };
-
-  for (const qualityMatch of source.matchAll(/\b(1080p|720p|480p)\b/gi)) {
-    const quality = qualityMatch[1].toLowerCase();
-    const index = qualityMatch.index ?? 0;
-    const context = source.slice(Math.max(0, index - 2600), Math.min(source.length, index + 3600));
-    const candidates = extractActionUrls(context);
-
-    for (const candidate of candidates) {
-      add(quality, candidate);
-      if (out.some((item) => item.quality === quality)) break;
     }
 
-    if (out.some((item) => item.quality === quality)) continue;
-
-    const idMatch =
-      context.match(/data-(?:id|link-id|quality-id)=["'](\d+)["']/i) ||
-      context.match(/(?:linkId|qualityId|downloadId)\s*[:=]\s*["']?(\d+)/i);
-    if (idMatch) add(quality, "/link/" + idMatch[1]);
+    if (!rowFound) {
+      for (const aMatch of fragment.matchAll(/<a\b[^>]*href=["']([^"']*\/(?:link|download)\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+        const label = stripHtml(aMatch[2]).match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase() || defaultQuality;
+        add(label, aMatch[1]);
+      }
+    }
   }
 
-  for (const match of source.matchAll(/<a\b([^>]*)href=["']([^"']*\/link\/\d+[^"']*)["']([^>]*)>([\s\S]*?)<\/a>/gi)) {
-    const index = match.index ?? 0;
-    const context = source.slice(Math.max(0, index - 900), Math.min(source.length, index + match[0].length + 1200));
-    const label =
-      stripHtml(match[4] + " " + match[1] + " " + match[3]).match(/\b(1080p|720p|480p)\b/i)?.[1] ||
-      stripHtml(context).match(/\b(1080p|720p|480p)\b/i)?.[1];
-    add(label, match[2]);
-  }
-
-  for (const quality of QUALITY_ORDER) {
-    const re = new RegExp(
-      "tab-content[^>]*\\bquality\\b[\\s\\S]{0,3500}?\\b" + quality + "\\b[\\s\\S]{0,3500}?<a\\b[^>]*href=[\\\"']([^\\\"']*\\/link\\/\\d+[^\\\"']*)",
-      "i",
-    );
-    const match = source.match(re);
-    if (match) add(quality, match[1]);
+  // Backward-compatible regex for older Akwam pages.
+  if (!out.length) {
+    const re = /tab-content\s+quality[\s\S]*?<a\b[^>]*href=["'](https?:\/\/[^"']+\/(?:link|download)\/\d+[^"']*)["']/gi;
+    for (const match of source.matchAll(re)) {
+      const context = source.slice(Math.max(0, (match.index ?? 0) - 1800), Math.min(source.length, (match.index ?? 0) + 1800));
+      const label = context.match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase();
+      add(label, match[1]);
+    }
   }
 
   diagnostic(
     "AKWAM_QUALITY",
-    "links=" + (source.match(/\/link\/\d+/gi) || []).length +
-      " visibleQualities=" + JSON.stringify(source.match(/\b(?:1080p|720p|480p)\b/gi) || []) +
+    "downloadLike=" + (source.match(/\/(?:link|download)\//gi) || []).length +
+      " tabBlocks=" + (source.match(/tab-content\s+quality/gi) || []).length +
       " extracted=" + JSON.stringify(out),
   );
 
@@ -425,6 +408,14 @@ async function validateMediaUrl(initialUrl) {
   throw new Error("AKWAM_FINAL_MEDIA: redirect limit exceeded");
 }
 async function resolveQuality(browser, quality) {
+  if (/\/download\//i.test(quality.url)) {
+    diagnostic("AKWAM_DOWNLOAD", "direct quality download " + quality.url);
+    const downloadPage = await getContentPageResilient(browser, quality.url, "AKWAM_DOWNLOAD");
+    const finalUrl = extractFinalMediaUrl(downloadPage.html, downloadPage.url);
+    if (!finalUrl) throw new Error("AKWAM_FINAL_MEDIA: no media URL on direct download page");
+    return { ...(await validateMediaUrl(finalUrl)), quality: quality.quality };
+  }
+
   const link = await getContentPageResilient(browser, quality.url, "AKWAM_LINK");
   const downloadUrl = extractDownloadUrl(link.html, link.url);
   if (!downloadUrl) throw new Error("AKWAM_DOWNLOAD: no download URL on quality page");
