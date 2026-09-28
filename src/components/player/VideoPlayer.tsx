@@ -116,6 +116,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [episodeNumber, isMovie, language, retryNonce, seasonNumber, tmdbId]);
 
+  useEffect(() => {
+    if (!iframeUrl) return;
+
+    const timer = window.setTimeout(() => {
+      setLoading(false);
+      setError(
+        language === 'ar'
+          ? 'لم يستجب مشغل Akwam خلال المهلة المحددة. أعد المحاولة.'
+          : 'The Akwam player did not respond within the timeout. Please retry.',
+      );
+    }, 35_000);
+
+    return () => window.clearTimeout(timer);
+  }, [iframeUrl, language]);
+
   if (error) {
     return (
       <div className="relative aspect-video w-full bg-black flex items-center justify-center px-6 text-center">
@@ -150,8 +165,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             className="absolute inset-0 h-full w-full border-0 bg-black"
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             allowFullScreen
-            referrerPolicy="no-referrer"
+            referrerPolicy="strict-origin-when-cross-origin"
             onLoad={() => setLoading(false)}
+            onError={() => {
+              setLoading(false);
+              setError(
+                language === 'ar'
+                  ? 'تعذر تحميل صفحة تشغيل Akwam.'
+                  : 'Unable to load the Akwam playback page.',
+              );
+            }}
           />
         </>
       ) : (
