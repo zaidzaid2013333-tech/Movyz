@@ -49,19 +49,26 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setLoading(true);
     setError(null);
 
-    // Try finding as Movie or Series
-    Promise.allSettled([
-      MovyzaApi.getMovieById(contentId),
-      MovyzaApi.getSeriesById(contentId),
-    ]).then(async ([movieRes, seriesRes]) => {
-      if (!isMounted) return;
+    // Resolve the content type first instead of requesting movie + series in parallel.
+    // This prevents two catalog requests on every watch-page mount.
+    const loadContent = async () => {
+      try {
+        const movieRes = await MovyzaApi.getMovieById(contentId);
+        if (!isMounted) return;
 
-      if (movieRes.status === 'fulfilled') {
-        const movie = movieRes.value.data.movie;
+        const movie = movieRes.data.movie;
         setContent(movie);
         setLoading(false);
-      } else if (seriesRes.status === 'fulfilled') {
-        const series = seriesRes.value.data.series;
+        return;
+      } catch {
+        // Not a movie; try the series endpoint below.
+      }
+
+      try {
+        const seriesRes = await MovyzaApi.getSeriesById(contentId);
+        if (!isMounted) return;
+
+        const series = seriesRes.data.series;
         setContent(series);
 
         const currentSeason =
@@ -72,14 +79,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           currentSeason?.episodes[0];
 
         setCurrentEpisode(episode);
-        if (episode) {
-        }
         setLoading(false);
-      } else {
+      } catch {
+        if (!isMounted) return;
         setError('تعذر العثور على المحتوى المطلوب في خوادم العرض');
         setLoading(false);
       }
-    });
+    };
+
+    void loadContent();
 
     return () => {
       isMounted = false;
