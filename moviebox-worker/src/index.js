@@ -391,22 +391,21 @@ async function resolveViaAkwamResolver(payload, type, env) {
         season: type === "series" ? Number(payload?.season) : undefined,
       };
 
-      const resolverRequest = new Request(
-        "https://movyz-akwam-resolver.internal/resolve",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify(body),
-          signal: controller.signal,
+      const resolverInit = {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
         },
-      );
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      };
 
       const response = env?.AKWAM_RESOLVER?.fetch
-        ? await env.AKWAM_RESOLVER.fetch(resolverRequest)
-        : await fetch(AKWAM_RESOLVER_URL, resolverRequest.clone());
+        ? await env.AKWAM_RESOLVER.fetch(
+            new Request("https://movyz-akwam-resolver.internal/resolve", resolverInit),
+          )
+        : await fetch(AKWAM_RESOLVER_URL, resolverInit);
 
       const text = await response.text();
       let data = null;
