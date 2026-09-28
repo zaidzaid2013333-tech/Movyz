@@ -1,3 +1,7 @@
 name = "movyz-moviebox"
 main = "src/index.js"
 compatibility_date = "2026-09-26"
+
+[[services]]
+binding = "AKWAM_RESOLVER"
+service = "movyz-akwam-resolver"
