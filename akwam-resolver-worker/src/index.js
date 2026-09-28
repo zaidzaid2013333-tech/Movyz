@@ -168,7 +168,7 @@ async function getContentPage(browser, url, stage) {
   const pageUrl = safeUrl(url, AKWAM_BASE, { pageOnly: true });
   if (!pageUrl) throw new Error(`${stage}: rejected unsafe or non-Akwam URL`);
   diagnostic(stage, pageUrl);
-  const response = await browser.quickAction("content", { url: pageUrl, userAgent: UA, gotoOptions: { waitUntil: "domcontentloaded", timeout: 20_000 } });
+  const response = await browser.quickAction("content", { url: pageUrl, userAgent: UA, gotoOptions: { waitUntil: "networkidle2", timeout: 45_000 } });
   const html = await getBrowserHtml(response);
   if (!response.ok) {
     const error = new Error(`${stage}: HTTP ${response.status}`);
@@ -795,36 +795,28 @@ async function resolveAkwam(browser, payload) {
   // Resolve advertised qualities concurrently: these are independent watch pages.
   // A failed quality is isolated; successful sources remain ordered by preference.
   const startedAt = Date.now();
-  const attempts = await Promise.allSettled(
-    orderedQualities.map(async (quality) => {
-      const qualityStartedAt = Date.now();
-      try {
-        const stream = await resolveQuality(browser, quality);
-        diagnostic("AKWAM_TIMING", `${quality.quality}=${Date.now() - qualityStartedAt}ms`);
-        return {
-          quality: quality.quality,
-          type: stream.type,
-          url: stream.url,
-          content_type: stream.content_type,
-        };
-      } catch (error) {
-        diagnostic("AKWAM_TIMING", `${quality.quality}=${Date.now() - qualityStartedAt}ms failed`);
-        throw error;
-      }
-    }),
-  );
   const resolved = [];
   let lastError = null;
-  for (let index = 0; index < attempts.length; index += 1) {
-    const attempt = attempts[index];
-    if (attempt.status === "fulfilled") {
-      resolved.push(attempt.value);
-      diagnostic("AKWAM_QUALITY", `${attempt.value.quality} PASS -> ${attempt.value.url}`);
-    } else {
-      lastError = attempt.reason;
-      diagnostic("AKWAM_QUALITY", `${orderedQualities[index].quality} failed: ${attempt.reason?.message || String(attempt.reason)}`);
+
+  for (const quality of orderedQualities) {
+    const qualityStartedAt = Date.now();
+    try {
+      const stream = await resolveQuality(browser, quality);
+      resolved.push({
+        quality: quality.quality,
+        type: stream.type,
+        url: stream.url,
+        content_type: stream.content_type,
+      });
+      diagnostic("AKWAM_TIMING", `${quality.quality}=${Date.now() - qualityStartedAt}ms`);
+      diagnostic("AKWAM_QUALITY", `${quality.quality} PASS -> ${stream.url}`);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      diagnostic("AKWAM_TIMING", `${quality.quality}=${Date.now() - qualityStartedAt}ms failed`);
+      diagnostic("AKWAM_QUALITY", `${quality.quality} failed: ${lastError.message}`);
     }
   }
+
   diagnostic("AKWAM_TIMING", `quality_batch=${Date.now() - startedAt}ms count=${orderedQualities.length} resolved=${resolved.length}`);
 
   if (!resolved.length) {
