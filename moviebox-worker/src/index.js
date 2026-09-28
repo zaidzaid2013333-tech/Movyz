@@ -370,13 +370,13 @@ async function abdoExtract(sourceUrl) {
 const AKWAM_RESOLVER_URL = "https://movyz-akwam-resolver.sameranede.workers.dev/resolve";
 
 async function resolveViaAkwamResolver(payload, type, env) {
-  const maxAttempts = 3;
-  const retryDelays = [1200, 2500];
+  const maxAttempts = 2;
+  const retryDelays = [500];
   let lastError = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 35_000);
+    const timer = setTimeout(() => controller.abort(), 20_000);
 
     try {
       const body = {
@@ -479,197 +479,45 @@ async function resolveMovie(payload, env) {
     payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
   );
 
-  if (directSource) {
-    if (!isAkwamUrl(directSource)) {
-      throw new Error("Only Akwam playback sources are allowed");
-    }
-
-    return await resolveViaAkwamResolver({
-      ...payload,
-      content_url: directSource,
-      source_url: directSource,
-    }, "movie", env);
+  if (directSource && !isAkwamUrl(directSource)) {
+    throw new Error('Only Akwam playback sources are allowed');
   }
 
-  const titles = [
-    payload?.title,
-    payload?.title_en,
-    payload?.title_ar,
-    payload?.original_title,
-    payload?.originalTitle,
-  ].map(clean).filter(Boolean);
-
-  if (!titles.length) throw new Error("title is required");
-
-  try {
-    return await resolveViaAkwamResolver(payload, "movie", env);
-  } catch (error) {
-    console.warn("Akwam resolver movie fallback:", error instanceof Error ? error.message : String(error));
-  }
-
-  let best = null;
-  let lastError = null;
-
-  for (const title of titles) {
-    try {
-      const search = await abdoJson("/api/search?q=" + encodeURIComponent(title));
-      const ranked = asArray(search.body)
-        .map((item) => ({ item, score: scoreMatch(item, payload) }))
-        .filter((entry) => entry.score > 0)
-        .sort((a, b) => b.score - a.score);
-
-      for (const entry of ranked) {
-        const urls = sourceUrlsOf(entry.item);
-        if (urls.length) {
-          best = { item: entry.item, urls };
-          break;
-        }
-      }
-
-      if (best) break;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-  }
-
-  if (!best) {
-    throw new Error(lastError || "No Akwam source matched this title");
-  }
-
-  let lastErrorExtract = null;
-  for (const source of best.urls.slice(0, 3)) {
-    try {
-      // Akwam can rate-limit title search. AbdoBest's real Akwam page is a
-      // discovery fallback only; the dedicated resolver still owns extraction.
-      return await resolveDiscoveredAkwamContent(payload, "movie", source, env);
-    } catch (error) {
-      console.warn("AKWAM_DISCOVERY resolver fallback:", error instanceof Error ? error.message : String(error));
-    }
-
-    try {
-      const stream = await abdoExtract(source);
-      return {
-        ...stream,
-        source_url: source,
-        matched_title: titleOf(best.item),
-      };
-    } catch (error) {
-      lastErrorExtract = error instanceof Error ? error : new Error(String(error));
-    }
-  }
-
-  throw new Error(
-    "AbdoBest could not produce a direct playable stream" +
-    (lastErrorExtract ? ": " + lastErrorExtract.message : ""),
+  const title = clean(
+    payload?.title || payload?.title_en || payload?.title_ar ||
+    payload?.original_title || payload?.originalTitle,
   );
-}
+  if (!title && !directSource) throw new Error('title is required');
 
-function episodeNumberOf(item) {
-  return firstNumber(item?.episode_number, item?.episodeNumber, item?.episode, item?.number, item?.Episode, item?.ep);
-}
-
-function seasonNumberOf(item) {
-  return firstNumber(item?.season_number, item?.seasonNumber, item?.season, item?.Season);
-}
-
-function findEpisode(payload, season, episode) {
-  let result = null;
-
-  walk(payload, (value) => {
-    if (!value || typeof value !== "object") return "";
-    const ep = episodeNumberOf(value);
-    const sn = seasonNumberOf(value);
-    if (!Number.isFinite(ep) || ep !== episode) return "";
-    if (Number.isFinite(sn) && sn !== season) return "";
-    const urls = sourceUrlsOf(value);
-    if (!urls.length) return "";
-    result = { item: value, urls };
-    return "found";
-  });
-
-  return result;
+  return resolveViaAkwamResolver({
+    ...payload,
+    title,
+    ...(directSource ? { content_url: directSource, source_url: directSource } : {}),
+  }, 'movie', env);
 }
 
 async function resolveEpisode(payload, env) {
-  const explicitSource = normalizeAkwamUrl(
+  const directSource = normalizeAkwamUrl(
     payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
   );
 
-  if (explicitSource) {
-    if (!isAkwamUrl(explicitSource)) {
-      throw new Error("Only Akwam playback sources are allowed");
-    }
-
-    return await resolveViaAkwamResolver({
-      ...payload,
-      content_url: explicitSource,
-      source_url: explicitSource,
-    }, "series", env);
+  if (directSource && !isAkwamUrl(directSource)) {
+    throw new Error('Only Akwam playback sources are allowed');
   }
 
-  try {
-    return await resolveViaAkwamResolver(payload, "series", env);
-  } catch (error) {
-    console.warn(
-      "Akwam resolver episode fallback:",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-
-
-  const title = clean(payload?.title);
+  const title = clean(payload?.title || payload?.title_en || payload?.title_ar);
   const season = Number(payload?.season);
   const episode = Number(payload?.episode);
 
-  if (!title) throw new Error("title is required");
-  if (!Number.isInteger(season) || season < 0) throw new Error("season must be a valid integer");
-  if (!Number.isInteger(episode) || episode < 1) throw new Error("episode must be a valid integer");
+  if (!title && !directSource) throw new Error('title is required');
+  if (!directSource && (!Number.isInteger(season) || season < 0)) throw new Error('season must be a valid integer');
+  if (!directSource && (!Number.isInteger(episode) || episode < 1)) throw new Error('episode must be a valid integer');
 
-  const search = await abdoJson("/api/search?q=" + encodeURIComponent(title));
-  const ranked = asArray(search.body)
-    .map((item) => ({ item, score: scoreMatch(item, payload) }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  const match = ranked[0]?.item;
-  if (!match) throw new Error("No AbdoBest series matched this title");
-
-  const category = categoryOf(match) || "series";
-  const id = firstString(match?.id, match?.ID);
-  if (!id) throw new Error("Matched series has no source ID");
-
-  const path = category === "arabic-series"
-    ? "/api/arabic-series/episodes/" + encodeURIComponent(id)
-    : "/api/episodes/" + encodeURIComponent(category) + "/" + encodeURIComponent(id);
-
-  const episodes = await abdoJson(path);
-  const found = findEpisode(episodes.body, season, episode);
-  if (!found) throw new Error(`Episode S${season}E${episode} was not found`);
-
-  let lastError = null;
-  for (const source of found.urls.slice(0, 3)) {
-    try {
-      return await resolveDiscoveredAkwamContent(payload, "series", source, env);
-    } catch (error) {
-      console.warn("AKWAM_DISCOVERY episode resolver fallback:", error instanceof Error ? error.message : String(error));
-    }
-
-    try {
-      const stream = await abdoExtract(source);
-      return {
-        ...stream,
-        source_url: source,
-        matched_title: titleOf(match),
-      };
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-    }
-  }
-
-  throw new Error(
-    "AbdoBest could not produce a direct playable episode stream" +
-    (lastError ? ": " + lastError.message : ""),
-  );
+  return resolveViaAkwamResolver({
+    ...payload,
+    title,
+    ...(directSource ? { content_url: directSource, source_url: directSource } : {}),
+  }, 'series', env);
 }
 
 function isSafeProxyTarget(rawUrl) {
