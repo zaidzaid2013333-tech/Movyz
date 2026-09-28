@@ -96,6 +96,8 @@ function isAkwamUrl(value) {
       host.endsWith(".akwam.ss") ||
       host === "ak.sv" ||
       host.endsWith(".ak.sv") ||
+      host === "go.ak.sv" ||
+      host.endsWith(".go.ak.sv") ||
       host === "akwam.net" ||
       host.endsWith(".akwam.net") ||
       host === "akwam.ee" ||

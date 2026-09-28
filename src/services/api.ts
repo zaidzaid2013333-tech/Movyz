@@ -125,11 +125,15 @@ export const MovyzaApi = {
     const existing = watchSourceRequests.get(key);
     if (existing) return existing;
 
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 70_000);
+
     const requestPromise = request<import('../types').PlaybackSource[]>(
       `/watch/${contentType}/${encodeURIComponent(String(tmdbId))}${query({
         season: contentType === 'series' ? seasonNumber : undefined,
         episode: contentType === 'series' ? episodeNumber : undefined,
       })}`,
+      { signal: controller.signal },
     )
       .then((response) => {
         watchSourceCache.set(key, {
@@ -139,6 +143,7 @@ export const MovyzaApi = {
         return response;
       })
       .finally(() => {
+        window.clearTimeout(timeoutId);
         watchSourceRequests.delete(key);
       });
 
