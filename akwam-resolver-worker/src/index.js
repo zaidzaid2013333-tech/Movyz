@@ -792,8 +792,9 @@ async function resolveAkwam(browser, payload) {
     .map((wanted) => qualities.find((item) => item.quality === wanted))
     .filter(Boolean);
 
-  // Resolve advertised qualities concurrently: these are independent watch pages.
-  // A failed quality is isolated; successful sources remain ordered by preference.
+  // Resolve advertised qualities sequentially so Browser Run rate limits cannot
+  // reject a fan-out of browser actions. A failed quality stays isolated; successful
+  // sources remain ordered by preference.
   const startedAt = Date.now();
   const resolved = [];
   let lastError = null;
