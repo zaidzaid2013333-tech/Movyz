@@ -130,6 +130,32 @@ async function getBrowserHtml(response) {
   return unwrapBrowserPayload(raw);
 }
 
+async function getContentPageDirect(url, stage) {
+  const pageUrl = safeUrl(url, AKWAM_BASE, { pageOnly: true });
+  if (!pageUrl) throw new Error(`${stage}: rejected unsafe or non-Akwam URL`);
+  const response = await fetch(pageUrl, {
+    redirect: "follow",
+    headers: {
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "ar,en-US;q=0.8,en;q=0.5",
+      Referer: new URL(pageUrl).origin + "/",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36",
+    },
+    signal: AbortSignal.timeout(30_000),
+  });
+  const html = await response.text();
+  if (!response.ok) {
+    const error = new Error(`${stage}: HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  if (challengePage(html)) throw new Error(`${stage}: Cloudflare challenge detected`);
+  return {
+    url: safeUrl(response.url || pageUrl, AKWAM_BASE, { pageOnly: true }) || pageUrl,
+    html,
+  };
+}
+
 async function getContentPage(browser, url, stage) {
   const pageUrl = safeUrl(url, AKWAM_BASE, { pageOnly: true });
   if (!pageUrl) throw new Error(`${stage}: rejected unsafe or non-Akwam URL`);
@@ -192,16 +218,25 @@ function mirrorPageUrls(rawUrl) {
 async function getContentPageResilient(browser, url, stage) {
   let lastError = null;
   const candidates = mirrorPageUrls(url);
+
   for (const candidate of candidates) {
     try {
       return await getContentPage(browser, candidate, stage);
     } catch (error) {
       lastError = error;
       if (error?.status !== 429) throw error;
-      diagnostic('AKWAM_RATE_LIMIT', stage + ' 429 on ' + candidate + '; trying mirror');
+      diagnostic("AKWAM_RATE_LIMIT", stage + " Browser Run 429 on " + candidate + "; trying direct fetch");
+      try {
+        return await getContentPageDirect(candidate, stage);
+      } catch (directError) {
+        lastError = directError;
+        if (directError?.status !== 429) throw directError;
+        diagnostic("AKWAM_RATE_LIMIT", stage + " direct fetch 429 on " + candidate + "; trying mirror");
+      }
     }
   }
-  throw lastError || new Error(stage + ': no usable Akwam mirror');
+
+  throw lastError || new Error(stage + ": no usable Akwam mirror");
 }
 
 async function searchAkwam(browser, payload) {
