@@ -34,6 +34,27 @@ function query(params: Record<string, unknown>) {
   return encoded ? `?${encoded}` : '';
 }
 
+const watchSourceRequests = new Map<string, Promise<ApiResponse<import('../types').PlaybackSource[]>>>();
+const watchSourceCache = new Map<string, {
+  data: import('../types').PlaybackSource[];
+  expiresAt: number;
+}>();
+const WATCH_SOURCE_CLIENT_CACHE_MS = 15_000;
+
+function getWatchSourceRequestKey(
+  tmdbId: number,
+  contentType: 'movie' | 'series',
+  seasonNumber?: number,
+  episodeNumber?: number,
+) {
+  return [
+    contentType,
+    tmdbId,
+    seasonNumber ?? '',
+    episodeNumber ?? '',
+  ].join(':');
+}
+
 export const MovyzaApi = {
   async getHomeData() {
     const home = await request<{
@@ -91,12 +112,39 @@ export const MovyzaApi = {
     contentType: 'movie' | 'series',
     seasonNumber?: number,
     episodeNumber?: number,
-  ) => request<import('../types').PlaybackSource[]>(
-    `/watch/${contentType}/${encodeURIComponent(String(tmdbId))}${query({
-      season: contentType === 'series' ? seasonNumber : undefined,
-      episode: contentType === 'series' ? episodeNumber : undefined,
-    })}`,
-  ),
+  ) => {
+    const key = getWatchSourceRequestKey(tmdbId, contentType, seasonNumber, episodeNumber);
+    const cached = watchSourceCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return Promise.resolve({
+        success: true,
+        data: cached.data,
+      } as ApiResponse<import('../types').PlaybackSource[]>);
+    }
+
+    const existing = watchSourceRequests.get(key);
+    if (existing) return existing;
+
+    const requestPromise = request<import('../types').PlaybackSource[]>(
+      `/watch/${contentType}/${encodeURIComponent(String(tmdbId))}${query({
+        season: contentType === 'series' ? seasonNumber : undefined,
+        episode: contentType === 'series' ? episodeNumber : undefined,
+      })}`,
+    )
+      .then((response) => {
+        watchSourceCache.set(key, {
+          data: response.data,
+          expiresAt: Date.now() + WATCH_SOURCE_CLIENT_CACHE_MS,
+        });
+        return response;
+      })
+      .finally(() => {
+        watchSourceRequests.delete(key);
+      });
+
+    watchSourceRequests.set(key, requestPromise);
+    return requestPromise;
+  },
 
   // Backward-compatible legacy endpoint; the Watch page does not use it.
   getPlaybackSources: (contentType: 'movie' | 'episode', contentId: string) =>
