@@ -369,7 +369,7 @@ async function abdoExtract(sourceUrl) {
 
 const AKWAM_RESOLVER_URL = "https://movyz-akwam-resolver.sameranede.workers.dev/resolve";
 
-async function resolveViaAkwamResolver(payload, type) {
+async function resolveViaAkwamResolver(payload, type, env) {
   const maxAttempts = 3;
   const retryDelays = [1200, 2500];
   let lastError = null;
@@ -391,15 +391,22 @@ async function resolveViaAkwamResolver(payload, type) {
         season: type === "series" ? Number(payload?.season) : undefined,
       };
 
-      const response = await fetch(AKWAM_RESOLVER_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
+      const resolverRequest = new Request(
+        "https://movyz-akwam-resolver.internal/resolve",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
         },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
+      );
+
+      const response = env?.AKWAM_RESOLVER?.fetch
+        ? await env.AKWAM_RESOLVER.fetch(resolverRequest)
+        : await fetch(AKWAM_RESOLVER_URL, resolverRequest.clone());
 
       const text = await response.text();
       let data = null;
@@ -460,15 +467,15 @@ async function resolveViaAkwamResolver(payload, type) {
   throw lastError || new Error("Akwam resolver failed");
 }
 
-async function resolveDiscoveredAkwamContent(payload, type, source) {
+async function resolveDiscoveredAkwamContent(payload, type, source, env) {
   console.warn("AKWAM_DISCOVERY: resolving real Akwam content_url from AbdoBest");
   return await resolveViaAkwamResolver({
     ...payload,
     content_url: source,
-  }, type);
+  }, type, env);
 }
 
-async function resolveMovie(payload) {
+async function resolveMovie(payload, env) {
   const directSource = normalizeAkwamUrl(
     payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
   );
@@ -482,7 +489,7 @@ async function resolveMovie(payload) {
       ...payload,
       content_url: directSource,
       source_url: directSource,
-    }, "movie");
+    }, "movie", env);
   }
 
   const titles = [
@@ -496,7 +503,7 @@ async function resolveMovie(payload) {
   if (!titles.length) throw new Error("title is required");
 
   try {
-    return await resolveViaAkwamResolver(payload, "movie");
+    return await resolveViaAkwamResolver(payload, "movie", env);
   } catch (error) {
     console.warn("Akwam resolver movie fallback:", error instanceof Error ? error.message : String(error));
   }
@@ -535,7 +542,7 @@ async function resolveMovie(payload) {
     try {
       // Akwam can rate-limit title search. AbdoBest's real Akwam page is a
       // discovery fallback only; the dedicated resolver still owns extraction.
-      return await resolveDiscoveredAkwamContent(payload, "movie", source);
+      return await resolveDiscoveredAkwamContent(payload, "movie", source, env);
     } catch (error) {
       console.warn("AKWAM_DISCOVERY resolver fallback:", error instanceof Error ? error.message : String(error));
     }
@@ -584,7 +591,7 @@ function findEpisode(payload, season, episode) {
   return result;
 }
 
-async function resolveEpisode(payload) {
+async function resolveEpisode(payload, env) {
   const explicitSource = normalizeAkwamUrl(
     payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
   );
@@ -598,11 +605,11 @@ async function resolveEpisode(payload) {
       ...payload,
       content_url: explicitSource,
       source_url: explicitSource,
-    }, "series");
+    }, "series", env);
   }
 
   try {
-    return await resolveViaAkwamResolver(payload, "series");
+    return await resolveViaAkwamResolver(payload, "series", env);
   } catch (error) {
     console.warn(
       "Akwam resolver episode fallback:",
@@ -643,7 +650,7 @@ async function resolveEpisode(payload) {
   let lastError = null;
   for (const source of found.urls.slice(0, 3)) {
     try {
-      return await resolveDiscoveredAkwamContent(payload, "series", source);
+      return await resolveDiscoveredAkwamContent(payload, "series", source, env);
     } catch (error) {
       console.warn("AKWAM_DISCOVERY episode resolver fallback:", error instanceof Error ? error.message : String(error));
     }
@@ -735,7 +742,7 @@ async function proxyMedia(request) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS });
     }
@@ -789,7 +796,7 @@ export default {
         } catch {
           return json({ ok: false, error: "Valid JSON body required" }, 400);
         }
-        const stream = await resolveMovie(payload || {});
+        const stream = await resolveMovie(payload || {}, env);
         return json({
           ok: true,
           type: "movie",
@@ -810,7 +817,7 @@ export default {
         } catch {
           return json({ ok: false, error: "Valid JSON body required" }, 400);
         }
-        const stream = await resolveEpisode(payload || {});
+        const stream = await resolveEpisode(payload || {}, env);
         return json({
           ok: true,
           type: "episode",
