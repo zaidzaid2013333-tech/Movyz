@@ -38,7 +38,7 @@ iframe{display:block;width:100%;height:80vh;min-height:420px;border:0;border-rad
   title="Akwam playback test"
   allow="autoplay; fullscreen; picture-in-picture"
   allowfullscreen
-  referrerpolicy="strict-origin-when-cross-origin"></iframe>
+  referrerpolicy="no-referrer"></iframe>
 </main>
 </body>
 </html>`, {
@@ -47,8 +47,8 @@ iframe{display:block;width:100%;height:80vh;min-height:420px;border:0;border-rad
           'content-type': 'text/html; charset=utf-8',
           'cache-control': 'no-store, no-cache, must-revalidate',
           'pragma': 'no-cache',
-          'content-security-policy': "default-src 'self'; frame-src https://akwam.ss https://*.akwam.ss; img-src 'self' data: https:; style-src 'unsafe-inline'",
-          'x-frame-options': 'SAMEORIGIN',
+          'content-security-policy': "default-src 'none'; frame-src https://akwam.ss https://*.akwam.ss; style-src 'unsafe-inline'",
+          'referrer-policy': 'no-referrer',
         },
       });
     }

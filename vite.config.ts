@@ -12,6 +12,9 @@ export default defineConfig(() => {
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'pwa-icon.svg'],
+        workbox: {
+          navigateFallbackDenylist: [/^\/akwam-iframe-test(?:$|\/)/],
+        },
         manifest: {
           name: 'MOVYZA - منصة السينما والدراما',
           short_name: 'MOVYZA',
