@@ -3,13 +3,24 @@ const RESOLVER_BASE = (process.env.AKWAM_RESOLVER_BASE ||
 const WATCH_BASE = (process.env.WATCH_API_BASE ||
   "https://movyz-moviebox.sameranede.workers.dev").replace(/\/+$/, "");
 
-const fixture = {
+const movieFixture = {
   title: "Inception",
   year: 2010,
   type: "movie",
   tmdb_id: 27205,
   content_url: "https://ak.sv/movie/562/inception-1",
   source_url: "https://ak.sv/movie/562/inception-1",
+};
+
+const episodeFixture = {
+  mode: "iframe",
+  title: "The Mentalist",
+  title_en: "The Mentalist",
+  original_title: "The Mentalist",
+  year: 2008,
+  tmdb_id: 4020,
+  season: 1,
+  episode: 1,
 };
 
 function isHttp(value) {
@@ -155,7 +166,7 @@ async function validateMedia(url, expectedType, referer) {
 const resolverResponse = await fetch(RESOLVER_BASE + "/resolve", {
   method: "POST",
   headers: { Accept: "application/json", "Content-Type": "application/json" },
-  body: JSON.stringify(fixture),
+  body: JSON.stringify(movieFixture),
   signal: AbortSignal.timeout(120_000),
 });
 const resolved = await jsonResponse(resolverResponse, "Akwam resolver");
@@ -184,6 +195,55 @@ if (!watched?.ok || !isHttp(watched.source_url) ||
   throw new Error("Watch API did not return a valid direct-media contract");
 }
 validateSource(watched.source_url);
-await validateMedia(watched.media_url, watched.media_type, watched.source_url);
+await validateMedia(watched.media_url, watched.media_type, watched.source_url);const watchResponse = await fetch(WATCH_BASE + "/watch/movie", {
+  method: "POST",
+  headers: { Accept: "application/json", "Content-Type": "application/json" },
+  body: JSON.stringify({
+    ...movieFixture,
+    mode: "iframe",
+  }),
+  signal: AbortSignal.timeout(120_000),
+});
+const watched = await jsonResponse(watchResponse, "Watch API movie iframe");
+console.log("AKWAM_WATCH_MOVIE_IFRAME", JSON.stringify(watched));
+
+const movieIframe =
+  watched?.stream?.iframe_url ||
+  watched?.iframe_url ||
+  watched?.source_url ||
+  watched?.media_url ||
+  "";
+
+if (!watched?.ok ||
+    watched?.media_type !== "web" ||
+    !isHttp(movieIframe)) {
+  throw new Error("Watch API movie iframe contract is invalid");
+}
+validateSource(movieIframe);
+
+const episodeResponse = await fetch(WATCH_BASE + "/watch/episode", {
+  method: "POST",
+  headers: { Accept: "application/json", "Content-Type": "application/json" },
+  body: JSON.stringify(episodeFixture),
+  signal: AbortSignal.timeout(120_000),
+});
+const watchedEpisode = await jsonResponse(episodeResponse, "Watch API episode iframe");
+console.log("AKWAM_WATCH_EPISODE_IFRAME", JSON.stringify(watchedEpisode));
+
+const episodeIframe =
+  watchedEpisode?.stream?.iframe_url ||
+  watchedEpisode?.iframe_url ||
+  watchedEpisode?.source_url ||
+  watchedEpisode?.media_url ||
+  "";
+
+if (!watchedEpisode?.ok ||
+    watchedEpisode?.media_type !== "web" ||
+    Number(watchedEpisode?.season) !== 1 ||
+    Number(watchedEpisode?.episode) !== 1 ||
+    !isHttp(episodeIframe)) {
+  throw new Error("Watch API episode iframe contract is invalid");
+}
+validateSource(episodeIframe);
 
 console.log("AKWAM_PLAYBACK_E2E=PASS");
