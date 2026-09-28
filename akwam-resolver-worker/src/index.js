@@ -279,7 +279,58 @@ async function getContentPageDirectFirst(browser, url, stage) {
     return await getContentPageResilient(browser, url, stage);
   }
 }
-async function searchAkwam(browser, payload) {\n  const candidates = [\n    payload?.title,\n    payload?.title_en,\n    payload?.original_title,\n    payload?.title_ar,\n    ...(Array.isArray(payload?.titles) ? payload.titles : []),\n  ].map(clean).filter(Boolean).filter((value, index, list) => list.indexOf(value) === index);\n  const section = payload?.type === "series" ? "series" : "movie";\n  if (!candidates.length) throw new Error("AKWAM_SEARCH: title is required");\n\n  let lastError = null;\n  let best = null;\n\n  for (const candidateTitle of candidates.slice(0, 5)) {\n    const query = encodeURIComponent(candidateTitle);\n\n    for (const base of AKWAM_SEARCH_BASES) {\n      const searchUrl = `${base}/search?q=${query}&section=${section}&page=1`;\n\n      for (let attempt = 0; attempt <= SEARCH_BACKOFF_MS.length; attempt += 1) {\n        try {\n          const page = await getContentPageDirectFirst(browser, searchUrl, "AKWAM_SEARCH");\n          const entries = searchEntries(page.html, page.url);\n          const ranked = entries\n            .map((entry) => ({ ...entry, score: scoreEntry(entry, payload) }))\n            .sort((a, b) => b.score - a.score);\n\n          diagnostic("AKWAM_SEARCH", "query=" + candidateTitle + " base=" + base + " entries=" + entries.length);\n\n          if (ranked[0] && ranked[0].score > 0) {\n            if (!best || ranked[0].score > best.score) best = ranked[0];\n            if (ranked[0].score >= 1000) return ranked[0];\n          }\n          break;\n        } catch (error) {\n          lastError = error instanceof Error ? error : new Error(String(error));\n          if (lastError.status !== 429) break;\n\n          const delay = SEARCH_BACKOFF_MS[attempt];\n          diagnostic("AKWAM_RATE_LIMIT", "search 429 query=" + candidateTitle + " base=" + base + " attempt=" + (attempt + 1));\n          if (delay == null) break;\n          await new Promise((resolve) => setTimeout(resolve, delay));\n        }\n      }\n    }\n  }\n\n  if (best) return best;\n  throw lastError || new Error("AKWAM_SEARCH: no matching entry");\n}\nfunction extractQualities(html, base) {
+async function searchAkwam(browser, payload) {
+  const candidates = [
+    payload?.title,
+    payload?.title_en,
+    payload?.original_title,
+    payload?.title_ar,
+    ...(Array.isArray(payload?.titles) ? payload.titles : []),
+  ].map(clean).filter(Boolean).filter((value, index, list) => list.indexOf(value) === index);
+  const section = payload?.type === "series" ? "series" : "movie";
+  if (!candidates.length) throw new Error("AKWAM_SEARCH: title is required");
+
+  let lastError = null;
+  let best = null;
+
+  for (const candidateTitle of candidates.slice(0, 5)) {
+    const query = encodeURIComponent(candidateTitle);
+
+    for (const base of AKWAM_SEARCH_BASES) {
+      const searchUrl = `${base}/search?q=${query}&section=${section}&page=1`;
+
+      for (let attempt = 0; attempt <= SEARCH_BACKOFF_MS.length; attempt += 1) {
+        try {
+          const page = await getContentPageDirectFirst(browser, searchUrl, "AKWAM_SEARCH");
+          const entries = searchEntries(page.html, page.url);
+          const ranked = entries
+            .map((entry) => ({ ...entry, score: scoreEntry(entry, payload) }))
+            .sort((a, b) => b.score - a.score);
+
+          diagnostic("AKWAM_SEARCH", "query=" + candidateTitle + " base=" + base + " entries=" + entries.length);
+
+          if (ranked[0] && ranked[0].score > 0) {
+            if (!best || ranked[0].score > best.score) best = ranked[0];
+            if (ranked[0].score >= 1000) return ranked[0];
+          }
+          break;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          if (lastError.status !== 429) break;
+
+          const delay = SEARCH_BACKOFF_MS[attempt];
+          diagnostic("AKWAM_RATE_LIMIT", "search 429 query=" + candidateTitle + " base=" + base + " attempt=" + (attempt + 1));
+          if (delay == null) break;
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
+  }
+
+  if (best) return best;
+  throw lastError || new Error("AKWAM_SEARCH: no matching entry");
+}
+function extractQualities(html, base) {
   const source = String(html);
   const out = [];
   const seen = new Set();
@@ -301,7 +352,7 @@ async function searchAkwam(browser, payload) {\n  const candidates = [\n    payl
   for (const match of source.matchAll(
     /<a\b[^>]*href=["']#tab-\d+["'][^>]*>([\s\S]*?)<\/a>/gi,
   )) {
-    const label = stripHtml(match[1]).match(/\b(1080p|720p|480p)\b/i)?.[1]?.toLowerCase();
+    const label = stripHtml(match[1]).match(QUALITY_PATTERN)?.[0];
     if (label && !qualitySequence.includes(label)) qualitySequence.push(label);
   }
 
