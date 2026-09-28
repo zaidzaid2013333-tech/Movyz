@@ -314,7 +314,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
                 key={episode.id}
                 onClick={() =>
                   onNavigate(
-                    `/watch/${series.id}?season=${selectedSeasonNumber}&episode=${episode.episodeNumber}`
+                    `/watch/${series.id}?type=series&season=${selectedSeasonNumber}&episode=${episode.episodeNumber}`
                   )
                 }
                 className="group relative rounded-2xl bg-[#0c0e15] border border-amber-500/15 hover:border-amber-500/50 overflow-hidden transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/10 cursor-pointer flex flex-col"
