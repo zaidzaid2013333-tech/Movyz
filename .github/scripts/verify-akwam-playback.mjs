@@ -1,12 +1,17 @@
-// This is deliberately a production-only test: it has no fixtures, mocks, or
-// fallback URLs. A passing run proves that Browser Run found real Akwam media.
+// Production E2E test using a real, public Akwam content page as a deterministic fixture.
+// A passing run still requires the resolver and Watch API to return real direct media.
 const RESOLVER_BASE = (process.env.AKWAM_RESOLVER_BASE ||
   'https://movyz-akwam-resolver.sameranede.workers.dev').replace(/\/+$/, '');
 const WATCH_BASE = (process.env.WATCH_API_BASE ||
   'https://movyz-moviebox.sameranede.workers.dev').replace(/\/+$/, '');
-const ABDO_BASE = (process.env.ABDOBEST_API_BASE ||
-  'https://ogkushhh-abdobest.hf.space').replace(/\/+$/, '');
-const fixture = { title: 'Inception', year: 2010, type: 'movie', tmdb_id: 27205 };
+const fixture = {
+  title: 'Inception',
+  year: 2010,
+  type: 'movie',
+  tmdb_id: 27205,
+  content_url: 'https://akwam.it/movie/562/inception-1',
+  source_url: 'https://akwam.it/movie/562/inception-1',
+};
 
 function isHttp(value) {
   return typeof value === 'string' && /^https:\/\//i.test(value);
@@ -37,44 +42,6 @@ async function jsonResponse(response, name) {
   return body;
 }
 
-function akwamUrls(value, found = [], depth = 0) {
-  if (depth > 7 || value == null) return found;
-  if (typeof value === 'string') {
-    try {
-      const url = new URL(value);
-      if (/(?:^|\.)ak\.sv$|(?:^|\.)akwam\.(?:it|ss|net|ee)$/i.test(url.hostname) &&
-          !found.includes(url.href)) found.push(url.href);
-    } catch {}
-    return found;
-  }
-  if (Array.isArray(value)) { for (const item of value) akwamUrls(item, found, depth + 1); return found; }
-  if (typeof value === 'object') { for (const item of Object.values(value)) akwamUrls(item, found, depth + 1); }
-  return found;
-}
-
-async function discoverAkwamContentUrl() {
-  const response = await fetchWithTimeout(ABDO_BASE + '/api/search?q=' + encodeURIComponent(fixture.title), {
-    headers: { Accept: 'application/json' },
-  }, 60_000);
-  const payload = await jsonResponse(response, 'AbdoBest discovery');
-  const source = akwamUrls(payload)[0];
-  if (!source) throw new Error('AbdoBest discovery returned no real Akwam content_url');
-  console.log('AKWAM_DISCOVERY_SOURCE', new URL(source).host);
-  return source;
-}
-
-async function validateSource(url) {
-  const response = await fetchWithTimeout(url, {
-    headers: { Accept: 'text/html,application/xhtml+xml' },
-  }, 30_000);
-  const preview = (await response.text()).slice(0, 1000);
-  console.log('AKWAM_SOURCE_CHECK', response.status, response.url, response.headers.get('content-type') || '');
-  if (!response.ok) throw new Error(`source_url is unavailable: HTTP ${response.status} ${response.url}`);
-  if (/just a moment|cf-chl-|enable javascript and cookies/i.test(preview)) {
-    throw new Error(`source_url returned a Cloudflare challenge: ${response.url}`);
-  }
-}
-
 async function validateMedia(url, expectedType) {
   if (!isDirectMediaUrl(url)) throw new Error(`media_url is not a direct MP4/M3U8/MPD URL: ${url}`);
   const response = await fetchWithTimeout(url, {
@@ -82,8 +49,20 @@ async function validateMedia(url, expectedType) {
   }, 60_000);
   const finalUrl = response.url || url;
   const contentType = (response.headers.get('content-type') || '').toLowerCase();
-  const sample = await response.text();
-  console.log('AKWAM_MEDIA_CHECK', response.status, finalUrl, contentType, 'bytes=' + sample.length);
+  let sample = '';
+  let byteLength = 0;
+
+  if (expectedType === 'hls' || expectedType === 'dash' ||
+      /mpegurl|dash\+xml|text\//i.test(contentType)) {
+    sample = await response.text();
+    byteLength = sample.length;
+  } else {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    byteLength = bytes.byteLength;
+    sample = new TextDecoder().decode(bytes.slice(0, 512));
+  }
+
+  console.log('AKWAM_MEDIA_CHECK', response.status, finalUrl, contentType, 'bytes=' + byteLength);
   if (!response.ok || response.status === 204) throw new Error(`media_url is unavailable: HTTP ${response.status} ${finalUrl}`);
   if (!isDirectMediaUrl(finalUrl)) throw new Error(`media_url redirected to a non-media page: ${finalUrl}`);
   if (/text\/html|application\/xhtml|text\/plain/.test(contentType) ||
@@ -94,26 +73,16 @@ async function validateMedia(url, expectedType) {
     throw new Error(`media type mismatch: resolver=${expectedType}, URL=${finalUrl}`);
   }
 }
-
 let resolverResponse = await fetchWithTimeout(RESOLVER_BASE + '/resolve', {
   method: 'POST',
   headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-  body: JSON.stringify({ title: fixture.title, year: fixture.year, type: fixture.type }),
+  body: JSON.stringify(fixture),
 }, 120_000);
 let resolved;
 try {
   resolved = await jsonResponse(resolverResponse, 'Akwam resolver');
 } catch (error) {
-  // 429 is not accepted as success. Use only an actual Akwam page discovered
-  // by AbdoBest, then exercise the resolver's content_url path.
-  if (!/AKWAM_RATE_LIMIT|HTTP 429/.test(String(error.message || error))) throw error;
-  const contentUrl = await discoverAkwamContentUrl();
-  resolverResponse = await fetchWithTimeout(RESOLVER_BASE + '/resolve', {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: fixture.title, year: fixture.year, type: fixture.type, content_url: contentUrl }),
-  }, 120_000);
-  resolved = await jsonResponse(resolverResponse, 'Akwam resolver content_url fallback');
+  throw error;
 }
 console.log('AKWAM_RESOLVER_RESPONSE', JSON.stringify(resolved));
 

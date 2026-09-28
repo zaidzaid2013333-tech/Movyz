@@ -306,10 +306,20 @@ async function validateMediaUrl(initialUrl) {
     if ([301, 302, 303, 307, 308].includes(response.status)) { const next = safeUrl(response.headers.get("location"), url); if (!next) throw new Error("AKWAM_FINAL_MEDIA: unsafe redirect"); url = next; continue; }
     if (!response.ok) throw new Error(`AKWAM_FINAL_MEDIA: HTTP ${response.status}`);
     const contentType = (response.headers.get("content-type") || "").toLowerCase();
-    const sample = await response.text();
-    if (challengePage(sample) || /text\/html|application\/xhtml/.test(contentType) || /<\s*(?:!doctype\s+html|html)\b/i.test(sample.slice(0, 512))) throw new Error("AKWAM_FINAL_MEDIA: HTML/challenge response");
     const type = /mpegurl|m3u8/.test(contentType) ? "hls" : /dash\+xml|mpd/.test(contentType) ? "dash" : mediaTypeFromUrl(url);
-    if (!looksLikeMediaUrl(url) && !/^video\//.test(contentType) && !/mpegurl|dash\+xml/.test(contentType)) throw new Error("AKWAM_FINAL_MEDIA: response is not recognized media");
+    let sample = "";
+    if (type === "hls" || type === "dash" || /mpegurl|dash\+xml|text\//.test(contentType)) {
+      sample = await response.text();
+    } else {
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      sample = new TextDecoder().decode(bytes.slice(0, 512));
+    }
+    if (challengePage(sample) || /text\/html|application\/xhtml/.test(contentType) || /<\s*(?:!doctype\s+html|html)\b/i.test(sample.slice(0, 512))) {
+      throw new Error("AKWAM_FINAL_MEDIA: HTML/challenge response");
+    }
+    if (!looksLikeMediaUrl(url) && !/^video\//.test(contentType) && !/mpegurl|dash\+xml/.test(contentType)) {
+      throw new Error("AKWAM_FINAL_MEDIA: response is not recognized media");
+    }
     return { media_url: url, type, content_type: contentType };
   }
   throw new Error("AKWAM_FINAL_MEDIA: redirect limit exceeded");
