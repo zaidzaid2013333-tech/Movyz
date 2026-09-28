@@ -29,7 +29,7 @@ import { Movie, Series } from './types';
 function AkwamIframeTestPage() {
   const [status, setStatus] = useState<'loading' | 'loaded' | 'timeout'>('loading');
   const akwamEpisode =
-    'https://akwam.ss/watch/22879/9725/the-mentalist-%D8%A7%D9%84%D9%85%D9%88%D8%B3%D9%85_%D8%A7%D9%84%D8%A7%D9%88%D9%84/%D8%A7%D9%84%D8%AD%D9%84%D9%82%D8%A9-1';
+    'https://akwam.ss/watch/22879/9725/the-mentalist-%D8%A7%D9%84%D9%85%D9%88%D8%B3%D9%85-%D8%A7%D9%84%D8%A7%D9%88%D9%84/%D8%A7%D9%84%D8%AD%D9%84%D9%82%D8%A9-1';
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
