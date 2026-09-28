@@ -10,6 +10,7 @@ const movieFixture = {
   tmdb_id: 27205,
   content_url: "https://ak.sv/movie/562/inception-1",
   source_url: "https://ak.sv/movie/562/inception-1",
+  mode: "iframe",
 };
 
 const episodeFixture = {
@@ -186,40 +187,28 @@ const watchResponse = await fetch(WATCH_BASE + "/watch/movie", {
   body: JSON.stringify(fixture),
   signal: AbortSignal.timeout(120_000),
 });
-const watched = await jsonResponse(watchResponse, "Watch API");
-console.log("AKWAM_WATCH_RESPONSE", JSON.stringify(watched));
+const watched = await jsonResponse(watchResponse, "Watch API movie iframe");
+console.log("AKWAM_WATCH_MOVIE_IFRAME_RESPONSE", JSON.stringify(watched));
 
 if (!watched?.ok || !isHttp(watched.source_url) ||
     !isHttp(watched.media_url) ||
-    !["mp4", "hls", "dash"].includes(watched.media_type)) {
-  throw new Error("Watch API did not return a valid direct-media contract");
+    watched.media_type !== "web" ||
+    watched.stream?.type !== "web" ||
+    watched.stream?.iframe_url !== watched.media_url) {
+  throw new Error("Watch API movie did not return the expected iframe contract");
 }
 validateSource(watched.source_url);
-await validateMedia(watched.media_url, watched.media_type, watched.source_url);const watchResponse = await fetch(WATCH_BASE + "/watch/movie", {
-  method: "POST",
-  headers: { Accept: "application/json", "Content-Type": "application/json" },
-  body: JSON.stringify({
-    ...movieFixture,
-    mode: "iframe",
-  }),
-  signal: AbortSignal.timeout(120_000),
-});
-const watched = await jsonResponse(watchResponse, "Watch API movie iframe");
-console.log("AKWAM_WATCH_MOVIE_IFRAME", JSON.stringify(watched));
+validateSource(watched.media_url);
 
-const movieIframe =
-  watched?.stream?.iframe_url ||
-  watched?.iframe_url ||
-  watched?.source_url ||
-  watched?.media_url ||
-  "";
-
-if (!watched?.ok ||
-    watched?.media_type !== "web" ||
-    !isHttp(movieIframe)) {
-  throw new Error("Watch API movie iframe contract is invalid");
-}
-validateSource(movieIframe);
+const episodeFixture = {
+  title: "The Mentalist",
+  year: 2008,
+  type: "series",
+  tmdb_id: 5920,
+  season: 1,
+  episode: 1,
+  mode: "iframe",
+};
 
 const episodeResponse = await fetch(WATCH_BASE + "/watch/episode", {
   method: "POST",
@@ -227,23 +216,18 @@ const episodeResponse = await fetch(WATCH_BASE + "/watch/episode", {
   body: JSON.stringify(episodeFixture),
   signal: AbortSignal.timeout(120_000),
 });
-const watchedEpisode = await jsonResponse(episodeResponse, "Watch API episode iframe");
-console.log("AKWAM_WATCH_EPISODE_IFRAME", JSON.stringify(watchedEpisode));
+const episode = await jsonResponse(episodeResponse, "Watch API episode iframe");
+console.log("AKWAM_WATCH_EPISODE_IFRAME_RESPONSE", JSON.stringify(episode));
 
-const episodeIframe =
-  watchedEpisode?.stream?.iframe_url ||
-  watchedEpisode?.iframe_url ||
-  watchedEpisode?.source_url ||
-  watchedEpisode?.media_url ||
-  "";
-
-if (!watchedEpisode?.ok ||
-    watchedEpisode?.media_type !== "web" ||
-    Number(watchedEpisode?.season) !== 1 ||
-    Number(watchedEpisode?.episode) !== 1 ||
-    !isHttp(episodeIframe)) {
-  throw new Error("Watch API episode iframe contract is invalid");
+if (!episode?.ok || episode.type !== "episode" ||
+    Number(episode.season) !== 1 || Number(episode.episode) !== 1 ||
+    !isHttp(episode.source_url) || !isHttp(episode.media_url) ||
+    episode.media_type !== "web" ||
+    episode.stream?.type !== "web" ||
+    episode.stream?.iframe_url !== episode.media_url) {
+  throw new Error("Watch API episode did not return the expected iframe contract");
 }
-validateSource(episodeIframe);
+validateSource(episode.source_url);
+validateSource(episode.media_url);
 
 console.log("AKWAM_PLAYBACK_E2E=PASS");
