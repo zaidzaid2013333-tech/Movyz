@@ -197,7 +197,7 @@ function searchEntries(html, base) {
     const url = safeUrl(href, base, { pageOnly: true });
     if (!cleanTitle || !url || seen.has(url)) return;
     seen.add(url);
-    const year = Number((cleanTitle.match(/\b(19|20)\d{2}\b/) || [])[0]) || null;
+    const year = Number((cleanTitle.match(/\b(?:19|20)\d{2}\b/) || [])[0]) || null;
     entries.push({ title: cleanTitle, url, year });
   };
 
@@ -220,17 +220,14 @@ function searchEntries(html, base) {
     add(title, href);
   }
 
-  // Fallback for newer Akwam search markup: discover content links directly
-  // instead of relying on a specific CSS class.
+  // Fallback for newer Akwam search markup: discover content links directly.
   for (const match of source.matchAll(
-    /<a\b([^>]*)href=["']([^"']*\/(?:series|movie)\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+    /<a\b[^>]*href=["']([^"']*\/(?:series|movie)\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
   )) {
-    const href = match[2];
-    const text = stripHtml(match[3]);
-    add(text, href);
+    add(match[2], match[1]);
   }
 
-  // Some cards keep the title in an attribute or adjacent heading.
+  // Some cards keep the title in a heading adjacent to the content link.
   for (const match of source.matchAll(
     /<(?:h2|h3|h4)\b[^>]*>([\s\S]*?)<\/(?:h2|h3|h4)>[\s\S]{0,800}?<a\b[^>]*href=["']([^"']*\/(?:series|movie)\/[^"']+)["']/gi,
   )) {
@@ -532,7 +529,7 @@ function normalizeFinalCandidate(rawValue, base) {
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&#x2f;|&#47;/gi, "/")
-    .replace(/\\//g, "/")
+    .replace(/\\\//g, "/")
     .trim()
     .replace(/^['"]|['"]$/g, "");
   if (!value || /^(?:javascript:|data:|blob:)/i.test(value)) return "";
@@ -580,8 +577,8 @@ function extractFinalMediaUrl(html, base) {
   )) add(match[1]);
 
   for (const match of source.matchAll(
-    /(?:file|src|source|url)\s*[:=]\s*["']((?:\\/|[^"'])+)["']/gi,
-  )) add(String(match[1]).replace(/\\//g, "/"));
+    /(?:file|src|source|url)\s*[:=]\s*["']((?:\\\/|[^"'])+)["']/gi,
+  )) add(String(match[1]).replace(/\\\//g, "/"));
 
   // Redirect/navigation code used by lightweight Akwam player pages.
   for (const match of source.matchAll(
