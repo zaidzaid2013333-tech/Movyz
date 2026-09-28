@@ -788,13 +788,46 @@ async function resolveAkwam(browser, payload) {
       "; snippet=" + snippet
     );
   }
-  let lastError;
-  for (const wanted of QUALITY_ORDER) {
-    const quality = qualities.find((item) => item.quality === wanted); if (!quality) continue;
-    try { return { title: entry.title, source_url: mediaPage.url, ...(await resolveQuality(browser, quality)) }; }
-    catch (error) { lastError = error; diagnostic("AKWAM_QUALITY", `${wanted} failed: ${error.message}`); }
+  const orderedQualities = QUALITY_ORDER
+    .map((wanted) => qualities.find((item) => item.quality === wanted))
+    .filter(Boolean);
+
+  // Resolve every advertised quality instead of returning after the first
+  // successful stream. One failed quality must not hide the other playable
+  // qualities. Keep the preferred quality first in the response.
+  const resolved = [];
+  let lastError = null;
+  for (const quality of orderedQualities) {
+    try {
+      const stream = await resolveQuality(browser, quality);
+      resolved.push({
+        quality: quality.quality,
+        type: stream.type,
+        url: stream.url,
+        content_type: stream.content_type,
+      });
+      diagnostic("AKWAM_QUALITY", `${quality.quality} PASS -> ${stream.url}`);
+    } catch (error) {
+      lastError = error;
+      diagnostic("AKWAM_QUALITY", `${quality.quality} failed: ${error.message}`);
+    }
   }
-  throw lastError || new Error("AKWAM_QUALITY: no usable quality");
+
+  if (!resolved.length) {
+    throw lastError || new Error("AKWAM_QUALITY: no usable quality");
+  }
+
+  const primary = resolved[0];
+  return {
+    title: entry.title,
+    source_url: mediaPage.url,
+    url: primary.url,
+    type: primary.type,
+    content_type: primary.content_type,
+    quality: primary.quality,
+    qualities: resolved.map((item) => item.quality),
+    sources: resolved,
+  };
 }
 
 export default { async fetch(request, env) {
