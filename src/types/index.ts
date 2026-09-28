@@ -38,6 +38,7 @@ export interface PlaybackSource {
   provider: string; // e.g. 'AbdoBest', 'StreamProvider', 'TMDB Embed'
   providerKey?: string;
   providerReference?: string;
+  sourceUrl?: string;
   subtitleTracks?: PlaybackSubtitleTrack[];
 }
 
