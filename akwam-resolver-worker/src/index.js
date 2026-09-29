@@ -1943,36 +1943,52 @@ export default { async fetch(request, env) {
     }
 
     try {
-      // Resolve the provider-owned Akwam player/embed URL itself.
-      // Movyz returns that URL to the UI so there is exactly one iframe:
-      // Movyz UI -> iframe -> Akwam player.
-      const resolved = await resolveAkwamIframeCached(env.BROWSER, {
+      // One iframe only: Movyz UI embeds this player shell.
+      // The resolver resolves Akwam media sources once, caches them, and
+      // the shell streams those sources without embedding the Akwam site.
+      const resolved = await resolveAkwamCached(env.BROWSER, {
         ...payload,
         type: payload?.type === "series" ? "series" : "movie",
       });
 
-      const iframeUrl = clean(resolved?.iframe_url);
-      if (!iframeUrl || !isDedicatedIframeUrl(iframeUrl)) {
-        return json({ ok: false, error: "Akwam did not return a dedicated iframe player URL" }, 502);
+      const sources = Array.isArray(resolved?.sources)
+        ? resolved.sources
+            .filter((item) => clean(item?.url || item?.media_url))
+            .map((item) => ({
+              quality: clean(item?.quality) || "auto",
+              type: clean(item?.type) || mediaTypeFromUrl(item?.url || item?.media_url || ""),
+              url: clean(item?.url || item?.media_url),
+            }))
+        : [];
+
+      if (!sources.length) {
+        return json({ ok: false, error: "Akwam returned no playable media sources" }, 502);
       }
+
+      const token = buildPlayerToken(
+        sources,
+        resolved.source_url,
+        resolved.title || payload?.title || "Akwam",
+      );
+
+      const iframeUrl =
+        new URL(request.url).origin +
+        "/player?t=" +
+        encodeURIComponent(token);
 
       return json({
         ok: true,
         title: resolved.title || clean(payload?.title) || "",
-        source_url: iframeUrl,
-        media_url: iframeUrl,
+        source_url: resolved.source_url,
+        media_url: sources[0]?.url || resolved.media_url || "",
         type: "web",
-        quality: resolved.quality || "auto",
-        qualities: resolved.qualities || ["auto"],
-        sources: resolved.sources || [{
-          quality: resolved.quality || "auto",
-          type: "web",
-          url: iframeUrl,
-        }],
+        quality: resolved.quality || sources[0]?.quality || "auto",
+        qualities: resolved.qualities || sources.map((item) => item.quality),
+        sources,
         iframe_url: iframeUrl,
         player_url: iframeUrl,
-        mode: "akwam-native-iframe",
-        cached: resolved.cached === true,
+        mode: "movyz-player-shell",
+        cached: false,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
