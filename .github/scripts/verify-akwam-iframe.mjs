@@ -151,7 +151,7 @@ for (const fixture of fixtures) {
       const startupResponse = await fetch(mediaUrl, {
         headers: {
           Accept: "video/mp4,video/*,application/octet-stream,*/*;q=0.8",
-          Range: "bytes=0-524287",
+          Range: "bytes=0-2097151",
         },
         signal: AbortSignal.timeout(60_000),
       });
@@ -172,8 +172,26 @@ for (const fixture of fixtures) {
       const deliveredBytes = endByte - startByte + 1;
       assert(startByte === 0,
         fixture.label + " startup MP4 did not start at byte 0: " + startupRange);
-      assert(deliveredBytes <= 2 * 1024 * 1024,
-        fixture.label + " startup MP4 exceeded 256KiB: " + deliveredBytes);
+      assert(deliveredBytes === 2 * 1024 * 1024,
+        fixture.label + " startup MP4 Range was altered: " + deliveredBytes);
+      assert(
+        startupRange === "bytes 0-2097151/" + rangeMatch[3],
+        fixture.label + " startup MP4 Content-Range was altered: " + startupRange,
+      );
+
+      const seekProbe = await fetch(mediaUrl, {
+        headers: {
+          Accept: "video/mp4,video/*,application/octet-stream,*/*;q=0.8",
+          Range: "bytes=52428800-52559871",
+        },
+        signal: AbortSignal.timeout(60_000),
+      });
+      const seekProbeRange = seekProbe.headers.get("content-range") || "";
+      assert(seekProbe.status === 206,
+        fixture.label + " seek probe did not return 206: " + seekProbe.status);
+      assert(/^bytes 52428800-52559871\//.test(seekProbeRange),
+        fixture.label + " seek Range was altered: " + seekProbeRange);
+      try { seekProbe.body?.cancel(); } catch {}
 
       mp4StartupChecks.push({
         quality: source?.quality || "auto",

@@ -1969,7 +1969,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "startup-faststart-2026-09-29-r3";
+const RESOLVER_VERSION = "browser-range-native-2026-09-29-r6";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
@@ -1979,7 +1979,7 @@ function startupRangeBytes(_quality, total) {
   );
 }
 
-function parseSingleRange(value, total, { startupQuality: _startupQuality = "" } = {}) {
+function parseSingleRange(value, total) {
   const match = String(value || "").trim().match(/^bytes=(\d+)-(\d*)$/i);
   if (!match) return null;
 
@@ -1995,24 +1995,8 @@ function parseSingleRange(value, total, { startupQuality: _startupQuality = "" }
     end = end == null ? total - 1 : Math.min(end, total - 1);
   }
 
-  // If the CDN hides the total size, an open-ended Range still needs a
-  // bounded response so a 200 full-file stream cannot leak to the browser.
   if (end == null) {
-    const maxBytes = start === 0
-      ? startupRangeBytes("", hasKnownTotal ? total : 50 * 1024 * 1024 * 1024)
-      : 8 * 1024 * 1024;
-    end = start + maxBytes - 1;
-    if (hasKnownTotal) end = Math.min(end, total - 1);
-  }
-
-  // Only cap the very first byte range (start=0). Later explicit ranges and
-  // seeks remain fully controlled by the browser.
-  if (start === 0 && end >= start) {
-    const maxBytes = startupRangeBytes(
-      "",
-      hasKnownTotal ? total : 50 * 1024 * 1024 * 1024,
-    );
-    end = Math.min(end, start + maxBytes - 1);
+    end = start + 8 * 1024 * 1024 - 1;
     if (hasKnownTotal) end = Math.min(end, total - 1);
   }
 
@@ -2024,8 +2008,8 @@ function parseSingleRange(value, total, { startupQuality: _startupQuality = "" }
   };
 }
 
-function sliceRangeResponse(upstream, rangeHeader, upstreamTotal, startupQuality = "") {
-  const parsed = parseSingleRange(rangeHeader, upstreamTotal, { startupQuality });
+function sliceRangeResponse(upstream, rangeHeader, upstreamTotal) {
+  const parsed = parseSingleRange(rangeHeader, upstreamTotal);
   if (!parsed) return null;
 
   if (parsed.invalid) {
@@ -2248,15 +2232,8 @@ async function proxyAkwamMedia(request, requestUrl) {
     const requested = requestUrl.searchParams.get("u") || "";
     return target.payload.sources.find((source) => source.url === requested) || null;
   })();
-  const sourceQuality = sourceInfo?.quality || "";
   const sourceType = String(sourceInfo?.type || mediaTypeFromUrl(target.url)).toLowerCase();
-  const upstreamRange = (() => {
-    if (!range || !/^bytes=\d+-/i.test(range)) return range;
-    const totalHint = 50 * 1024 * 1024 * 1024;
-    const parsed = parseSingleRange(range, totalHint);
-    if (!parsed || parsed.invalid || parsed.start !== 0) return range;
-    return "bytes=" + parsed.start + "-" + parsed.end;
-  })();
+  const upstreamRange = range;
   const upstreamHeaders = {
     Accept: "video/*,application/octet-stream,*/*;q=0.8",
     "User-Agent": UA,
@@ -2371,7 +2348,7 @@ async function proxyAkwamMedia(request, requestUrl) {
       String(response.headers.get("content-range") || "").match(/\/(\d+)$/)?.[1] ||
       0,
     );
-    const sliced = sliceRangeResponse(response, range, total, sourceQuality);
+    const sliced = sliceRangeResponse(response, range, total);
     if (sliced) {
       applyKnownMediaType(
         sliced.headers,
