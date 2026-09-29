@@ -65,6 +65,15 @@ function isPrivateHost(host) {
   if (/^127\./.test(value) || /^10\./.test(value) || /^192\.168\./.test(value) || /^169\.254\./.test(value)) return true;
   const match = value.match(/^172\.(\d+)\./); return Boolean(match && Number(match[1]) >= 16 && Number(match[1]) <= 31);
 }
+function isAkwamPageHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "akwam.ss" || host.endsWith(".akwam.ss") ||
+    host === "akwam.it" || host.endsWith(".akwam.it") ||
+    host === "akwam.ee" || host.endsWith(".akwam.ee") ||
+    host === "akwam.com.co" || host.endsWith(".akwam.com.co") ||
+    host === "ak.sv" || host.endsWith(".ak.sv");
+}
+
 function isAllowedPageHost(hostname) {
   const host = String(hostname || "").toLowerCase();
   if (PAGE_HOSTS.has(host)) return true;
@@ -914,11 +923,18 @@ function isMediaResponse(contentType, contentDisposition, url, bytes) {
   const ct = String(contentType || "").toLowerCase();
   const cd = String(contentDisposition || "").toLowerCase();
   const value = String(url || "").toLowerCase();
+  let host = "";
+  try { host = new URL(value).hostname.toLowerCase(); } catch {}
+
+  const extensionLooksMedia =
+    !isAkwamPageHost(host) &&
+    /\.(?:mp4|m4v|webm|m3u8|mpd)(?:[?#]|$)/.test(value);
+
   return /^video\//.test(ct) ||
     /mpegurl|vnd\.apple\.mpegurl/.test(ct) ||
     /dash\+xml|application\/dash/.test(ct) ||
     /filename\s*=.*\.(?:mp4|m4v|webm|m3u8|mpd)/i.test(cd) ||
-    /\.(?:mp4|m4v|webm|m3u8|mpd)(?:[?#]|$)/.test(value) ||
+    extensionLooksMedia ||
     hasMp4Signature(bytes);
 }
 
@@ -957,12 +973,9 @@ async function fetchDownloadTarget(initialUrl, referer = "") {
         const contentType = (response.headers.get("content-type") || "").toLowerCase();
         const contentDisposition = response.headers.get("content-disposition") || "";
 
-        // Never consume a potentially large media response. Return the URL
-        // after proving the response is media by headers/first bounded probe.
-        if (isMediaResponse(contentType, contentDisposition, url, new Uint8Array())) {
-          return { kind: "media", url, content_type: contentType };
-        }
-
+        // Akwam /download routes can end in ".mp4" while still being
+        // an HTML/redirect page. Only classify them as media from response
+        // headers/disposition or a bounded content signature.
         const bytes = await readProbeBytes(response, 524_288);
         const sample = new TextDecoder().decode(bytes.slice(0, 64_000));
 
@@ -1016,9 +1029,10 @@ async function resolveQuality(browser, quality) {
   if (downloadUrl) {
     const target = await fetchDownloadTarget(downloadUrl, targetPage.url);
     if (target.kind === "media") {
+      const validated = await validateMediaUrl(target.url, targetPage.url);
       const value = {
-        media_url: target.url,
-        type: mediaTypeFromUrl(target.url),
+        media_url: validated.media_url,
+        type: validated.type,
         quality: quality.quality,
       };
       qualityCache.set(cacheKey, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
