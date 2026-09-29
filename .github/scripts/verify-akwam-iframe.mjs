@@ -85,11 +85,72 @@ for (const fixture of fixtures) {
   assert(/<title>Movyz Akwam Player<\/title>/i.test(html), fixture.label + " player shell title missing");
   assert(!/<nav\b/i.test(html), fixture.label + " player shell contains site navigation");
 
+  const token = url.searchParams.get("t") || "";
+  assert(token, fixture.label + " player token missing");
+
+  const sources = Array.isArray(body.sources) ? body.sources : [];
+  assert(sources.length > 0, fixture.label + " returned no media sources");
+
+  const sourceChecks = [];
+  for (const source of sources.slice(0, 3)) {
+    const rawSource = String(source?.url || "").trim();
+    assert(/^https:\/\//i.test(rawSource), fixture.label + " source is not HTTPS: " + rawSource);
+
+    const mediaUrl =
+      RESOLVER_BASE +
+      "/media?t=" + encodeURIComponent(token) +
+      "&u=" + encodeURIComponent(rawSource);
+
+    const mediaResponse = await fetch(mediaUrl, {
+      headers: {
+        Accept: "video/*,application/vnd.apple.mpegurl,application/dash+xml,*/*;q=0.8",
+        Range: "bytes=0-65535",
+      },
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    const contentType = String(mediaResponse.headers.get("content-type") || "").toLowerCase();
+    const contentRange = mediaResponse.headers.get("content-range") || "";
+    const mediaText = /mpegurl|vnd\.apple\.mpegurl/.test(contentType)
+      ? (await mediaResponse.text()).slice(0, 12000)
+      : "";
+
+    assert(
+      mediaResponse.ok,
+      fixture.label + " media proxy HTTP " + mediaResponse.status + " for " + rawSource,
+    );
+    assert(
+      !/application\/json|text\/html/i.test(contentType),
+      fixture.label + " media proxy returned non-media content type " + contentType,
+    );
+
+    if (/mpegurl|vnd\.apple\.mpegurl/.test(contentType)) {
+      assert(
+        /#EXTM3U/i.test(mediaText),
+        fixture.label + " media proxy returned an invalid HLS playlist",
+      );
+    } else {
+      assert(
+        /^video\//i.test(contentType) || /octet-stream/i.test(contentType),
+        fixture.label + " media proxy returned unexpected content type " + contentType,
+      );
+    }
+
+    sourceChecks.push({
+      quality: source?.quality || "auto",
+      type: source?.type || "",
+      status: mediaResponse.status,
+      contentType,
+      contentRange,
+    });
+  }
+
   console.log(fixture.label + " PASS", JSON.stringify({
     mode: body.mode,
     iframeUrl,
     qualityCount: Array.isArray(body.qualities) ? body.qualities.length : 0,
-    sourceCount: Array.isArray(body.sources) ? body.sources.length : 0,
+    sourceCount: sources.length,
+    mediaChecks: sourceChecks,
   }));
 }
 
