@@ -65,16 +65,37 @@ for (const fixture of fixtures) {
 
   const iframe = new URL(source.iframeUrl);
   const iframePath = iframe.pathname;
-  const isWatch = /\/watch\/\d+(?:[/?#]|$)/i.test(iframePath);
-  const isNativeWatchPlayer = isWatch && iframe.hash.toLowerCase() === "#player";
+  const isMovyzPlayer =
+    iframe.hostname.toLowerCase() === "movyz-akwam-resolver.sameranede.workers.dev" &&
+    iframePath === "/player";
   const isDedicated = /\/(?:player|embed)(?:\/|[?#]|$)/i.test(iframePath);
+
   assert(
-    isDedicated || isNativeWatchPlayer,
-    fixture.label + " iframeUrl is not a native Akwam player target: " + source.iframeUrl,
+    isMovyzPlayer || isDedicated,
+    fixture.label + " iframeUrl is not a clean player target: " + source.iframeUrl,
   );
-  if (isWatch) {
-    assert(isNativeWatchPlayer, fixture.label + " returned /watch without #player: " + source.iframeUrl);
+
+  if (isMovyzPlayer) {
+    const playerResponse = await fetch(source.iframeUrl, {
+      headers: { Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8" },
+      signal: AbortSignal.timeout(30_000),
+    });
+    const playerHtml = await playerResponse.text();
+    assert(playerResponse.ok, fixture.label + " player shell HTTP " + playerResponse.status);
+    assert(
+      /<video\b[^>]*\bid=["']player["']/i.test(playerHtml),
+      fixture.label + " player shell has no video element",
+    );
+    assert(
+      /<title>Movyz Akwam Player<\/title>/i.test(playerHtml),
+      fixture.label + " player shell title missing",
+    );
+    assert(
+      !/اكوام الموقع القديم|<nav\b/i.test(playerHtml),
+      fixture.label + " player shell contains provider page chrome",
+    );
   }
+
   assert(source.providerKey === "akwam-iframe", fixture.label + " is not Akwam iframe");
   assert(source.type === "web", fixture.label + " is not web/iframe type");
   assertPlayableUrl(source.iframeUrl, fixture.label + " iframeUrl");
