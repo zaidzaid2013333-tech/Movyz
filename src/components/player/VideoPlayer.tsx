@@ -26,7 +26,7 @@ const isAkwamPlayerUrl = (value: string) => {
     if (url.protocol !== 'https:') return false;
 
     const host = url.hostname.toLowerCase();
-    if (host === RESOLVER_PLAYER_HOST && url.pathname === '/player') {
+    if (host === RESOLVER_PLAYER_HOST && /^\/player\/?$/i.test(url.pathname)) {
       return true;
     }
 
@@ -104,19 +104,48 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           episodeNumber,
         );
 
-        const source = Array.isArray(response?.data)
-          ? response.data.find((item: any) => {
-              const candidateUrl = String(item?.iframeUrl || item?.url || '').trim();
-              return (
-                String(item?.providerKey || '').toLowerCase() === 'akwam-iframe' &&
-                String(item?.type || '').toLowerCase() === 'web' &&
-                isAkwamPlayerUrl(candidateUrl)
-              );
-            })
-          : null;
+        const rawData: any = response?.data;
+        const candidates = Array.isArray(rawData)
+          ? rawData
+          : [
+              rawData,
+              rawData?.source,
+              rawData?.stream,
+              ...(Array.isArray(rawData?.sources) ? rawData.sources : []),
+            ].filter(Boolean);
+
+        const source = candidates.find((item: any) => {
+          const candidateUrl = String(
+            item?.iframeUrl ||
+            item?.iframe_url ||
+            item?.playerUrl ||
+            item?.player_url ||
+            item?.url ||
+            '',
+          ).trim();
+          const providerKey = String(item?.providerKey || item?.provider_key || '').toLowerCase();
+          const provider = String(item?.provider || item?.label || item?.labelEn || '').toLowerCase();
+          const type = String(item?.type || '').toLowerCase();
+
+          return (
+            (providerKey === 'akwam-iframe' ||
+              providerKey === 'akwam' ||
+              provider === 'akwam' ||
+              provider.includes('akwam')) &&
+            (!type || type === 'web') &&
+            isAkwamPlayerUrl(candidateUrl)
+          );
+        });
 
         const resolved = normalizeAkwamPlayerUrl(
-          String((source as any)?.iframeUrl || (source as any)?.url || '').trim(),
+          String(
+            (source as any)?.iframeUrl ||
+            (source as any)?.iframe_url ||
+            (source as any)?.playerUrl ||
+            (source as any)?.player_url ||
+            (source as any)?.url ||
+            '',
+          ).trim(),
         );
         if (!resolved) throw new Error('No dedicated Akwam iframe player was returned.');
 
@@ -126,7 +155,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // and do not use a React key that forces a second DOM reload.
         setIframeUrl((current) => current === resolved ? current : resolved);
         setLoading(false);
-      } catch {
+      } catch (caughtError) {
+        console.error('[Movyz][AkwamPlayer]', caughtError);
         if (cancelled) return;
         setLoading(false);
         setError(language === 'ar'
