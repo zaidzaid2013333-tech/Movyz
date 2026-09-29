@@ -236,11 +236,38 @@ function searchEntries(html, base) {
 
   return entries;
 }
+function parseSeriesSeason(value) {
+  const text = normalizeTitle(value);
+  const numeric = text.match(/\\b(?:season|الموسم)\\s*#?\\s*(\\d{1,2})\\b/i);
+  if (numeric) return Number(numeric[1]);
+  const ordinals = {
+    الاول: 1, الأول: 1, الثاني: 2, الثالث: 3, الرابع: 4, الخامس: 5,
+    السادس: 6, السابع: 7, الثامن: 8, التاسع: 9, العاشر: 10,
+    "الحادي عشر": 11, "الثاني عشر": 12,
+  };
+  const arabic = text.match(/الموسم\\s+(الاول|الأول|الثاني|الثالث|الرابع|الخامس|السادس|السابع|الثامن|التاسع|العاشر|الحادي عشر|الثاني عشر)/i);
+  return arabic ? (ordinals[arabic[1]] || null) : null;
+}
+
 function scoreEntry(entry, payload) {
   const wanted = [payload?.title, payload?.original_title, payload?.title_en, payload?.title_ar].map(normalizeTitle).filter(Boolean);
-  const title = normalizeTitle(entry.title); let score = 0;
-  for (const value of wanted) { if (title === value) score = Math.max(score, 1000); else if (title.includes(value) || value.includes(title)) score = Math.max(score, 700); }
-  const year = Number(payload?.year); if (year && entry.year) score += year === entry.year ? 100 : Math.abs(year - entry.year) === 1 ? 10 : 0;
+  const title = normalizeTitle(entry.title);
+  let score = 0;
+
+  for (const value of wanted) {
+    if (title === value) score = Math.max(score, 1000);
+    else if (title.includes(value) || value.includes(title)) score = Math.max(score, 700);
+  }
+
+  if (payload?.type === "series" && Number(payload?.season) > 0) {
+    const requestedSeason = Number(payload.season);
+    const detectedSeason = parseSeriesSeason(entry.title);
+    if (Number.isInteger(detectedSeason) && detectedSeason !== requestedSeason) return 0;
+    if (detectedSeason === requestedSeason) score += 300;
+  }
+
+  const year = Number(payload?.year);
+  if (year && entry.year) score += year === entry.year ? 100 : Math.abs(year - entry.year) === 1 ? 10 : 0;
   return score;
 }
 function mirrorPageUrls(rawUrl) {
@@ -308,13 +335,27 @@ async function getContentPageDirectFirst(browser, url, stage) {
   }
 }
 async function searchAkwam(browser, payload) {
-  const candidates = [
+  const baseCandidates = [
     payload?.title,
     payload?.title_en,
     payload?.original_title,
     payload?.title_ar,
     ...(Array.isArray(payload?.titles) ? payload.titles : []),
-  ].map(clean).filter(Boolean).filter((value, index, list) => list.indexOf(value) === index);
+  ].map(clean).filter(Boolean);
+
+  const candidates = [];
+  if (section === "series" && Number(payload?.season) > 0) {
+    const requestedSeason = Number(payload.season);
+    const seasonLabel = seasonSearchLabel(requestedSeason);
+    for (const value of baseCandidates) {
+      candidates.push(value + " " + seasonLabel);
+      candidates.push(value + " S" + requestedSeason);
+    }
+  }
+  candidates.push(...baseCandidates);
+  const uniqueCandidates = candidates
+    .filter(Boolean)
+    .filter((value, index, list) => list.indexOf(value) === index);
   const section = payload?.type === "series" ? "series" : "movie";
   if (!candidates.length) throw new Error("AKWAM_SEARCH: title is required");
 
@@ -328,7 +369,7 @@ async function searchAkwam(browser, payload) {
     ? ["https://akwam.ss", "https://akwam.it"]
     : AKWAM_SEARCH_BASES;
 
-  for (const candidateTitle of candidates.slice(0, 5)) {
+  for (const candidateTitle of uniqueCandidates.slice(0, 8)) {
     const query = encodeURIComponent(candidateTitle);
 
     for (const base of searchBases) {
