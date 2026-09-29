@@ -31,8 +31,8 @@ const isAkwamPlayerUrl = (value: string) => {
       host === 'akwam.net' || host.endsWith('.akwam.net') ||
       host === 'downet.net' || host.endsWith('.downet.net');
     if (!allowedHost) return false;
-    if (/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(url.pathname)) return false;
-    return /\/(?:watch|player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
+    if (/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register|watch)(?:\/|[?#]|$)/i.test(url.pathname)) return false;
+    return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
   } catch { return false; }
 };
 
@@ -40,9 +40,7 @@ const normalizeAkwamPlayerUrl = (value: string) => {
   try {
     const url = new URL(value);
     if (!isAkwamPlayerUrl(value)) return '';
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) {
-      url.hash = '#player';
-    }
+    if (/\/watch\//i.test(url.pathname)) return '';
     return url.toString();
   } catch {
     return '';
