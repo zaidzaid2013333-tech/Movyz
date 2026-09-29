@@ -1044,10 +1044,9 @@ async function resolveQuality(browser, quality) {
   if (downloadUrl) {
     const target = await fetchDownloadTarget(downloadUrl, targetPage.url);
     if (target.kind === "media") {
-      const validated = await validateMediaUrl(target.url, targetPage.url);
       const value = {
-        media_url: validated.media_url,
-        type: validated.type,
+        media_url: target.url,
+        type: mediaTypeFromUrl(target.url),
         quality: quality.quality,
       };
       qualityCache.set(cacheKey, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
@@ -1058,12 +1057,18 @@ async function resolveQuality(browser, quality) {
     if (finalUrl) {
       const finalDirect = safeUrl(finalUrl, target.url);
       if (finalDirect) {
-        const value = {
-          ...(await validateMediaUrl(finalDirect, target.url)),
-          quality: quality.quality,
-        };
-        qualityCache.set(cacheKey, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
-        return value;
+        let finalHostIsAkwam = false;
+        try { finalHostIsAkwam = isAkwamPageHost(new URL(finalDirect).hostname); } catch {}
+
+        if (!finalHostIsAkwam) {
+          const value = {
+            media_url: finalDirect,
+            type: mediaTypeFromUrl(finalDirect),
+            quality: quality.quality,
+          };
+          qualityCache.set(cacheKey, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
+          return value;
+        }
       }
     }
   }
@@ -1077,11 +1082,10 @@ async function resolveQuality(browser, quality) {
         isAkwamPage = isAllowedPageHost(new URL(directUrl).hostname);
       } catch {}
 
-      if (!isAkwamPage || looksLikeMediaUrl(directUrl)) {
-        const validated = await validateMediaUrl(directUrl, targetPage.url);
+      if (!isAkwamPage) {
         const value = {
-          media_url: validated.media_url,
-          type: validated.type,
+          media_url: directUrl,
+          type: mediaTypeFromUrl(directUrl),
           quality: quality.quality,
         };
         qualityCache.set(cacheKey, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
@@ -1980,7 +1984,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "adaptive-origin-2026-09-29-r8";
+const RESOLVER_VERSION = "no-prefetch-media-2026-09-29-r9";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
