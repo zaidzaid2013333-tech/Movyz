@@ -96,13 +96,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       try {
         const response = await MovyzaApi.getWatchSources(Number(tmdbId), contentType, seasonNumber, episodeNumber);
+        console.info('[movyza-player] watch API sources', response?.data);
         const source = Array.isArray(response?.data)
           ? response.data.find((item: any) =>
               String(item?.providerKey || '').toLowerCase() === 'akwam-iframe' &&
               String(item?.type || '').toLowerCase() === 'web' &&
               isAkwamPlayerUrl(String(item?.iframeUrl || '').trim()))
           : null;
-        const resolved = normalizeAkwamPlayerUrl(String(source?.iframeUrl || '').trim());
+        const rawPlayerUrl = String(source?.iframeUrl || '').trim();
+        const resolved = normalizeAkwamPlayerUrl(rawPlayerUrl);
+        console.info('[movyza-player] selected Akwam player URL', { rawPlayerUrl, resolved });
 
         if (!resolved) throw new Error('No valid Akwam native player route was returned.');
         if (!cancelled) setIframeUrl(resolved);
