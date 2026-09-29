@@ -19,6 +19,7 @@ export interface CastMember {
 
 export interface PlaybackSubtitleTrack {
   url: string;
+  iframeUrl?: string;
   type: 'vtt' | 'srt';
   language: string;
   label: string;
