@@ -182,7 +182,7 @@ async function resolverIframe(fixture, label) {
   return { body, iframe };
 }
 
-function watchIframe(body, fixture, label) {
+async function watchIframe(body, fixture, label) {
   assert(body?.ok === true, label + " did not return ok=true");
   assert(body?.type === (fixture.type === "series" ? "episode" : "movie"), label + " returned wrong content type");
   assert(body?.media_type === "web", label + " media_type is not web");
