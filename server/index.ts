@@ -304,12 +304,6 @@ app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
 
 const AKWAM_RESOLVER_BASE = 'https://movyz-akwam-resolver.sameranede.workers.dev';
 
-let watchApiFetch: typeof fetch = fetch;
-
-export function setWatchApiFetch(fetcher: typeof fetch): void {
-  watchApiFetch = fetcher;
-}
-
 type WatchSourceCacheEntry = {
   sources: any[];
   expiresAt: number;
@@ -510,7 +504,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       year = series.first_air_date ? Number(String(series.first_air_date).slice(0, 4)) : undefined;
     }
 
-    const response = await watchApiFetch(
+    const response = await fetch(
       `${AKWAM_RESOLVER_BASE}/resolve-iframe`,
       {
         method: 'POST',
@@ -580,7 +574,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     if (status === 404 && code === 'SERIES_NOT_FOUND') {
       return fail(res, 404, code, 'Series not found');
     }
-    return fail(res, 502, 'WATCH_API_FAILED', message || 'Unable to load playback sources');
+    return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load playback sources');
   }
 }));
 
