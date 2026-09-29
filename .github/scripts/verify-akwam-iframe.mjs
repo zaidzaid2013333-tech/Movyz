@@ -58,7 +58,7 @@ function assertAkwamPage(value, label) {
     label + " did not return a dedicated player route: " + value,
   );
   if (/\/watch\/\d+(?:[/?#]|$)/i.test(pathname)) {
-    assert(value.hash === "#player", label + " watch route is missing #player anchor: " + value);
+    assert(new URL(value).hash === "#player", label + " watch route is missing #player anchor: " + value);
   }
 }
 
@@ -99,6 +99,7 @@ async function inspectReturnedPlayer(url, label) {
       .map((m) => m[1]).slice(0, 8);
     const videos = (html.match(/<video\b/gi) || []).length;
     const sources = (html.match(/<source\b/gi) || []).length;
+    const hasNativePlayer = /<video\b[^>]*\bid=["']player["']/i.test(html);
     const videoIndex = html.search(/<video\b/i);
     const videoContext = videoIndex >= 0
       ? html.slice(Math.max(0, videoIndex - 2600), Math.min(html.length, videoIndex + 6200))
@@ -111,6 +112,7 @@ async function inspectReturnedPlayer(url, label) {
       iframes,
       videoTags: videos,
       sourceTags: sources,
+      hasNativePlayer,
       videoContext,
     }));
   } catch (error) {
