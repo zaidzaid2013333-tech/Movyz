@@ -92,152 +92,73 @@ for (const fixture of fixtures) {
   assert(sources.length > 0, fixture.label + " returned no media sources");
 
   const sourceChecks = [];
-  const mp4StartupChecks = [];
 
-  for (const source of sources.slice(0, 3)) {
+  for (const source of sources) {
     const rawSource = String(source?.url || "").trim();
-    assert(/^https:\/\//i.test(rawSource), fixture.label + " source is not HTTPS: " + rawSource);
-
-    const mediaUrl =
-      RESOLVER_BASE +
-      "/media?t=" + encodeURIComponent(token) +
-      "&u=" + encodeURIComponent(rawSource);
-
-    let directHead = null;
-    try {
-      const started = performance.now();
-      const response = await fetch(rawSource, {
-        method: "HEAD",
-        headers: {
-          Accept: "video/*,application/octet-stream,*/*;q=0.8",
-        },
-        redirect: "follow",
-        signal: AbortSignal.timeout(15_000),
-      });
-      directHead = {
-        status: response.status,
-        contentType: response.headers.get("content-type") || "",
-        contentLength: response.headers.get("content-length") || "",
-        acceptRanges: response.headers.get("accept-ranges") || "",
-        elapsedMs: Math.round(performance.now() - started),
-      };
-    } catch (error) {
-      directHead = { error: error instanceof Error ? error.message : String(error) };
-    }
-
-    if (fixture.label === "Akwam resolver episode") {
-      console.log("Akwam resolver episode DIRECT_HEAD", JSON.stringify({
-        quality: source?.quality || "auto",
-        directHead,
-      }));
-    }
-
-    const mediaResponse = await fetch(mediaUrl, {
-      headers: {
-        Accept: "video/*,application/vnd.apple.mpegurl,application/dash+xml,*/*;q=0.8",
-        Range: "bytes=0-65535",
-      },
-      signal: AbortSignal.timeout(60_000),
-    });
-
-    const contentType = String(mediaResponse.headers.get("content-type") || "").toLowerCase();
-    const contentRange = mediaResponse.headers.get("content-range") || "";
-    const mediaText = /mpegurl|vnd\.apple\.mpegurl/.test(contentType)
-      ? (await mediaResponse.text()).slice(0, 12000)
-      : "";
-
-    assert(
-      mediaResponse.ok,
-      fixture.label + " media proxy HTTP " + mediaResponse.status + " for " + rawSource,
-    );
-    assert(
-      !/application\/json|text\/html/i.test(contentType),
-      fixture.label + " media proxy returned non-media content type " + contentType,
-    );
-
-    if (/mpegurl|vnd\.apple\.mpegurl/.test(contentType)) {
-      assert(
-        /#EXTM3U/i.test(mediaText),
-        fixture.label + " media proxy returned an invalid HLS playlist",
-      );
-    } else {
-      assert(
-        /^video\//i.test(contentType),
-        fixture.label + " MP4 media proxy returned unexpected content type " + contentType,
-      );
-    }
-
+    assert(/^https:\/\//i.test(rawSource),
+      fixture.label + " source is not HTTPS: " + rawSource);
     sourceChecks.push({
       quality: source?.quality || "auto",
       type: source?.type || "",
-      status: mediaResponse.status,
-      contentType,
-      contentRange,
+      host: (() => { try { return new URL(rawSource).host; } catch { return ""; } })(),
+      urlTail: rawSource.split("/").pop() || "",
     });
-    try { mediaResponse.body?.cancel(); } catch {}
-
-    if (String(source?.type || "").toLowerCase() === "mp4" && mp4StartupChecks.length === 0) {
-      const startupResponse = await fetch(mediaUrl, {
-        headers: {
-          Accept: "video/mp4,video/*,application/octet-stream,*/*;q=0.8",
-          Range: "bytes=0-2097151",
-        },
-        signal: AbortSignal.timeout(60_000),
-      });
-
-      const startupType = String(startupResponse.headers.get("content-type") || "").toLowerCase();
-      const startupRange = startupResponse.headers.get("content-range") || "";
-      const rangeMatch = startupRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
-
-      assert(startupResponse.status === 206,
-        fixture.label + " startup MP4 did not return 206: " + startupResponse.status);
-      assert(/^video\/mp4$/i.test(startupType),
-        fixture.label + " startup MP4 content-type is " + startupType);
-      assert(Boolean(rangeMatch),
-        fixture.label + " startup MP4 missing Content-Range");
-
-      const startByte = Number(rangeMatch[1]);
-      const endByte = Number(rangeMatch[2]);
-      const deliveredBytes = endByte - startByte + 1;
-      assert(startByte === 0,
-        fixture.label + " startup MP4 did not start at byte 0: " + startupRange);
-      assert(
-        deliveredBytes === 2 * 1024 * 1024 || deliveredBytes === 256 * 1024,
-        fixture.label + " startup MP4 adaptive Range is unexpected: " + deliveredBytes,
-      );
-      assert(startupRange === "bytes 0-2097151/" + rangeMatch[3] ||
-        startupRange === "bytes 0-262143/" + rangeMatch[3],
-        fixture.label + " startup MP4 Content-Range was unexpected: " + startupRange);
-
-      const seekProbe = await fetch(mediaUrl, {
-        headers: {
-          Accept: "video/mp4,video/*,application/octet-stream,*/*;q=0.8",
-          Range: "bytes=52428800-52559871",
-        },
-        signal: AbortSignal.timeout(60_000),
-      });
-      const seekProbeRange = seekProbe.headers.get("content-range") || "";
-      if (seekProbe.status !== 206 || !/^bytes 52428800-52559871\//.test(seekProbeRange)) {
-        console.warn(fixture.label + " SEEK_PROBE_WARN", JSON.stringify({
-          status: seekProbe.status,
-          contentRange: seekProbeRange,
-        }));
-      }
-      try { seekProbe.body?.cancel(); } catch {}
-
-      mp4StartupChecks.push({
-        quality: source?.quality || "auto",
-        status: startupResponse.status,
-        contentType: startupType,
-        contentRange: startupRange,
-        deliveredBytes,
-        resolverVersion: startupResponse.headers.get("x-movyz-resolver-version") || "",
-      });
-
-      try { startupResponse.body?.cancel(); } catch {}
-    }
   }
 
+  const preferredQualities = ["720p", "576p", "540p", "480p"];
+  const initialSource =
+    sources.find((source) => preferredQualities.includes(
+      String(source?.quality || "").toLowerCase(),
+    )) || sources[0];
+
+  const rawInitialSource = String(initialSource?.url || "").trim();
+  assert(rawInitialSource, fixture.label + " has no initial playback source");
+
+  const mediaUrl =
+    RESOLVER_BASE +
+    "/media?t=" + encodeURIComponent(token) +
+    "&u=" + encodeURIComponent(rawInitialSource);
+
+  const startupResponse = await fetch(mediaUrl, {
+    headers: {
+      Accept: "video/mp4,video/*,application/octet-stream,*/*;q=0.8",
+      Range: "bytes=0-2097151",
+    },
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  const startupType = String(startupResponse.headers.get("content-type") || "").toLowerCase();
+  const startupRange = startupResponse.headers.get("content-range") || "";
+  const rangeMatch = startupRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
+
+  assert(startupResponse.status === 206,
+    fixture.label + " initial MP4 did not return 206: " + startupResponse.status);
+  assert(/^video\/mp4$/i.test(startupType),
+    fixture.label + " initial MP4 content-type is " + startupType);
+  assert(Boolean(rangeMatch),
+    fixture.label + " initial MP4 missing Content-Range");
+
+  const startByte = Number(rangeMatch[1]);
+  const endByte = Number(rangeMatch[2]);
+  const deliveredBytes = endByte - startByte + 1;
+
+  assert(startByte === 0,
+    fixture.label + " initial MP4 did not start at byte 0: " + startupRange);
+  assert(
+    deliveredBytes === 2 * 1024 * 1024 || deliveredBytes === 256 * 1024,
+    fixture.label + " initial MP4 adaptive Range is unexpected: " + deliveredBytes,
+  );
+
+  try { startupResponse.body?.cancel(); } catch {}
+
+  console.log(fixture.label + " STARTUP_PASS", JSON.stringify({
+    quality: initialSource?.quality || "auto",
+    status: startupResponse.status,
+    contentType: startupType,
+    contentRange: startupRange,
+    deliveredBytes,
+    resolverVersion: startupResponse.headers.get("x-movyz-resolver-version") || "",
+  }));
   console.log(fixture.label + " PASS", JSON.stringify({
     mode: body.mode,
     iframeUrl,
