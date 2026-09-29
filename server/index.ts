@@ -320,7 +320,7 @@ function watchSourceCacheKey(
   episode?: number,
 ) {
   return [
-    'iframe-v8',
+    'iframe-v9',
     mediaType,
     tmdbId,
     season ?? '',
@@ -514,33 +514,55 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       year = series.first_air_date ? Number(String(series.first_air_date).slice(0, 4)) : undefined;
     }
 
-    const response = await fetch(
-      `${AKWAM_RESOLVER_BASE}/resolve-iframe`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'User-Agent': 'Movyz-Akwam-Iframe/1.0',
-          'Cache-Control': 'no-cache',
-        },
-        body: JSON.stringify({
-          mode: 'iframe',
-          tmdb_id: tmdbId,
-          type: mediaType,
-          title: titleEn || titleAr || originalTitle || title,
-          title_en: titleEn,
-          title_ar: titleAr,
-          original_title: originalTitle,
-          titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
-          year,
-          ...(mediaType === 'series' ? { season, episode } : {}),
-        }),
-        redirect: 'follow',
-      },
-    );
+    const resolverBody = JSON.stringify({
+      mode: 'iframe',
+      tmdb_id: tmdbId,
+      type: mediaType,
+      title: titleEn || titleAr || originalTitle || title,
+      title_en: titleEn,
+      title_ar: titleAr,
+      original_title: originalTitle,
+      titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
+      year,
+      ...(mediaType === 'series' ? { season, episode } : {}),
+    });
 
-    const responseText = await response.text();
+    let response: Response | null = null;
+    let responseText = '';
+
+    // Cloudflare can briefly return a 404/5xx from one edge immediately after
+    // the resolver deployment propagates. Retry only those transient statuses.
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      response = await fetch(
+        `${AKWAM_RESOLVER_BASE}/resolve-iframe`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'User-Agent': 'Movyz-Akwam-Iframe/1.0',
+            'Cache-Control': 'no-cache, no-store',
+          },
+          body: resolverBody,
+          redirect: 'follow',
+        },
+      );
+
+      responseText = await response.text();
+      const retryable =
+        response.status === 404 ||
+        response.status === 429 ||
+        response.status >= 500;
+
+      if (response.ok || !retryable || attempt === 3) break;
+
+      const backoffMs = 600 * (2 ** attempt);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+
+    if (!response) {
+      throw new Error('Akwam resolver request did not produce a response');
+    }
     let payload: any = null;
     try {
       payload = responseText ? JSON.parse(responseText) : null;
