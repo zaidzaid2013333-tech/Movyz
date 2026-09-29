@@ -34,9 +34,10 @@ jobs:
         with:
           node-version: 22
 
-      - name: Validate Watch Worker
+      - name: Validate Watch and Resolver Workers
         run: |
           node --check moviebox-worker/src/index.js
+          node --check akwam-resolver-worker/src/index.js
 
       - name: Cloudflare dry run
         run: |
@@ -51,4 +52,4 @@ jobs:
 
       - name: Smoke test
         run: |
-          node .github/scripts/verify-akwam-playback.mjs
+          node .github/scripts/verify-akwam-iframe.mjs
