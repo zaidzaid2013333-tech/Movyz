@@ -36,10 +36,8 @@ const isAkwamPlayerUrl = (value: string) => {
       return false;
     }
 
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) {
-      return url.hash === '#player';
-    }
-
+    // Akwam /watch/<id> is a full site page. Movyz must only embed a
+    // provider-owned player/embed route.
     return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
   } catch {
     return false;
@@ -50,9 +48,6 @@ const normalizeAkwamPlayerUrl = (value: string) => {
   try {
     const url = new URL(value);
     if (!isAkwamPlayerUrl(url.toString())) return '';
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) {
-      url.hash = '#player';
-    }
     return url.toString();
   } catch {
     return '';
