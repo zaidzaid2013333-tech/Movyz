@@ -320,7 +320,7 @@ function watchSourceCacheKey(
   episode?: number,
 ) {
   return [
-    'iframe-v4',
+    'iframe-v5',
     mediaType,
     tmdbId,
     season ?? '',
@@ -393,7 +393,7 @@ function normalizeAkwamIframeUrl(value: unknown) {
     if (!allowed) return '';
 
     const blockedPath = /\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i;
-    const playerPath = /\/(?:watch|player|embed)(?:\/|[?#]|$)/i;
+    const playerPath = /\/(?:player|embed)(?:\/|[?#]|$)/i;
     if (blockedPath.test(url.pathname) || !playerPath.test(url.pathname)) return '';
 
     return url.toString();
@@ -557,7 +557,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   }
 
   return ok(res, sources, {
-    source: 'akwam_iframe_resolver_v2',
+    source: 'akwam_iframe_resolver_v3',
     mediaType,
     tmdbId,
     season,
