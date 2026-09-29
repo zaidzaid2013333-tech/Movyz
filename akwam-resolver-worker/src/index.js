@@ -1969,7 +1969,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "browser-range-native-2026-09-29-r6";
+const RESOLVER_VERSION = "adaptive-range-2026-09-29-r7";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
@@ -2250,15 +2250,26 @@ async function proxyAkwamMedia(request, requestUrl) {
     signal: AbortSignal.timeout(60_000),
   });
 
-  // Some Akwam/CDN endpoints reject arbitrary browser ranges with 416.
-  // Retry once without Range so the browser can still consume the stream.
-  if (response.status === 416 && range) {
+  // Some Akwam CDN nodes reject larger byte ranges at byte 0. Adapt only the
+  // startup request: retry with a small 256 KiB range. Later seek ranges are
+  // left untouched because replaying them from byte 0 would be much slower.
+  const requestedStart = (() => {
+    const match = String(range || "").match(/^bytes=(\d+)-/i);
+    return match ? Number(match[1]) : null;
+  })();
+
+  if (
+    range &&
+    requestedStart === 0 &&
+    [416, 429, 500, 502, 503, 504].includes(response.status)
+  ) {
     try { response.body?.cancel(); } catch {}
-    const retryHeaders = { ...upstreamHeaders };
-    delete retryHeaders.Range;
     response = await fetch(target.url, {
       redirect: "follow",
-      headers: retryHeaders,
+      headers: {
+        ...upstreamHeaders,
+        Range: "bytes=0-262143",
+      },
       signal: AbortSignal.timeout(60_000),
     });
   }

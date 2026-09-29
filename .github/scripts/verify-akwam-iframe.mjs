@@ -172,12 +172,13 @@ for (const fixture of fixtures) {
       const deliveredBytes = endByte - startByte + 1;
       assert(startByte === 0,
         fixture.label + " startup MP4 did not start at byte 0: " + startupRange);
-      assert(deliveredBytes === 2 * 1024 * 1024,
-        fixture.label + " startup MP4 Range was altered: " + deliveredBytes);
       assert(
-        startupRange === "bytes 0-2097151/" + rangeMatch[3],
-        fixture.label + " startup MP4 Content-Range was altered: " + startupRange,
+        deliveredBytes === 2 * 1024 * 1024 || deliveredBytes === 256 * 1024,
+        fixture.label + " startup MP4 adaptive Range is unexpected: " + deliveredBytes,
       );
+      assert(startupRange === "bytes 0-2097151/" + rangeMatch[3] ||
+        startupRange === "bytes 0-262143/" + rangeMatch[3],
+        fixture.label + " startup MP4 Content-Range was unexpected: " + startupRange);
 
       const seekProbe = await fetch(mediaUrl, {
         headers: {
