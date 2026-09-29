@@ -410,7 +410,7 @@ type WatchSourceCacheEntry = {
 
 const watchSourceCache = new Map<string, WatchSourceCacheEntry>();
 const watchSourceInflight = new Map<string, Promise<any[]>>();
-const WATCH_SOURCE_CACHE_TTL_MS = 5 * 60 * 1000;
+const WATCH_SOURCE_CACHE_TTL_MS = 30 * 60 * 1000;
 
 function watchSourceCacheKey(
   mediaType: 'movie' | 'series',
@@ -419,7 +419,7 @@ function watchSourceCacheKey(
   episode?: number,
 ) {
   return [
-    'direct-v1',
+    'iframe-v2',
     mediaType,
     tmdbId,
     season ?? '',
@@ -498,45 +498,30 @@ function normalizeAkwamIframeUrl(value: unknown) {
 
 function normalizeWatchSources(payload: any) {
   const stream = payload?.stream || {};
-  const rawSources = Array.isArray(stream.sources) && stream.sources.length
-    ? stream.sources
-    : (stream.url ? [{
-        url: stream.url,
-        type: stream.type || streamTypeFromUrl(stream.url),
-        quality: stream.quality || (Array.isArray(stream.qualities) ? stream.qualities[0] : 'auto') || 'auto',
-      }] : []);
+  const iframeUrl = normalizeAkwamIframeUrl(stream.iframe_url || stream.player_url);
+  if (!iframeUrl) return [];
 
-  const iframeUrl = normalizeAkwamIframeUrl(stream.iframe_url);
-  const isAkwamIframe = Boolean(iframeUrl);
-  const isAkwamDirect = Boolean(normalizeAkwamIframeUrl(stream.source_url)) && !isAkwamIframe;
+  try {
+    const url = new URL(iframeUrl);
+    if (!/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) return [];
+  } catch {
+    return [];
+  }
 
-  return rawSources
-    .filter((source: any) => {
-      if (typeof source?.url !== 'string' || !/^https:\/\//i.test(source.url)) return false;
-      const key = String(source?.providerKey || source?.provider || '').toLowerCase();
-      return !key || key === 'abdobest' || key === 'akwam' || key === 'akwam-direct' || key === 'akwam-iframe';
-    })
-    .map((source: any, index: number) => {
-      const providerKey = isAkwamIframe ? 'akwam-iframe' : isAkwamDirect ? 'akwam-direct' : 'abdobest';
-      const providerName = isAkwamIframe || isAkwamDirect ? 'Akwam' : 'AbdoBest';
-      const qualityLabel = source.quality && source.quality !== 'auto' ? 'Akwam · ' + source.quality : 'Akwam';
-
-      return {
-        id: source.id || [providerKey, source.type || streamTypeFromUrl(source.url), source.quality || 'auto', index].join('-'),
-        type: String(source.type || streamTypeFromUrl(source.url)).toLowerCase(),
-        quality: source.quality || 'auto',
-        language: source.language || 'und',
-        label: isAkwamIframe || isAkwamDirect ? qualityLabel : (source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · ')),
-        labelEn: isAkwamIframe || isAkwamDirect ? qualityLabel : (source.labelEn || source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · ')),
-        url: source.url,
-        iframeUrl: isAkwamIframe ? iframeUrl : '',
-        isWorking: true,
-        provider: providerName,
-        providerKey,
-        providerReference: source.providerReference,
-        subtitleTracks: Array.isArray(source.subtitleTracks) ? source.subtitleTracks : [],
-      };
-    });
+  return [{
+    id: 'akwam-iframe',
+    type: 'web',
+    quality: 'auto',
+    language: 'und',
+    label: 'Akwam',
+    labelEn: 'Akwam',
+    url: iframeUrl,
+    iframeUrl,
+    isWorking: true,
+    provider: 'Akwam',
+    providerKey: 'akwam-iframe',
+    subtitleTracks: [],
+  }];
 }
 
 app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
@@ -628,7 +613,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
         body: JSON.stringify(
           mediaType === 'movie'
             ? {
-                mode: 'direct',
+                mode: 'iframe',
                 tmdb_id: tmdbId,
                 title: titleEn || titleAr || originalTitle || title,
                 title_en: titleEn,
@@ -638,7 +623,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
                 year,
               }
             : {
-                mode: 'direct',
+                mode: 'iframe',
                 tmdb_id: tmdbId,
                 title: titleEn || titleAr || originalTitle || title,
                 title_en: titleEn,
@@ -675,7 +660,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   res.setHeader('x-movyz-watch-cache', cacheStatus);
   res.setHeader(
     'cache-control',
-    'public, max-age=30, s-maxage=300, stale-while-revalidate=60',
+    'public, max-age=600, s-maxage=1800, stale-while-revalidate=3600',
   );
 
   if (!sources.length) {

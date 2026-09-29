@@ -6,8 +6,12 @@ import {
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResponse<T>> {
-  const session = supabase ? (await supabase.auth.getSession()).data.session : null;
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  options: { skipAuth?: boolean } = {},
+): Promise<ApiResponse<T>> {
+  const session = options.skipAuth ? null : (supabase ? (await supabase.auth.getSession()).data.session : null);
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
@@ -39,7 +43,7 @@ const watchSourceCache = new Map<string, {
   data: import('../types').PlaybackSource[];
   expiresAt: number;
 }>();
-const WATCH_SOURCE_CLIENT_CACHE_MS = 60_000;
+const WATCH_SOURCE_CLIENT_CACHE_MS = 10 * 60_000;
 
 function getWatchSourceRequestKey(
   tmdbId: number,
@@ -130,6 +134,8 @@ export const MovyzaApi = {
         season: contentType === 'series' ? seasonNumber : undefined,
         episode: contentType === 'series' ? episodeNumber : undefined,
       })}`,
+      { cache: 'force-cache' },
+      { skipAuth: true },
     )
       .then((response) => {
         watchSourceCache.set(key, {

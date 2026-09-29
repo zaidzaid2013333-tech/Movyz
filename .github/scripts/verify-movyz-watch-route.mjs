@@ -52,61 +52,30 @@ for (const fixture of fixtures) {
   assert(Array.isArray(body?.data), fixture.label + " data is not an array");
   assert(body.data.length > 0, fixture.label + " returned no playback sources");
 
-  const source = fixture.kind === "episode"
-    ? body.data.find((item) =>
-        String(item?.providerKey || "").toLowerCase() === "akwam-iframe" &&
-        String(item?.type || "").toLowerCase() === "web" &&
-        typeof item?.iframeUrl === "string" &&
-        item.iframeUrl.trim()
-      )
-    : body.data.find((item) =>
-        typeof item?.url === "string" &&
-        item.url.trim() &&
-        String(item?.providerKey || "").toLowerCase() === "akwam-direct"
-      );
+  const source = body.data.find((item) =>
+    String(item?.providerKey || "").toLowerCase() === "akwam-iframe" &&
+    String(item?.type || "").toLowerCase() === "web" &&
+    typeof item?.iframeUrl === "string" &&
+    item.iframeUrl.trim()
+  );
 
-  assert(source, fixture.kind === "episode"
-    ? fixture.label + " returned no Akwam player source"
-    : fixture.label + " returned no direct Akwam source");
+  assert(source, fixture.label + " returned no Akwam iframe source");
 
-  if (fixture.kind === "episode") {
-    assert(
-      /\/watch\/\d+(?:[/?#]|$)/i.test(new URL(source.iframeUrl).pathname),
-      fixture.label + " iframeUrl is not an Akwam watch-player route: " + source.iframeUrl,
-    );
-    console.log(fixture.label + " PASS", JSON.stringify({
-      providerKey: source.providerKey,
-      type: source.type,
-      iframeUrl: source.iframeUrl,
-      playerOnly: true,
-      sourceCount: body.data.length,
-    }));
-  } else {
-    const directQualities = body.data
-      .filter((item) => String(item?.providerKey || "").toLowerCase() === "akwam-direct")
-      .map((item) => String(item?.quality || "auto"))
-      .filter(Boolean);
-    assert(
-      new Set(directQualities).size >= 2,
-      fixture.label + " returned fewer than two direct Akwam qualities: " + JSON.stringify(directQualities),
-    );
-    assert(
-      ["hls", "mp4", "webm"].includes(String(source.type).toLowerCase()),
-      fixture.label + " returned unsupported direct media type: " + source.type,
-    );
-    assertPlayableUrl(source.url, fixture.label + " source.url");
-    assert(!source.iframeUrl, fixture.label + " unexpectedly returned an iframeUrl");
+  assert(
+    /\/watch\/\d+(?:[/?#]|$)/i.test(new URL(source.iframeUrl).pathname),
+    fixture.label + " iframeUrl is not an Akwam watch-player route: " + source.iframeUrl,
+  );
+  assert(source.providerKey === "akwam-iframe", fixture.label + " is not Akwam iframe");
+  assert(source.type === "web", fixture.label + " is not web/iframe type");
+  assertPlayableUrl(source.iframeUrl, fixture.label + " iframeUrl");
 
-    console.log(fixture.label + " PASS", JSON.stringify({
-      providerKey: source.providerKey,
-      type: source.type,
-      quality: source.quality,
-      urlHost: new URL(source.url).hostname,
-      directMedia: true,
-      sourceCount: body.data.length,
-      qualities: [...new Set(directQualities)],
-    }));
-  }
+  console.log(fixture.label + " PASS", JSON.stringify({
+    providerKey: source.providerKey,
+    type: source.type,
+    iframeUrl: source.iframeUrl,
+    playerOnly: true,
+    sourceCount: body.data.length,
+  }));
 }
 
 console.log("MOVYZ_WATCH_ROUTE_E2E=PASS");

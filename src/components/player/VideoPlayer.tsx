@@ -1,5 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Hls from 'hls.js';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import { MovyzaApi } from '../../services/api';
 
@@ -20,44 +19,39 @@ interface VideoPlayerProps {
   };
   allSeasons?: unknown[];
   onSelectEpisode?: (seasonNum: number, episodeNum: number) => void;
-  onNavigateBack: () => void;
+  onNavigateBack?: () => void;
 }
-
-type SubtitleTrack = {
-  url: string;
-  type?: string;
-  language?: string;
-  label?: string;
-  labelEn?: string;
-  default?: boolean;
-};
 
 type PlaybackSource = {
   id?: string;
-  url?: string;
   type?: string;
-  quality?: string;
-  language?: string;
-  label?: string;
-  labelEn?: string;
   provider?: string;
   providerKey?: string;
   iframeUrl?: string;
-  subtitleTracks?: SubtitleTrack[];
 };
 
 const MAX_VISIBLE_SOURCES = 4;
-const MEDIA_LOAD_TIMEOUT_MS = 45_000;
+const IFRAME_LOAD_TIMEOUT_MS = 20_000;
+const AKWAM_ORIGIN = 'https://akwam.ss';
 
-const getConnectionHintOrigin = (value?: string) => {
+const isAkwamWatchUrl = (value: string) => {
   try {
-    return value ? new URL(value).origin : '';
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const allowedHost =
+      host === 'akwam.ss' ||
+      host.endsWith('.akwam.ss') ||
+      host === 'akwam.it' ||
+      host.endsWith('.akwam.it') ||
+      host === 'ak.sv' ||
+      host.endsWith('.ak.sv') ||
+      host === 'akwam.ee' ||
+      host.endsWith('.akwam.ee');
+    return allowedHost && /\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname);
   } catch {
-    return '';
+    return false;
   }
 };
-
-const normalizeSourceType = (value?: string) => String(value || '').trim().toLowerCase();
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   contentType,
@@ -69,7 +63,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   currentEpisode,
 }) => {
   const { language } = useLanguage();
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const [sources, setSources] = useState<PlaybackSource[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -109,167 +102,72 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           episodeNumber,
         );
 
-        const rawSources = Array.isArray(response?.data)
-          ? (response.data as PlaybackSource[])
-          : [];
+        const seen = new Set<string>();
+        const resolvedSources: PlaybackSource[] = [];
 
-        const resolvedSources = rawSources
-          .map((source, index) => ({
+        for (const [index, source] of (Array.isArray(response?.data) ? response.data : []).entries()) {
+          const iframeUrl = String(source?.iframeUrl || '').trim();
+          const candidate: PlaybackSource = {
             ...source,
-            id: String(source.id || `watch-source-${index + 1}`),
-            url: String(source.url || '').trim(),
-            type: normalizeSourceType(source.type || 'mp4'),
-            iframeUrl: String(source.iframeUrl || '').trim(),
-          }))
-          .filter((source) => /^https:\/\//i.test(String(source.url || source.iframeUrl || '')))
-          .slice(0, MAX_VISIBLE_SOURCES);
+            id: String(source?.id || `akwam-iframe-${index + 1}`),
+            type: String(source?.type || '').trim().toLowerCase(),
+            providerKey: String(source?.providerKey || '').trim().toLowerCase(),
+            iframeUrl,
+          };
 
-        if (!resolvedSources.length) {
-          throw new Error('Watch API returned no usable playback sources.');
+          if (
+            candidate.type !== 'web' ||
+            candidate.providerKey !== 'akwam-iframe' ||
+            !isAkwamWatchUrl(iframeUrl) ||
+            seen.has(iframeUrl)
+          ) continue;
+
+          seen.add(iframeUrl);
+          resolvedSources.push(candidate);
+          if (resolvedSources.length >= MAX_VISIBLE_SOURCES) break;
         }
+
+        if (!resolvedSources.length) throw new Error('Watch API returned no Akwam iframe player.');
 
         if (!cancelled) {
           setSources(resolvedSources);
-          const mobile =
-            typeof window !== 'undefined' &&
-            window.matchMedia('(max-width: 767px)').matches;
-          const preferredSource = mobile
-            ? resolvedSources.find((source) => String(source.quality || '').toLowerCase() === '720p') ||
-              resolvedSources.find((source) => String(source.quality || '').toLowerCase() === '576p') ||
-              resolvedSources[0]
-            : resolvedSources[0];
-          setSelectedSourceId(String(preferredSource.id));
+          setSelectedSourceId(String(resolvedSources[0].id));
           setLoading(true);
         }
       } catch (loadError) {
         if (cancelled) return;
-
-        console.error('[movyza-player] watch sources unavailable', loadError);
+        console.error('[movyza-player] Akwam iframe unavailable', loadError);
         setLoading(false);
         setError(
           language === 'ar'
-            ? 'تعذر الحصول على مصدر تشغيل صالح حاليًا.'
-            : 'Unable to get a playable source right now.',
+            ? 'تعذر الحصول على مشغل Akwam حاليًا.'
+            : 'Unable to load the Akwam player right now.',
         );
       }
     };
 
     void loadWatchSources();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [episodeNumber, isMovie, language, retryNonce, seasonNumber, tmdbId]);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !activeSource) return;
-
-    const sourceType = normalizeSourceType(activeSource.type);
-    const mediaUrl = String(activeSource.url || '').trim();
-    const iframeUrl = String(activeSource.iframeUrl || '').trim();
-    const isWeb = sourceType === 'web' || Boolean(iframeUrl && !mediaUrl);
-
-    let hls: Hls | null = null;
-    let timeoutId: number | undefined;
-
-    setError('');
-    setLoading(true);
-
-    const markReady = () => {
-      if (timeoutId) window.clearTimeout(timeoutId);
-      setLoading(false);
-    };
-
-    const fail = () => {
-      setLoading(false);
-      setError(
-        language === 'ar'
-          ? 'تعذر تشغيل هذا المصدر. جرّب سيرفرًا آخر.'
-          : 'This source could not be played. Try another server.',
-      );
-    };
-
-    if (isWeb) {
-      return;
-    }
-
-    if (!/^https:\/\//i.test(mediaUrl)) {
-      setLoading(false);
-      setError(
-        language === 'ar'
-          ? 'رابط التشغيل غير صالح.'
-          : 'The playback URL is invalid.',
-      );
-      return;
-    }
-
-    if (sourceType === 'hls') {
-      if (Hls.isSupported()) {
-        hls = new Hls({
-          enableWorker: true,
-          lowLatencyMode: false,
-          capLevelToPlayerSize: true,
-          startFragPrefetch: true,
-          maxBufferLength: 12,
-          maxMaxBufferLength: 24,
-          backBufferLength: 10,
-        });
-        hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-          hls?.loadSource(mediaUrl);
-        });
-        hls.on(Hls.Events.MANIFEST_PARSED, markReady);
-        hls.on(Hls.Events.ERROR, (_event, data) => {
-          if (data?.fatal) fail();
-        });
-        hls.attachMedia(video);
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = mediaUrl;
-        video.addEventListener('loadedmetadata', markReady, { once: true });
-        video.load();
-      } else {
-        fail();
-      }
-    } else if (sourceType === 'dash') {
-      fail();
-    } else {
-      video.src = mediaUrl;
-      video.addEventListener('loadedmetadata', markReady, { once: true });
-      video.addEventListener('canplay', markReady, { once: true });
-      video.load();
-    }
-
-    timeoutId = window.setTimeout(() => {
-      if (loading) {
-        setLoading(false);
-        setError(
-          language === 'ar'
-            ? 'مصدر التشغيل لم يستجب ضمن الوقت المتوقع.'
-            : 'The selected source did not respond in time.',
-        );
-      }
-    }, MEDIA_LOAD_TIMEOUT_MS);
-
-    return () => {
-      if (timeoutId) window.clearTimeout(timeoutId);
-      video.pause();
-      video.removeAttribute('src');
-      video.load();
-      hls?.destroy();
-    };
-  }, [activeSource?.id, activeSource?.type, activeSource?.url, language]);
-
-  const handleSourceSelect = (source: PlaybackSource) => {
-    setError('');
-    setSelectedSourceId(String(source.id));
-  };
-
-  const activeType = normalizeSourceType(activeSource?.type);
   const activeIframe = String(activeSource?.iframeUrl || '').trim();
-  const showIframe = activeType === 'web' && /^https:\/\//i.test(activeIframe);
-  const connectionHintOrigin = getConnectionHintOrigin(
-    showIframe ? activeIframe : String(activeSource?.url || '').trim(),
-  );
+
+  useEffect(() => {
+    if (!activeIframe) return;
+    setLoading(true);
+    setError('');
+
+    const timer = window.setTimeout(() => {
+      setLoading(false);
+      setError(
+        language === 'ar'
+          ? 'مشغل Akwam تأخر في التحميل. جرّب إعادة المحاولة.'
+          : 'The Akwam player took too long to load. Try again.',
+      );
+    }, IFRAME_LOAD_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [activeIframe, language]);
 
   if (error && !sources.length) {
     return (
@@ -277,11 +175,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <div className="flex min-h-48 items-center justify-center px-6 py-10 text-center">
           <div className="max-w-lg">
             <p className="text-sm text-slate-300">{error}</p>
-            <button
-              type="button"
-              className="mt-4 rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15"
-              onClick={() => setRetryNonce((value) => value + 1)}
-            >
+            <button type="button" className="mt-4 rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15" onClick={() => setRetryNonce((value) => value + 1)}>
               {language === 'ar' ? 'إعادة المحاولة' : 'Retry'}
             </button>
           </div>
@@ -292,42 +186,32 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   return (
     <div className="w-full bg-black">
-      {connectionHintOrigin && (
-        <>
-          <link rel="dns-prefetch" href={connectionHintOrigin} />
-          <link rel="preconnect" href={connectionHintOrigin} />
-        </>
-      )}
-      {sources.length > 0 && (
+      <link rel="dns-prefetch" href={AKWAM_ORIGIN} />
+      <link rel="preconnect" href={AKWAM_ORIGIN} />
+
+      {sources.length > 1 && (
         <div className="border-b border-white/10 bg-[#080a0f] px-3 py-3 sm:px-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-semibold text-slate-400">
               {language === 'ar' ? 'سيرفر التشغيل' : 'Playback server'}
             </span>
-
             <div className="flex flex-wrap gap-2">
               {sources.map((source, index) => {
                 const active = String(source.id) === String(activeSource?.id);
-                const label = language === 'ar'
-                  ? (source.label || source.provider || `سيرفر ${index + 1}`)
-                  : (source.labelEn || source.provider || `Server ${index + 1}`);
-                const quality =
-                  source.quality && source.quality.toLowerCase() !== 'auto'
-                    ? ` · ${source.quality}`
-                    : '';
-
+                const label = source.provider || (language === 'ar' ? `سيرفر ${index + 1}` : `Server ${index + 1}`);
                 return (
                   <button
                     key={String(source.id)}
                     type="button"
-                    onClick={() => handleSourceSelect(source)}
-                    className={
-                      active
-                        ? 'rounded-lg border border-amber-400/60 bg-amber-400/15 px-3 py-1.5 text-[11px] font-bold text-amber-300'
-                        : 'rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-slate-300 transition hover:border-white/20 hover:bg-white/10 hover:text-white'
-                    }
+                    onClick={() => {
+                      setError('');
+                      setSelectedSourceId(String(source.id));
+                    }}
+                    className={active
+                      ? 'rounded-lg border border-amber-400/60 bg-amber-400/15 px-3 py-1.5 text-[11px] font-bold text-amber-300'
+                      : 'rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-slate-300 transition hover:border-white/20 hover:bg-white/10 hover:text-white'}
                   >
-                    {label}{quality}
+                    {label}
                   </button>
                 );
               })}
@@ -336,74 +220,36 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
-      <div className="relative aspect-video w-full overflow-hidden bg-black">
-        {showIframe ? (
-          <>
-            {loading && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black text-sm text-slate-300">
-                {language === 'ar' ? 'جارٍ تحميل المشغل…' : 'Loading player…'}
-              </div>
-            )}
-            <iframe
-              key={activeIframe}
-              src={activeIframe}
-              title={displayTitle}
-              className="absolute inset-0 h-full w-full border-0 bg-black"
-              allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-              allowFullScreen
-              loading="eager"
-              referrerPolicy="no-referrer"
-              onLoad={() => setLoading(false)}
-            />
-          </>
-        ) : (
-          <>
-            {loading && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black text-sm text-slate-300">
-                {language === 'ar' ? 'جارٍ تحميل المشغل…' : 'Loading player…'}
-              </div>
-            )}
-            <video
-              ref={videoRef}
-              className="absolute inset-0 h-full w-full bg-black"
-              controls
-              playsInline
-              preload="metadata"
-              poster=""
-              onLoadedMetadata={() => setLoading(false)}
-              onCanPlay={() => setLoading(false)}
-              onError={() => {
-                setLoading(false);
-                setError(
-                  language === 'ar'
-                    ? 'تعذر تشغيل الفيديو من هذا السيرفر.'
-                    : 'The video could not be played from this server.',
-                );
-              }}
-            >
-              {(activeSource?.subtitleTracks || []).map((track, index) => (
-                <track
-                  key={`${track.url}-${index}`}
-                  kind="subtitles"
-                  src={track.url}
-                  srcLang={track.language || 'und'}
-                  label={language === 'ar' ? (track.label || track.labelEn || 'Subtitles') : (track.labelEn || track.label || 'Subtitles')}
-                  default={track.default === true}
-                />
-              ))}
-            </video>
-          </>
+      <div className="relative aspect-video w-full overflow-hidden bg-black" aria-busy={loading}>
+        {loading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black text-sm text-slate-300">
+            {language === 'ar' ? 'جارٍ تحميل مشغل Akwam…' : 'Loading Akwam player…'}
+          </div>
+        )}
+
+        {activeIframe && (
+          <iframe
+            key={activeIframe}
+            src={activeIframe}
+            title={displayTitle}
+            className="absolute inset-0 h-full w-full border-0 bg-black"
+            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            allowFullScreen
+            loading="eager"
+            referrerPolicy="strict-origin-when-cross-origin"
+            onLoad={() => setLoading(false)}
+            onError={() => {
+              setLoading(false);
+              setError(language === 'ar' ? 'تعذر تحميل مشغل Akwam.' : 'The Akwam player could not be loaded.');
+            }}
+          />
         )}
       </div>
 
       {error && sources.length > 0 && (
         <div className="border-t border-white/10 bg-[#080a0f] px-4 py-3 text-center text-xs text-slate-300">
           <p>{error}</p>
-          <button
-            type="button"
-            className="mt-2 rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/15"
-            onClick={() => setRetryNonce((value) => value + 1)}
-          >
+          <button type="button" className="mt-2 rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/15" onClick={() => setRetryNonce((value) => value + 1)}>
             {language === 'ar' ? 'إعادة المحاولة' : 'Retry'}
           </button>
         </div>

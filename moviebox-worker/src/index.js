@@ -978,7 +978,7 @@ async function resolveAkwamIframeOnly(payload, type, env) {
     type: "web",
     quality: "auto",
     qualities: ["auto"],
-    sources: [{ url: source, type: "web", quality: "auto" }],
+    sources: [{ url: source, type: "web", quality: "auto", iframe_url: source }],
     source_url: source,
     iframe_url: source,
     matched_title: matchedTitle || payload?.title || "",
@@ -986,185 +986,37 @@ async function resolveAkwamIframeOnly(payload, type, env) {
   });
 
   if (explicitSource) {
-    if (!isAkwamUrl(explicitSource)) {
-      throw new Error("Only Akwam playback sources are allowed");
+    if (!isAkwamUrl(explicitSource)) throw new Error("Only Akwam playback sources are allowed");
+    let playerUrl = explicitSource;
+
+    if (!/\/watch\/\d+(?:[/?#]|$)/i.test(new URL(explicitSource).pathname)) {
+      const resolved = await resolveViaAkwamIframeResolver({
+        ...payload,
+        content_url: explicitSource,
+        source_url: explicitSource,
+      }, type, env);
+      playerUrl = normalizeAkwamUrl(resolved?.iframe_url || resolved?.player_url || resolved?.source_url);
     }
-    return build(explicitSource);
+
+    if (playerUrl && isAkwamUrl(playerUrl) && /\/watch\/\d+(?:[/?#]|$)/i.test(new URL(playerUrl).pathname)) {
+      return build(playerUrl, payload?.title || "");
+    }
+
+    throw new Error("Akwam iframe resolver returned no usable /watch player URL");
   }
 
-  const title = clean(payload?.title);
-  if (!title) throw new Error("title is required");
+  const resolved = await resolveViaAkwamIframeResolver(payload, type, env);
+  const playerUrl = normalizeAkwamUrl(resolved?.iframe_url || resolved?.player_url || resolved?.source_url);
 
-  // Prefer the dedicated resolver endpoint for iframe mode. It uses Browser Run
-  // to resolve only the Akwam page URL, avoiding the heavier media pipeline.
-  if (type === "series") {
-    try {
-      const resolved = await resolveViaAkwamIframeResolver(payload, type, env);
-      if (resolved?.iframe_url) {
-        return build(resolved.iframe_url, resolved.matched_title || payload?.title || "");
-      }
-    } catch (error) {
-      console.warn(
-        "AKWAM_IFRAME_RESOLVER_FALLBACK:",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-
-    // Secondary direct Akwam discovery path.
-    const directEpisode = await searchAkwamEpisodeDirect(payload);
-    if (directEpisode && isAkwamUrl(directEpisode)) {
-      return build(directEpisode);
-    }
-
-    const webEpisode = await searchAkwamEpisodeWeb(payload);
-    if (webEpisode && isAkwamUrl(webEpisode)) {
-      return build(webEpisode);
-    }
+  if (playerUrl && isAkwamUrl(playerUrl) && /\/watch\/\d+(?:[/?#]|$)/i.test(new URL(playerUrl).pathname)) {
+    return build(playerUrl, resolved?.matched_title || resolved?.title || payload?.title || "");
   }
 
-  // In iframe mode, movie playback must use the dedicated Akwam resolver too.
-  // AbdoBest is only a discovery fallback and may not expose a matching movie
-  // entry even when Akwam itself does.
-  if (type === "movie") {
-    try {
-      const resolved = await resolveViaAkwamIframeResolver(payload, type, env);
-      if (resolved?.iframe_url && isAkwamUrl(resolved.iframe_url)) {
-        return build(resolved.iframe_url, resolved.matched_title || title);
-      }
-    } catch (error) {
-      console.warn(
-        "AKWAM_IFRAME_MOVIE_RESOLVER_FALLBACK:",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
-
-  let directResolverError = "";
-  let search = null;
-
-  try {
-    search = await abdoJson("/api/search?q=" + encodeURIComponent(title), { method: "GET" });
-  } catch (error) {
-    // AbdoBest search is an optional discovery fallback; do not let a 404/5xx
-    // prevent the direct Akwam path above from being used.
-    console.warn(
-      "ABDOBEST_SEARCH_UNAVAILABLE:",
-      error instanceof Error ? error.message : String(error),
-    );
-    throw new Error(
-      "Akwam episode discovery failed; web search: no episode page; direct resolver: " +
-      (directResolverError || "unknown") +
-      "; AbdoBest search: " +
-      (error instanceof Error ? error.message : String(error)),
-    );
-  }
-  const ranked = asArray(search.body)
-    .map((item) => ({ item, score: scoreMatch(item, payload) }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  if (type === "movie") {
-    for (const entry of ranked) {
-      const urls = sourceUrlsOf(entry.item);
-      if (urls.length) return build(urls[0], titleOf(entry.item));
-    }
-    throw new Error("No Akwam movie page matched this title");
-  }
-
-  const season = Number(payload?.season);
-  const episode = Number(payload?.episode);
-  if (!Number.isInteger(season) || season < 0) throw new Error("season must be a valid integer");
-  if (!Number.isInteger(episode) || episode < 1) throw new Error("episode must be a valid integer");
-
-  if (!ranked.length) throw new Error("No Akwam series matched this title");
-
-  const candidateErrors = [];
-  let lastEpisodeBody = null;
-
-  // Search can return the same title under different AbdoBest categories/IDs.
-  // Do not trust only ranked[0]; try the best matching unique candidates until
-  // one actually exposes the requested season/episode.
-  const tried = new Set();
-  for (const entry of ranked.slice(0, 8)) {
-    const match = entry.item;
-    const category = categoryOf(match) || "series";
-    const id = firstString(match?.id, match?.ID);
-    if (!id) {
-      candidateErrors.push("missing source id for " + titleOf(match));
-      continue;
-    }
-
-    const candidateKey = category + ":" + id;
-    if (tried.has(candidateKey)) continue;
-    tried.add(candidateKey);
-
-    const episodePath = category === "arabic-series"
-      ? "/api/arabic-series/episodes/" + encodeURIComponent(id)
-      : "/api/episodes/" + encodeURIComponent(category) + "/" + encodeURIComponent(id);
-
-    try {
-      const episodes = await abdoJson(episodePath);
-      lastEpisodeBody = episodes.body;
-      const found = findEpisode(episodes.body, season, episode);
-      if (found?.urls?.length) {
-        return build(found.urls[0], titleOf(match));
-      }
-      candidateErrors.push(
-        "no S" + season + "E" + episode + " match at " + episodePath,
-      );
-    } catch (error) {
-      candidateErrors.push(
-        "episode lookup failed at " + episodePath + ": " +
-        (error instanceof Error ? error.message : String(error)),
-      );
-    }
-  }
-
-  if (payload?.diagnostic === true) {
-    throw new Error(
-      "EPISODE_DIAGNOSTIC " +
-      JSON.stringify({
-        match: {
-          title: titleOf(ranked[0]?.item),
-          category: categoryOf(ranked[0]?.item),
-          id: firstString(ranked[0]?.item?.id, ranked[0]?.item?.ID),
-          tmdb_id: tmdbIdOf(ranked[0]?.item),
-        },
-        ranked: ranked.slice(0, 8).map((entry) => ({
-          title: titleOf(entry.item),
-          category: categoryOf(entry.item),
-          id: firstString(entry.item?.id, entry.item?.ID),
-          tmdb_id: tmdbIdOf(entry.item),
-          score: entry.score,
-        })),
-        candidates: candidateErrors,
-        catalog: summarizeEpisodePayload(lastEpisodeBody),
-        urls: collectEpisodeUrls(lastEpisodeBody),
-      }),
-    );
-  }
-
-  // AbdoBest's episode catalog is a useful fast path, but some series expose
-  // episode links in a shape/domain that is not an Akwam page. Fall back to
-  // the dedicated Akwam resolver, which searches Akwam directly and already
-  // knows how to locate the real episode page before media extraction.
-  try {
-    const resolved = await resolveViaAkwamResolver(payload, "series", env);
-    const source = normalizeAkwamUrl(resolved?.source_url || resolved?.page_url || "");
-    if (source && isAkwamUrl(source)) {
-      return build(source, resolved?.title || resolved?.matched_title || title);
-    }
-  } catch (error) {
-    console.warn(
-      "AKWAM_IFRAME_RESOLVER_FALLBACK:",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-
-  throw new Error(`Episode S${season}E${episode} has no Akwam page URL` + (candidateErrors.length ? ": " + candidateErrors.slice(0, 4).join(" | ") : ""));
-}
-
-async function resolveMovie(payload, env) {
+  throw new Error(
+    "Akwam iframe playback unavailable" +
+      (type === "series" ? ` for S${Number(payload?.season)}E${Number(payload?.episode)}` : ""),
+  );
+}async function resolveMovie(payload, env) {
   if (payload?.mode === "iframe") return await resolveAkwamIframeOnly(payload, "movie", env);
   const directSource = normalizeAkwamUrl(
     payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,

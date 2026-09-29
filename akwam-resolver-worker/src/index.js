@@ -31,7 +31,10 @@ function qualityRank(value) {
 const MAX_REDIRECTS = 6;
 const SEARCH_BACKOFF_MS = [750, 1_750];
 const PLAYBACK_CACHE_TTL_MS = 5 * 60_000;
+const IFRAME_CACHE_TTL_MS = 30 * 60_000;
 const playbackCache = new Map();
+const iframeCache = new Map();
+const iframeInflight = new Map();
 const qualityCache = new Map();
 const playbackInflight = new Map();
 const CORS = {
@@ -384,11 +387,9 @@ async function searchAkwam(browser, payload) {
   // The current Akwam index is consistently available on akwam.ss.
   // Prefer it for series so episode discovery does not waste the resolver
   // timeout walking mirrors that are currently slow/offline.
-  const searchBases = section === "series"
-    ? ["https://akwam.ss", "https://akwam.it"]
-    : AKWAM_SEARCH_BASES;
+  const searchBases = ["https://akwam.ss", "https://akwam.it"];
 
-  for (const candidateTitle of uniqueCandidates.slice(0, 8)) {
+  for (const candidateTitle of uniqueCandidates.slice(0, 4)) {
     const query = encodeURIComponent(candidateTitle);
 
     for (const base of searchBases) {
@@ -1149,6 +1150,45 @@ async function searchAkwamEpisodeWithBrowser(browser, payload) {
   return "";
 }
 
+function iframeCacheKey(payload) {
+  return JSON.stringify({
+    content_url: clean(payload?.content_url || payload?.contentUrl || payload?.source_url),
+    title: normalizeTitle(payload?.title),
+    title_en: normalizeTitle(payload?.title_en),
+    title_ar: normalizeTitle(payload?.title_ar),
+    original_title: normalizeTitle(payload?.original_title),
+    year: Number(payload?.year) || 0,
+    type: payload?.type === "series" ? "series" : "movie",
+    season: Number(payload?.season) || 0,
+    episode: Number(payload?.episode) || 0,
+  });
+}
+
+async function resolveAkwamIframeCached(browser, payload) {
+  const key = iframeCacheKey(payload);
+  const cached = iframeCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return { ...cached.value, cached: true };
+
+  const existing = iframeInflight.get(key);
+  if (existing) return await existing;
+
+  const task = (async () => {
+    const value = await resolveAkwamIframe(browser, payload);
+    iframeCache.set(key, {
+      value,
+      expiresAt: Date.now() + IFRAME_CACHE_TTL_MS,
+    });
+    return value;
+  })();
+
+  iframeInflight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    iframeInflight.delete(key);
+  }
+}
+
 async function resolveAkwamIframe(browser, payload) {
   const directContent = decodeContentUrl(payload);
 
@@ -1441,7 +1481,7 @@ export default { async fetch(request, env) {
     try {
       return json({
         ok: true,
-        ...(await resolveAkwamIframe(env.BROWSER, {
+        ...(await resolveAkwamIframeCached(env.BROWSER, {
           ...payload,
           type: payload?.type === "series" ? "series" : "movie",
         })),
