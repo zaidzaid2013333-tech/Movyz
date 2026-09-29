@@ -145,6 +145,67 @@ for (const fixture of fixtures) {
     });
   }
 
+  // Verify that the resolver bounds a large initial MP4 Range to roughly
+  // twenty seconds of the selected quality instead of forwarding a huge request.
+  const startupSourceIndexes = [0, Math.max(0, sources.length - 1)]
+    .filter((value, index, list) => list.indexOf(value) === index);
+
+  for (const index of startupSourceIndexes) {
+    const source = sources[index];
+    const rawSource = String(source?.url || "").trim();
+    if (!rawSource) continue;
+
+    const quality = String(source?.quality || "720p").toLowerCase();
+    const bitrateByQuality = {
+      "2160p": 20_000_000,
+      "1440p": 12_000_000,
+      "1080p": 7_000_000,
+      "900p": 5_000_000,
+      "720p": 4_000_000,
+      "576p": 2_500_000,
+      "540p": 2_000_000,
+      "480p": 1_500_000,
+      "360p": 800_000,
+      "240p": 500_000,
+    };
+    const bitrate = bitrateByQuality[quality] || bitrateByQuality["720p"];
+    const maxStartupBytes = Math.ceil((bitrate * 20) / 8);
+    const mediaUrl =
+      RESOLVER_BASE +
+      "/media?t=" + encodeURIComponent(token) +
+      "&u=" + encodeURIComponent(rawSource);
+
+    const startupResponse = await fetch(mediaUrl, {
+      headers: {
+        Accept: "video/*,application/vnd.apple.mpegurl,application/dash+xml,*/*;q=0.8",
+        Range: "bytes=0-52428799",
+      },
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    const startupRange = startupResponse.headers.get("content-range") || "";
+    const startupMatch = startupRange.match(/^bytes\\s+(\\d+)-(\\d+)\\/(\\d+|\\*)$/i);
+    assert(startupResponse.status === 206,
+      fixture.label + " startup range did not return 206 for " + quality + ": " + startupResponse.status);
+    assert(startupMatch,
+      fixture.label + " startup range missing Content-Range for " + quality + ": " + startupRange);
+
+    const deliveredBytes = Number(startupMatch[2]) - Number(startupMatch[1]) + 1;
+    assert(
+      deliveredBytes <= maxStartupBytes,
+      fixture.label + " startup range exceeded 20s cap for " + quality +
+        ": " + deliveredBytes + " > " + maxStartupBytes,
+    );
+
+    startupResponse.body?.cancel();
+    console.log(fixture.label + " STARTUP_RANGE PASS", JSON.stringify({
+      quality,
+      deliveredBytes,
+      maxStartupBytes,
+      contentRange: startupRange,
+    }));
+  }
+
   console.log(fixture.label + " PASS", JSON.stringify({
     mode: body.mode,
     iframeUrl,
