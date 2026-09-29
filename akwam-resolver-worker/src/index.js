@@ -1788,13 +1788,33 @@ function showPlaybackError(message){
   setStatus(message||"Playback failed",true);
 }
 
-function attachNative(url){
+function attachNative(url, sourceIndex, allowRetry=true){
   video.src=url;
   try{video.load()}catch{}
   const onMeta=()=>setStatus("",false);
   const onCanPlay=()=>setStatus("",false);
   const onError=()=>{
     const code=video.error && video.error.code;
+
+    if(allowRetry){
+      setStatus("Retrying…",true);
+      window.setTimeout(()=>{
+        if(sequence!==loadSequence) return;
+        attachNative(url, sourceIndex, false);
+      },250);
+      return;
+    }
+
+    const nextIndex=Number(sourceIndex)+1;
+    if(nextIndex<SOURCES.length){
+      setStatus("Switching source…",true);
+      window.setTimeout(()=>{
+        if(sequence!==loadSequence) return;
+        void loadSource(nextIndex);
+      },120);
+      return;
+    }
+
     showPlaybackError("Playback failed" + (code ? " ("+code+")" : ""));
   };
   video.addEventListener("loadedmetadata",onMeta,{once:true});
@@ -1873,7 +1893,7 @@ async function loadSource(index){
         fallbackTried=true;
         try{hls&&hls.destroy()}catch{}
         hls=null;
-        attachNative(proxiedUrl);
+        attachNative(proxiedUrl,index);
       };
 
       hls.on(HlsCtor.Events.MANIFEST_PARSED,()=>{
@@ -1984,7 +2004,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "cdn-retry-2026-09-29-r10";
+const RESOLVER_VERSION = "player-retry-2026-09-29-r11";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
