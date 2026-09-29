@@ -1911,6 +1911,134 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
+function parseSingleRange(value, total) {
+  const match = String(value || "").trim().match(/^bytes=(\\d+)-(\\d*)$/i);
+  if (!match || !Number.isFinite(total) || total <= 0) return null;
+
+  const start = Number(match[1]);
+  let end = match[2] === "" ? total - 1 : Number(match[2]);
+  if (!Number.isInteger(start) || start < 0 || start >= total) return { invalid: true };
+  if (!Number.isInteger(end) || end < start) return { invalid: true };
+  end = Math.min(end, total - 1);
+  return { start, end, length: end - start + 1 };
+}
+
+function sliceRangeResponse(upstream, rangeHeader, upstreamTotal) {
+  const parsed = parseSingleRange(rangeHeader, upstreamTotal);
+  if (!parsed) return null;
+
+  if (parsed.invalid) {
+    return new Response(null, {
+      status: 416,
+      headers: {
+        "Content-Range": "bytes */" + upstreamTotal,
+        "Accept-Ranges": "bytes",
+        "Access-Control-Allow-Origin": "*",
+        "Cross-Origin-Resource-Policy": "cross-origin",
+      },
+    });
+  }
+
+  if (!upstream.body) {
+    return new Response(null, {
+      status: 206,
+      headers: {
+        "Content-Length": String(parsed.length),
+        "Content-Range": `bytes ${parsed.start}-${parsed.end}/${upstreamTotal}`,
+        "Accept-Ranges": "bytes",
+        "Access-Control-Allow-Origin": "*",
+        "Cross-Origin-Resource-Policy": "cross-origin",
+      },
+    });
+  }
+
+  const reader = upstream.body.getReader();
+  let skipped = 0;
+  let sent = 0;
+  let cancelled = false;
+
+  const stream = new ReadableStream({
+    async pull(controller) {
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+
+          if (done) {
+            controller.close();
+            return;
+          }
+
+          if (!value || value.byteLength === 0) continue;
+
+          let chunk = value;
+
+          if (skipped < parsed.start) {
+            const toSkip = Math.min(parsed.start - skipped, chunk.byteLength);
+            skipped += toSkip;
+            chunk = chunk.slice(toSkip);
+            if (chunk.byteLength === 0) continue;
+          }
+
+          const remaining = parsed.length - sent;
+          if (remaining <= 0) {
+            if (!cancelled) {
+              cancelled = true;
+              try { await reader.cancel(); } catch {}
+            }
+            controller.close();
+            return;
+          }
+
+          if (chunk.byteLength > remaining) {
+            chunk = chunk.slice(0, remaining);
+          }
+
+          sent += chunk.byteLength;
+          controller.enqueue(chunk);
+
+          if (sent >= parsed.length) {
+            if (!cancelled) {
+              cancelled = true;
+              try { await reader.cancel(); } catch {}
+            }
+            controller.close();
+            return;
+          }
+
+          return;
+        }
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel() {
+      if (!cancelled) {
+        cancelled = true;
+        try { await reader.cancel(); } catch {}
+      }
+    },
+  });
+
+  const headers = new Headers({
+    "Content-Length": String(parsed.length),
+    "Content-Range": `bytes ${parsed.start}-${parsed.end}/${upstreamTotal}`,
+    "Accept-Ranges": "bytes",
+    "Access-Control-Allow-Origin": "*",
+    "Cross-Origin-Resource-Policy": "cross-origin",
+    "X-Content-Type-Options": "nosniff",
+  });
+
+  const contentType = upstream.headers.get("content-type");
+  if (contentType) headers.set("Content-Type", contentType);
+
+  for (const name of ["etag", "last-modified"]) {
+    const value = upstream.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+
+  return new Response(stream, { status: 206, headers });
+}
+
 async function proxyAkwamMedia(request, requestUrl) {
   const target = mediaProxyRequestUrl(requestUrl.searchParams.get("u") || "", requestUrl);
   if (!target) return json({ ok: false, error: "Invalid media source" }, 400);
@@ -1989,6 +2117,19 @@ async function proxyAkwamMedia(request, requestUrl) {
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 800);
     return json({ ok: false, error: "Media upstream failed", status: response.status, detail }, 502);
+  }
+
+  // Some Akwam/Downet movie files ignore Range and return the entire file as
+  // HTTP 200. Browsers expect byte-range semantics for seekable MP4 playback.
+  // Convert that full response into the exact requested 206 slice instead of
+  // forcing the browser to download hundreds of MB before playback starts.
+  if (range && response.status === 200) {
+    const total = Number(response.headers.get("content-length") || 0);
+    const sliced = sliceRangeResponse(response, range, total);
+    if (sliced) {
+      sliced.headers.set("Cache-Control", "private, max-age=30");
+      return sliced;
+    }
   }
 
   const headers = proxyMediaHeaders(response);
