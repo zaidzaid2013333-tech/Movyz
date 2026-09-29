@@ -1326,7 +1326,14 @@ async function resolveAkwamIframe(browser, payload) {
       candidates.push(candidate);
     };
 
-    // Akwam exposes the actual playback router as a watch link on the
+    // The quality/action markup on current Akwam pages exposes the dedicated
+    // playback router (typically go.ak.sv/watch/<id>). We only use the watch
+    // target itself; we never resolve it into direct media.
+    for (const quality of extractQualities(content.html, content.url)) {
+      if (quality.kind === "watch") addCandidate(quality.url);
+    }
+
+    // Akwam also exposes the actual playback router as a watch link on the
     // content/episode page. Prefer that over any page-level iframe markup.
     for (const match of String(content.html || "").matchAll(
       /<a\b[^>]*href=["']([^"']*\/watch\/\d+(?:[/?#][^"']*)?)["'][^>]*>/gi,
