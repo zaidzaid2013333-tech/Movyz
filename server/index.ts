@@ -702,7 +702,6 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     }
     return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load playback sources');
   }
-  }
 }));
 
 
