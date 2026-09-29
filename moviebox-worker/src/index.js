@@ -1557,6 +1557,31 @@ function findEpisode(payload, season, episode) {
 
 async function resolveEpisode(payload, env) {
   if (payload?.mode === "iframe") return await resolveAkwamIframeOnly(payload, "series", env);
+
+  // Direct playback for episodes starts from the lightweight Akwam episode-page
+  // resolver, then hands that exact page to the normal media extractor. This
+  // avoids re-discovering the episode and prevents returning the full Akwam page
+  // to the Movyz player.
+  if (payload?.mode === "direct") {
+    try {
+      const page = await resolveViaAkwamIframeResolver(payload, "series", env);
+      const pageUrl = normalizeAkwamUrl(
+        page?.iframe_url || page?.source_url || page?.media_url,
+      );
+      if (!pageUrl) throw new Error("Akwam episode resolver returned no episode page");
+      return await resolveViaAkwamResolver({
+        ...payload,
+        content_url: pageUrl,
+        source_url: pageUrl,
+      }, "series", env);
+    } catch (error) {
+      console.warn(
+        "AKWAM_DIRECT_EPISODE_RESOLVER_FALLBACK:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
   const explicitSource = normalizeAkwamUrl(
     payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
   );
