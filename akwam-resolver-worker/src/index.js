@@ -1305,17 +1305,12 @@ async function resolveAkwamIframe(browser, payload) {
     throw new Error("AKWAM_IFRAME: invalid Akwam page URL");
   }
 
-  // Resolve the actual embedded player iframe from the Akwam watch/content page.
-  // Do not return the surrounding Akwam page: that is what caused the full-site
-  // shell to appear inside Movyz.
+  // Resolve the actual Akwam playback target from the content/episode page.
+  // Fast HTML is preferred. If it is only a JS shell, render the same page
+  // with Browser Run once, then inspect the rendered playback actions.
   let playerUrl = "";
-  try {
-    const content = await getContentPageDirectFirst(
-      browser,
-      safeSource,
-      "AKWAM_IFRAME_PLAYER",
-    );
 
+  const findPlayerUrl = (content) => {
     const candidates = [];
     const seen = new Set();
 
@@ -1326,30 +1321,27 @@ async function resolveAkwamIframe(browser, payload) {
       candidates.push(candidate);
     };
 
-    // The quality/action markup on current Akwam pages exposes the dedicated
-    // playback router (typically go.ak.sv/watch/<id>). We only use the watch
-    // target itself; we never resolve it into direct media.
+    // Current Akwam pages expose dedicated playback actions in quality tabs.
+    // These are normally go.ak.sv/watch/<id> and are the player routers.
     for (const quality of extractQualities(content.html, content.url)) {
       if (quality.kind === "watch") addCandidate(quality.url);
     }
 
-    // Akwam also exposes the actual playback router as a watch link on the
-    // content/episode page. Prefer that over any page-level iframe markup.
+    // Fallback: explicit watch links in the document.
     for (const match of String(content.html || "").matchAll(
       /<a\b[^>]*href=["']([^"']*\/watch\/\d+(?:[/?#][^"']*)?)["'][^>]*>/gi,
     )) {
       addCandidate(match[1]);
     }
 
-    // Fallback for pages that keep the router URL in scripts/data attributes.
+    // Fallback for JS/data payloads containing the dedicated router URL.
     for (const match of String(content.html || "").matchAll(
       /https?:\/\/[^"'<>\\s]+\/watch\/\d+(?:[/?#][^"'<>\\s]*)?/gi,
     )) {
       addCandidate(match[0]);
     }
 
-    // Only after exhausting the dedicated router links do we inspect iframe
-    // tags, because a content-page iframe is not automatically a player.
+    // Last HTML-only fallback: an explicitly embedded player/embed URL.
     for (const match of String(content.html || "").matchAll(
       /<iframe\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["'][^>]*>/gi,
     )) {
@@ -1372,7 +1364,31 @@ async function resolveAkwamIframe(browser, payload) {
         return score(b) - score(a);
       });
 
-    playerUrl = playableCandidates[0] || "";
+    return playableCandidates[0] || "";
+  };
+
+  try {
+    let content = await getContentPageDirectFirst(
+      browser,
+      safeSource,
+      "AKWAM_IFRAME_PLAYER",
+    );
+
+    playerUrl = findPlayerUrl(content);
+
+    if (!playerUrl) {
+      diagnostic(
+        "AKWAM_IFRAME_BROWSER_FALLBACK",
+        "No dedicated playback target in fast HTML; rendering " + safeSource,
+      );
+      content = await getContentPage(
+        browser,
+        safeSource,
+        "AKWAM_IFRAME_PLAYER_BROWSER",
+      );
+      playerUrl = findPlayerUrl(content);
+    }
+
   } catch (error) {
     diagnostic(
       "AKWAM_IFRAME_PLAYER_FALLBACK",
