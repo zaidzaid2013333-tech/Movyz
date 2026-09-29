@@ -53,10 +53,11 @@ function assertAkwamPage(value, label) {
     !/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(pathname),
     label + " returned an Akwam content page instead of a player: " + value,
   );
+  const isWatch = /\/watch\/\d+(?:[/?#]|$)/i.test(pathname);
+  const isDedicated = /\/(?:player|embed)(?:\/|[?#]|$)/i.test(pathname);
   assert(
-    /\/(?:player|embed)(?:\/|[?#]|$)/i.test(pathname) &&
-      !/\/watch\//i.test(pathname),
-    label + " returned a full-page Akwam route instead of a dedicated player iframe: " + value,
+    isWatch || isDedicated,
+    label + " did not return a valid Akwam player route: " + value,
   );
 }
 
@@ -102,6 +103,11 @@ async function inspectReturnedPlayer(url, label) {
     const videoContext = videoIndex >= 0
       ? html.slice(Math.max(0, videoIndex - 2600), Math.min(html.length, videoIndex + 6200))
       : "";
+    if (/\/watch\/\d+(?:[/?#]|$)/i.test(new URL(url).pathname)) {
+      assert(hasNativePlayer, label + " watch route does not expose <video id="player">");
+      assert(new URL(url).hash === "#player", label + " watch route is missing #player fragment: " + url);
+    }
+
     console.log(label + " TARGET_INSPECT", JSON.stringify({
       httpStatus: response.status,
       finalUrl: response.url,
@@ -153,7 +159,7 @@ function watchIframe(body, fixture, label) {
     assert(Number(body?.episode) === Number(fixture.episode), label + " episode mismatch");
     const pathname = new URL(iframe).pathname;
     assert(
-      /\/(?:player|embed)\//i.test(pathname) && !/\/watch\//i.test(pathname),
+      /\/(?:watch|player|embed)\//i.test(pathname),
       label + " did not return an Akwam episode/player route: " + iframe,
     );
   }
