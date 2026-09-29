@@ -335,16 +335,21 @@ async function getContentPageDirectFirst(browser, url, stage) {
   }
 }
 function seasonSearchLabel(season) {
-  const value = Number(season);
-  if (!Number.isInteger(value) || value < 1) return "";
-  const arabic = [
-    "", "الأول", "الثاني", "الثالث", "الرابع", "الخامس",
-    "السادس", "السابع", "الثامن", "التاسع", "العاشر",
-    "الحادي عشر", "الثاني عشر",
-  ];
-  return value <= 12
-    ? "الموسم " + arabic[value]
-    : "Season " + value;
+  const labels = {
+    1: "الموسم الاول",
+    2: "الموسم الثاني",
+    3: "الموسم الثالث",
+    4: "الموسم الرابع",
+    5: "الموسم الخامس",
+    6: "الموسم السادس",
+    7: "الموسم السابع",
+    8: "الموسم الثامن",
+    9: "الموسم التاسع",
+    10: "الموسم العاشر",
+    11: "الموسم الحادي عشر",
+    12: "الموسم الثاني عشر",
+  };
+  return labels[Number(season)] || ("season " + Number(season));
 }
 
 async function searchAkwam(browser, payload) {
@@ -1099,8 +1104,8 @@ async function searchAkwamEpisodeWithBrowser(browser, payload) {
     }
   }
 
-  if (best) {
-    diagnostic("AKWAM_BROWSER_SEARCH_EPISODE", best);
+  if (best && bestScore >= 1000) {
+    diagnostic("AKWAM_BROWSER_SEARCH_EPISODE", best + " score=" + bestScore);
     return best;
   }
   if (lastError) {
