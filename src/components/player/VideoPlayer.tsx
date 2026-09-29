@@ -105,7 +105,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const seen = new Set<string>();
         const resolvedSources: PlaybackSource[] = [];
 
-        for (const [index, source] of (Array.isArray(response?.data) ? response.data : []).entries()) {
+        const rawSources = Array.isArray(response?.data) ? (response.data as PlaybackSource[]) : [];\n        for (const [index, source] of rawSources.entries()) {
           const iframeUrl = String(source?.iframeUrl || '').trim();
           const candidate: PlaybackSource = {
             ...source,
