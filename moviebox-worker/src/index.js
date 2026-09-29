@@ -525,6 +525,10 @@ function decodeHtmlUrl(value) {
     .replace(/\\\\\//g, "/");
 }
 
+function diagnostic(stage, message) {
+  console.warn("[" + stage + "]", message);
+}
+
 function extractAkwamEpisodeSearchLinks(html) {
   const source = decodeHtmlUrl(html);
   const candidates = [];
