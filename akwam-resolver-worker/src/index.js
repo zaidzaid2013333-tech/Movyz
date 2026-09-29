@@ -1721,3 +1721,5 @@ export default { async fetch(request, env) {
 
   return json({ ok: false, error: "Not found" }, 404);
 } };
+
+// Production trigger marker: native Akwam #player iframe contract.
