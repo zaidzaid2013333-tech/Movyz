@@ -1197,15 +1197,6 @@ async function resolveAkwamIframeCached(browser, payload) {
   }
 }
 
-function isDedicatedWatchRouter(url) {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return host === "go.ak.sv" || host === "go.akwam.it" || host === "go.akwam.com.co";
-  } catch {
-    return false;
-  }
-}
-
 function isIframePlayerUrl(value, sourceUrl = "") {
   try {
     const url = new URL(value);
@@ -1223,10 +1214,7 @@ function isIframePlayerUrl(value, sourceUrl = "") {
       return false;
     }
 
-    if (/\/watch(?:\/|[?#]|$)/i.test(url.pathname)) {
-      return isDedicatedWatchRouter(url.href) && /\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname);
-    }
-
+    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) return true;
     return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
   } catch {
     return false;
