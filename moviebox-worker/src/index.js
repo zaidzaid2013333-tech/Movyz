@@ -555,7 +555,7 @@ function extractAkwamEpisodeSearchLinks(html) {
     const value = match[1];
     try {
       const decoded = decodeURIComponent(value);
-      if (/https?:\\/\\/[^/]*akwam\\./i.test(decoded) || /https?:\\/\\/ak\\.sv/i.test(decoded)) add(decoded);
+      if (/https?:\/\/[^/]*akwam\./i.test(decoded) || /https?:\/\/ak\.sv/i.test(decoded)) add(decoded);
     } catch {}
   }
 
