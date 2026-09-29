@@ -535,11 +535,29 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       },
     );
 
-    const payload = await response.json().catch(() => null);
+    const responseText = await response.text();
+    let payload: any = null;
+    try {
+      payload = responseText ? JSON.parse(responseText) : null;
+    } catch {
+      payload = null;
+    }
 
     if (!response.ok || !payload?.ok) {
+      const upstreamUrl = response.url || `${AKWAM_RESOLVER_BASE}/resolve-iframe`;
+      const location = response.headers.get('location') || '';
+      const detail = responseText.slice(0, 700).replace(/\s+/g, ' ').trim();
       const message = payload?.error || `Watch API request failed (${response.status})`;
-      console.error('[watch-api]', mediaType, tmdbId, message);
+      console.error('[watch-api]', mediaType, tmdbId, {
+        status: response.status,
+        url: upstreamUrl,
+        location,
+        body: detail,
+        message,
+      });
+      if (debugWatch) {
+        throw new Error(`${message}; upstream=${response.status}; url=${upstreamUrl}; location=${location}; body=${detail}`);
+      }
       throw new Error(message);
     }
 
