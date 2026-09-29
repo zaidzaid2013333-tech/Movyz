@@ -2,11 +2,6 @@ name: Deploy Akwam Resolver
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "akwam-resolver-worker/**"
-      - ".github/workflows/akwam-resolver-deploy.yml"
-      - ".github/scripts/verify-akwam-iframe.mjs"
 
 permissions:
   contents: read
