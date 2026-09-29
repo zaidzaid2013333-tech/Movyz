@@ -1438,7 +1438,7 @@ async function resolveAkwamIframe(browser, payload) {
   // that player. Return the native player route itself and anchor it to #player so
   // the iframe opens at the player rather than the page header.
   let iframeTarget = playerUrl;
-  if (/\\/watch\\/\\d+(?:[/?#]|$)/i.test(new URL(playerUrl).pathname)) {
+  if (/\/watch\/\d+(?:[/?#]|$)/i.test(new URL(playerUrl).pathname)) {
     const watchUrl = new URL(playerUrl);
     watchUrl.hash = "player";
     iframeTarget = watchUrl.toString();
