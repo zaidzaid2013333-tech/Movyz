@@ -48,6 +48,15 @@ function assertAkwamPage(value, label) {
     allowed.some((base) => host === base || host.endsWith("." + base)),
     label + " returned unexpected host: " + host,
   );
+  const pathname = new URL(value).pathname;
+  assert(
+    !/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(pathname),
+    label + " returned an Akwam content page instead of a player: " + value,
+  );
+  assert(
+    /\/(?:watch|player|embed)(?:\/|[?#]|$)/i.test(pathname),
+    label + " did not return a dedicated player route: " + value,
+  );
 }
 
 async function jsonFetch(url, init, label) {
@@ -88,7 +97,6 @@ async function resolverIframe(fixture, label) {
   assert(body?.ok === true, label + " did not return ok=true");
   const iframe = body?.iframe_url || body?.source_url || body?.media_url || "";
   assertAkwamPage(iframe, label + " iframe_url");
-  assert(/\/watch\/\d+(?:[/?#]|$)/i.test(new URL(iframe).pathname), label + " did not return a dedicated Akwam watch-player route: " + iframe);
   return { body, iframe };
 }
 
