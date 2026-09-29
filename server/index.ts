@@ -678,8 +678,9 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       episode,
     });
   } catch (error) {
-    console.error('[watch-api]', error instanceof Error ? error.message : error);
-    return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load playback sources');
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[watch-api]', message);
+    return fail(res, 502, 'WATCH_API_FAILED', message || 'Unable to load playback sources');
   }
 }));
 
