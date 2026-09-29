@@ -239,8 +239,8 @@ const episodeDescriptor = [
   episode?.title,
 ].filter(Boolean).join(" ");
 
-if (!/(الموسم[\\s_-]*(?:الاول|الأول)|season[\\s_-]*1)\\b?/i.test(episodeDescriptor) ||
-    !/(الحلقة[\\s_-]*:?[\\s]*1|episode[\\s_-]*1|ep[\\s_-]*1)\\b?/i.test(episodeDescriptor)) {
+if (!/(الموسم[\s_-]*(?:الاول|الأول)|season[\s_-]*1)/i.test(episodeDescriptor) ||
+    !/(الحلقة[\s_-]*:?[\s]*1|episode[\s_-]*1|ep[\s_-]*1)/i.test(episodeDescriptor)) {
   throw new Error(
     "Watch API episode returned a page that does not identify S01E01: " +
     episodeDescriptor.slice(0, 1200),
