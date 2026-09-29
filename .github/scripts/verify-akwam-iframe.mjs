@@ -247,7 +247,52 @@ for (const fixture of fixtures) {
     }));
 
     if (fixture.label === "Akwam resolver movie" && index === 0) {
-      const readAndScan = async (label, rangeHeader, timeoutMs = 20_000) => {
+      let tokenPayload = null;
+      try {
+        tokenPayload = JSON.parse(
+          Buffer.from(
+            token.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (token.length % 4)) % 4),
+            "base64",
+          ).toString("utf8"),
+        );
+      } catch {}
+
+      let directUpstream = null;
+      try {
+        const directStarted = performance.now();
+        const referer = String(tokenPayload?.referer || "").trim();
+        const origin = referer ? (() => {
+          try { return new URL(referer).origin; } catch { return ""; }
+        })() : "";
+        const upstreamResponse = await fetch(rawSource, {
+          headers: {
+            Accept: "video/mp4,video/*,application/octet-stream,*/*;q=0.8",
+            Range: "bytes=0-262143",
+            ...(referer ? { Referer: referer } : {}),
+            ...(origin ? { Origin: origin } : {}),
+          },
+          signal: AbortSignal.timeout(20_000),
+        });
+        const upstreamBuffer = new Uint8Array(await upstreamResponse.arrayBuffer());
+        directUpstream = {
+          status: upstreamResponse.status,
+          contentType: upstreamResponse.headers.get("content-type") || "",
+          contentRange: upstreamResponse.headers.get("content-range") || "",
+          elapsedMs: Math.round(performance.now() - directStarted),
+          bytesRead: upstreamBuffer.byteLength,
+          ftypOffset: Math.max(-1, new TextDecoder("latin1").decode(upstreamBuffer).indexOf("ftyp") - 4),
+          moovOffset: Math.max(-1, new TextDecoder("latin1").decode(upstreamBuffer).indexOf("moov") - 4),
+        };
+      } catch (error) {
+        directUpstream = { error: error instanceof Error ? error.message : String(error) };
+      }
+
+      console.log(fixture.label + " DIRECT_UPSTREAM_256K", JSON.stringify({
+        quality: source?.quality || "auto",
+        directUpstream,
+      }));
+
+      const readAndScan = async (label, rangeHeader, url = mediaUrl, timeoutMs = 20_000) => {
         const started = performance.now();
         const response = await fetch(mediaUrl, {
           headers: {
