@@ -4,12 +4,12 @@ const API_BASE = (process.env.MOVYZ_API_BASE ||
 const fixtures = [
   {
     label: "Movyz API movie",
-    url: API_BASE + "/watch/movie/27205",
+    url: API_BASE + "/watch/movie/27205?debug=1",
     kind: "movie",
   },
   {
     label: "Movyz API series episode",
-    url: API_BASE + "/watch/series/5920?season=1&episode=1",
+    url: API_BASE + "/watch/series/5920?season=1&episode=1&debug=1",
     kind: "episode",
   },
 ];
