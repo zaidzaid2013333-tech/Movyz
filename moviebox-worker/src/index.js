@@ -577,6 +577,165 @@ function extractAkwamEpisodeSearchLinks(html) {
 
   return candidates;
 }
+function decodeAkwamText(value) {
+  let current = String(value || "");
+  for (let i = 0; i < 2; i += 1) {
+    try {
+      const next = decodeURIComponent(current);
+      if (next === current) break;
+      current = next;
+    } catch {
+      break;
+    }
+  }
+  return current
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'");
+}
+
+function scoreAkwamDirectSeriesEntry(title, url, payload) {
+  const wanted = [payload?.title, payload?.title_en, payload?.original_title, payload?.title_ar]
+    .map(normalizeTitle).filter(Boolean);
+  const text = normalizeTitle(decodeAkwamText(title) + " " + decodeAkwamText(url));
+  let score = 0;
+  for (const value of wanted) {
+    if (text.includes(value)) score = Math.max(score, 700);
+    if (normalizeTitle(decodeAkwamText(title)) === value) score = Math.max(score, 1000);
+  }
+  const season = Number(payload?.season);
+  const seasonLabel = normalizeTitle(seasonSearchLabel(season));
+  if (seasonLabel && text.includes(seasonLabel)) score += 220;
+  const year = Number(payload?.year);
+  if (year && new RegExp("\\b" + year + "\\b").test(decodeAkwamText(title) + " " + decodeAkwamText(url))) score += 90;
+  return score;
+}
+
+function extractAkwamDirectEpisodeUrl(html, base, payload) {
+  const season = Number(payload?.season);
+  const episode = Number(payload?.episode);
+  if (!Number.isInteger(episode) || episode < 1) return "";
+  const wantedSeason = normalizeTitle(seasonSearchLabel(season));
+  const links = [];
+
+  for (const match of String(html).matchAll(/<a\\b[^>]*href=["']([^"']*\\/episode\\/[^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)) {
+    const href = decodeAkwamText(match[1]);
+    const label = decodeAkwamText(stripHtml(match[2]));
+    let decodedHref = href;
+    try { decodedHref = decodeURIComponent(href); } catch {}
+    const combined = label + " " + decodedHref;
+    const normalized = normalizeTitle(combined);
+    const episodeMatch = combined.match(/(?:الحلقة|حلقة|episode|ep)[-_\\s:#]*0*(\\d{1,3})\\b/i);
+    const foundEpisode = episodeMatch ? Number(episodeMatch[1]) : null;
+    const hasSeason = wantedSeason ? normalized.includes(wantedSeason) : true;
+    if (foundEpisode === episode && hasSeason) return absoluteAkwamEpisodeUrl(href, base);
+    links.push({ href, normalized, foundEpisode, hasSeason });
+  }
+
+  const exact = links.find((item) => item.foundEpisode === episode && (item.hasSeason || !Number.isInteger(season)));
+  if (exact) return absoluteAkwamEpisodeUrl(exact.href, base);
+  const ordered = links.filter((item) => item.hasSeason || !Number.isInteger(season));
+  return ordered[episode - 1] ? absoluteAkwamEpisodeUrl(ordered[episode - 1].href, base) : "";
+}
+
+function absoluteAkwamEpisodeUrl(value, base) {
+  try {
+    const url = new URL(value, base);
+    if (!isAkwamUrl(url.href)) return "";
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
+async function searchAkwamEpisodeDirect(payload) {
+  const title = clean(payload?.title) || clean(payload?.title_en) || clean(payload?.original_title) || clean(payload?.title_ar);
+  const season = Number(payload?.season);
+  const episode = Number(payload?.episode);
+  if (!title || !Number.isInteger(season) || season < 1 || !Number.isInteger(episode) || episode < 1) return "";
+
+  const titles = [...new Set([
+    title,
+    clean(payload?.title_en),
+    clean(payload?.original_title),
+    clean(payload?.title_ar),
+  ].filter(Boolean))];
+  const bases = ["https://akwam.ss", "https://akwam.it"];
+  let best = null;
+  let lastError = null;
+
+  for (const candidateTitle of titles.slice(0, 4)) {
+    for (const base of bases) {
+      const url = base + "/search?q=" + encodeURIComponent(candidateTitle) + "&section=series&page=1";
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 9_000);
+      try {
+        const response = await fetch(url, {
+          redirect: "follow",
+          headers: {
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ar,en-US;q=0.8,en;q=0.5",
+            Referer: base + "/",
+            "User-Agent": UA,
+          },
+          signal: controller.signal,
+        });
+        const html = await response.text();
+        if (!response.ok) {
+          lastError = new Error("Akwam search HTTP " + response.status + " at " + base);
+          continue;
+        }
+
+        const entries = [];
+        for (const match of html.matchAll(/<a\\b[^>]*href=["']([^"']*\\/(?:series|movie)\\/[^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)) {
+          const href = match[1];
+          const label = stripHtml(match[2]);
+          const score = scoreAkwamDirectSeriesEntry(label, href, payload);
+          if (score > 0) entries.push({ href, label, score });
+        }
+        entries.sort((a, b) => b.score - a.score);
+        diagnostic("AKWAM_DIRECT_SERIES_SEARCH", "base=" + base + " title=" + candidateTitle + " entries=" + entries.length);
+
+        for (const entry of entries.slice(0, 6)) {
+          const pageUrl = absoluteAkwamEpisodeUrl(entry.href, base) || "";
+          if (!pageUrl) continue;
+          const pageResponse = await fetch(pageUrl, {
+            redirect: "follow",
+            headers: {
+              Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "Accept-Language": "ar,en-US;q=0.8,en;q=0.5",
+              Referer: base + "/",
+              "User-Agent": UA,
+            },
+            signal: AbortSignal.timeout(9_000),
+          });
+          const pageHtml = await pageResponse.text();
+          if (!pageResponse.ok) continue;
+          const episodeUrl = extractAkwamDirectEpisodeUrl(pageHtml, pageResponse.url || pageUrl, payload);
+          if (!episodeUrl) continue;
+          const score = entry.score + (episodeUrl.includes("/episode/") ? 100 : 0);
+          if (!best || score > best.score) best = { url: episodeUrl, score };
+          if (score >= 1000) {
+            diagnostic("AKWAM_DIRECT_EPISODE", episodeUrl);
+            return episodeUrl;
+          }
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  if (best) {
+    diagnostic("AKWAM_DIRECT_EPISODE", best.url);
+    return best.url;
+  }
+  if (lastError) diagnostic("AKWAM_DIRECT_SERIES_SEARCH_FAILED", lastError.message);
+  return "";
+}
+
 function seasonSearchLabel(season) {
   const labels = {
     1: "الموسم الاول",
@@ -749,6 +908,11 @@ async function resolveAkwamIframeOnly(payload, type, env) {
   // For iframe playback, discover the actual Akwam episode page first.
   // This avoids coupling the public iframe path to the legacy AbdoBest API.
   if (type === "series") {
+    const directEpisode = await searchAkwamEpisodeDirect(payload);
+    if (directEpisode && isAkwamUrl(directEpisode)) {
+      return build(directEpisode);
+    }
+
     const webEpisode = await searchAkwamEpisodeWeb(payload);
     if (webEpisode && isAkwamUrl(webEpisode)) {
       return build(webEpisode);
