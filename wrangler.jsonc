@@ -18,10 +18,4 @@
   "browser": {
     "binding": "BROWSER"
   },
-  "services": [
-    {
-      "binding": "WATCH_API",
-      "service": "movyz-moviebox"
-    }
-  ]
 }
