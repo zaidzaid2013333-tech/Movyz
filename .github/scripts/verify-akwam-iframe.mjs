@@ -205,18 +205,18 @@ for (const fixture of fixtures) {
           startupBuffer[offset + 6],
           startupBuffer[offset + 7],
         );
-        const boxSize = size === 1 && offset + 16 <= startupBuffer.byteLength
-          ? Number(view.getUint32(offset + 12)) * 2 ** 32 + Number(view.getUint32(offset + 16 - 4))
-          : size;
         if (type === "moov") {
           moovFound = true;
           break;
         }
+        const boxSize = size;
         if (!boxSize || boxSize < 8) break;
         offset += boxSize;
       }
       if (moovFound !== true) moovFound = false;
     }
+
+    if (!startupBuffer) startupResponse.body?.cancel();
 
     console.log(fixture.label + " STARTUP_RANGE PASS", JSON.stringify({
       quality,
