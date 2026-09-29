@@ -632,7 +632,11 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
               : {
                   mode: 'direct',
                   tmdb_id: tmdbId,
-                  title: titleEn || title,
+                  title: titleEn || titleAr || originalTitle || title,
+                  title_en: titleEn,
+                  title_ar: titleAr,
+                  original_title: originalTitle,
+                  titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
                   year,
                   season,
                   episode,
