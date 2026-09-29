@@ -24,29 +24,28 @@ const isAkwamPlayerUrl = (value: string) => {
     const host = url.hostname.toLowerCase();
     const allowedHost =
       host === 'akwam.ss' || host.endsWith('.akwam.ss') ||
-      host === 'akwam.it' || host.endsWith('.akwam.it') || host === 'go.akwam.it' ||
-      host === 'ak.sv' || host.endsWith('.ak.sv') || host === 'go.ak.sv' ||
+      host === 'akwam.it' || host.endsWith('.akwam.it') ||
+      host === 'ak.sv' || host.endsWith('.ak.sv') ||
       host === 'akwam.ee' || host.endsWith('.akwam.ee') ||
-      host === 'akwam.com.co' || host.endsWith('.akwam.com.co') || host === 'go.akwam.com.co' ||
+      host === 'akwam.com.co' || host.endsWith('.akwam.com.co') ||
       host === 'akwam.net' || host.endsWith('.akwam.net') ||
       host === 'downet.net' || host.endsWith('.downet.net');
+
     if (!allowedHost) return false;
-    if (/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(url.pathname)) return false;
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) {
-      return url.hash === '#player';
+    if (/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register|watch)(?:\/|[?#]|$)/i.test(url.pathname)) {
+      return false;
     }
+
     return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 };
 
 const normalizeAkwamPlayerUrl = (value: string) => {
   try {
     const url = new URL(value);
-    if (!isAkwamPlayerUrl(value)) return '';
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) {
-      url.hash = '#player';
-    }
-    return url.toString();
+    return isAkwamPlayerUrl(url.toString()) ? url.toString() : '';
   } catch {
     return '';
   }
@@ -114,10 +113,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     );
   }
 
-  const cropTop = contentType === 'series'
-    ? 'clamp(205px, 24vw, 285px)'
-    : 'clamp(175px, 19vw, 240px)';
-
   return (
     <div
       className="relative aspect-video w-full overflow-hidden bg-black"
@@ -128,11 +123,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           key={iframeUrl}
           src={iframeUrl}
           title={displayTitle}
-          className="absolute left-0 w-full border-0 bg-black"
-          style={{
-            top: `-${cropTop}`,
-            height: `calc(100% + ${cropTop})`,
-          }}
+          className="absolute inset-0 h-full w-full border-0 bg-black"
           allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
           allowFullScreen
           loading="eager"
