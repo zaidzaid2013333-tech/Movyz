@@ -1,4 +1,5 @@
 name: Movyz Akwam Iframe Resolver Deploy
+
 on:
   push:
     branches: ["main"]
@@ -10,11 +11,14 @@ on:
       - "server/index.ts"
       - ".github/workflows/watch-api-deploy.yml"
   workflow_dispatch:
+
 permissions:
   contents: read
+
 concurrency:
   group: movyz-akwam-iframe-production
   cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -22,65 +26,22 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
       - name: Validate Akwam Resolver
         run: node --check akwam-resolver-worker/src/index.js
+
       - name: Cloudflare dry run
         run: npx --yes wrangler@4 deploy --config akwam-resolver-worker/wrangler.toml --dry-run
+
       - name: Deploy Akwam Resolver
         run: npx --yes wrangler@4 deploy --config akwam-resolver-worker/wrangler.toml
+
       - name: Smoke test Akwam iframe resolver
         run: node .github/scripts/verify-akwam-iframe.mjs
-
-
-  deploy-movyz:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Configure npm
-        run: |
-          npm config set fetch-retries 5
-          npm config set fetch-retry-mintimeout 20000
-          npm config set fetch-retry-maxtimeout 120000
-          npm config set audit false
-          npm config set fund false
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-      - name: Validate code
-        run: |
-          npm run lint
-          npm test
-      - name: Build frontend
-        run: npm run build
-      - name: Validate Cloudflare configuration
-        run: npx wrangler deploy --dry-run
-      - name: Prepare deployment secrets
-        run: |
-          {
-            printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"
-            printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_ANON_KEY"
-            printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
-            printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
-          } > .env.production
-      - name: Deploy Movyz
-        run: npx wrangler deploy --secrets-file .env.production
-      - name: Verify production Watch API route
-        run: node .github/scripts/verify-movyz-watch-route.mjs
-      - name: Remove temporary secrets file
-        if: always()
-        run: rm -f .env.production
