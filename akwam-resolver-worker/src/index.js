@@ -377,11 +377,38 @@ async function searchAkwam(browser, payload) {
 
       for (let attempt = 0; attempt <= SEARCH_BACKOFF_MS.length; attempt += 1) {
         try {
-          const page = await getContentPageDirectFirst(browser, searchUrl, "AKWAM_SEARCH");
-          const entries = searchEntries(page.html, page.url);
-          const ranked = entries
+          let page = await getContentPageDirectFirst(browser, searchUrl, "AKWAM_SEARCH");
+          let entries = searchEntries(page.html, page.url);
+
+          // Akwam search can return a non-challenge HTML shell without the
+          // rendered result cards. Force a Browser Run fetch when direct parsing
+          // is empty or cannot produce a season-compatible match.
+          let ranked = entries
             .map((entry) => ({ ...entry, score: scoreEntry(entry, payload) }))
             .sort((a, b) => b.score - a.score);
+
+          const needsBrowserSearch =
+            entries.length === 0 ||
+            !ranked.some((entry) => entry.score > 0);
+
+          if (needsBrowserSearch) {
+            try {
+              const browserPage = await getContentPage(browser, searchUrl, "AKWAM_SEARCH_BROWSER");
+              const browserEntries = searchEntries(browserPage.html, browserPage.url);
+              if (browserEntries.length) {
+                page = browserPage;
+                entries = browserEntries;
+                ranked = entries
+                  .map((entry) => ({ ...entry, score: scoreEntry(entry, payload) }))
+                  .sort((a, b) => b.score - a.score);
+              }
+            } catch (browserError) {
+              diagnostic(
+                "AKWAM_SEARCH_BROWSER_FAILED",
+                String(browserError?.message || browserError || "browser search failed"),
+              );
+            }
+          }
 
           diagnostic("AKWAM_SEARCH", "query=" + candidateTitle + " base=" + base + " entries=" + entries.length);
 
