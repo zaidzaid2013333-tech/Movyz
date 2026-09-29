@@ -48,6 +48,23 @@ function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json; charset=utf-8", ...CORS } });
 }
 function clean(value) { return typeof value === "string" ? value.trim() : ""; }
+function upstreamContextHeaders(referer, url = "") {
+  if (!referer) return {};
+
+  let isManifest = false;
+  try {
+    const value = new URL(url);
+    isManifest = /\.(?:m3u8|mpd)(?:[?#]|$)/i.test(value.pathname + value.search) ||
+      /(?:m3u8|mpd)(?:[?#=&]|$)/i.test(value.toString());
+  } catch {}
+
+  const headers = { Referer: referer };
+  if (isManifest) {
+    try { headers.Origin = new URL(referer).origin; } catch {}
+  }
+  return headers;
+}
+
 function diagnostic(stage, message) { console.log(`[${stage}] ${message}`); }
 function normalizeTitle(value) {
   return clean(value).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
@@ -846,10 +863,7 @@ async function validateMediaUrl(initialUrl, referer = "") {
         Accept: "video/*,application/vnd.apple.mpegurl,application/dash+xml,*/*;q=0.8",
         Range: "bytes=0-65535",
         "User-Agent": UA,
-        ...(referer ? {
-          Referer: referer,
-          Origin: (() => { try { return new URL(referer).origin; } catch { return ""; } })(),
-        } : {}),
+        ...upstreamContextHeaders(referer, url),
       },
       redirect: "manual",
       signal: AbortSignal.timeout(10_000),
@@ -871,10 +885,7 @@ async function validateMediaUrl(initialUrl, referer = "") {
         headers: {
           Accept: "video/*,application/vnd.apple.mpegurl,application/dash+xml,*/*;q=0.8",
           "User-Agent": UA,
-          ...(referer ? {
-            Referer: referer,
-            Origin: (() => { try { return new URL(referer).origin; } catch { return ""; } })(),
-          } : {}),
+          ...upstreamContextHeaders(referer, url),
         },
         redirect: "manual",
         signal: AbortSignal.timeout(10_000),
@@ -1969,7 +1980,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "adaptive-range-2026-09-29-r7";
+const RESOLVER_VERSION = "adaptive-origin-2026-09-29-r8";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
@@ -2238,10 +2249,7 @@ async function proxyAkwamMedia(request, requestUrl) {
     Accept: "video/*,application/octet-stream,*/*;q=0.8",
     "User-Agent": UA,
     ...(upstreamRange ? { Range: upstreamRange } : {}),
-    ...(target.payload.referer ? {
-      Referer: target.payload.referer,
-      Origin: (() => { try { return new URL(target.payload.referer).origin; } catch { return ""; } })(),
-    } : {}),
+    ...upstreamContextHeaders(target.payload.referer, target.url),
   };
 
   let response = await fetch(target.url, {
