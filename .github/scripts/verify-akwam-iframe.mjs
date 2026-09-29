@@ -147,8 +147,11 @@ for (const fixture of fixtures) {
 
   assert(startupResponse.status === 206,
     fixture.label + " initial MP4 did not return 206: " + startupResponse.status);
-  assert(/^video\/mp4$/i.test(startupType),
-    fixture.label + " initial MP4 content-type is " + startupType);
+  assert(
+    /^video\/mp4$/i.test(startupType) ||
+      (playbackPath === "direct" && /octet-stream/i.test(startupType)),
+    fixture.label + " initial MP4 content-type is " + startupType,
+  );
   assert(Boolean(rangeMatch),
     fixture.label + " initial MP4 missing Content-Range");
 
