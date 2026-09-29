@@ -420,7 +420,13 @@ function normalizeWatchSources(payload: any) {
   const stream = payload?.stream || {};
   const iframeUrl = normalizeAkwamIframeUrl(
     payload?.iframe_url ||
-    stream.iframe_url,
+    payload?.iframeUrl ||
+    payload?.player_url ||
+    payload?.playerUrl ||
+    stream.iframe_url ||
+    stream.iframeUrl ||
+    stream.player_url ||
+    stream.playerUrl,
   );
   if (!iframeUrl) return [];
 
@@ -436,6 +442,7 @@ function normalizeWatchSources(payload: any) {
     isWorking: true,
     provider: 'Akwam',
     providerKey: 'akwam-iframe',
+    providerReference: iframeUrl,
     subtitleTracks: [],
   }];
 }
