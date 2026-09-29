@@ -1463,7 +1463,7 @@ async function resolveAkwamIframe(browser, payload) {
   // path that could return the surrounding site shell instead of the player.
   const iframeTarget = (() => {
     const anchored = new URL(playerUrl);
-    if (/\\/watch\\/\\d+(?:[/?#]|$)/i.test(anchored.pathname)) {
+    if (/\/watch\/\d+(?:[/?#]|$)/i.test(anchored.pathname)) {
       anchored.hash = "#player";
     }
     return anchored.toString();
