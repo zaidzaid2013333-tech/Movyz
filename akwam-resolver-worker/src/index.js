@@ -1261,9 +1261,9 @@ async function resolveAkwamIframe(browser, payload) {
     throw new Error("AKWAM_IFRAME: invalid Akwam page URL");
   }
 
-  // Prefer Akwam's dedicated /watch/<id> playback route when the content page
-  // exposes one. Embedding the content page itself renders the whole Akwam site;
-  // /watch/<id> is the player route we actually want inside Movyz.
+  // Resolve the actual embedded player iframe from the Akwam watch/content page.
+  // Do not return the surrounding Akwam page: that is what caused the full-site
+  // shell to appear inside Movyz.
   let playerUrl = "";
   try {
     const content = await getContentPageDirectFirst(
@@ -1271,44 +1271,33 @@ async function resolveAkwamIframe(browser, payload) {
       safeSource,
       "AKWAM_IFRAME_PLAYER",
     );
-    // Prefer the dedicated go.ak.sv playback router. Akwam content mirrors
-    // may also expose /watch/<id> links on their public domain, but those
-    // routes can render the full site shell instead of the player.
-    const watchCandidates = [];
+
+    const candidates = [];
+    const seen = new Set();
+
     for (const match of String(content.html || "").matchAll(
-      /<a\b[^>]*href=["']([^"']*\/watch\/\d+(?:[/?#][^"']*)?)["'][^>]*>/gi,
+      /<iframe\\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["'][^>]*>/gi,
     )) {
-      const candidate = safeUrl(match[1], content.url, { pageOnly: true });
-      if (candidate && /\/watch\/\d+(?:[/?#]|$)/i.test(candidate)) {
-        watchCandidates.push(candidate);
-      }
+      const candidate = absoluteUrl(match[1], content.url);
+      if (!candidate || seen.has(candidate)) continue;
+      seen.add(candidate);
+      candidates.push(candidate);
     }
 
-    watchCandidates.sort((a, b) => {
-      const score = (value) => {
-        try {
-          const host = new URL(value).hostname.toLowerCase();
-          if (host === "go.ak.sv" || host === "go.akwam.it" || host === "go.akwam.com.co") return 100;
-          if (host === "ak.sv" || host === "akwam.it" || host === "akwam.ss") return 50;
-        } catch {}
-        return 0;
-      };
-      return score(b) - score(a);
+    const preferred = candidates.find((candidate) => {
+      try {
+        const url = new URL(candidate);
+        return /^https?:$/.test(url.protocol) &&
+          !isPrivateHost(url.hostname) &&
+          (isAllowedPageHost(url.hostname) ||
+            /(?:player|embed|video)/i.test(url.hostname) ||
+            /\\/(?:player|embed|watch)\\//i.test(url.pathname));
+      } catch {
+        return false;
+      }
     });
 
-    playerUrl = watchCandidates[0] || "";
-
-    if (!playerUrl) {
-      const rawWatch = String(content.html || "").match(
-        /https?:\/\/(?:go\.)?ak(?:wam\.it|\.sv)[^"'<>\\s]*\/watch\/\d+(?:[/?#][^"'<>\\s]*)?/i,
-      )?.[0];
-      if (rawWatch) {
-        const candidate = safeUrl(rawWatch, content.url, { pageOnly: true });
-        if (candidate && /\/watch\/\d+(?:[/?#]|$)/i.test(candidate)) {
-          playerUrl = candidate;
-        }
-      }
-    }
+    playerUrl = preferred || "";
   } catch (error) {
     diagnostic(
       "AKWAM_IFRAME_PLAYER_FALLBACK",
@@ -1317,7 +1306,7 @@ async function resolveAkwamIframe(browser, payload) {
   }
 
   if (!playerUrl) {
-    throw new Error("AKWAM_IFRAME_PLAYER: no dedicated /watch/<id> player route found");
+    throw new Error("AKWAM_IFRAME_PLAYER: no embedded player iframe found");
   }
 
   const iframeTarget = playerUrl;
