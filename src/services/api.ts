@@ -152,10 +152,6 @@ export const MovyzaApi = {
     return requestPromise;
   },
 
-  // Backward-compatible legacy endpoint; the Watch page does not use it.
-  getPlaybackSources: (contentType: 'movie' | 'episode', contentId: string) =>
-    request<import('../types').PlaybackSource[]>(`/playback/sources${query({ contentType, contentId })}`),
-
   getGenres: () => request<Genre[]>('/genres'),
 
   getWatchlist: () => request<WatchlistItem[]>('/watchlist'),
