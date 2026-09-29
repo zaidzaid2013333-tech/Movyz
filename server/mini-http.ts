@@ -1,4 +1,5 @@
 export type QueryParams = Record<string, string | string[] | undefined>;
+export type WorkerEnvironment = Record<string, unknown>;
 
 export interface HttpRequest {
   method: string;
@@ -10,6 +11,7 @@ export interface HttpRequest {
   userId?: string;
   role?: 'USER'|'ADMIN'|'OWNER';
   supabase?: any;
+  env?: WorkerEnvironment;
   header(name: string): string | undefined;
 }
 
@@ -73,11 +75,12 @@ export class MiniApp {
   patch(pattern:string,...handlers:RequestHandler[]){this.routes.push({method:'PATCH',pattern,handlers});return this;}
   delete(pattern:string,...handlers:RequestHandler[]){this.routes.push({method:'DELETE',pattern,handlers});return this;}
 
-  async handle(request:Request):Promise<Response>{
+  async handle(request:Request, env?: WorkerEnvironment):Promise<Response>{
     const url=new URL(request.url);
     const req:HttpRequest={
       method:request.method,url:request.url,headers:request.headers,body:{},params:{},
       query:Object.fromEntries(url.searchParams.entries()),
+      env,
       header:(name:string)=>request.headers.get(name)||undefined,
     };
     if(['POST','PUT','PATCH','DELETE'].includes(request.method)){
