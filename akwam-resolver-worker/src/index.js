@@ -926,14 +926,18 @@ function isMediaResponse(contentType, contentDisposition, url, bytes) {
   let host = "";
   try { host = new URL(value).hostname.toLowerCase(); } catch {}
 
+  const pageHost = isAkwamPageHost(host);
+  const dispositionLooksMedia =
+    !pageHost &&
+    /filename\s*=.*\.(?:mp4|m4v|webm|m3u8|mpd)/i.test(cd);
   const extensionLooksMedia =
-    !isAkwamPageHost(host) &&
+    !pageHost &&
     /\.(?:mp4|m4v|webm|m3u8|mpd)(?:[?#]|$)/.test(value);
 
   return /^video\//.test(ct) ||
     /mpegurl|vnd\.apple\.mpegurl/.test(ct) ||
     /dash\+xml|application\/dash/.test(ct) ||
-    /filename\s*=.*\.(?:mp4|m4v|webm|m3u8|mpd)/i.test(cd) ||
+    dispositionLooksMedia ||
     extensionLooksMedia ||
     hasMp4Signature(bytes);
 }
