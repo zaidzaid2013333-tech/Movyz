@@ -105,7 +105,7 @@ async function inspectReturnedPlayer(url, label) {
       ? html.slice(Math.max(0, videoIndex - 2600), Math.min(html.length, videoIndex + 6200))
       : "";
     if (/\/watch\/\d+(?:[/?#]|$)/i.test(new URL(url).pathname)) {
-      assert(hasNativePlayer, label + " watch route does not expose <video id="player">");
+      assert(hasNativePlayer, label + " watch route does not expose <video id=player>");
       assert(new URL(url).hash === "#player", label + " watch route is missing #player fragment: " + url);
     }
 
