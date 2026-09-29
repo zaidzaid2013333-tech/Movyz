@@ -1799,8 +1799,8 @@ function loadSource(index){
       hls=new Hls({
         enableWorker:true,
         lowLatencyMode:false,
-        backBufferLength:60,
-        maxBufferLength:30,
+        backBufferLength:30,
+        maxBufferLength:20,
         xhrSetup:(xhr)=>{xhr.withCredentials=false;},
       });
 
@@ -1911,7 +1911,28 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-function parseSingleRange(value, total) {
+const STARTUP_BUFFER_SECONDS = 20;
+const QUALITY_BITRATES_BPS = {
+  "2160p": 20_000_000,
+  "1440p": 12_000_000,
+  "1080p": 7_000_000,
+  "900p": 5_000_000,
+  "720p": 4_000_000,
+  "576p": 2_500_000,
+  "540p": 2_000_000,
+  "480p": 1_500_000,
+  "360p": 800_000,
+  "240p": 500_000,
+};
+
+function startupRangeBytes(quality, total) {
+  const normalized = normalizeQuality(quality);
+  const bitrate = QUALITY_BITRATES_BPS[normalized] || QUALITY_BITRATES_BPS["720p"];
+  const target = Math.ceil((bitrate * STARTUP_BUFFER_SECONDS) / 8);
+  return Math.max(512 * 1024, Math.min(target, 50 * 1024 * 1024, Math.max(total, 0)));
+}
+
+function parseSingleRange(value, total, { startupQuality = "" } = {}) {
   const match = String(value || "").trim().match(/^bytes=(\\d+)-(\\d*)$/i);
   if (!match || !Number.isFinite(total) || total <= 0) return null;
 
@@ -1919,12 +1940,21 @@ function parseSingleRange(value, total) {
   let end = match[2] === "" ? total - 1 : Number(match[2]);
   if (!Number.isInteger(start) || start < 0 || start >= total) return { invalid: true };
   if (!Number.isInteger(end) || end < start) return { invalid: true };
+
   end = Math.min(end, total - 1);
+
+  // Only cap the very first byte range (start=0). Later ranges and seeks
+  // remain fully controlled by the browser so normal seeking is not impaired.
+  if (start === 0 && startupQuality) {
+    const maxBytes = startupRangeBytes(startupQuality, total);
+    end = Math.min(end, maxBytes - 1);
+  }
+
   return { start, end, length: end - start + 1 };
 }
 
-function sliceRangeResponse(upstream, rangeHeader, upstreamTotal) {
-  const parsed = parseSingleRange(rangeHeader, upstreamTotal);
+function sliceRangeResponse(upstream, rangeHeader, upstreamTotal, startupQuality = "") {
+  const parsed = parseSingleRange(rangeHeader, upstreamTotal, { startupQuality });
   if (!parsed) return null;
 
   if (parsed.invalid) {
@@ -2044,10 +2074,21 @@ async function proxyAkwamMedia(request, requestUrl) {
   if (!target) return json({ ok: false, error: "Invalid media source" }, 400);
 
   const range = request.headers.get("Range") || "";
+  const sourceQuality = (() => {
+    const requested = requestUrl.searchParams.get("u") || "";
+    return target.payload.sources.find((source) => source.url === requested)?.quality || "";
+  })();
+  const upstreamRange = (() => {
+    if (!range || !/^bytes=\\d+-/i.test(range) || !sourceQuality) return range;
+    const totalHint = 50 * 1024 * 1024 * 1024;
+    const parsed = parseSingleRange(range, totalHint, { startupQuality: sourceQuality });
+    if (!parsed || parsed.invalid || parsed.start !== 0) return range;
+    return "bytes=" + parsed.start + "-" + parsed.end;
+  })();
   const upstreamHeaders = {
     Accept: "video/*,application/octet-stream,*/*;q=0.8",
     "User-Agent": UA,
-    ...(range ? { Range: range } : {}),
+    ...(upstreamRange ? { Range: upstreamRange } : {}),
     ...(target.payload.referer ? {
       Referer: target.payload.referer,
       Origin: (() => { try { return new URL(target.payload.referer).origin; } catch { return ""; } })(),
@@ -2125,7 +2166,7 @@ async function proxyAkwamMedia(request, requestUrl) {
   // forcing the browser to download hundreds of MB before playback starts.
   if (range && response.status === 200) {
     const total = Number(response.headers.get("content-length") || 0);
-    const sliced = sliceRangeResponse(response, range, total);
+    const sliced = sliceRangeResponse(response, range, total, sourceQuality);
     if (sliced) {
       sliced.headers.set("Cache-Control", "private, max-age=30");
       return sliced;
