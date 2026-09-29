@@ -1866,6 +1866,7 @@ function proxyMediaHeaders(upstream) {
   const headers = new Headers();
   for (const name of [
     "content-type",
+    "content-length",
     "content-range",
     "accept-ranges",
     "cache-control",
@@ -1886,19 +1887,35 @@ async function proxyAkwamMedia(request, requestUrl) {
   if (!target) return json({ ok: false, error: "Invalid media source" }, 400);
 
   const range = request.headers.get("Range") || "";
-  const response = await fetch(target.url, {
+  const upstreamHeaders = {
+    Accept: "video/*,application/octet-stream,*/*;q=0.8",
+    "User-Agent": UA,
+    ...(range ? { Range: range } : {}),
+    ...(target.payload.referer ? {
+      Referer: target.payload.referer,
+      Origin: (() => { try { return new URL(target.payload.referer).origin; } catch { return ""; } })(),
+    } : {}),
+  };
+
+  let response = await fetch(target.url, {
     redirect: "follow",
-    headers: {
-      Accept: "*/*",
-      "User-Agent": UA,
-      ...(range ? { Range: range } : {}),
-      ...(target.payload.referer ? {
-        Referer: target.payload.referer,
-        Origin: (() => { try { return new URL(target.payload.referer).origin; } catch { return ""; } })(),
-      } : {}),
-    },
+    headers: upstreamHeaders,
     signal: AbortSignal.timeout(60_000),
   });
+
+  // Some Akwam/CDN endpoints reject arbitrary browser ranges with 416.
+  // Retry once without Range so the browser can still consume the stream.
+  if (response.status === 416 && range) {
+    try { response.body?.cancel(); } catch {}
+    response = await fetch(target.url, {
+      redirect: "follow",
+      headers: {
+        ...upstreamHeaders,
+        Range: undefined,
+      },
+      signal: AbortSignal.timeout(60_000),
+    });
+  }
 
   const contentType = String(response.headers.get("content-type") || "").toLowerCase();
   const finalUrl = response.url || target.url;
