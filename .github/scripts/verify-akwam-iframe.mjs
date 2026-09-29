@@ -172,7 +172,7 @@ for (const fixture of fixtures) {
       const deliveredBytes = endByte - startByte + 1;
       assert(startByte === 0,
         fixture.label + " startup MP4 did not start at byte 0: " + startupRange);
-      assert(deliveredBytes <= 256 * 1024,
+      assert(deliveredBytes <= 2 * 1024 * 1024,
         fixture.label + " startup MP4 exceeded 256KiB: " + deliveredBytes);
 
       mp4StartupChecks.push({
@@ -195,6 +195,10 @@ for (const fixture of fixtures) {
     sourceCount: sources.length,
     mediaChecks: sourceChecks,
     startupMp4Checks: mp4StartupChecks,
+    sourceIdentities: sources.map((source) => ({
+      quality: source?.quality || "auto",
+      urlTail: String(source?.url || "").split("/").pop() || "",
+    })),
   }));
 }
 

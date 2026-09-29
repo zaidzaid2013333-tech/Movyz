@@ -1009,33 +1009,9 @@ async function resolveQuality(browser, quality) {
     /\/watch\//i.test(qualityUrl) ? "AKWAM_WATCH" : "AKWAM_LINK",
   );
 
-  const directFromPage = extractFinalMediaUrl(targetPage.html, targetPage.url);
-  if (directFromPage) {
-    const directUrl = safeUrl(directFromPage, targetPage.url);
-    if (directUrl) {
-      let isAkwamPage = false;
-      try {
-        isAkwamPage = isAllowedPageHost(new URL(directUrl).hostname);
-      } catch {}
-
-      // Do not trust a filename/extension alone. Akwam player pages can
-      // expose URLs that look like MP4/HLS but return HTML, redirects, or
-      // hotlink-denied responses when the browser actually requests them.
-      // Validate the extracted target with a tiny ranged request before putting
-      // it into the player token.
-      if (!isAkwamPage || looksLikeMediaUrl(directUrl)) {
-        const validated = await validateMediaUrl(directUrl, targetPage.url);
-        const value = {
-          media_url: validated.media_url,
-          type: validated.type,
-          quality: quality.quality,
-        };
-        qualityCache.set(cacheKey, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
-        return value;
-      }
-    }
-  }
-
+  // Akwam quality pages are download/redirect pages. Resolve the
+  // quality-specific /download target first so 720p/480p do not accidentally
+  // inherit the first generic player URL (often the 1080p source).
   const downloadUrl = extractDownloadUrl(targetPage.html, targetPage.url);
   if (downloadUrl) {
     const target = await fetchDownloadTarget(downloadUrl, targetPage.url);
@@ -1055,6 +1031,28 @@ async function resolveQuality(browser, quality) {
       if (finalDirect) {
         const value = {
           ...(await validateMediaUrl(finalDirect, target.url)),
+          quality: quality.quality,
+        };
+        qualityCache.set(cacheKey, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
+        return value;
+      }
+    }
+  }
+
+  const directFromPage = extractFinalMediaUrl(targetPage.html, targetPage.url);
+  if (directFromPage) {
+    const directUrl = safeUrl(directFromPage, targetPage.url);
+    if (directUrl) {
+      let isAkwamPage = false;
+      try {
+        isAkwamPage = isAllowedPageHost(new URL(directUrl).hostname);
+      } catch {}
+
+      if (!isAkwamPage || looksLikeMediaUrl(directUrl)) {
+        const validated = await validateMediaUrl(directUrl, targetPage.url);
+        const value = {
+          media_url: validated.media_url,
+          type: validated.type,
           quality: quality.quality,
         };
         qualityCache.set(cacheKey, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
@@ -1954,7 +1952,7 @@ function proxyMediaHeaders(upstream) {
 }
 
 const RESOLVER_VERSION = "startup-faststart-2026-09-29-r3";
-const INITIAL_RANGE_BYTES = 256 * 1024;
+const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
   return Math.min(
