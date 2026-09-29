@@ -1,5 +1,5 @@
 const API_BASE = (process.env.MOVYZ_API_BASE ||
-  "https://movyz-api.sameranede.workers.dev/api/v1").replace(/\\/+$/, "");
+  "https://movyz-api.sameranede.workers.dev/api/v1").replace(/\/+$/, "");
 
 const fixtures = [
   {
