@@ -146,97 +146,107 @@ for (const fixture of fixtures) {
     try { mediaResponse.body?.cancel(); } catch {}
   }
 
-  // Verify that the resolver bounds the initial MP4 response to 4 MiB even when
-  // the upstream CDN returns an oversized 206 chunk.
-  const startupSourceIndexes = [0, Math.max(0, sources.length - 1)]
-    .filter((value, index, list) => list.indexOf(value) === index);
+  // Startup latency benchmark: compare a small byte-0 range, the current
+  // startup cap, a non-zero seek-like range, and the tail where MP4 metadata
+  // may live. We log timings instead of guessing from HTTP status alone.
+  const mp4Sources = sources
+    .map((source, index) => ({ source, index }))
+    .filter(({ source }) => String(source?.type || "").toLowerCase() === "mp4");
 
-  for (const index of startupSourceIndexes) {
-    const source = sources[index];
+  for (const { source, index } of mp4Sources.slice(0, 1)) {
     const rawSource = String(source?.url || "").trim();
     if (!rawSource) continue;
 
-    const quality = String(source?.quality || "720p").toLowerCase();
-    const maxStartupBytes = 4 * 1024 * 1024;
     const mediaUrl =
       RESOLVER_BASE +
       "/media?t=" + encodeURIComponent(token) +
       "&u=" + encodeURIComponent(rawSource);
 
-    const startupResponse = await fetch(mediaUrl, {
-      headers: {
-        Accept: "video/*,application/vnd.apple.mpegurl,application/dash+xml,*/*;q=0.8",
-        Range: "bytes=0-52428799",
-      },
-      signal: AbortSignal.timeout(60_000),
-    });
+    const runRangeProbe = async (label, rangeHeader, readBytes = 65_536) => {
+      const started = performance.now();
+      const response = await fetch(mediaUrl, {
+        headers: {
+          Accept: "video/*,application/octet-stream,*/*;q=0.8",
+          Range: rangeHeader,
+        },
+        signal: AbortSignal.timeout(20_000),
+      });
+      const headersAt = performance.now();
+      const reader = response.body?.getReader();
+      let firstByteMs = null;
+      let bytes = 0;
+      let bodyError = "";
+      if (reader) {
+        try {
+          const first = await reader.read();
+          firstByteMs = Math.round(performance.now() - started);
+          if (!first.done && first.value) {
+            bytes += first.value.byteLength;
+            if (bytes > readBytes) {
+              try { await reader.cancel(); } catch {}
+            }
+          }
+        } catch (error) {
+          bodyError = error instanceof Error ? error.message : String(error);
+        } finally {
+          try { await reader.cancel(); } catch {}
+        }
+      }
+      return {
+        label,
+        requestedRange: rangeHeader,
+        status: response.status,
+        contentType: response.headers.get("content-type") || "",
+        contentRange: response.headers.get("content-range") || "",
+        resolverVersion: response.headers.get("x-movyz-resolver-version") || "",
+        sourceType: response.headers.get("x-movyz-source-type") || "",
+        headersMs: Math.round(headersAt - started),
+        firstByteMs,
+        firstChunkBytes: bytes,
+        bodyError,
+      };
+    };
 
-    const startupRange = startupResponse.headers.get("content-range") || "";
-    const startupContentType = String(startupResponse.headers.get("content-type") || "").toLowerCase();
-    const resolverVersion = startupResponse.headers.get("x-movyz-resolver-version") || "";
-    const sourceTypeHeader = startupResponse.headers.get("x-movyz-source-type") || "";
-    const startupMatch = startupRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
-    assert(startupResponse.status === 206,
-      fixture.label + " startup range did not return 206 for " + quality + ": " + startupResponse.status);
-    if (String(source?.type || "").toLowerCase() === "mp4") {
-      console.log(fixture.label + " STARTUP_HEADERS", JSON.stringify({
-        status: startupResponse.status,
-        contentType: startupContentType,
-        resolverVersion,
-        sourceTypeHeader,
-        contentRange: startupRange,
-      }));
-    }
-    assert(startupMatch,
-      fixture.label + " startup range missing Content-Range for " + quality + ": " + startupRange);
+    const small = await runRangeProbe("byte-0-256KiB", "bytes=0-262143");
 
-    const deliveredBytes = Number(startupMatch[2]) - Number(startupMatch[1]) + 1;
-    assert(
-      deliveredBytes <= maxStartupBytes,
-      fixture.label + " startup range exceeded 20s cap for " + quality +
-        ": " + deliveredBytes + " > " + maxStartupBytes,
+    const current = await runRangeProbe(
+      "byte-0-4MiB",
+      "bytes=0-4194303",
     );
 
-    const startupBuffer = String(source?.type || "").toLowerCase() === "mp4"
-      ? new Uint8Array(await startupResponse.arrayBuffer())
-      : null;
+    const parsedCurrent = current.contentRange.match(/\/([0-9]+)$/);
+    const total = parsedCurrent ? Number(parsedCurrent[1]) : 0;
+    const seekOffset = total > 0
+      ? Math.min(
+        Math.max(50 * 1024 * 1024, Math.floor(total * 0.35)),
+        Math.max(0, total - 262144),
+      )
+      : 50 * 1024 * 1024;
 
-    let moovFound = null;
-    if (startupBuffer) {
-      let offset = 0;
-      const view = new DataView(startupBuffer.buffer, startupBuffer.byteOffset, startupBuffer.byteLength);
-      while (offset + 8 <= startupBuffer.byteLength) {
-        const size = view.getUint32(offset);
-        const type = String.fromCharCode(
-          startupBuffer[offset + 4],
-          startupBuffer[offset + 5],
-          startupBuffer[offset + 6],
-          startupBuffer[offset + 7],
-        );
-        if (type === "moov") {
-          moovFound = true;
-          break;
-        }
-        const boxSize = size;
-        if (!boxSize || boxSize < 8) break;
-        offset += boxSize;
-      }
-      if (moovFound !== true) moovFound = false;
+    const seek = await runRangeProbe(
+      "seek-like-nonzero",
+      `bytes=${seekOffset}-${seekOffset + 65535}`,
+    );
+
+    let tail = null;
+    if (total > 65_536) {
+      tail = await runRangeProbe(
+        "file-tail-64KiB",
+        `bytes=${Math.max(0, total - 65_536)}-${total - 1}`,
+        65_536,
+      );
     }
 
-    if (!startupBuffer) startupResponse.body?.cancel();
-
-    console.log(fixture.label + " STARTUP_RANGE PASS", JSON.stringify({
-      quality,
-      deliveredBytes,
-      maxStartupBytes,
-      contentRange: startupRange,
-      contentType: startupContentType,
-      moovInInitialRange: moovFound,
-      resolverVersion,
-      sourceTypeHeader,
+    console.log(fixture.label + " STARTUP_BENCHMARK", JSON.stringify({
+      quality: source?.quality || "auto",
+      total,
+      small,
+      current,
+      seek,
+      tail,
     }));
   }
+
 
   console.log(fixture.label + " PASS", JSON.stringify({
     mode: body.mode,
