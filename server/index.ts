@@ -450,6 +450,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   }
 
   const { mediaType, tmdbId, season, episode } = parsed.data;
+  const debugWatch = req.query.debug === '1';
 
   if (mediaType === 'series' && (season == null || episode == null)) {
     return fail(res, 400, 'EPISODE_REQUIRED', 'Season and episode are required for series playback');
@@ -577,6 +578,14 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     }
     if (status === 404 && code === 'SERIES_NOT_FOUND') {
       return fail(res, 404, code, 'Series not found');
+    }
+    if (debugWatch) {
+      return fail(
+        res,
+        502,
+        'WATCH_API_FAILED',
+        message || 'Unable to load playback sources',
+      );
     }
     return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load playback sources');
   }
