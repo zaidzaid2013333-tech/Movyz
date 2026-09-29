@@ -1943,34 +1943,36 @@ export default { async fetch(request, env) {
     }
 
     try {
-      const resolved = await resolveAkwamCached(env.BROWSER, {
+      // Resolve the provider-owned Akwam player/embed URL itself.
+      // Movyz returns that URL to the UI so there is exactly one iframe:
+      // Movyz UI -> iframe -> Akwam player.
+      const resolved = await resolveAkwamIframeCached(env.BROWSER, {
         ...payload,
         type: payload?.type === "series" ? "series" : "movie",
       });
 
-      const token = buildPlayerToken(
-        resolved.sources,
-        resolved.source_url,
-        resolved.title || payload?.title || "Akwam",
-      );
-
-      const iframeUrl =
-        new URL(request.url).origin +
-        "/player?t=" +
-        encodeURIComponent(token);
+      const iframeUrl = clean(resolved?.iframe_url);
+      if (!iframeUrl || !isDedicatedIframeUrl(iframeUrl)) {
+        return json({ ok: false, error: "Akwam did not return a dedicated iframe player URL" }, 502);
+      }
 
       return json({
         ok: true,
         title: resolved.title || clean(payload?.title) || "",
-        source_url: resolved.source_url,
-        media_url: resolved.media_url,
+        source_url: iframeUrl,
+        media_url: iframeUrl,
         type: "web",
         quality: resolved.quality || "auto",
-        qualities: resolved.qualities || [],
-        sources: resolved.sources || [],
+        qualities: resolved.qualities || ["auto"],
+        sources: resolved.sources || [{
+          quality: resolved.quality || "auto",
+          type: "web",
+          url: iframeUrl,
+        }],
         iframe_url: iframeUrl,
         player_url: iframeUrl,
-        mode: "movyz-player-shell",
+        mode: "akwam-native-iframe",
+        cached: resolved.cached === true,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
