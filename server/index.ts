@@ -320,7 +320,7 @@ function watchSourceCacheKey(
   episode?: number,
 ) {
   return [
-    'iframe-v9',
+    'iframe-v10',
     mediaType,
     tmdbId,
     season ?? '',
@@ -527,26 +527,33 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       ...(mediaType === 'series' ? { season, episode } : {}),
     });
 
+    const resolverUrl = `${AKWAM_RESOLVER_BASE}/resolve-iframe`;
+    const resolverBinding = req.env?.AKWAM_RESOLVER as
+      | { fetch(request: Request, init?: RequestInit): Promise<Response> }
+      | undefined;
+
     let response: Response | null = null;
     let responseText = '';
 
-    // Cloudflare can briefly return a 404/5xx from one edge immediately after
-    // the resolver deployment propagates. Retry only those transient statuses.
+    // In Cloudflare production, call the resolver through the Service Binding.
+    // This avoids the platform's cross-Worker public-fetch restriction (1042).
+    const makeResolverRequest = () => new Request(resolverUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'User-Agent': 'Movyz-Akwam-Iframe/1.0',
+        'Cache-Control': 'no-cache, no-store',
+      },
+      body: resolverBody,
+    });
+
+    // Service Binding is authoritative in production. Public fetch remains only
+    // as a local/dev fallback where the binding is unavailable.
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      response = await fetch(
-        `${AKWAM_RESOLVER_BASE}/resolve-iframe`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            'User-Agent': 'Movyz-Akwam-Iframe/1.0',
-            'Cache-Control': 'no-cache, no-store',
-          },
-          body: resolverBody,
-          redirect: 'follow',
-        },
-      );
+      response = resolverBinding
+        ? await resolverBinding.fetch(makeResolverRequest())
+        : await fetch(makeResolverRequest());
 
       responseText = await response.text();
       const retryable =
@@ -607,7 +614,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   }
 
   return ok(res, sources, {
-    source: 'akwam_native_iframe_v6',
+    source: 'akwam_native_iframe_v7',
     mediaType,
     tmdbId,
     season,
