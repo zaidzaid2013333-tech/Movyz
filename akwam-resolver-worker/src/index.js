@@ -30,7 +30,7 @@ function qualityRank(value) {
 }
 const MAX_REDIRECTS = 6;
 const SEARCH_BACKOFF_MS = [750, 1_750];
-const PLAYBACK_CACHE_TTL_MS = 90_000;
+const PLAYBACK_CACHE_TTL_MS = 5 * 60_000;
 const playbackCache = new Map();
 const playbackInflight = new Map();
 const CORS = {
@@ -1117,53 +1117,67 @@ async function searchAkwamEpisodeWithBrowser(browser, payload) {
 async function resolveAkwamIframe(browser, payload) {
   const directContent = decodeContentUrl(payload);
 
-  if (!directContent && payload?.type === "series" && Number(payload?.episode) > 0) {
-    const searchedEpisode = await searchAkwamEpisodeWithBrowser(browser, payload);
-    if (searchedEpisode) {
-      return {
+  let entry = directContent
+    ? { title: clean(payload?.title), url: directContent }
+    : null;
+
+  if (!entry) {
+    try {
+      // Direct HTTP search is the fast path. Browser Run is now only a fallback
+      // when the ordinary Akwam index cannot expose a matching entry.
+      entry = await searchAkwam(browser, payload);
+    } catch (searchError) {
+      if (payload?.type !== "series" || Number(payload?.episode) < 1) throw searchError;
+
+      const searchedEpisode = await searchAkwamEpisodeWithBrowser(browser, payload);
+      if (!searchedEpisode) throw searchError;
+
+      entry = {
         title: clean(payload?.title) || "",
-        source_url: searchedEpisode,
-        media_url: searchedEpisode,
-        type: "web",
-        quality: "auto",
-        qualities: ["auto"],
-        sources: [{
-          quality: "auto",
-          type: "web",
-          url: searchedEpisode,
-        }],
-        iframe_url: searchedEpisode,
+        url: searchedEpisode,
       };
     }
   }
-
-  const entry = directContent
-    ? { title: clean(payload?.title), url: directContent }
-    : await searchAkwam(browser, payload);
 
   let sourceUrl = entry.url;
 
   if (payload?.type === "series" && Number(payload?.episode) > 0) {
     const existingEpisode = /\/episode\//i.test(sourceUrl);
     if (!existingEpisode) {
-      const content = await getContentPageResilient(browser, sourceUrl, "AKWAM_IFRAME_CONTENT");
-      const episodeUrl = extractEpisode(
-        content.html,
-        content.url,
-        Number(payload?.season),
-        Number(payload?.episode),
-      );
-      if (!episodeUrl) {
-        throw new Error(
-          "AKWAM_IFRAME_EPISODE: no matching S" +
-            Number(payload?.season) +
-            "E" +
-            Number(payload?.episode) +
-            " link on " +
-            content.url,
-        );
+      let content;
+      try {
+        content = await getContentPageDirectFirst(browser, sourceUrl, "AKWAM_IFRAME_CONTENT");
+      } catch (contentError) {
+        const searchedEpisode = await searchAkwamEpisodeWithBrowser(browser, payload);
+        if (!searchedEpisode) throw contentError;
+        sourceUrl = searchedEpisode;
+        content = null;
       }
-      sourceUrl = episodeUrl;
+
+      if (content) {
+        const episodeUrl = extractEpisode(
+          content.html,
+          content.url,
+          Number(payload?.season),
+          Number(payload?.episode),
+        );
+        if (episodeUrl) {
+          sourceUrl = episodeUrl;
+        } else {
+          const searchedEpisode = await searchAkwamEpisodeWithBrowser(browser, payload);
+          if (!searchedEpisode) {
+            throw new Error(
+              "AKWAM_IFRAME_EPISODE: no matching S" +
+                Number(payload?.season) +
+                "E" +
+                Number(payload?.episode) +
+                " link on " +
+                content.url,
+            );
+          }
+          sourceUrl = searchedEpisode;
+        }
+      }
     }
   }
 
@@ -1177,7 +1191,7 @@ async function resolveAkwamIframe(browser, payload) {
   // /watch/<id> is the player route we actually want inside Movyz.
   let playerUrl = "";
   try {
-    const content = await getContentPageResilient(
+    const content = await getContentPageDirectFirst(
       browser,
       safeSource,
       "AKWAM_IFRAME_PLAYER",
@@ -1265,9 +1279,11 @@ async function resolveAkwamCached(browser, payload) {
 async function resolveAkwam(browser, payload) {
   const directContent = decodeContentUrl(payload);
   const entry = directContent ? { title: clean(payload?.title), url: directContent } : await searchAkwam(browser, payload);
-  const content = await getContentPageResilient(browser, entry.url, "AKWAM_CONTENT");
+  const content = await getContentPageDirectFirst(browser, entry.url, "AKWAM_CONTENT");
   const episodeUrl = payload?.type === "series" && payload?.episode ? extractEpisode(content.html, content.url, payload?.season, payload.episode) : "";
-  const mediaPage = episodeUrl ? await getContentPage(browser, episodeUrl, "AKWAM_CONTENT") : content;
+  const mediaPage = episodeUrl
+    ? await getContentPageDirectFirst(browser, episodeUrl, "AKWAM_CONTENT")
+    : content;
   const qualities = extractQualities(mediaPage.html, mediaPage.url);
   diagnostic("AKWAM_QUALITY", qualities.map((item) => item.quality).join(",") || "none");
   if (!qualities.length) {
@@ -1293,19 +1309,35 @@ async function resolveAkwam(browser, payload) {
       "; snippet=" + snippet
     );
   }
-  const resolved = [];
-  let lastError = null;
+  const orderedQualities = qualities
+    .sort((a, b) => qualityRank(a.quality) - qualityRank(b.quality));
 
-  for (const quality of qualities.sort((a, b) => qualityRank(a.quality) - qualityRank(b.quality))) {
-    try {
-      const stream = await resolveQuality(browser, quality);
-      resolved.push(stream);
-      diagnostic("AKWAM_QUALITY", quality.quality + " resolved");
-    } catch (error) {
-      lastError = error;
-      diagnostic("AKWAM_QUALITY", quality.quality + " failed: " + error.message);
-    }
-  }
+  // Resolve quality targets concurrently. The previous sequential loop made the
+  // first playable source wait for every lower-quality extraction to finish.
+  const resolvedResults = await Promise.all(
+    orderedQualities.map(async (quality) => {
+      try {
+        const stream = await resolveQuality(browser, quality);
+        diagnostic("AKWAM_QUALITY", quality.quality + " resolved");
+        return { quality: quality.quality, stream, error: null };
+      } catch (error) {
+        diagnostic(
+          "AKWAM_QUALITY",
+          quality.quality + " failed: " + (error?.message || String(error)),
+        );
+        return { quality: quality.quality, stream: null, error };
+      }
+    }),
+  );
+
+  const resolved = resolvedResults
+    .filter((item) => item.stream)
+    .map((item) => item.stream);
+
+  const lastError = resolvedResults
+    .map((item) => item.error)
+    .filter(Boolean)
+    .at(-1);
 
   if (!resolved.length) throw lastError || new Error("AKWAM_QUALITY: no usable quality");
 

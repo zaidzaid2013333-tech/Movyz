@@ -39,7 +39,7 @@ const watchSourceCache = new Map<string, {
   data: import('../types').PlaybackSource[];
   expiresAt: number;
 }>();
-const WATCH_SOURCE_CLIENT_CACHE_MS = 15_000;
+const WATCH_SOURCE_CLIENT_CACHE_MS = 60_000;
 
 function getWatchSourceRequestKey(
   tmdbId: number,

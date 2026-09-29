@@ -562,7 +562,8 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     return fail(res, 400, 'EPISODE_REQUIRED', 'Season and episode are required for series playback');
   }
 
-  try {
+  const cacheKey = watchSourceCacheKey(mediaType, tmdbId, season, episode);
+  const cachedResolution = await resolveWatchSourcesWithCache(cacheKey, async () => {
     let title = '';
     let titleEn = '';
     let titleAr = '';
@@ -578,7 +579,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
         .maybeSingle();
 
       if (error) throw error;
-      if (!movie) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
+      if (!movie) throw new Error('Movie not found');
 
       title = String(movie.title_ar || '');
       titleAr = String(movie.title_ar || '');
@@ -594,7 +595,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
         .maybeSingle();
 
       if (error) throw error;
-      if (!series) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
+      if (!series) throw new Error('Series not found');
 
       title = String(series.title_ar || '');
       titleAr = String(series.title_ar || '');
@@ -603,84 +604,80 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       year = series.first_air_date ? Number(String(series.first_air_date).slice(0, 4)) : undefined;
     }
 
-    const cacheKey = watchSourceCacheKey(mediaType, tmdbId, season, episode);
-    let cacheStatus: 'HIT' | 'MISS' | 'COALESCED' = 'MISS';
-
-    const cachedResolution = await resolveWatchSourcesWithCache(cacheKey, async () => {
-      const response = await watchApiFetch(
-        `${WATCH_API_BASE}${mediaType === 'movie' ? '/watch/movie' : '/watch/episode'}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            'User-Agent': 'Movyz-Watch-API/1.0',
-            'Cache-Control': 'no-cache',
-          },
-          body: JSON.stringify(
-            mediaType === 'movie'
-              ? {
-                  mode: 'direct',
-                  tmdb_id: tmdbId,
-                  title: titleEn || titleAr || originalTitle || title,
-                  title_en: titleEn,
-                  title_ar: titleAr,
-                  original_title: originalTitle,
-                  titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
-                  year,
-                }
-              : {
-                  mode: 'direct',
-                  tmdb_id: tmdbId,
-                  title: titleEn || titleAr || originalTitle || title,
-                  title_en: titleEn,
-                  title_ar: titleAr,
-                  original_title: originalTitle,
-                  titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
-                  year,
-                  season,
-                  episode,
-                },
-          ),
-          redirect: 'follow',
+    const response = await watchApiFetch(
+      `${WATCH_API_BASE}${mediaType === 'movie' ? '/watch/movie' : '/watch/episode'}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'User-Agent': 'Movyz-Watch-API/1.0',
+          'Cache-Control': 'no-cache',
         },
-      );
-
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok || !payload?.ok) {
-        const message = payload?.error || `Watch API request failed (${response.status})`;
-        console.error('[watch-api]', mediaType, tmdbId, message);
-        throw new Error(message);
-      }
-
-      const resolvedSources = normalizeWatchSources(payload);
-      if (!resolvedSources.length) {
-        throw new Error('No playable watch source is currently available');
-      }
-
-      return resolvedSources;
-    });
-
-    cacheStatus = cachedResolution.cacheStatus;
-    const sources = cachedResolution.sources;
-    res.setHeader('x-movyz-watch-cache', cacheStatus);
-    res.setHeader(
-      'cache-control',
-      'public, max-age=15, s-maxage=300, stale-while-revalidate=60',
+        body: JSON.stringify(
+          mediaType === 'movie'
+            ? {
+                mode: 'direct',
+                tmdb_id: tmdbId,
+                title: titleEn || titleAr || originalTitle || title,
+                title_en: titleEn,
+                title_ar: titleAr,
+                original_title: originalTitle,
+                titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
+                year,
+              }
+            : {
+                mode: 'direct',
+                tmdb_id: tmdbId,
+                title: titleEn || titleAr || originalTitle || title,
+                title_en: titleEn,
+                title_ar: titleAr,
+                original_title: originalTitle,
+                titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
+                year,
+                season,
+                episode,
+              },
+        ),
+        redirect: 'follow',
+      },
     );
 
-    if (!sources.length) {
-      return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable watch source is currently available');
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok || !payload?.ok) {
+      const message = payload?.error || `Watch API request failed (${response.status})`;
+      console.error('[watch-api]', mediaType, tmdbId, message);
+      throw new Error(message);
     }
 
-    return ok(res, sources, {
-      source: 'akwam_watch_api',
-      mediaType,
-      tmdbId,
-      season,
-      episode,
-    });
+    const resolvedSources = normalizeWatchSources(payload);
+    if (!resolvedSources.length) {
+      throw new Error('No playable watch source is currently available');
+    }
+
+    return resolvedSources;
+  });
+
+  const cacheStatus = cachedResolution.cacheStatus;
+  const sources = cachedResolution.sources;
+  res.setHeader('x-movyz-watch-cache', cacheStatus);
+  res.setHeader(
+    'cache-control',
+    'public, max-age=30, s-maxage=300, stale-while-revalidate=60',
+  );
+
+  if (!sources.length) {
+    return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable watch source is currently available');
+  }
+
+  return ok(res, sources, {
+    source: 'akwam_watch_api',
+    mediaType,
+    tmdbId,
+    season,
+    episode,
+  });
   } catch (error) {
     console.error('[watch-api]', error instanceof Error ? error.message : error);
     return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load playback sources');

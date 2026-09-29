@@ -49,6 +49,14 @@ type PlaybackSource = {
 const MAX_VISIBLE_SOURCES = 4;
 const MEDIA_LOAD_TIMEOUT_MS = 45_000;
 
+const getConnectionHintOrigin = (value?: string) => {
+  try {
+    return value ? new URL(value).origin : '';
+  } catch {
+    return '';
+  }
+};
+
 const normalizeSourceType = (value?: string) => String(value || '').trim().toLowerCase();
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -188,15 +196,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return;
     }
 
-    video.removeAttribute('src');
-    video.load();
-
     if (sourceType === 'hls') {
       if (Hls.isSupported()) {
         hls = new Hls({
           enableWorker: true,
           lowLatencyMode: false,
-          backBufferLength: 90,
+          capLevelToPlayerSize: true,
+          backBufferLength: 30,
         });
         hls.on(Hls.Events.MEDIA_ATTACHED, () => {
           hls?.loadSource(mediaUrl);
@@ -250,6 +256,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const activeType = normalizeSourceType(activeSource?.type);
   const activeIframe = String(activeSource?.iframeUrl || '').trim();
   const showIframe = activeType === 'web' && /^https:\/\//i.test(activeIframe);
+  const connectionHintOrigin = getConnectionHintOrigin(
+    showIframe ? activeIframe : String(activeSource?.url || '').trim(),
+  );
 
   if (error && !sources.length) {
     return (
@@ -272,6 +281,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   return (
     <div className="w-full bg-black">
+      {connectionHintOrigin && (
+        <>
+          <link rel="dns-prefetch" href={connectionHintOrigin} />
+          <link rel="preconnect" href={connectionHintOrigin} />
+        </>
+      )}
       {sources.length > 0 && (
         <div className="border-b border-white/10 bg-[#080a0f] px-3 py-3 sm:px-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -325,6 +340,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               className="absolute inset-0 h-full w-full border-0 bg-black"
               allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
               allowFullScreen
+              loading="eager"
               referrerPolicy="no-referrer"
               onLoad={() => setLoading(false)}
             />
@@ -341,7 +357,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               className="absolute inset-0 h-full w-full bg-black"
               controls
               playsInline
-              preload="metadata"
+              preload="auto"
               poster=""
               onLoadedMetadata={() => setLoading(false)}
               onCanPlay={() => setLoading(false)}
