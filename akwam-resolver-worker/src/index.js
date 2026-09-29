@@ -832,7 +832,7 @@ async function validateMediaUrl(initialUrl, referer = "") {
 
   for (let count = 0; count <= MAX_REDIRECTS; count += 1) {
     diagnostic("AKWAM_FINAL_MEDIA", url);
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       headers: {
         Accept: "video/*,application/vnd.apple.mpegurl,application/dash+xml,*/*;q=0.8",
         Range: "bytes=0-65535",
