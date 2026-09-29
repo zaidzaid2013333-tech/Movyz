@@ -36,6 +36,19 @@ const isAkwamPlayerUrl = (value: string) => {
   } catch { return false; }
 };
 
+const normalizeAkwamPlayerUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    if (!isAkwamPlayerUrl(value)) return '';
+    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) {
+      url.hash = '#player';
+    }
+    return url.toString();
+  } catch {
+    return '';
+  }
+};
+
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   contentType, title, titleEn, tmdbId, seasonNumber, episodeNumber, currentEpisode,
 }) => {
@@ -67,7 +80,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               String(item?.type || '').toLowerCase() === 'web' &&
               isAkwamPlayerUrl(String(item?.url || '').trim()))
           : null;
-        const resolved = String(source?.url || '').trim();
+        const resolved = normalizeAkwamPlayerUrl(String(source?.url || '').trim());
 
         if (!resolved) throw new Error('No dedicated Akwam watch-player route was returned.');
         if (!cancelled) setIframeUrl(resolved);
