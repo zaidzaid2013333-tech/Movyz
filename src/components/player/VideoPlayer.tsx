@@ -202,7 +202,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           enableWorker: true,
           lowLatencyMode: false,
           capLevelToPlayerSize: true,
-          backBufferLength: 30,
+          startFragPrefetch: true,
+          maxBufferLength: 12,
+          maxMaxBufferLength: 24,
+          backBufferLength: 10,
         });
         hls.on(Hls.Events.MEDIA_ATTACHED, () => {
           hls?.loadSource(mediaUrl);
@@ -357,7 +360,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               className="absolute inset-0 h-full w-full bg-black"
               controls
               playsInline
-              preload="auto"
+              preload="metadata"
               poster=""
               onLoadedMetadata={() => setLoading(false)}
               onCanPlay={() => setLoading(false)}
