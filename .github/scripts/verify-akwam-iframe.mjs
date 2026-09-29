@@ -83,6 +83,36 @@ async function jsonFetch(url, init, label) {
   return body;
 }
 
+async function inspectReturnedPlayer(url, label) {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        "User-Agent": "Movyz-Akwam-Smoke/1.0",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(20_000),
+    });
+    const html = await response.text();
+    const title = html.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1]?.replace(/<[^>]+>/g, " ").replace(/\\s+/g, " ").trim() || "";
+    const iframes = [...html.matchAll(/<iframe\\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["']/gi)]
+      .map((m) => m[1]).slice(0, 8);
+    const videos = (html.match(/<video\\b/gi) || []).length;
+    const sources = (html.match(/<source\\b/gi) || []).length;
+    console.log(label + " TARGET_INSPECT", JSON.stringify({
+      httpStatus: response.status,
+      finalUrl: response.url,
+      title: title.slice(0, 180),
+      iframeCount: iframes.length,
+      iframes,
+      videoTags: videos,
+      sourceTags: sources,
+    }));
+  } catch (error) {
+    console.log(label + " TARGET_INSPECT_FAILED", String(error?.message || error));
+  }
+}
+
 async function resolverIframe(fixture, label) {
   const body = await jsonFetch(
     RESOLVER_BASE + "/resolve-iframe",
@@ -100,6 +130,7 @@ async function resolverIframe(fixture, label) {
   assert(body?.ok === true, label + " did not return ok=true");
   const iframe = body?.iframe_url || body?.source_url || body?.media_url || "";
   assertAkwamPage(iframe, label + " iframe_url");
+  await inspectReturnedPlayer(iframe, label);
   return { body, iframe };
 }
 
