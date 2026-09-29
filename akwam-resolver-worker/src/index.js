@@ -1963,7 +1963,7 @@ function startupRangeBytes(_quality, total) {
   );
 }
 
-function parseSingleRange(value, total, { startupQuality = "" } = {}) {
+function parseSingleRange(value, total, { startupQuality: _startupQuality = "" } = {}) {
   const match = String(value || "").trim().match(/^bytes=(\d+)-(\d*)$/i);
   if (!match) return null;
 
@@ -1982,8 +1982,8 @@ function parseSingleRange(value, total, { startupQuality = "" } = {}) {
   // If the CDN hides the total size, an open-ended Range still needs a
   // bounded response so a 200 full-file stream cannot leak to the browser.
   if (end == null) {
-    const maxBytes = startupQuality
-      ? startupRangeBytes(startupQuality, hasKnownTotal ? total : 50 * 1024 * 1024 * 1024)
+    const maxBytes = start === 0
+      ? startupRangeBytes("", hasKnownTotal ? total : 50 * 1024 * 1024 * 1024)
       : 8 * 1024 * 1024;
     end = start + maxBytes - 1;
     if (hasKnownTotal) end = Math.min(end, total - 1);
@@ -1991,9 +1991,9 @@ function parseSingleRange(value, total, { startupQuality = "" } = {}) {
 
   // Only cap the very first byte range (start=0). Later explicit ranges and
   // seeks remain fully controlled by the browser.
-  if (start === 0 && startupQuality && end >= start) {
+  if (start === 0 && end >= start) {
     const maxBytes = startupRangeBytes(
-      startupQuality,
+      "",
       hasKnownTotal ? total : 50 * 1024 * 1024 * 1024,
     );
     end = Math.min(end, start + maxBytes - 1);
@@ -2235,9 +2235,9 @@ async function proxyAkwamMedia(request, requestUrl) {
   const sourceQuality = sourceInfo?.quality || "";
   const sourceType = String(sourceInfo?.type || mediaTypeFromUrl(target.url)).toLowerCase();
   const upstreamRange = (() => {
-    if (!range || !/^bytes=\d+-/i.test(range) || !sourceQuality) return range;
+    if (!range || !/^bytes=\d+-/i.test(range)) return range;
     const totalHint = 50 * 1024 * 1024 * 1024;
-    const parsed = parseSingleRange(range, totalHint, { startupQuality: sourceQuality });
+    const parsed = parseSingleRange(range, totalHint);
     if (!parsed || parsed.invalid || parsed.start !== 0) return range;
     return "bytes=" + parsed.start + "-" + parsed.end;
   })();
