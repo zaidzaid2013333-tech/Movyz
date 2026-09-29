@@ -31,7 +31,10 @@ const isAkwamPlayerUrl = (value: string) => {
       host === 'akwam.net' || host.endsWith('.akwam.net') ||
       host === 'downet.net' || host.endsWith('.downet.net');
     if (!allowedHost) return false;
-    if (/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register|watch)(?:\/|[?#]|$)/i.test(url.pathname)) return false;
+    if (/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(url.pathname)) return false;
+    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) {
+      return url.hash === '#player';
+    }
     return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
   } catch { return false; }
 };
@@ -40,7 +43,9 @@ const normalizeAkwamPlayerUrl = (value: string) => {
   try {
     const url = new URL(value);
     if (!isAkwamPlayerUrl(value)) return '';
-    if (/\/watch\//i.test(url.pathname)) return '';
+    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) {
+      url.hash = '#player';
+    }
     return url.toString();
   } catch {
     return '';
@@ -109,17 +114,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     );
   }
 
+  const cropTop = contentType === 'series'
+    ? 'clamp(205px, 24vw, 285px)'
+    : 'clamp(175px, 19vw, 240px)';
+
   return (
-    <div className="relative aspect-video w-full overflow-hidden bg-black">
+    <div
+      className="relative aspect-video w-full overflow-hidden bg-black"
+      aria-label={displayTitle}
+    >
       {iframeUrl ? (
         <iframe
           key={iframeUrl}
           src={iframeUrl}
           title={displayTitle}
-          className="absolute inset-0 h-full w-full border-0 bg-black"
+          className="absolute left-0 w-full border-0 bg-black"
+          style={{
+            top: `-${cropTop}`,
+            height: `calc(100% + ${cropTop})`,
+          }}
           allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
           allowFullScreen
           loading="eager"
+          scrolling="no"
           referrerPolicy="strict-origin-when-cross-origin"
           onError={() => setError(language === 'ar'
             ? 'تعذر تحميل مشغل Akwam.'
