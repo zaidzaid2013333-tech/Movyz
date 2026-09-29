@@ -1199,7 +1199,7 @@ async function searchAkwamEpisodeWithBrowser(browser, payload) {
 
 function iframeCacheKey(payload) {
   return JSON.stringify({
-    version: "akwam-iframe-v6",
+    version: "akwam-iframe-v7-player-only",
     content_url: clean(payload?.content_url || payload?.contentUrl || payload?.source_url),
     title: normalizeTitle(payload?.title),
     title_en: normalizeTitle(payload?.title_en),
