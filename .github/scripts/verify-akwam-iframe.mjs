@@ -1,3 +1,4 @@
+// Final deployment verification marker: native Akwam #player contract.
 const RESOLVER_BASE = (process.env.AKWAM_RESOLVER_BASE ||
   "https://movyz-akwam-resolver.sameranede.workers.dev").replace(/\/+$/, "");
 const movieFixture = {
