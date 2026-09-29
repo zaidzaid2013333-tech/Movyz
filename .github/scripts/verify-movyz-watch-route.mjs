@@ -25,9 +25,13 @@ function assertPlayableUrl(value, label) {
   );
 }
 
-async function fetchJson(url, label) {
+async function fetchJson(url, label, init = {}) {
   const response = await fetch(url, {
-    headers: { Accept: "application/json" },
+    ...init,
+    headers: {
+      Accept: "application/json",
+      ...(init.headers || {}),
+    },
     signal: AbortSignal.timeout(120_000),
   });
   const text = await response.text();
