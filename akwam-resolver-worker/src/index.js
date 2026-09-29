@@ -1907,12 +1907,11 @@ async function proxyAkwamMedia(request, requestUrl) {
   // Retry once without Range so the browser can still consume the stream.
   if (response.status === 416 && range) {
     try { response.body?.cancel(); } catch {}
+    const retryHeaders = { ...upstreamHeaders };
+    delete retryHeaders.Range;
     response = await fetch(target.url, {
       redirect: "follow",
-      headers: {
-        ...upstreamHeaders,
-        Range: undefined,
-      },
+      headers: retryHeaders,
       signal: AbortSignal.timeout(60_000),
     });
   }
