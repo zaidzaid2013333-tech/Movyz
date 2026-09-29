@@ -38,7 +38,6 @@ jobs:
 
 
   deploy-movyz:
-    needs: deploy
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
