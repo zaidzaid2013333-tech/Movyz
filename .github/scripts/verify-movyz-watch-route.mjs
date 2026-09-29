@@ -79,8 +79,17 @@ for (const fixture of fixtures) {
       type: source.type,
       iframeUrl: source.iframeUrl,
       playerOnly: true,
+      sourceCount: body.data.length,
     }));
   } else {
+    const directQualities = body.data
+      .filter((item) => String(item?.providerKey || "").toLowerCase() === "akwam-direct")
+      .map((item) => String(item?.quality || "auto"))
+      .filter(Boolean);
+    assert(
+      new Set(directQualities).size >= 2,
+      fixture.label + " returned fewer than two direct Akwam qualities: " + JSON.stringify(directQualities),
+    );
     assert(
       ["hls", "mp4", "webm"].includes(String(source.type).toLowerCase()),
       fixture.label + " returned unsupported direct media type: " + source.type,
@@ -94,6 +103,8 @@ for (const fixture of fixtures) {
       quality: source.quality,
       urlHost: new URL(source.url).hostname,
       directMedia: true,
+      sourceCount: body.data.length,
+      qualities: [...new Set(directQualities)],
     }));
   }
 }
