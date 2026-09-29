@@ -49,7 +49,8 @@ function assertAkwamPage(value, label) {
     allowed.some((base) => host === base || host.endsWith("." + base)),
     label + " returned unexpected host: " + host,
   );
-  const pathname = new URL(value).pathname;
+  const url = new URL(value);
+  const pathname = url.pathname;
   assert(
     !/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(pathname),
     label + " returned an Akwam content page instead of a player: " + value,
