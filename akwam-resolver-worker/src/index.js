@@ -1934,23 +1934,47 @@ function startupRangeBytes(quality, total) {
 
 function parseSingleRange(value, total, { startupQuality = "" } = {}) {
   const match = String(value || "").trim().match(/^bytes=(\\d+)-(\\d*)$/i);
-  if (!match || !Number.isFinite(total) || total <= 0) return null;
+  if (!match) return null;
 
   const start = Number(match[1]);
-  let end = match[2] === "" ? total - 1 : Number(match[2]);
-  if (!Number.isInteger(start) || start < 0 || start >= total) return { invalid: true };
-  if (!Number.isInteger(end) || end < start) return { invalid: true };
+  if (!Number.isInteger(start) || start < 0) return { invalid: true };
 
-  end = Math.min(end, total - 1);
+  const hasKnownTotal = Number.isFinite(total) && total > 0;
+  let end = match[2] === "" ? null : Number(match[2]);
+  if (end != null && (!Number.isInteger(end) || end < start)) return { invalid: true };
+  if (hasKnownTotal && start >= total) return { invalid: true };
 
-  // Only cap the very first byte range (start=0). Later ranges and seeks
-  // remain fully controlled by the browser so normal seeking is not impaired.
-  if (start === 0 && startupQuality) {
-    const maxBytes = startupRangeBytes(startupQuality, total);
-    end = Math.min(end, maxBytes - 1);
+  if (hasKnownTotal) {
+    end = end == null ? total - 1 : Math.min(end, total - 1);
   }
 
-  return { start, end, length: end - start + 1 };
+  // If the CDN hides the total size, an open-ended Range still needs a
+  // bounded response so a 200 full-file stream cannot leak to the browser.
+  if (end == null) {
+    const maxBytes = startupQuality
+      ? startupRangeBytes(startupQuality, hasKnownTotal ? total : 50 * 1024 * 1024 * 1024)
+      : 8 * 1024 * 1024;
+    end = start + maxBytes - 1;
+    if (hasKnownTotal) end = Math.min(end, total - 1);
+  }
+
+  // Only cap the very first byte range (start=0). Later explicit ranges and
+  // seeks remain fully controlled by the browser.
+  if (start === 0 && startupQuality && end >= start) {
+    const maxBytes = startupRangeBytes(
+      startupQuality,
+      hasKnownTotal ? total : 50 * 1024 * 1024 * 1024,
+    );
+    end = Math.min(end, start + maxBytes - 1);
+    if (hasKnownTotal) end = Math.min(end, total - 1);
+  }
+
+  return {
+    start,
+    end,
+    length: end - start + 1,
+    total: hasKnownTotal ? total : null,
+  };
 }
 
 function sliceRangeResponse(upstream, rangeHeader, upstreamTotal, startupQuality = "") {
@@ -1961,7 +1985,7 @@ function sliceRangeResponse(upstream, rangeHeader, upstreamTotal, startupQuality
     return new Response(null, {
       status: 416,
       headers: {
-        "Content-Range": "bytes */" + upstreamTotal,
+        "Content-Range": "bytes */" + (upstreamTotal > 0 ? upstreamTotal : "*"),
         "Accept-Ranges": "bytes",
         "Access-Control-Allow-Origin": "*",
         "Cross-Origin-Resource-Policy": "cross-origin",
@@ -2165,7 +2189,11 @@ async function proxyAkwamMedia(request, requestUrl) {
   // Convert that full response into the exact requested 206 slice instead of
   // forcing the browser to download hundreds of MB before playback starts.
   if (range && response.status === 200) {
-    const total = Number(response.headers.get("content-length") || 0);
+    const total = Number(
+      response.headers.get("content-length") ||
+      String(response.headers.get("content-range") || "").match(/\\/(\\d+)$/)?.[1] ||
+      0,
+    );
     const sliced = sliceRangeResponse(response, range, total, sourceQuality);
     if (sliced) {
       sliced.headers.set("Cache-Control", "private, max-age=30");
