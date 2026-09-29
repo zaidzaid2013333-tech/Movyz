@@ -1949,9 +1949,11 @@ function proxyMediaHeaders(upstream) {
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Cross-Origin-Resource-Policy", "cross-origin");
   headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Movyz-Resolver-Version", RESOLVER_VERSION);
   return headers;
 }
 
+const RESOLVER_VERSION = "startup-audit-2026-09-29-r2";
 const INITIAL_RANGE_BYTES = 4 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
@@ -2109,6 +2111,7 @@ function sliceRangeResponse(upstream, rangeHeader, upstreamTotal, startupQuality
     "Access-Control-Allow-Origin": "*",
     "Cross-Origin-Resource-Policy": "cross-origin",
     "X-Content-Type-Options": "nosniff",
+    "X-Movyz-Resolver-Version": RESOLVER_VERSION,
   });
 
   const contentType = upstream.headers.get("content-type");
@@ -2124,6 +2127,7 @@ function sliceRangeResponse(upstream, rangeHeader, upstreamTotal, startupQuality
 
 function applyKnownMediaType(headers, sourceType, upstreamContentType = "") {
   const normalized = String(sourceType || "").toLowerCase();
+  headers.set("X-Movyz-Source-Type", normalized || "unknown");
   if (normalized === "mp4") {
     headers.set("Content-Type", "video/mp4");
     return;
@@ -2376,7 +2380,7 @@ export default { async fetch(request, env) {
   const url = new URL(request.url);
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-  if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "movyz-akwam-resolver", browser: Boolean(env.BROWSER), mode: "movyz-player-shell" });
+  if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "movyz-akwam-resolver", browser: Boolean(env.BROWSER), mode: "movyz-player-shell", version: RESOLVER_VERSION });
 
   if (request.method === "GET" && url.pathname === "/player") {
     const payload = playerTokenPayload(url);
