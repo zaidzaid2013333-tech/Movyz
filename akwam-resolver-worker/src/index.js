@@ -1696,17 +1696,17 @@ body{display:flex;align-items:center;justify-content:center}
 video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain}
 .controls{position:absolute;left:12px;right:12px;top:12px;z-index:5;display:flex;justify-content:flex-end;pointer-events:none}
 select{pointer-events:auto;background:rgba(15,15,15,.8);color:#fff;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:7px 10px;backdrop-filter:blur(8px)}
-.status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#cbd5e1;font-size:14px;pointer-events:none;text-align:center;padding:24px}
-.hidden{display:none}
+.status{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:6;display:none;max-width:90%;padding:8px 12px;border-radius:999px;background:rgba(0,0,0,.78);color:#e5e7eb;font-size:12px;pointer-events:none;text-align:center}
+.status.visible{display:block}
 </style>
 </head>
 <body>
 <div class="player-wrap">
-  <video id="player" controls playsinline preload="metadata" referrerpolicy="no-referrer" aria-label="${title}"></video>
+  <video id="player" controls playsinline preload="auto" referrerpolicy="no-referrer" aria-label="${title}"></video>
   <div class="controls">
     <select id="quality" aria-label="Quality"></select>
   </div>
-  <div id="status" class="status">Loading player…</div>
+  <div id="status" class="status" role="status" aria-live="polite"></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
 <script>
@@ -1716,55 +1716,104 @@ const video=document.getElementById("player");
 const select=document.getElementById("quality");
 const status=document.getElementById("status");
 let hls=null;
+let fallbackTried=false;
 
 function setStatus(message,show=true){
-  status.textContent=message;
-  status.classList.toggle("hidden",!show);
+  status.textContent=message||"";
+  status.classList.toggle("visible",Boolean(show && message));
 }
 
 function proxyUrl(raw){
   return "/media?t="+encodeURIComponent(TOKEN)+"&u="+encodeURIComponent(raw);
 }
 
+function showPlaybackError(message){
+  try{console.error("[Movyz][AkwamPlayer]",message,video.error||null)}catch{}
+  setStatus(message||"Playback failed",true);
+}
+
+function attachNative(url){
+  video.src=url;
+  try{video.load()}catch{}
+  const onMeta=()=>setStatus("",false);
+  const onCanPlay=()=>setStatus("",false);
+  const onError=()=>{
+    const code=video.error && video.error.code;
+    showPlaybackError("Playback failed" + (code ? " ("+code+")" : ""));
+  };
+  video.addEventListener("loadedmetadata",onMeta,{once:true});
+  video.addEventListener("canplay",onCanPlay,{once:true});
+  video.addEventListener("error",onError,{once:true});
+}
+
+function resetMedia(){
+  if(hls){try{hls.destroy()}catch{} hls=null}
+  video.pause();
+  video.removeAttribute("src");
+  try{video.load()}catch{}
+}
+
 function loadSource(index){
   const source=SOURCES[index]||SOURCES[0];
-  if(!source){setStatus("No playable source");return}
-  if(hls){try{hls.destroy()}catch{} hls=null}
-  video.removeAttribute("src");
-  video.load();
-  const type=String(source.type||"").toLowerCase();
-  const url=proxyUrl(source.url);
-  setStatus("Loading…",true);
+  if(!source){showPlaybackError("No playable source");return}
+  const rawUrl=String(source.url||"").trim();
+  if(!rawUrl){showPlaybackError("Empty media source");return}
+  fallbackTried=false;
 
-  if(type==="hls" || /\.m3u8(?:[?#]|$)/i.test(source.url)){
-    if(window.Hls && Hls.isSupported()){
-      hls=new Hls({enableWorker:true});
-      hls.loadSource(url);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED,()=>setStatus("",false));
+  resetMedia();
+  setStatus("",false);
+
+  const type=String(source.type||"").toLowerCase();
+  const proxiedUrl=proxyUrl(rawUrl);
+
+  if(type==="hls" || /\.m3u8(?:[?#]|$)/i.test(rawUrl)){
+    setStatus("Loading…",true);
+
+    const startHls=()=>{
+      if(!window.Hls || !Hls.isSupported()) return false;
+
+      hls=new Hls({
+        enableWorker:true,
+        lowLatencyMode:false,
+        backBufferLength:60,
+        maxBufferLength:30,
+        xhrSetup:(xhr)=>{xhr.withCredentials=false;},
+      });
+
+      const failover=()=>{
+        if(fallbackTried)return;
+        fallbackTried=true;
+        try{hls&&hls.destroy()}catch{}
+        hls=null;
+        attachNative(proxiedUrl);
+      };
+
+      hls.on(Hls.Events.MANIFEST_PARSED,()=>{
+        setStatus("",false);
+        try{video.play().catch(()=>{})}catch{}
+      });
       hls.on(Hls.Events.ERROR,(_,data)=>{
         if(data && data.fatal){
-          setStatus("Playback failed");
-          try{hls.destroy()}catch{}
+          console.error("[Movyz][AkwamHLS]",data);
+          failover();
         }
       });
-      return;
-    }
-    if(video.canPlayType("application/vnd.apple.mpegurl")){
-      video.src=url;
-      video.addEventListener("loadedmetadata",()=>setStatus("",false),{once:true});
-      return;
-    }
-  }
+      hls.loadSource(proxiedUrl);
+      hls.attachMedia(video);
+      return true;
+    };
 
-  if(type==="dash"){
-    setStatus("DASH playback is not available in this embedded player.");
+    if(!startHls()) attachNative(proxiedUrl);
     return;
   }
 
-  video.src=url;
-  video.addEventListener("loadedmetadata",()=>setStatus("",false),{once:true});
-  video.addEventListener("error",()=>setStatus("Playback failed"),{once:true});
+  if(type==="dash"){
+    showPlaybackError("This source uses DASH and cannot be played in this embedded player.");
+    return;
+  }
+
+  setStatus("Loading…",true);
+  attachNative(proxiedUrl);
 }
 
 SOURCES.forEach((source,index)=>{
@@ -1775,6 +1824,9 @@ SOURCES.forEach((source,index)=>{
 });
 select.hidden=SOURCES.length<2;
 select.addEventListener("change",()=>loadSource(Number(select.value)));
+video.addEventListener("waiting",()=>setStatus("",false));
+video.addEventListener("playing",()=>setStatus("",false));
+video.addEventListener("canplay",()=>setStatus("",false));
 loadSource(0);
 window.addEventListener("beforeunload",()=>{if(hls){try{hls.destroy()}catch{}}});
 </script>
@@ -1797,7 +1849,13 @@ function mediaProxyRequestUrl(rawUrl, requestUrl) {
       }).filter(Boolean),
     );
 
-    if (sourceHosts.size && !sourceHosts.has(target.hostname.toLowerCase())) return null;
+    if (sourceHosts.size) {
+      const targetHost = target.hostname.toLowerCase();
+      const matchesAllowedHost = [...sourceHosts].some((sourceHost) =>
+        targetHost === sourceHost || targetHost.endsWith("." + sourceHost),
+      );
+      if (!matchesAllowedHost) return null;
+    }
     return { url: target.toString(), payload: tokenPayload };
   } catch {
     return null;
@@ -1808,7 +1866,6 @@ function proxyMediaHeaders(upstream) {
   const headers = new Headers();
   for (const name of [
     "content-type",
-    "content-length",
     "content-range",
     "accept-ranges",
     "cache-control",
@@ -1835,7 +1892,10 @@ async function proxyAkwamMedia(request, requestUrl) {
       Accept: "*/*",
       "User-Agent": UA,
       ...(range ? { Range: range } : {}),
-      ...(target.payload.referer ? { Referer: target.payload.referer } : {}),
+      ...(target.payload.referer ? {
+        Referer: target.payload.referer,
+        Origin: (() => { try { return new URL(target.payload.referer).origin; } catch { return ""; } })(),
+      } : {}),
     },
     signal: AbortSignal.timeout(60_000),
   });
