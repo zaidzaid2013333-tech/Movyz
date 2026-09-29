@@ -1467,7 +1467,14 @@ async function resolveAkwamIframe(browser, payload) {
       iframeTarget = nested;
       diagnostic("AKWAM_IFRAME_NESTED", "watch=" + playerUrl + " nested=" + nested);
     } else {
-      diagnostic("AKWAM_IFRAME_DIRECT_WATCH", "No nested embed target found for " + playerUrl);
+      // Akwam's current watch route renders the provider's own video element
+      // with id="player" rather than exposing a separate iframe document.
+      // Open the same provider page at that anchor so the iframe viewport
+      // lands directly on the native Akwam player instead of the site header.
+      const anchored = new URL(playerUrl);
+      if (!anchored.hash) anchored.hash = "#player";
+      iframeTarget = anchored.toString();
+      diagnostic("AKWAM_IFRAME_ANCHORED_PLAYER", iframeTarget);
     }
   }
 

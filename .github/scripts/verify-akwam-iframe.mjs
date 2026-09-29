@@ -58,6 +58,7 @@ function assertAkwamPage(value, label) {
     label + " did not return a dedicated player route: " + value,
   );
   if (/\/watch\/\d+(?:[/?#]|$)/i.test(pathname)) {
+    assert(value.hash === "#player", label + " watch route is missing #player anchor: " + value);
     return;
   }
 }
