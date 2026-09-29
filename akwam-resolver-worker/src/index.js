@@ -1218,7 +1218,7 @@ async function resolveAkwamIframeCached(browser, payload) {
   if (
     cached &&
     cached.expiresAt > Date.now() &&
-    isIframePlayerUrl(cached.value?.iframe_url || cached.value?.player_url || "")
+    isDedicatedIframeUrl(cached.value?.iframe_url || "")
   ) {
     return { ...cached.value, cached: true };
   }
@@ -1263,6 +1263,15 @@ function isIframePlayerUrl(value, sourceUrl = "") {
 
     if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) return true;
     return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function isDedicatedIframeUrl(value, sourceUrl = "") {
+  if (!isIframePlayerUrl(value, sourceUrl)) return false;
+  try {
+    return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(new URL(value).pathname);
   } catch {
     return false;
   }
@@ -1448,21 +1457,21 @@ async function resolveAkwamIframe(browser, payload) {
     };
 
     for (const match of String(content.html || "").matchAll(
-      /<iframe\\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["'][^>]*>/gi,
+      /<iframe\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["'][^>]*>/gi,
     )) {
       addCandidate(match[1]);
     }
 
     // Some templates serialize the iframe URL in player configuration.
     for (const match of String(content.html || "").matchAll(
-      /(?:iframe(?:_url|Url)?|embed(?:_url|Url)?|player(?:_url|Url)?)\\s*[:=]\\s*["']([^"']+)["']/gi,
+      /(?:iframe(?:_url|Url)?|embed(?:_url|Url)?|player(?:_url|Url)?)\s*[:=]\s*["']([^"']+)["']/gi,
     )) {
       addCandidate(match[1]);
     }
 
     const playable = candidates
       .filter((candidate) => isIframePlayerUrl(candidate, parentUrl))
-      .filter((candidate) => /\\/(?:player|embed)\\//i.test(new URL(candidate).pathname))
+      .filter((candidate) => /\/(?:player|embed)\//i.test(new URL(candidate).pathname))
       .sort((a, b) => {
         const score = (value) => {
           let result = 0;
@@ -1470,8 +1479,8 @@ async function resolveAkwamIframe(browser, payload) {
             const url = new URL(value);
             const host = url.hostname.toLowerCase();
             if (host === "go.ak.sv" || host === "go.akwam.it" || host === "go.akwam.com.co") result += 1000;
-            if (/\\/embed\\//i.test(url.pathname)) result += 200;
-            if (/\\/player\\//i.test(url.pathname)) result += 250;
+            if (/\/embed\//i.test(url.pathname)) result += 200;
+            if (/\/player\//i.test(url.pathname)) result += 250;
           } catch {}
           return result;
         };
@@ -1510,7 +1519,7 @@ async function resolveAkwamIframe(browser, payload) {
   };
 
   let iframeTarget = playerUrl;
-  if (/\\/watch\\/\\d+(?:[/?#]|$)/i.test(new URL(playerUrl).pathname)) {
+  if (/\/watch\/\d+(?:[/?#]|$)/i.test(new URL(playerUrl).pathname)) {
     const nestedPlayer = await resolveNestedPlayerIframe(playerUrl);
     if (!nestedPlayer) {
       throw new Error(
@@ -1521,7 +1530,7 @@ async function resolveAkwamIframe(browser, payload) {
   }
 
   if (!isIframePlayerUrl(iframeTarget, safeSource) ||
-      !/\\/(?:player|embed)\\//i.test(new URL(iframeTarget).pathname)) {
+      !/\/(?:player|embed)\//i.test(new URL(iframeTarget).pathname)) {
     throw new Error(
       "AKWAM_IFRAME_PLAYER: resolved URL is not a dedicated player/embed route",
     );
