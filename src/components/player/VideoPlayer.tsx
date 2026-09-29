@@ -98,13 +98,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         );
 
         const source = Array.isArray(response?.data)
-          ? response.data.find((item: any) =>
-              String(item?.providerKey || '').toLowerCase() === 'akwam-iframe' &&
-              String(item?.type || '').toLowerCase() === 'web' &&
-              isAkwamPlayerUrl(String(item?.iframeUrl || '').trim()))
+          ? response.data.find((item: any) => {
+              const candidateUrl = String(item?.iframeUrl || item?.url || '').trim();
+              return (
+                String(item?.providerKey || '').toLowerCase() === 'akwam-iframe' &&
+                String(item?.type || '').toLowerCase() === 'web' &&
+                isAkwamPlayerUrl(candidateUrl)
+              );
+            })
           : null;
 
-        const resolved = normalizeAkwamPlayerUrl(String(source?.iframeUrl || '').trim());
+        const resolved = normalizeAkwamPlayerUrl(
+          String((source as any)?.iframeUrl || (source as any)?.url || '').trim(),
+        );
         if (!resolved) throw new Error('No dedicated Akwam iframe player was returned.');
 
         if (cancelled) return;
