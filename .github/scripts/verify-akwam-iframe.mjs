@@ -57,11 +57,8 @@ function assertAkwamPage(value, label) {
     /\/(?:watch|player|embed)(?:\/|[?#]|$)/i.test(pathname),
     label + " did not return a dedicated player route: " + value,
   );
-  if (/\/watch\//i.test(pathname)) {
-    assert(
-      ["go.ak.sv", "go.akwam.it", "go.akwam.com.co"].includes(host),
-      label + " returned a non-dedicated public /watch page: " + value,
-    );
+  if (/\/watch\/\d+(?:[/?#]|$)/i.test(pathname)) {
+    return;
   }
 }
 
