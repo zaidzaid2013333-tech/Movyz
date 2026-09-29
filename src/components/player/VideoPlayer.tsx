@@ -92,7 +92,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           : null;
         const resolved = normalizeAkwamPlayerUrl(String(source?.url || '').trim());
 
-        if (!resolved) throw new Error('No dedicated Akwam watch-player route was returned.');
+        if (!resolved) throw new Error('No valid Akwam native player route was returned.');
         if (!cancelled) setIframeUrl(resolved);
       } catch (loadError) {
         if (cancelled) return;
@@ -137,6 +137,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           loading="eager"
           scrolling="no"
           referrerPolicy="strict-origin-when-cross-origin"
+          data-player-engine="akwam-iframe-only"
           onError={() => setError(language === 'ar'
             ? 'تعذر تحميل مشغل Akwam.'
             : 'The Akwam player could not be loaded.')}
