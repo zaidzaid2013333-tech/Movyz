@@ -391,6 +391,79 @@ async function abdoExtract(sourceUrl) {
 
 const AKWAM_RESOLVER_URL = "https://movyz-akwam-resolver.sameranede.workers.dev/resolve";
 
+async function resolveViaAkwamIframeResolver(payload, type, env) {
+  const resolverUrl = "https://movyz-akwam-resolver.sameranede.workers.dev/resolve-iframe";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 35_000);
+
+  try {
+    const body = {
+      title: payload?.title,
+      title_en: payload?.title_en,
+      title_ar: payload?.title_ar,
+      titles: Array.isArray(payload?.titles) ? payload.titles : undefined,
+      original_title: payload?.original_title ?? payload?.originalTitle,
+      year: payload?.year,
+      type,
+      content_url: payload?.content_url ?? payload?.contentUrl,
+      source_url: payload?.source_url,
+      id: payload?.id,
+      episode: type === "series" ? Number(payload?.episode) : undefined,
+      season: type === "series" ? Number(payload?.season) : undefined,
+    };
+
+    const init = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    };
+
+    const response = env?.AKWAM_RESOLVER?.fetch
+      ? await env.AKWAM_RESOLVER.fetch(
+          new Request("https://movyz-akwam-resolver.internal/resolve-iframe", init),
+        )
+      : await fetch(resolverUrl, init);
+
+    const text = await response.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch {}
+
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || ("Akwam iframe resolver HTTP " + response.status));
+    }
+
+    const iframeUrl = data.iframe_url || data.media_url || data.source_url;
+    if (typeof iframeUrl !== "string" || !/^https?:\/\//i.test(iframeUrl)) {
+      throw new Error("Akwam iframe resolver returned no page URL");
+    }
+
+    return {
+      url: iframeUrl,
+      type: "web",
+      quality: "auto",
+      qualities: ["auto"],
+      sources: [{
+        url: iframeUrl,
+        type: "web",
+        quality: "auto",
+        iframe_url: iframeUrl,
+      }],
+      cached: false,
+      via: "akwam-iframe-resolver",
+      source_url: data.source_url || iframeUrl,
+      matched_title: data.title || payload?.title || "",
+      iframe_url: iframeUrl,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+
 async function resolveViaAkwamResolver(payload, type, env) {
   const maxAttempts = 3;
   const retryDelays = [1200, 2500];
@@ -909,9 +982,22 @@ async function resolveAkwamIframeOnly(payload, type, env) {
   const title = clean(payload?.title);
   if (!title) throw new Error("title is required");
 
-  // For iframe playback, discover the actual Akwam episode page first.
-  // This avoids coupling the public iframe path to the legacy AbdoBest API.
+  // Prefer the dedicated resolver endpoint for iframe mode. It uses Browser Run
+  // to resolve only the Akwam page URL, avoiding the heavier media pipeline.
   if (type === "series") {
+    try {
+      const resolved = await resolveViaAkwamIframeResolver(payload, type, env);
+      if (resolved?.iframe_url) {
+        return build(resolved.iframe_url, resolved.matched_title || payload?.title || "");
+      }
+    } catch (error) {
+      console.warn(
+        "AKWAM_IFRAME_RESOLVER_FALLBACK:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+
+    // Secondary direct Akwam discovery path.
     const directEpisode = await searchAkwamEpisodeDirect(payload);
     if (directEpisode && isAkwamUrl(directEpisode)) {
       return build(directEpisode);
