@@ -580,7 +580,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     if (status === 404 && code === 'SERIES_NOT_FOUND') {
       return fail(res, 404, code, 'Series not found');
     }
-    return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load playback sources');
+    return fail(res, 502, 'WATCH_API_FAILED', message || 'Unable to load playback sources');
   }
 }));
 
