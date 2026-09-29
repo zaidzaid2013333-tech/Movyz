@@ -182,9 +182,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </button>
 
           <div className="flex items-center gap-2 text-slate-500">
-            <span className="text-amber-400/90 font-bold">MOVYZA PLAYER</span>
+            <span className="text-amber-400/90 font-bold">AKWAM PLAYER</span>
             <span>·</span>
-            <span>{language === 'ar' ? 'الجودة حسب المصدر' : 'Quality by source'}</span>
+            <span>{language === 'ar' ? 'مشغل المصدر الأصلي' : 'Original provider player'}</span>
           </div>
         </div>
       </div>
@@ -281,12 +281,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <div className="space-y-1">
                 <span className="font-bold text-slate-200">
-                  {language === 'ar' ? 'نظام البث الذكي الآلي (Smart Stream Failover)' : 'Automated Stream Failover'}
+                  {language === 'ar' ? 'تشغيل Akwam' : 'Akwam playback'}
                 </span>
                 <p className="text-[11px] leading-relaxed">
                   {language === 'ar'
-                    ? 'يتم حل مصادر التشغيل من خادم Movyza مع التحويل بين المصادر المتاحة، وتظهر الترجمة عندما يوفرها المصدر.'
-                    : 'Playback sources are resolved by Movyza and can be switched when multiple sources are available; subtitles depend on the source.'}
+                    ? 'يتم عرض مشغل Akwam الأصلي داخل Movyz مباشرة.'
+                    : 'The original Akwam player is embedded directly inside Movyz.'}
                 </p>
               </div>
             </div>
