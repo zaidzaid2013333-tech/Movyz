@@ -1197,6 +1197,15 @@ async function resolveAkwamIframeCached(browser, payload) {
   }
 }
 
+function isDedicatedWatchRouter(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "go.ak.sv" || host === "go.akwam.it" || host === "go.akwam.com.co";
+  } catch {
+    return false;
+  }
+}
+
 function isIframePlayerUrl(value, sourceUrl = "") {
   try {
     const url = new URL(value);
@@ -1214,7 +1223,11 @@ function isIframePlayerUrl(value, sourceUrl = "") {
       return false;
     }
 
-    return /\/(?:watch|player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
+    if (/\/watch(?:\/|[?#]|$)/i.test(url.pathname)) {
+      return isDedicatedWatchRouter(url.href) && /\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname);
+    }
+
+    return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
   } catch {
     return false;
   }
@@ -1306,13 +1319,34 @@ async function resolveAkwamIframe(browser, payload) {
     const candidates = [];
     const seen = new Set();
 
+    const addCandidate = (raw) => {
+      const candidate = absoluteUrl(raw, content.url);
+      if (!candidate || seen.has(candidate)) return;
+      seen.add(candidate);
+      candidates.push(candidate);
+    };
+
+    // Akwam exposes the actual playback router as a watch link on the
+    // content/episode page. Prefer that over any page-level iframe markup.
+    for (const match of String(content.html || "").matchAll(
+      /<a\b[^>]*href=["']([^"']*\/watch\/\d+(?:[/?#][^"']*)?)["'][^>]*>/gi,
+    )) {
+      addCandidate(match[1]);
+    }
+
+    // Fallback for pages that keep the router URL in scripts/data attributes.
+    for (const match of String(content.html || "").matchAll(
+      /https?:\/\/[^"'<>\\s]+\/watch\/\d+(?:[/?#][^"'<>\\s]*)?/gi,
+    )) {
+      addCandidate(match[0]);
+    }
+
+    // Only after exhausting the dedicated router links do we inspect iframe
+    // tags, because a content-page iframe is not automatically a player.
     for (const match of String(content.html || "").matchAll(
       /<iframe\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["'][^>]*>/gi,
     )) {
-      const candidate = absoluteUrl(match[1], content.url);
-      if (!candidate || seen.has(candidate)) continue;
-      seen.add(candidate);
-      candidates.push(candidate);
+      addCandidate(match[1]);
     }
 
     const playableCandidates = candidates
@@ -1320,9 +1354,12 @@ async function resolveAkwamIframe(browser, payload) {
       .sort((a, b) => {
         const score = (value) => {
           let result = 0;
+          try {
+            const host = new URL(value).hostname.toLowerCase();
+            if (host === "go.ak.sv" || host === "go.akwam.it" || host === "go.akwam.com.co") result += 1000;
+          } catch {}
           if (/\/(?:player|embed)\//i.test(value)) result += 100;
           if (/\/watch\//i.test(value)) result += 80;
-          if (/go\./i.test(new URL(value).hostname)) result += 10;
           return result;
         };
         return score(b) - score(a);
