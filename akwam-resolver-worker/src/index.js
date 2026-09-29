@@ -1933,7 +1933,7 @@ function startupRangeBytes(quality, total) {
 }
 
 function parseSingleRange(value, total, { startupQuality = "" } = {}) {
-  const match = String(value || "").trim().match(/^bytes=(\\d+)-(\\d*)$/i);
+  const match = String(value || "").trim().match(/^bytes=(\d+)-(\d*)$/i);
   if (!match) return null;
 
   const start = Number(match[1]);
@@ -2103,7 +2103,7 @@ async function proxyAkwamMedia(request, requestUrl) {
     return target.payload.sources.find((source) => source.url === requested)?.quality || "";
   })();
   const upstreamRange = (() => {
-    if (!range || !/^bytes=\\d+-/i.test(range) || !sourceQuality) return range;
+    if (!range || !/^bytes=\d+-/i.test(range) || !sourceQuality) return range;
     const totalHint = 50 * 1024 * 1024 * 1024;
     const parsed = parseSingleRange(range, totalHint, { startupQuality: sourceQuality });
     if (!parsed || parsed.invalid || parsed.start !== 0) return range;
