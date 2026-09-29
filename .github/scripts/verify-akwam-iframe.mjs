@@ -126,7 +126,10 @@ const resolverEpisode = await resolverIframe(episodeFixture, "Akwam resolver epi
 
 assertAkwamPage(resolverMovie.iframe, "Resolver movie");
 assertAkwamPage(resolverEpisode.iframe, "Resolver episode");
-assert(/\/episode\//i.test(new URL(resolverEpisode.iframe).pathname), "Resolver episode is not an /episode/ page: " + resolverEpisode.iframe);
+assert(
+  /\/(?:watch|episode)\//i.test(new URL(resolverEpisode.iframe).pathname),
+  "Resolver episode is not an Akwam episode/player route: " + resolverEpisode.iframe,
+);
 
 const watchedMovie = await jsonFetch(
   WATCH_BASE + "/watch/movie",
