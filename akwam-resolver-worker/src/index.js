@@ -1914,7 +1914,7 @@ export default { async fetch(request, env) {
         "Referrer-Policy": "no-referrer",
         "X-Frame-Options": "ALLOWALL",
         "Content-Security-Policy":
-          "default-src 'none'; media-src * blob:; img-src * data:; style-src 'unsafe-inline'; script-src https://cdn.jsdelivr.net; connect-src *; font-src data:;",
+          "default-src 'none'; media-src * blob:; img-src * data:; style-src 'unsafe-inline'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; connect-src *; worker-src blob:; frame-ancestors *; font-src data:;",
         ...AKWAM_RESOLVER_CORS,
       },
     });
