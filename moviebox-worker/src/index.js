@@ -618,14 +618,14 @@ function extractAkwamDirectEpisodeUrl(html, base, payload) {
   const wantedSeason = normalizeTitle(seasonSearchLabel(season));
   const links = [];
 
-  for (const match of String(html).matchAll(/<a\\b[^>]*href=["']([^"']*\\/episode\\/[^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)) {
+  for (const match of String(html).matchAll(/<a\b[^>]*href=["']([^"']*\/episode\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
     const href = decodeAkwamText(match[1]);
     const label = decodeAkwamText(stripHtml(match[2]));
     let decodedHref = href;
     try { decodedHref = decodeURIComponent(href); } catch {}
     const combined = label + " " + decodedHref;
     const normalized = normalizeTitle(combined);
-    const episodeMatch = combined.match(/(?:الحلقة|حلقة|episode|ep)[-_\\s:#]*0*(\\d{1,3})\\b/i);
+    const episodeMatch = combined.match(/(?:الحلقة|حلقة|episode|ep)[-_\s:#]*0*(\d{1,3})\b/i);
     const foundEpisode = episodeMatch ? Number(episodeMatch[1]) : null;
     const hasSeason = wantedSeason ? normalized.includes(wantedSeason) : true;
     if (foundEpisode === episode && hasSeason) return absoluteAkwamEpisodeUrl(href, base);
@@ -687,7 +687,7 @@ async function searchAkwamEpisodeDirect(payload) {
         }
 
         const entries = [];
-        for (const match of html.matchAll(/<a\\b[^>]*href=["']([^"']*\\/(?:series|movie)\\/[^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)) {
+        for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']*\/(?:series|movie)\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
           const href = match[1];
           const label = stripHtml(match[2]);
           const score = scoreAkwamDirectSeriesEntry(label, href, payload);
