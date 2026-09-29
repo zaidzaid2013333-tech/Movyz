@@ -130,7 +130,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         if (!cancelled) {
           setSources(resolvedSources);
-          setSelectedSourceId(String(resolvedSources[0].id));
+          const mobile =
+            typeof window !== 'undefined' &&
+            window.matchMedia('(max-width: 767px)').matches;
+          const preferredSource = mobile
+            ? resolvedSources.find((source) => String(source.quality || '').toLowerCase() === '720p') ||
+              resolvedSources.find((source) => String(source.quality || '').toLowerCase() === '576p') ||
+              resolvedSources[0]
+            : resolvedSources[0];
+          setSelectedSourceId(String(preferredSource.id));
           setLoading(true);
         }
       } catch (loadError) {
