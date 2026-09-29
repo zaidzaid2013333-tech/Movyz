@@ -372,6 +372,12 @@ function normalizeAkwamIframeUrl(value: unknown) {
   try {
     const url = new URL(value.trim());
     const host = url.hostname.toLowerCase();
+
+    if (host === 'movyz-akwam-resolver.sameranede.workers.dev') {
+      return url.protocol === 'https:' && /^\/player(?:$|\/|\?)/i.test(url.pathname)
+        ? url.toString()
+        : '';
+    }
     const allowed =
       host === 'akwam.ss' ||
       host.endsWith('.akwam.ss') ||
