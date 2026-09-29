@@ -1022,6 +1022,23 @@ async function resolveAkwamIframeOnly(payload, type, env) {
     }
   }
 
+  // In iframe mode, movie playback must use the dedicated Akwam resolver too.
+  // AbdoBest is only a discovery fallback and may not expose a matching movie
+  // entry even when Akwam itself does.
+  if (type === "movie") {
+    try {
+      const resolved = await resolveViaAkwamIframeResolver(payload, type, env);
+      if (resolved?.iframe_url && isAkwamUrl(resolved.iframe_url)) {
+        return build(resolved.iframe_url, resolved.matched_title || title);
+      }
+    } catch (error) {
+      console.warn(
+        "AKWAM_IFRAME_MOVIE_RESOLVER_FALLBACK:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
   let directResolverError = "";
   let search = null;
 
