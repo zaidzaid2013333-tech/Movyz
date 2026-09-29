@@ -1894,7 +1894,7 @@ export default { async fetch(request, env) {
   const url = new URL(request.url);
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-  if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "movyz-akwam-resolver", browser: Boolean(env.BROWSER), mode: "movyz-player-shell" });
+  if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "movyz-akwam-resolver", browser: Boolean(env.BROWSER), mode: "akwam-native-iframe" });
 
   if (request.method === "GET" && url.pathname === "/player") {
     const payload = playerTokenPayload(url);
@@ -1981,7 +1981,7 @@ export default { async fetch(request, env) {
     }
   }
 
-  if (request.method === "GET" && url.pathname === "/") return json({ ok: true, service: "movyz-akwam-resolver", mode: "movyz-player-shell", health: "/health", player: "/player" });
+  if (request.method === "GET" && url.pathname === "/") return json({ ok: true, service: "movyz-akwam-resolver", mode: "akwam-native-iframe", health: "/health", legacy_player: "/player" });
 
   return json({ ok: false, error: "Not found" }, 404); }};
 
