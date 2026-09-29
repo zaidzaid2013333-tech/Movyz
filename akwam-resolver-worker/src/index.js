@@ -1890,7 +1890,6 @@ async function proxyAkwamMedia(request, requestUrl) {
   headers.set("Cache-Control", "private, max-age=30");
   return new Response(response.body, { status: response.status, headers });
 }
-`
 export default { async fetch(request, env) {
   const url = new URL(request.url);
 
