@@ -55,12 +55,15 @@ function assertAkwamPage(value, label) {
     label + " returned an Akwam content page instead of a player: " + value,
   );
   const isWatch = /\/watch\/\d+(?:[/?#]|$)/i.test(pathname);
+  const isNativeWatchPlayer = isWatch && url.hash.toLowerCase() === "#player";
   const isDedicated = /\/(?:player|embed)(?:\/|[?#]|$)/i.test(pathname);
-  assert(!isWatch, label + " returned the full Akwam /watch page: " + value);
   assert(
-    isDedicated,
-    label + " did not return a dedicated Akwam player/embed route: " + value,
+    isDedicated || isNativeWatchPlayer,
+    label + " did not return a native Akwam player target: " + value,
   );
+  if (isWatch) {
+    assert(isNativeWatchPlayer, label + " returned /watch without #player: " + value);
+  }
 }
 
 async function jsonFetch(url, init, label) {
