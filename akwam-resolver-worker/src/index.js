@@ -875,6 +875,65 @@ async function resolveQuality(browser, quality) {
       targetPage.url,
   );
 }
+async function resolveAkwamIframe(browser, payload) {
+  const directContent = decodeContentUrl(payload);
+  const entry = directContent
+    ? { title: clean(payload?.title), url: directContent }
+    : await searchAkwam(browser, payload);
+
+  let sourceUrl = entry.url;
+
+  if (payload?.type === "series" && Number(payload?.episode) > 0) {
+    const existingEpisode = /\/episode\//i.test(sourceUrl);
+    if (!existingEpisode) {
+      const content = await getContentPageResilient(browser, sourceUrl, "AKWAM_IFRAME_CONTENT");
+      const episodeUrl = extractEpisode(
+        content.html,
+        content.url,
+        Number(payload?.season),
+        Number(payload?.episode),
+      );
+      if (!episodeUrl) {
+        throw new Error(
+          "AKWAM_IFRAME_EPISODE: no matching S" +
+            Number(payload?.season) +
+            "E" +
+            Number(payload?.episode) +
+            " link on " +
+            content.url,
+        );
+      }
+      sourceUrl = episodeUrl;
+    }
+  }
+
+  const safeSource = safeUrl(sourceUrl, AKWAM_BASE, { pageOnly: true });
+  if (!safeSource) {
+    throw new Error("AKWAM_IFRAME: invalid Akwam page URL");
+  }
+
+  diagnostic(
+    "AKWAM_IFRAME",
+    "type=" + (payload?.type || "movie") +
+      " source=" + safeSource,
+  );
+
+  return {
+    title: entry.title || clean(payload?.title) || "",
+    source_url: safeSource,
+    media_url: safeSource,
+    type: "web",
+    quality: "auto",
+    qualities: ["auto"],
+    sources: [{
+      quality: "auto",
+      type: "web",
+      url: safeSource,
+    }],
+    iframe_url: safeSource,
+  };
+}
+
 async function resolveAkwamCached(browser, payload) {
   const key = JSON.stringify({
     content_url: clean(payload?.content_url || payload?.contentUrl),
@@ -971,6 +1030,35 @@ export default { async fetch(request, env) {
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "movyz-akwam-resolver", browser: Boolean(env.BROWSER), mode: "direct-akwam-pipeline" });
+
+  if (request.method === "POST" && url.pathname === "/resolve-iframe") {
+    let payload;
+    try { payload = await request.json(); } catch {
+      return json({ ok: false, error: "Valid JSON body required" }, 400);
+    }
+
+    if (!clean(payload?.title) && !decodeContentUrl(payload)) {
+      return json({ ok: false, error: "title or Akwam content_url is required" }, 400);
+    }
+    if (!env.BROWSER?.quickAction) {
+      return json({ ok: false, error: "Browser Run Quick Actions unavailable" }, 500);
+    }
+
+    try {
+      return json({
+        ok: true,
+        ...(await resolveAkwamIframe(env.BROWSER, {
+          ...payload,
+          type: payload?.type === "series" ? "series" : "movie",
+        })),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      diagnostic("AKWAM_IFRAME_FAILED", message);
+      return json({ ok: false, error: message }, 502);
+    }
+  }
+
   if (request.method !== "POST" || url.pathname !== "/resolve") return json({ ok: false, error: "Not found" }, 404);
   let payload; try { payload = await request.json(); } catch { return json({ ok: false, error: "Valid JSON body required" }, 400); }
   if (!clean(payload?.title) && !decodeContentUrl(payload)) return json({ ok: false, error: "title or Akwam content_url is required" }, 400);
