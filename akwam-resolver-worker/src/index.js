@@ -1310,26 +1310,24 @@ async function resolveAkwamIframe(browser, payload) {
     };
 
     // Current Akwam pages expose dedicated playback actions in quality tabs.
-    // These are normally go.ak.sv/watch/<id> and are the player routers.
+    // Prefer the provider's own watch/player/embed routes, never the content page.
     for (const quality of extractQualities(content.html, content.url)) {
       if (quality.kind === "watch") addCandidate(quality.url);
     }
 
-    // Fallback: explicit watch links in the document.
     for (const match of String(content.html || "").matchAll(
-      /<a\b[^>]*href=["']([^"']*\/watch\/\d+(?:[/?#][^"']*)?)["'][^>]*>/gi,
+      /<a\b[^>]*href=["']([^"']*\/(?:watch|player|embed)\/[^"']+)["'][^>]*>/gi,
     )) {
       addCandidate(match[1]);
     }
 
-    // Fallback for JS/data payloads containing the dedicated router URL.
     for (const match of String(content.html || "").matchAll(
-      /https?:\/\/[^"'<>\\s]+\/watch\/\d+(?:[/?#][^"'<>\\s]*)?/gi,
+      /https?:\/\/[^"'<>\\s]+\/(?:watch|player|embed)\/[^"'<>\\s]+/gi,
     )) {
       addCandidate(match[0]);
     }
 
-    // Last HTML-only fallback: an explicitly embedded player/embed URL.
+    // Direct iframe/embed targets on the content page win over a generic watch page.
     for (const match of String(content.html || "").matchAll(
       /<iframe\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["'][^>]*>/gi,
     )) {
@@ -1345,7 +1343,7 @@ async function resolveAkwamIframe(browser, payload) {
             const host = new URL(value).hostname.toLowerCase();
             if (host === "go.ak.sv" || host === "go.akwam.it" || host === "go.akwam.com.co") result += 1000;
           } catch {}
-          if (/\/(?:player|embed)\//i.test(value)) result += 100;
+          if (/\/(?:player|embed)\//i.test(value)) result += 250;
           if (/\/watch\//i.test(value)) result += 80;
           return result;
         };
@@ -1354,6 +1352,77 @@ async function resolveAkwamIframe(browser, payload) {
 
     return playableCandidates[0] || "";
   };
+
+  const findNestedPlayerIframe = (content, parentUrl) => {
+    const candidates = [];
+    const seen = new Set();
+
+    const addCandidate = (raw) => {
+      const candidate = absoluteUrl(raw, content.url);
+      if (!candidate || seen.has(candidate) || candidate === parentUrl) return;
+      seen.add(candidate);
+      candidates.push(candidate);
+    };
+
+    for (const match of String(content.html || "").matchAll(
+      /<iframe\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["'][^>]*>/gi,
+    )) {
+      addCandidate(match[1]);
+    }
+
+    // Some current templates serialize the iframe URL in data/config JSON.
+    for (const match of String(content.html || "").matchAll(
+      /(?:iframe(?:_url|Url)?|embed(?:_url|Url)?|player(?:_url|Url)?)\s*[:=]\s*["']([^"']+)["']/gi,
+    )) {
+      addCandidate(match[1]);
+    }
+
+    const playable = candidates
+      .filter((candidate) => isIframePlayerUrl(candidate, parentUrl))
+      .filter((candidate) => /\/(?:player|embed)\//i.test(new URL(candidate).pathname))
+      .sort((a, b) => {
+        const score = (value) => {
+          let result = 0;
+          const url = new URL(value);
+          const host = url.hostname.toLowerCase();
+          if (host === "go.ak.sv" || host === "go.akwam.it" || host === "go.akwam.com.co") result += 1000;
+          if (/\/embed\//i.test(url.pathname)) result += 200;
+          if (/\/player\//i.test(url.pathname)) result += 250;
+          return result;
+        };
+        return score(b) - score(a);
+      });
+
+    return playable[0] || "";
+  };
+
+  async function resolveNestedPlayerIframe(parentUrl) {
+    try {
+      let page = await getContentPageDirectFirst(
+        browser,
+        parentUrl,
+        "AKWAM_PLAYER_PAGE",
+      );
+      let nested = findNestedPlayerIframe(page, parentUrl);
+
+      if (!nested) {
+        page = await getContentPage(
+          browser,
+          parentUrl,
+          "AKWAM_PLAYER_PAGE_BROWSER",
+        );
+        nested = findNestedPlayerIframe(page, parentUrl);
+      }
+
+      return nested;
+    } catch (error) {
+      diagnostic(
+        "AKWAM_NESTED_IFRAME_FAILED",
+        error instanceof Error ? error.message : String(error),
+      );
+      return "";
+    }
+  }
 
   try {
     let content = await getContentPageDirectFirst(
@@ -1388,7 +1457,19 @@ async function resolveAkwamIframe(browser, payload) {
     throw new Error("AKWAM_IFRAME_PLAYER: no dedicated player iframe found");
   }
 
-  const iframeTarget = playerUrl;
+  // A /watch/<id> URL can itself be a full Akwam shell around the real player.
+  // In that case resolve the provider's own nested iframe and return that exact
+  // player document so Movyz never renders the surrounding Akwam site.
+  let iframeTarget = playerUrl;
+  if (/\/watch\/\d+(?:[/?#]|$)/i.test(playerUrl)) {
+    const nested = await resolveNestedPlayerIframe(playerUrl);
+    if (nested) {
+      iframeTarget = nested;
+      diagnostic("AKWAM_IFRAME_NESTED", "watch=" + playerUrl + " nested=" + nested);
+    } else {
+      diagnostic("AKWAM_IFRAME_DIRECT_WATCH", "No nested embed target found for " + playerUrl);
+    }
+  }
 
   diagnostic(
     "AKWAM_IFRAME",

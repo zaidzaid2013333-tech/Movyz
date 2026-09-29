@@ -105,7 +105,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           key={iframeUrl}
           src={iframeUrl}
           title={displayTitle}
-          className="absolute inset-x-0 -top-[128px] h-[calc(100%+128px)] w-full border-0 bg-black sm:-top-[156px] sm:h-[calc(100%+156px)]"
+          className="absolute inset-0 h-full w-full border-0 bg-black"
           allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
           allowFullScreen
           loading="eager"
