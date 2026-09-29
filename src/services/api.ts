@@ -43,7 +43,7 @@ const watchSourceCache = new Map<string, {
   data: import('../types').PlaybackSource[];
   expiresAt: number;
 }>();
-const WATCH_SOURCE_CLIENT_CACHE_MS = 10 * 60_000;
+const WATCH_SOURCE_CLIENT_CACHE_MS = 30_000;
 
 function getWatchSourceRequestKey(
   tmdbId: number,
@@ -133,8 +133,9 @@ export const MovyzaApi = {
       `/watch/${contentType}/${encodeURIComponent(String(tmdbId))}${query({
         season: contentType === 'series' ? seasonNumber : undefined,
         episode: contentType === 'series' ? episodeNumber : undefined,
+        player: 'akwam-iframe-v2',
       })}`,
-      { cache: 'force-cache' },
+      { cache: 'no-store' },
       { skipAuth: true },
     )
       .then((response) => {
