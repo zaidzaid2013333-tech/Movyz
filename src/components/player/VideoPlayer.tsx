@@ -36,9 +36,12 @@ const isAkwamPlayerUrl = (value: string) => {
       return false;
     }
 
-    // Akwam /watch/<id> is a full site page. Movyz must only embed a
-    // provider-owned player/embed route.
-    return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
+    if (/\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname)) return true;
+
+    // Akwam's native player route is /watch/<id>; only accept it when the
+    // provider's #player anchor is present so the iframe opens at the player.
+    return /\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname) &&
+      url.hash.toLowerCase() === '#player';
   } catch {
     return false;
   }
