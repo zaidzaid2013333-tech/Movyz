@@ -562,7 +562,8 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     return fail(res, 400, 'EPISODE_REQUIRED', 'Season and episode are required for series playback');
   }
 
-  const cacheKey = watchSourceCacheKey(mediaType, tmdbId, season, episode);
+  try {
+    const cacheKey = watchSourceCacheKey(mediaType, tmdbId, season, episode);
   const cachedResolution = await resolveWatchSourcesWithCache(cacheKey, async () => {
     let title = '';
     let titleEn = '';
@@ -700,6 +701,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       return fail(res, 404, code, 'Series not found');
     }
     return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load playback sources');
+  }
   }
 }));
 
