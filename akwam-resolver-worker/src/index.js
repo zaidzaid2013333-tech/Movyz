@@ -1788,26 +1788,37 @@ function showPlaybackError(message){
   setStatus(message||"Playback failed",true);
 }
 
-function attachNative(url, sourceIndex, allowRetry=true){
+function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retryCount=0){
+  const url=mode==="proxy"?fallbackUrl:primaryUrl;
   video.src=url;
   try{video.load()}catch{}
+
   const onMeta=()=>setStatus("",false);
   const onCanPlay=()=>setStatus("",false);
   const onError=()=>{
     const code=video.error && video.error.code;
 
-    if(allowRetry){
+    if(mode==="direct" && fallbackUrl && fallbackUrl!==primaryUrl){
+      setStatus("Switching source…",true);
+      window.setTimeout(()=>{
+        if(sequence!==loadSequence) return;
+        attachNative(primaryUrl, fallbackUrl, sourceIndex, "proxy", 0);
+      },120);
+      return;
+    }
+
+    if(retryCount<1){
       setStatus("Retrying…",true);
       window.setTimeout(()=>{
         if(sequence!==loadSequence) return;
-        attachNative(url, sourceIndex, false);
+        attachNative(primaryUrl, fallbackUrl, sourceIndex, mode, retryCount+1);
       },250);
       return;
     }
 
     const nextIndex=Number(sourceIndex)+1;
     if(nextIndex<SOURCES.length){
-      setStatus("Switching source…",true);
+      setStatus("Switching quality…",true);
       window.setTimeout(()=>{
         if(sequence!==loadSequence) return;
         void loadSource(nextIndex);
@@ -1817,6 +1828,7 @@ function attachNative(url, sourceIndex, allowRetry=true){
 
     showPlaybackError("Playback failed" + (code ? " ("+code+")" : ""));
   };
+
   video.addEventListener("loadedmetadata",onMeta,{once:true});
   video.addEventListener("canplay",onCanPlay,{once:true});
   video.addEventListener("error",onError,{once:true});
@@ -2004,7 +2016,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "player-retry-2026-09-29-r11";
+const RESOLVER_VERSION = "direct-first-2026-09-29-r12";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
