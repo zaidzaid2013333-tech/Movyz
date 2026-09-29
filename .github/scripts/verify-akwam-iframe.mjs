@@ -92,6 +92,8 @@ for (const fixture of fixtures) {
   assert(sources.length > 0, fixture.label + " returned no media sources");
 
   const sourceChecks = [];
+  const mp4StartupChecks = [];
+
   for (const source of sources.slice(0, 3)) {
     const rawSource = String(source?.url || "").trim();
     assert(/^https:\/\//i.test(rawSource), fixture.label + " source is not HTTPS: " + rawSource);
@@ -131,8 +133,8 @@ for (const fixture of fixtures) {
       );
     } else {
       assert(
-        /^video\//i.test(contentType) || /octet-stream/i.test(contentType),
-        fixture.label + " media proxy returned unexpected content type " + contentType,
+        /^video\//i.test(contentType),
+        fixture.label + " MP4 media proxy returned unexpected content type " + contentType,
       );
     }
 
@@ -144,209 +146,47 @@ for (const fixture of fixtures) {
       contentRange,
     });
     try { mediaResponse.body?.cancel(); } catch {}
-  }
 
-  // Startup latency benchmark: compare a small byte-0 range, the current
-  // startup cap, a non-zero seek-like range, and the tail where MP4 metadata
-  // may live. We log timings instead of guessing from HTTP status alone.
-  const mp4Sources = sources
-    .map((source, index) => ({ source, index }))
-    .filter(({ source }) => String(source?.type || "").toLowerCase() === "mp4");
-
-  for (const { source, index } of mp4Sources.slice(0, 1)) {
-    const rawSource = String(source?.url || "").trim();
-    if (!rawSource) continue;
-
-    const mediaUrl =
-      RESOLVER_BASE +
-      "/media?t=" + encodeURIComponent(token) +
-      "&u=" + encodeURIComponent(rawSource);
-
-    const runRangeProbe = async (label, rangeHeader, readBytes = 65_536) => {
-      const started = performance.now();
-      const response = await fetch(mediaUrl, {
+    if (String(source?.type || "").toLowerCase() === "mp4" && mp4StartupChecks.length === 0) {
+      const startupResponse = await fetch(mediaUrl, {
         headers: {
-          Accept: "video/*,application/octet-stream,*/*;q=0.8",
-          Range: rangeHeader,
+          Accept: "video/mp4,video/*,application/octet-stream,*/*;q=0.8",
+          Range: "bytes=0-524287",
         },
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(60_000),
       });
-      const headersAt = performance.now();
-      const reader = response.body?.getReader();
-      let firstByteMs = null;
-      let bytes = 0;
-      let bodyError = "";
-      if (reader) {
-        try {
-          const first = await reader.read();
-          firstByteMs = Math.round(performance.now() - started);
-          if (!first.done && first.value) {
-            bytes += first.value.byteLength;
-            if (bytes > readBytes) {
-              try { await reader.cancel(); } catch {}
-            }
-          }
-        } catch (error) {
-          bodyError = error instanceof Error ? error.message : String(error);
-        } finally {
-          try { await reader.cancel(); } catch {}
-        }
-      }
-      return {
-        label,
-        requestedRange: rangeHeader,
-        status: response.status,
-        contentType: response.headers.get("content-type") || "",
-        contentRange: response.headers.get("content-range") || "",
-        resolverVersion: response.headers.get("x-movyz-resolver-version") || "",
-        sourceType: response.headers.get("x-movyz-source-type") || "",
-        headersMs: Math.round(headersAt - started),
-        firstByteMs,
-        firstChunkBytes: bytes,
-        bodyError,
-      };
-    };
 
-    const small = await runRangeProbe("byte-0-256KiB", "bytes=0-262143");
+      const startupType = String(startupResponse.headers.get("content-type") || "").toLowerCase();
+      const startupRange = startupResponse.headers.get("content-range") || "";
+      const rangeMatch = startupRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
 
-    const current = await runRangeProbe(
-      "byte-0-4MiB",
-      "bytes=0-4194303",
-    );
+      assert(startupResponse.status === 206,
+        fixture.label + " startup MP4 did not return 206: " + startupResponse.status);
+      assert(/^video\/mp4$/i.test(startupType),
+        fixture.label + " startup MP4 content-type is " + startupType);
+      assert(Boolean(rangeMatch),
+        fixture.label + " startup MP4 missing Content-Range");
 
-    const parsedCurrent = current.contentRange.match(/\/([0-9]+)$/);
-    const total = parsedCurrent ? Number(parsedCurrent[1]) : 0;
-    const seekOffset = total > 0
-      ? Math.min(
-        Math.max(50 * 1024 * 1024, Math.floor(total * 0.35)),
-        Math.max(0, total - 262144),
-      )
-      : 50 * 1024 * 1024;
+      const startByte = Number(rangeMatch[1]);
+      const endByte = Number(rangeMatch[2]);
+      const deliveredBytes = endByte - startByte + 1;
+      assert(startByte === 0,
+        fixture.label + " startup MP4 did not start at byte 0: " + startupRange);
+      assert(deliveredBytes <= 256 * 1024,
+        fixture.label + " startup MP4 exceeded 256KiB: " + deliveredBytes);
 
-    const seek = await runRangeProbe(
-      "seek-like-nonzero",
-      `bytes=${seekOffset}-${seekOffset + 65535}`,
-    );
-
-    let tail = null;
-    if (total > 65_536) {
-      tail = await runRangeProbe(
-        "file-tail-64KiB",
-        `bytes=${Math.max(0, total - 65_536)}-${total - 1}`,
-        65_536,
-      );
-    }
-
-    console.log(fixture.label + " STARTUP_BENCHMARK", JSON.stringify({
-      quality: source?.quality || "auto",
-      total,
-      small,
-      current,
-      seek,
-      tail,
-    }));
-
-    if (fixture.label === "Akwam resolver movie" && index === 0) {
-      let tokenPayload = null;
-      try {
-        tokenPayload = JSON.parse(
-          Buffer.from(
-            token.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (token.length % 4)) % 4),
-            "base64",
-          ).toString("utf8"),
-        );
-      } catch {}
-
-      let directUpstream = null;
-      try {
-        const directStarted = performance.now();
-        const referer = String(tokenPayload?.referer || "").trim();
-        const origin = referer ? (() => {
-          try { return new URL(referer).origin; } catch { return ""; }
-        })() : "";
-        const upstreamResponse = await fetch(rawSource, {
-          headers: {
-            Accept: "video/mp4,video/*,application/octet-stream,*/*;q=0.8",
-            Range: "bytes=0-262143",
-            ...(referer ? { Referer: referer } : {}),
-            ...(origin ? { Origin: origin } : {}),
-          },
-          signal: AbortSignal.timeout(20_000),
-        });
-        const upstreamBuffer = new Uint8Array(await upstreamResponse.arrayBuffer());
-        directUpstream = {
-          status: upstreamResponse.status,
-          contentType: upstreamResponse.headers.get("content-type") || "",
-          contentRange: upstreamResponse.headers.get("content-range") || "",
-          elapsedMs: Math.round(performance.now() - directStarted),
-          bytesRead: upstreamBuffer.byteLength,
-          ftypOffset: Math.max(-1, new TextDecoder("latin1").decode(upstreamBuffer).indexOf("ftyp") - 4),
-          moovOffset: Math.max(-1, new TextDecoder("latin1").decode(upstreamBuffer).indexOf("moov") - 4),
-        };
-      } catch (error) {
-        directUpstream = { error: error instanceof Error ? error.message : String(error) };
-      }
-
-      console.log(fixture.label + " DIRECT_UPSTREAM_256K", JSON.stringify({
+      mp4StartupChecks.push({
         quality: source?.quality || "auto",
-        directUpstream,
-      }));
+        status: startupResponse.status,
+        contentType: startupType,
+        contentRange: startupRange,
+        deliveredBytes,
+        resolverVersion: startupResponse.headers.get("x-movyz-resolver-version") || "",
+      });
 
-      const readAndScan = async (label, rangeHeader, url = mediaUrl, timeoutMs = 20_000) => {
-        const started = performance.now();
-        const response = await fetch(mediaUrl, {
-          headers: {
-            Accept: "video/mp4,video/*,application/octet-stream,*/*;q=0.8",
-            Range: rangeHeader,
-          },
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-        const buffer = new Uint8Array(await response.arrayBuffer());
-        const text = new TextDecoder("latin1").decode(buffer);
-        const ftyp = text.indexOf("ftyp");
-        const moov = text.indexOf("moov");
-        return {
-          status: response.status,
-          contentType: response.headers.get("content-type") || "",
-          contentRange: response.headers.get("content-range") || "",
-          elapsedMs: Math.round(performance.now() - started),
-          bytesRead: buffer.byteLength,
-          ftypOffset: ftyp >= 4 ? ftyp - 4 : -1,
-          moovOffset: moov >= 4 ? moov - 4 : -1,
-          resolverVersion: response.headers.get("x-movyz-resolver-version") || "",
-        };
-      };
-
-      let head256 = null;
-      let tail256 = null;
-      try {
-        head256 = await readAndScan("head-256KiB", "bytes=0-262143");
-      } catch (error) {
-        head256 = { error: error instanceof Error ? error.message : String(error) };
-      }
-
-      if (total > 262144) {
-        try {
-          tail256 = await readAndScan(
-            "tail-256KiB",
-            `bytes=${total - 262144}-${total - 1}`,
-          );
-        } catch (error) {
-          tail256 = { error: error instanceof Error ? error.message : String(error) };
-        }
-      }
-
-      console.log(fixture.label + " MP4_ATOM_PROBE", JSON.stringify({
-        quality: source?.quality || "auto",
-        total,
-        head256,
-        tail256,
-      }));
+      try { startupResponse.body?.cancel(); } catch {}
     }
-
-
   }
-
 
   console.log(fixture.label + " PASS", JSON.stringify({
     mode: body.mode,
@@ -354,6 +194,7 @@ for (const fixture of fixtures) {
     qualityCount: Array.isArray(body.qualities) ? body.qualities.length : 0,
     sourceCount: sources.length,
     mediaChecks: sourceChecks,
+    startupMp4Checks: mp4StartupChecks,
   }));
 }
 

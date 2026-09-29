@@ -1953,8 +1953,8 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "startup-audit-2026-09-29-r2";
-const INITIAL_RANGE_BYTES = 4 * 1024 * 1024;
+const RESOLVER_VERSION = "startup-faststart-2026-09-29-r3";
+const INITIAL_RANGE_BYTES = 256 * 1024;
 
 function startupRangeBytes(_quality, total) {
   return Math.min(
