@@ -54,13 +54,12 @@ function assertAkwamPage(value, label) {
     label + " returned an Akwam content page instead of a player: " + value,
   );
   assert(
-    /\/(?:player|embed)(?:\/|[?#]|$)/i.test(pathname),
+    /\/(?:watch\/\d+|player|embed)(?:\/|[?#]|$)/i.test(pathname),
     label + " did not return a dedicated player route: " + value,
   );
-  assert(
-    !/\/watch\/\d+(?:[/?#]|$)/i.test(pathname),
-    label + " returned a full Akwam watch page instead of the nested player iframe: " + value,
-  );
+  if (/\/watch\/\d+(?:[/?#]|$)/i.test(pathname)) {
+    assert(value.hash === "#player", label + " watch route is missing #player anchor: " + value);
+  }
 }
 
 async function jsonFetch(url, init, label) {
@@ -154,7 +153,7 @@ function watchIframe(body, fixture, label) {
     assert(Number(body?.episode) === Number(fixture.episode), label + " episode mismatch");
     const pathname = new URL(iframe).pathname;
     assert(
-      /\/(?:player|embed)\//i.test(pathname),
+      /\/(?:watch|player|embed)\//i.test(pathname),
       label + " did not return an Akwam episode/player route: " + iframe,
     );
   }
