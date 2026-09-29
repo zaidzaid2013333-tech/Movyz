@@ -62,8 +62,9 @@ for (const fixture of fixtures) {
   assert(source, fixture.label + " returned no Akwam iframe source");
 
   assert(
-    /\/watch\/\d+(?:[/?#]|$)/i.test(new URL(source.iframeUrl).pathname),
-    fixture.label + " iframeUrl is not an Akwam watch-player route: " + source.iframeUrl,
+    /\/(?:player|embed)\/[^/?#]+/i.test(new URL(source.iframeUrl).pathname) &&
+    !/\/watch\/\d+(?:[/?#]|$)/i.test(new URL(source.iframeUrl).pathname),
+    fixture.label + " iframeUrl is not an Akwam nested player/embed route: " + source.iframeUrl,
   );
   assert(source.providerKey === "akwam-iframe", fixture.label + " is not Akwam iframe");
   assert(source.type === "web", fixture.label + " is not web/iframe type");
