@@ -18,18 +18,7 @@ interface VideoPlayerProps {
   onNavigateBack?: () => void;
 }
 
-const AKWAM_PLAYER_HOSTS = [
-  'akwam.ss',
-  'akwam.it',
-  'go.akwam.it',
-  'ak.sv',
-  'go.ak.sv',
-  'akwam.ee',
-  'akwam.com.co',
-  'go.akwam.com.co',
-  'akwam.net',
-  'downet.net',
-];
+const RESOLVER_PLAYER_HOST = 'movyz-akwam-resolver.sameranede.workers.dev';
 
 const isAkwamPlayerUrl = (value: string) => {
   try {
@@ -37,7 +26,25 @@ const isAkwamPlayerUrl = (value: string) => {
     if (url.protocol !== 'https:') return false;
 
     const host = url.hostname.toLowerCase();
-    const allowedHost = AKWAM_PLAYER_HOSTS.some(
+    if (host === RESOLVER_PLAYER_HOST && url.pathname === '/player') {
+      return true;
+    }
+
+    // Never embed an Akwam content page directly; that would show the
+    // complete site instead of the player.
+    const akwamHosts = [
+      'akwam.ss',
+      'akwam.it',
+      'go.akwam.it',
+      'ak.sv',
+      'go.ak.sv',
+      'akwam.ee',
+      'akwam.com.co',
+      'go.akwam.com.co',
+      'akwam.net',
+      'downet.net',
+    ];
+    const allowedHost = akwamHosts.some(
       (base) => host === base || host.endsWith('.' + base),
     );
     if (!allowedHost) return false;
