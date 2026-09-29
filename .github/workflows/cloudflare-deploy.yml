@@ -80,3 +80,5 @@ jobs:
       - name: Remove temporary secrets file
         if: always()
         run: rm -f .env.production
+
+# Final Akwam iframe-only production verification trigger.
