@@ -1152,6 +1152,7 @@ async function searchAkwamEpisodeWithBrowser(browser, payload) {
 
 function iframeCacheKey(payload) {
   return JSON.stringify({
+    version: "akwam-iframe-v2",
     content_url: clean(payload?.content_url || payload?.contentUrl || payload?.source_url),
     title: normalizeTitle(payload?.title),
     title_en: normalizeTitle(payload?.title_en),
@@ -1167,7 +1168,14 @@ function iframeCacheKey(payload) {
 async function resolveAkwamIframeCached(browser, payload) {
   const key = iframeCacheKey(payload);
   const cached = iframeCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return { ...cached.value, cached: true };
+  if (
+    cached &&
+    cached.expiresAt > Date.now() &&
+    isIframePlayerUrl(cached.value?.iframe_url || cached.value?.player_url || "")
+  ) {
+    return { ...cached.value, cached: true };
+  }
+  if (cached) iframeCache.delete(key);
 
   const existing = iframeInflight.get(key);
   if (existing) return await existing;
@@ -1186,6 +1194,29 @@ async function resolveAkwamIframeCached(browser, payload) {
     return await task;
   } finally {
     iframeInflight.delete(key);
+  }
+}
+
+function isIframePlayerUrl(value, sourceUrl = "") {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || isPrivateHost(url.hostname) || !isAllowedPageHost(url.hostname)) {
+      return false;
+    }
+
+    if (sourceUrl) {
+      try {
+        if (url.href === new URL(sourceUrl).href) return false;
+      } catch {}
+    }
+
+    if (/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(url.pathname)) {
+      return false;
+    }
+
+    return /\/(?:watch|player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
+  } catch {
+    return false;
   }
 }
 
@@ -1276,7 +1307,7 @@ async function resolveAkwamIframe(browser, payload) {
     const seen = new Set();
 
     for (const match of String(content.html || "").matchAll(
-      /<iframe\\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["'][^>]*>/gi,
+      /<iframe\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["'][^>]*>/gi,
     )) {
       const candidate = absoluteUrl(match[1], content.url);
       if (!candidate || seen.has(candidate)) continue;
@@ -1284,20 +1315,20 @@ async function resolveAkwamIframe(browser, payload) {
       candidates.push(candidate);
     }
 
-    const preferred = candidates.find((candidate) => {
-      try {
-        const url = new URL(candidate);
-        return /^https?:$/.test(url.protocol) &&
-          !isPrivateHost(url.hostname) &&
-          (isAllowedPageHost(url.hostname) ||
-            /(?:player|embed|video)/i.test(url.hostname) ||
-            /\/(?:player|embed|watch)\//i.test(url.pathname));
-      } catch {
-        return false;
-      }
-    });
+    const playableCandidates = candidates
+      .filter((candidate) => isIframePlayerUrl(candidate, content.url))
+      .sort((a, b) => {
+        const score = (value) => {
+          let result = 0;
+          if (/\/(?:player|embed)\//i.test(value)) result += 100;
+          if (/\/watch\//i.test(value)) result += 80;
+          if (/go\./i.test(new URL(value).hostname)) result += 10;
+          return result;
+        };
+        return score(b) - score(a);
+      });
 
-    playerUrl = preferred || "";
+    playerUrl = playableCandidates[0] || "";
   } catch (error) {
     diagnostic(
       "AKWAM_IFRAME_PLAYER_FALLBACK",
@@ -1305,8 +1336,8 @@ async function resolveAkwamIframe(browser, payload) {
     );
   }
 
-  if (!playerUrl) {
-    throw new Error("AKWAM_IFRAME_PLAYER: no embedded player iframe found");
+  if (!isIframePlayerUrl(playerUrl, safeSource)) {
+    throw new Error("AKWAM_IFRAME_PLAYER: no dedicated player iframe found");
   }
 
   const iframeTarget = playerUrl;
