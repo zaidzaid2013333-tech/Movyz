@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 // Production verification: exactly one Movyz Akwam player iframe target.
 const RESOLVER_BASE = (process.env.AKWAM_RESOLVER_BASE ||
   "https://movyz-akwam-resolver.sameranede.workers.dev").replace(/\/+$/, "");
@@ -248,31 +247,59 @@ for (const fixture of fixtures) {
     }));
 
     if (fixture.label === "Akwam resolver movie" && index === 0) {
-      const ffprobeStarted = Date.now();
-      const ffprobe = spawnSync(
-        "ffprobe",
-        [
-          "-v", "error",
-          "-rw_timeout", "15000000",
-          "-show_entries", "format=duration,format_name:stream=index,codec_name,codec_type,width,height",
-          "-of", "json",
-          mediaUrl,
-        ],
-        {
-          encoding: "utf8",
-          timeout: 20_000,
-          maxBuffer: 2 * 1024 * 1024,
-        },
-      );
-      console.log("Akwam resolver movie FFPROBE", JSON.stringify({
-        exitCode: ffprobe.status,
-        signal: ffprobe.signal || null,
-        elapsedMs: Date.now() - ffprobeStarted,
-        error: ffprobe.error ? String(ffprobe.error.message || ffprobe.error) : "",
-        stdout: String(ffprobe.stdout || "").slice(0, 12000),
-        stderr: String(ffprobe.stderr || "").slice(0, 4000),
+      const readAndScan = async (label, rangeHeader, timeoutMs = 20_000) => {
+        const started = performance.now();
+        const response = await fetch(mediaUrl, {
+          headers: {
+            Accept: "video/mp4,video/*,application/octet-stream,*/*;q=0.8",
+            Range: rangeHeader,
+          },
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        const buffer = new Uint8Array(await response.arrayBuffer());
+        const text = new TextDecoder("latin1").decode(buffer);
+        const ftyp = text.indexOf("ftyp");
+        const moov = text.indexOf("moov");
+        return {
+          status: response.status,
+          contentType: response.headers.get("content-type") || "",
+          contentRange: response.headers.get("content-range") || "",
+          elapsedMs: Math.round(performance.now() - started),
+          bytesRead: buffer.byteLength,
+          ftypOffset: ftyp >= 4 ? ftyp - 4 : -1,
+          moovOffset: moov >= 4 ? moov - 4 : -1,
+          resolverVersion: response.headers.get("x-movyz-resolver-version") || "",
+        };
+      };
+
+      let head256 = null;
+      let tail256 = null;
+      try {
+        head256 = await readAndScan("head-256KiB", "bytes=0-262143");
+      } catch (error) {
+        head256 = { error: error instanceof Error ? error.message : String(error) };
+      }
+
+      if (total > 262144) {
+        try {
+          tail256 = await readAndScan(
+            "tail-256KiB",
+            `bytes=${total - 262144}-${total - 1}`,
+          );
+        } catch (error) {
+          tail256 = { error: error instanceof Error ? error.message : String(error) };
+        }
+      }
+
+      console.log(fixture.label + " MP4_ATOM_PROBE", JSON.stringify({
+        quality: source?.quality || "auto",
+        total,
+        head256,
+        tail256,
       }));
     }
+
+
   }
 
 
