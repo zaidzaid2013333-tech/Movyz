@@ -667,7 +667,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     );
 
     if (!sources.length) {
-      return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable AbdoBest source is currently available');
+      return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable watch source is currently available');
     }
 
     return ok(res, sources, {
@@ -678,9 +678,8 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
       episode,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('[watch-api]', message);
-    return fail(res, 502, 'WATCH_API_FAILED', message || 'Unable to load playback sources');
+    console.error('[watch-api]', error instanceof Error ? error.message : error);
+    return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load playback sources');
   }
 }));
 
