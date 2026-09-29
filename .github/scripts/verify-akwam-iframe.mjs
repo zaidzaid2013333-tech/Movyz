@@ -1,11 +1,10 @@
-// Final deployment verification: Movyz returns one native Akwam player/embed URL.
+// Production verification: exactly one Movyz Akwam player iframe target.
 const RESOLVER_BASE = (process.env.AKWAM_RESOLVER_BASE ||
   "https://movyz-akwam-resolver.sameranede.workers.dev").replace(/\/+$/, "");
 
 const fixtures = [
   {
     label: "Akwam resolver movie",
-    mode: "iframe",
     title: "Inception",
     title_en: "Inception",
     original_title: "Inception",
@@ -15,7 +14,6 @@ const fixtures = [
   },
   {
     label: "Akwam resolver episode",
-    mode: "iframe",
     title: "The Mentalist",
     title_en: "The Mentalist",
     original_title: "The Mentalist",
@@ -27,44 +25,8 @@ const fixtures = [
   },
 ];
 
-const ALLOWED_AKWAM_HOSTS = [
-  "akwam.ss",
-  "akwam.it",
-  "go.akwam.it",
-  "ak.sv",
-  "go.ak.sv",
-  "akwam.ee",
-  "akwam.com.co",
-  "go.akwam.com.co",
-  "akwam.net",
-  "downet.net",
-];
-
 function assert(condition, message) {
   if (!condition) throw new Error(message);
-}
-
-function isDedicatedAkwamIframe(value, label) {
-  assert(typeof value === "string" && /^https:\/\//i.test(value), label + " is not HTTPS: " + value);
-
-  const url = new URL(value);
-  const host = url.hostname.toLowerCase();
-  assert(
-    ALLOWED_AKWAM_HOSTS.some((base) => host === base || host.endsWith("." + base)),
-    label + " is not an Akwam host: " + host,
-  );
-  assert(
-    !/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(url.pathname),
-    label + " returned an Akwam content page: " + value,
-  );
-  assert(
-    /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname),
-    label + " is not a dedicated Akwam player/embed URL: " + value,
-  );
-  assert(
-    !host.includes("movyz-akwam-resolver"),
-    label + " unexpectedly returned the Movyz player shell: " + value,
-  );
 }
 
 async function jsonFetch(url, init, label) {
@@ -77,11 +39,9 @@ async function jsonFetch(url, init, label) {
   try {
     body = text ? JSON.parse(text) : null;
   } catch {
-    throw new Error(label + " returned non-JSON HTTP " + response.status + ": " + text.slice(0, 800));
+    throw new Error(label + " returned non-JSON HTTP " + response.status + ": " + text.slice(0, 1000));
   }
-  if (!response.ok) {
-    throw new Error(label + " HTTP " + response.status + ": " + text.slice(0, 1600));
-  }
+  if (!response.ok) throw new Error(label + " HTTP " + response.status + ": " + text.slice(0, 1800));
   return body;
 }
 
@@ -100,18 +60,36 @@ for (const fixture of fixtures) {
   );
 
   assert(body?.ok === true, fixture.label + " did not return ok=true");
-  assert(body?.mode === "akwam-native-iframe", fixture.label + " did not return native iframe mode");
-  const iframe = body?.iframe_url || body?.player_url || "";
-  isDedicatedAkwamIframe(iframe, fixture.label + " iframe_url");
+  assert(body?.mode === "movyz-player-shell", fixture.label + " did not return player-shell mode");
 
+  const iframeUrl = String(body?.iframe_url || "");
+  const playerUrl = String(body?.player_url || "");
+  assert(iframeUrl === playerUrl, fixture.label + " returned different iframe/player URLs");
+  assert(/^https:\/\//i.test(iframeUrl), fixture.label + " iframe URL is not HTTPS");
+
+  const url = new URL(iframeUrl);
   assert(
-    body?.iframe_url === body?.player_url,
-    fixture.label + " returned two different player targets",
+    url.hostname.toLowerCase() === "movyz-akwam-resolver.sameranede.workers.dev" &&
+    url.pathname === "/player",
+    fixture.label + " iframe is not the single Movyz player shell: " + iframeUrl,
   );
 
-  console.log(fixture.label + " NATIVE_IFRAME_OK", JSON.stringify({
-    iframeUrl: iframe,
-    cached: body?.cached === true,
+  const htmlResponse = await fetch(iframeUrl, {
+    headers: { Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8" },
+    signal: AbortSignal.timeout(30_000),
+  });
+  const html = await htmlResponse.text();
+
+  assert(htmlResponse.ok, fixture.label + " player shell HTTP " + htmlResponse.status);
+  assert(/<video\b[^>]*\bid=["']player["']/i.test(html), fixture.label + " player shell has no video element");
+  assert(/<title>Movyz Akwam Player<\/title>/i.test(html), fixture.label + " player shell title missing");
+  assert(!/<nav\b/i.test(html), fixture.label + " player shell contains site navigation");
+
+  console.log(fixture.label + " PASS", JSON.stringify({
+    mode: body.mode,
+    iframeUrl,
+    qualityCount: Array.isArray(body.qualities) ? body.qualities.length : 0,
+    sourceCount: Array.isArray(body.sources) ? body.sources.length : 0,
   }));
 }
 
