@@ -1736,7 +1736,7 @@ function loadSource(index){
   const url=proxyUrl(source.url);
   setStatus("Loading…",true);
 
-  if(type==="hls" || /\\.m3u8(?:[?#]|$)/i.test(source.url)){
+  if(type==="hls" || /\.m3u8(?:[?#]|$)/i.test(source.url)){
     if(window.Hls && Hls.isSupported()){
       hls=new Hls({enableWorker:true});
       hls.loadSource(url);
@@ -1844,7 +1844,7 @@ async function proxyAkwamMedia(request, requestUrl) {
   const finalUrl = response.url || target.url;
   const looksPlaylist =
     /mpegurl|vnd\\.apple\\.mpegurl/.test(contentType) ||
-    /\\.m3u8(?:[?#]|$)/i.test(finalUrl);
+    /\.m3u8(?:[?#]|$)/i.test(finalUrl);
 
   if (looksPlaylist && response.ok) {
     const text = await response.text();
@@ -1861,13 +1861,13 @@ async function proxyAkwamMedia(request, requestUrl) {
 
     const rewritten = text
       .replace(/URI="([^"]+)"/g, (_, raw) => 'URI="' + rewrite(raw) + '"')
-      .split("\\n")
+      .split("\n")
       .map((line) => {
         const value = line.trim();
         if (!value || value.startsWith("#")) return line;
         return rewrite(value);
       })
-      .join("\\n");
+      .join("\n");
 
     return new Response(rewritten, {
       status: response.status,
