@@ -143,6 +143,7 @@ for (const fixture of fixtures) {
       contentType,
       contentRange,
     });
+    try { mediaResponse.body?.cancel(); } catch {}
   }
 
   // Verify that the resolver bounds the initial MP4 response to 4 MiB even when
