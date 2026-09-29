@@ -1172,10 +1172,51 @@ async function resolveAkwamIframe(browser, payload) {
     throw new Error("AKWAM_IFRAME: invalid Akwam page URL");
   }
 
+  // Prefer Akwam's dedicated /watch/<id> playback route when the content page
+  // exposes one. Embedding the content page itself renders the whole Akwam site;
+  // /watch/<id> is the player route we actually want inside Movyz.
+  let playerUrl = "";
+  try {
+    const content = await getContentPageResilient(
+      browser,
+      safeSource,
+      "AKWAM_IFRAME_PLAYER",
+    );
+    for (const match of String(content.html || "").matchAll(
+      /<a\b[^>]*href=["']([^"']*\/watch\/\d+(?:[/?#][^"']*)?)["'][^>]*>/gi,
+    )) {
+      const candidate = safeUrl(match[1], content.url, { pageOnly: true });
+      if (candidate && /\/watch\/\d+(?:[/?#]|$)/i.test(candidate)) {
+        playerUrl = candidate;
+        break;
+      }
+    }
+
+    if (!playerUrl) {
+      const rawWatch = String(content.html || "").match(
+        /https?:\/\/(?:go\.)?ak(?:wam\.it|\.sv)[^"'<>\\s]*\/watch\/\d+(?:[/?#][^"'<>\\s]*)?/i,
+      )?.[0];
+      if (rawWatch) {
+        const candidate = safeUrl(rawWatch, content.url, { pageOnly: true });
+        if (candidate && /\/watch\/\d+(?:[/?#]|$)/i.test(candidate)) {
+          playerUrl = candidate;
+        }
+      }
+    }
+  } catch (error) {
+    diagnostic(
+      "AKWAM_IFRAME_PLAYER_FALLBACK",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  const iframeTarget = playerUrl || safeSource;
+
   diagnostic(
     "AKWAM_IFRAME",
     "type=" + (payload?.type || "movie") +
-      " source=" + safeSource,
+      " source=" + safeSource +
+      " target=" + iframeTarget,
   );
 
   return {
@@ -1188,9 +1229,10 @@ async function resolveAkwamIframe(browser, payload) {
     sources: [{
       quality: "auto",
       type: "web",
-      url: safeSource,
+      url: iframeTarget,
     }],
-    iframe_url: safeSource,
+    iframe_url: iframeTarget,
+    player_url: playerUrl || undefined,
   };
 }
 
