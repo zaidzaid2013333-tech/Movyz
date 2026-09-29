@@ -65,36 +65,36 @@ for (const fixture of fixtures) {
 
   const iframe = new URL(source.iframeUrl);
   const iframePath = iframe.pathname;
-  const isMovyzPlayer =
-    iframe.hostname.toLowerCase() === "movyz-akwam-resolver.sameranede.workers.dev" &&
-    iframePath === "/player";
-  const isDedicated = /\/(?:player|embed)(?:\/|[?#]|$)/i.test(iframePath);
+  const host = iframe.hostname.toLowerCase();
+  const allowedAkwamHosts = [
+    "akwam.ss",
+    "akwam.it",
+    "go.akwam.it",
+    "ak.sv",
+    "go.ak.sv",
+    "akwam.ee",
+    "akwam.com.co",
+    "go.akwam.com.co",
+    "akwam.net",
+    "downet.net",
+  ];
 
   assert(
-    isMovyzPlayer || isDedicated,
-    fixture.label + " iframeUrl is not a clean player target: " + source.iframeUrl,
+    allowedAkwamHosts.some((base) => host === base || host.endsWith("." + base)),
+    fixture.label + " iframeUrl is not an Akwam host: " + source.iframeUrl,
   );
-
-  if (isMovyzPlayer) {
-    const playerResponse = await fetch(source.iframeUrl, {
-      headers: { Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8" },
-      signal: AbortSignal.timeout(30_000),
-    });
-    const playerHtml = await playerResponse.text();
-    assert(playerResponse.ok, fixture.label + " player shell HTTP " + playerResponse.status);
-    assert(
-      /<video\b[^>]*\bid=["']player["']/i.test(playerHtml),
-      fixture.label + " player shell has no video element",
-    );
-    assert(
-      /<title>Movyz Akwam Player<\/title>/i.test(playerHtml),
-      fixture.label + " player shell title missing",
-    );
-    assert(
-      !/اكوام الموقع القديم|<nav\b/i.test(playerHtml),
-      fixture.label + " player shell contains provider page chrome",
-    );
-  }
+  assert(
+    !/\\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\\/|[?#]|$)/i.test(iframePath),
+    fixture.label + " iframeUrl is a content page instead of a player: " + source.iframeUrl,
+  );
+  assert(
+    /\\/(?:player|embed)(?:\\/|[?#]|$)/i.test(iframePath),
+    fixture.label + " iframeUrl is not a dedicated Akwam player/embed: " + source.iframeUrl,
+  );
+  assert(
+    !host.includes("movyz-akwam-resolver"),
+    fixture.label + " iframeUrl unexpectedly points to the Movyz player shell",
+  );
 
   assert(source.providerKey === "akwam-iframe", fixture.label + " is not Akwam iframe");
   assert(source.type === "web", fixture.label + " is not web/iframe type");
