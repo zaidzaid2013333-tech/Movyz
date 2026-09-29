@@ -94,11 +94,11 @@ async function inspectReturnedPlayer(url, label) {
       signal: AbortSignal.timeout(20_000),
     });
     const html = await response.text();
-    const title = html.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1]?.replace(/<[^>]+>/g, " ").replace(/\\s+/g, " ").trim() || "";
-    const iframes = [...html.matchAll(/<iframe\\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["']/gi)]
+    const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || "";
+    const iframes = [...html.matchAll(/<iframe\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["']/gi)]
       .map((m) => m[1]).slice(0, 8);
-    const videos = (html.match(/<video\\b/gi) || []).length;
-    const sources = (html.match(/<source\\b/gi) || []).length;
+    const videos = (html.match(/<video\b/gi) || []).length;
+    const sources = (html.match(/<source\b/gi) || []).length;
     console.log(label + " TARGET_INSPECT", JSON.stringify({
       httpStatus: response.status,
       finalUrl: response.url,
