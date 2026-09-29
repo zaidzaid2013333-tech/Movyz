@@ -530,38 +530,53 @@ function extractAkwamEpisodeSearchLinks(html) {
   const candidates = [];
   const seen = new Set();
 
-  const add = (raw) => {
-    let value = decodeHtmlUrl(raw);
-    try {
-      value = decodeURIComponent(value);
-    } catch {}
-
-    try {
-      const u = new URL(value);
-      const href = u.href;
-      if (!isAkwamUrl(href)) return;
-      if (!/\/episode\//i.test(u.pathname)) return;
-      if (seen.has(href)) return;
-      seen.add(href);
-      candidates.push(href);
-    } catch {}
+  const tryDecode = (value) => {
+    let current = decodeHtmlUrl(value);
+    for (let i = 0; i < 3; i += 1) {
+      try {
+        const next = decodeURIComponent(current);
+        if (next === current) break;
+        current = next;
+      } catch {
+        break;
+      }
+    }
+    return current;
   };
 
-  const directPattern = /https?:\/\/(?:www\.)?(?:akwam\.it|akwam\.ss|akwam\.ee|akwam\.net|ak\.sv|akwam\.com\.co|go\.akwam\.com\.co|akw\.cam)\/episode\/[^"'<>\\s&]+/gi;
+  const add = (raw) => {
+    const decoded = tryDecode(String(raw || ""));
+    if (!decoded) return;
+
+    const values = [decoded];
+    try {
+      const parsed = new URL(decoded, "https://search.local");
+      for (const key of ["uddg", "u", "url", "target", "dest", "destination"]) {
+        const value = parsed.searchParams.get(key);
+        if (value) values.push(tryDecode(value));
+      }
+    } catch {}
+
+    for (const value of values) {
+      try {
+        const u = new URL(value);
+        if (!isAkwamUrl(u.href)) continue;
+        if (!/\/episode\//i.test(u.pathname)) continue;
+        if (seen.has(u.href)) continue;
+        seen.add(u.href);
+        candidates.push(u.href);
+      } catch {}
+    }
+  };
+
+  const directPattern = /https?:\/\/(?:www\.)?(?:akwam\.it|akwam\.ss|akwam\.ee|akwam\.net|ak\.sv|akwam\.com\.co|go\.akwam\.com\.co|akw\.cam)\/episode\/[^"'<>\s&]+/gi;
   for (const match of source.matchAll(directPattern)) add(match[0]);
 
-  const encodedPattern = /(?:uddg|url|target|u)=([^&"'<>\\s]+)/gi;
-  for (const match of source.matchAll(encodedPattern)) {
-    const value = match[1];
-    try {
-      const decoded = decodeURIComponent(value);
-      if (/https?:\/\/[^/]*akwam\./i.test(decoded) || /https?:\/\/ak\.sv/i.test(decoded)) add(decoded);
-    } catch {}
-  }
+  const anchorPattern = /<a\b[^>]*href=["']([^"']+)["']/gi;
+  for (const match of source.matchAll(anchorPattern)) add(match[1]);
 
   return candidates;
 }
-
 function seasonSearchLabel(season) {
   const labels = {
     1: "الموسم الاول",
@@ -627,9 +642,12 @@ async function searchAkwamEpisodeWeb(payload) {
 
   const seasonLabel = seasonSearchLabel(season);
   const queries = [
+    'site:akwam.ss/episode "' + title + '" "' + seasonLabel + '" "الحلقة ' + episode + '"',
     'site:akwam.it/episode "' + title + '" "' + seasonLabel + '" "الحلقة ' + episode + '"',
-    'site:akwam.it/episode "' + title + '" "' + seasonLabel + '" "Episode ' + episode + '"',
-    'site:akwam.it/episode "' + title + '" "الحلقة ' + episode + '"',
+    'site:akwam.ss/episode "' + title + '" "Episode ' + episode + '"',
+    'site:akwam.it/episode "' + title + '" "Episode ' + episode + '"',
+    'site:akwam.ss/episode "' + title + '" "الحلقة ' + episode + '"',
+    '"' + title + '" "' + seasonLabel + '" "الحلقة ' + episode + '" "akwam.ss/episode"',
   ];
 
   const engines = [
