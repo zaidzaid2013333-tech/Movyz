@@ -486,7 +486,7 @@ function extractDedicatedAkwamWatchUrl(html, base) {
   }
 
   for (const match of source.matchAll(
-    /https?:\/\/[^"'<>\\s]+\/watch\/\d+(?:[/?#][^"'<>\\s]*)?/gi,
+    /https?:\/\/[^"'<>\s]+\/watch\/\d+(?:[/?#][^"'<>\s]*)?/gi,
   )) {
     add(match[0]);
   }
