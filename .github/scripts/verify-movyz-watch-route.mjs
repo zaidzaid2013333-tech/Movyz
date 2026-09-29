@@ -66,34 +66,13 @@ for (const fixture of fixtures) {
   const iframe = new URL(source.iframeUrl);
   const iframePath = iframe.pathname;
   const host = iframe.hostname.toLowerCase();
-  const allowedAkwamHosts = [
-    "akwam.ss",
-    "akwam.it",
-    "go.akwam.it",
-    "ak.sv",
-    "go.ak.sv",
-    "akwam.ee",
-    "akwam.com.co",
-    "go.akwam.com.co",
-    "akwam.net",
-    "downet.net",
-  ];
+  const isSingleMovyzPlayer =
+    host === "movyz-akwam-resolver.sameranede.workers.dev" &&
+    iframePath === "/player";
 
   assert(
-    allowedAkwamHosts.some((base) => host === base || host.endsWith("." + base)),
-    fixture.label + " iframeUrl is not an Akwam host: " + source.iframeUrl,
-  );
-  assert(
-    !/\\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\\/|[?#]|$)/i.test(iframePath),
-    fixture.label + " iframeUrl is a content page instead of a player: " + source.iframeUrl,
-  );
-  assert(
-    /\\/(?:player|embed)(?:\\/|[?#]|$)/i.test(iframePath),
-    fixture.label + " iframeUrl is not a dedicated Akwam player/embed: " + source.iframeUrl,
-  );
-  assert(
-    !host.includes("movyz-akwam-resolver"),
-    fixture.label + " iframeUrl unexpectedly points to the Movyz player shell",
+    isSingleMovyzPlayer,
+    fixture.label + " iframeUrl is not the single Movyz player shell: " + source.iframeUrl,
   );
 
   assert(source.providerKey === "akwam-iframe", fixture.label + " is not Akwam iframe");
