@@ -56,9 +56,10 @@ function assertAkwamPage(value, label) {
   );
   const isWatch = /\/watch\/\d+(?:[/?#]|$)/i.test(pathname);
   const isDedicated = /\/(?:player|embed)(?:\/|[?#]|$)/i.test(pathname);
+  assert(!isWatch, label + " returned the full Akwam /watch page: " + value);
   assert(
-    isWatch || isDedicated,
-    label + " did not return a valid Akwam player route: " + value,
+    isDedicated,
+    label + " did not return a dedicated Akwam player/embed route: " + value,
   );
 }
 
@@ -104,11 +105,6 @@ async function inspectReturnedPlayer(url, label) {
     const videoContext = videoIndex >= 0
       ? html.slice(Math.max(0, videoIndex - 2600), Math.min(html.length, videoIndex + 6200))
       : "";
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(new URL(url).pathname)) {
-      assert(hasNativePlayer, label + " watch route does not expose <video id=player>");
-      assert(new URL(url).hash === "#player", label + " watch route is missing #player fragment: " + url);
-    }
-
     console.log(label + " TARGET_INSPECT", JSON.stringify({
       httpStatus: response.status,
       finalUrl: response.url,
