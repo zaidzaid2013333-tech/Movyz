@@ -1849,7 +1849,13 @@ function mediaProxyRequestUrl(rawUrl, requestUrl) {
       }).filter(Boolean),
     );
 
-    if (sourceHosts.size && !sourceHosts.has(target.hostname.toLowerCase())) return null;
+    if (sourceHosts.size) {
+      const targetHost = target.hostname.toLowerCase();
+      const matchesAllowedHost = [...sourceHosts].some((sourceHost) =>
+        targetHost === sourceHost || targetHost.endsWith("." + sourceHost),
+      );
+      if (!matchesAllowedHost) return null;
+    }
     return { url: target.toString(), payload: tokenPayload };
   } catch {
     return null;
