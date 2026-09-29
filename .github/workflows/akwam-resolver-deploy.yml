@@ -1,11 +1,6 @@
 name: Deploy Akwam Resolver
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - "akwam-resolver-worker/**"
-      - ".github/workflows/akwam-resolver-deploy.yml"
   workflow_dispatch:
 
 permissions:
