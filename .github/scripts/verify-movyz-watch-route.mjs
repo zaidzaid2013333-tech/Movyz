@@ -67,16 +67,11 @@ for (const fixture of fixtures) {
   const iframePath = iframe.pathname;
   const isWatch = /\/watch\/\d+(?:[/?#]|$)/i.test(iframePath);
   const isDedicated = /\/(?:player|embed)(?:\/|[?#]|$)/i.test(iframePath);
+  assert(!isWatch, fixture.label + " returned the full Akwam /watch page: " + source.iframeUrl);
   assert(
-    isWatch || isDedicated,
-    fixture.label + " iframeUrl is not an Akwam player route: " + source.iframeUrl,
+    isDedicated,
+    fixture.label + " iframeUrl is not a dedicated Akwam player/embed route: " + source.iframeUrl,
   );
-  if (isWatch) {
-    assert(
-      iframe.hash === "#player",
-      fixture.label + " watch iframeUrl is missing #player fragment: " + source.iframeUrl,
-    );
-  }
   assert(source.providerKey === "akwam-iframe", fixture.label + " is not Akwam iframe");
   assert(source.type === "web", fixture.label + " is not web/iframe type");
   assertPlayableUrl(source.iframeUrl, fixture.label + " iframeUrl");
