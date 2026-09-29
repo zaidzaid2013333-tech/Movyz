@@ -1394,13 +1394,20 @@ async function resolveAkwam(browser, payload) {
     throw lastError || new Error("AKWAM_QUALITY: no usable quality");
   }
 
-  const sources = resolved
-    .sort((a, b) => qualityRank(a.quality) - qualityRank(b.quality))
-    .map((item) => ({
-      quality: item.quality || "auto",
-      type: item.type || mediaTypeFromUrl(item.media_url || item.url),
-      url: item.media_url || item.url,
-    }));
+  const byQuality = new Map();
+  for (const item of resolved) {
+    const quality = item.quality || "auto";
+    if (!byQuality.has(quality)) {
+      byQuality.set(quality, {
+        quality,
+        type: item.type || mediaTypeFromUrl(item.media_url || item.url),
+        url: item.media_url || item.url,
+      });
+    }
+  }
+
+  const sources = [...byQuality.values()]
+    .sort((a, b) => qualityRank(a.quality) - qualityRank(b.quality));
   return {
     title: entry.title,
     source_url: mediaPage.url,
