@@ -412,9 +412,7 @@ function normalizeWatchSources(payload: any) {
   const stream = payload?.stream || {};
   const iframeUrl = normalizeAkwamIframeUrl(
     payload?.iframe_url ||
-    payload?.player_url ||
-    stream.iframe_url ||
-    stream.player_url,
+    stream.iframe_url,
   );
   if (!iframeUrl) return [];
 
