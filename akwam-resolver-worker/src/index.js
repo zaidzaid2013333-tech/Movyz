@@ -1199,7 +1199,7 @@ async function searchAkwamEpisodeWithBrowser(browser, payload) {
 
 function iframeCacheKey(payload) {
   return JSON.stringify({
-    version: "akwam-iframe-v2",
+    version: "akwam-iframe-v3",
     content_url: clean(payload?.content_url || payload?.contentUrl || payload?.source_url),
     title: normalizeTitle(payload?.title),
     title_en: normalizeTitle(payload?.title_en),
@@ -1261,7 +1261,6 @@ function isIframePlayerUrl(value, sourceUrl = "") {
       return false;
     }
 
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) return true;
     return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
   } catch {
     return false;
@@ -1356,12 +1355,8 @@ async function resolveAkwamIframe(browser, payload) {
       candidates.push(candidate);
     };
 
-    // The iframe contract only needs one dedicated Akwam player route.
-    // Extract explicit /watch/<id> links first; do not depend on quality-tab markup.
-    const dedicatedWatch = extractDedicatedAkwamWatchUrl(content.html, content.url);
-    if (dedicatedWatch) addCandidate(dedicatedWatch);
-
-    // Secondary: provider-specific player/embed routes.
+    // Only actual embedded/player routes belong in the iframe contract.
+    // /watch/<id> is a full provider page and is intentionally NOT returned.
     for (const match of String(content.html || "").matchAll(
       /<a\b[^>]*href=["']([^"']*\/(?:player|embed)\/[^"']+)["'][^>]*>/gi,
     )) {
@@ -1480,19 +1475,19 @@ async function resolveAkwamIframe(browser, payload) {
 
     playerUrl = findPlayerUrl(content);
 
-    // If Akwam already gave us a dedicated watch route, never throw it away.
-    if (
-      !playerUrl &&
-      isIframePlayerUrl(safeSource) &&
-      /\/watch\/\d+(?:[/?#]|$)/i.test(new URL(safeSource).pathname)
-    ) {
-      playerUrl = safeSource;
+    // If the content page exposes only /watch/<id>, treat it as an intermediate
+    // page and inspect it for the real player iframe. Never return the full page.
+    if (!playerUrl) {
+      const dedicatedWatch = extractDedicatedAkwamWatchUrl(content.html, content.url);
+      if (dedicatedWatch) {
+        playerUrl = await resolveNestedPlayerIframe(dedicatedWatch);
+      }
     }
 
     if (!playerUrl) {
       diagnostic(
         "AKWAM_IFRAME_BROWSER_FALLBACK",
-        "No dedicated playback target in fast HTML; rendering " + safeSource,
+        "No direct player/embed target in fast HTML; rendering " + safeSource,
       );
       content = await getContentPage(
         browser,
@@ -1500,6 +1495,13 @@ async function resolveAkwamIframe(browser, payload) {
         "AKWAM_IFRAME_PLAYER_BROWSER",
       );
       playerUrl = findPlayerUrl(content);
+
+      if (!playerUrl) {
+        const dedicatedWatch = extractDedicatedAkwamWatchUrl(content.html, content.url);
+        if (dedicatedWatch) {
+          playerUrl = await resolveNestedPlayerIframe(dedicatedWatch);
+        }
+      }
     }
 
   } catch (error) {
@@ -1513,18 +1515,10 @@ async function resolveAkwamIframe(browser, payload) {
     throw new Error("AKWAM_IFRAME_PLAYER: no dedicated player iframe found");
   }
 
-  // Akwam's current /watch/<id> route is the native provider player page.
-  // Keep the provider page itself, but anchor the iframe to its #player element.
-  // Do not attempt to discover or substitute a secondary embed: that was the
-  // path that could return the surrounding site shell instead of the player.
-  const iframeTarget = (() => {
-    const anchored = new URL(playerUrl);
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(anchored.pathname)) {
-      anchored.hash = "#player";
-    }
-    return anchored.toString();
-  })();
-  diagnostic("AKWAM_IFRAME_ANCHORED_PLAYER", iframeTarget);
+  // The returned URL must be the nested player/embed document itself.
+  // A /watch page is rejected by isIframePlayerUrl and can never reach the client.
+  const iframeTarget = new URL(playerUrl).toString();
+  diagnostic("AKWAM_IFRAME_PLAYER_TARGET", iframeTarget);
 
   diagnostic(
     "AKWAM_IFRAME",
