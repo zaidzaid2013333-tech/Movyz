@@ -335,6 +335,7 @@ async function getContentPageDirectFirst(browser, url, stage) {
   }
 }
 async function searchAkwam(browser, payload) {
+  const section = payload?.type === "series" ? "series" : "movie";
   const baseCandidates = [
     payload?.title,
     payload?.title_en,
@@ -356,8 +357,7 @@ async function searchAkwam(browser, payload) {
   const uniqueCandidates = candidates
     .filter(Boolean)
     .filter((value, index, list) => list.indexOf(value) === index);
-  const section = payload?.type === "series" ? "series" : "movie";
-  if (!candidates.length) throw new Error("AKWAM_SEARCH: title is required");
+  if (!uniqueCandidates.length) throw new Error("AKWAM_SEARCH: title is required");
 
   let lastError = null;
   let best = null;
