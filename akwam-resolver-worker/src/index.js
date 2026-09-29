@@ -1199,7 +1199,7 @@ async function searchAkwamEpisodeWithBrowser(browser, payload) {
 
 function iframeCacheKey(payload) {
   return JSON.stringify({
-    version: "akwam-iframe-v4",
+    version: "akwam-iframe-v5",
     content_url: clean(payload?.content_url || payload?.contentUrl || payload?.source_url),
     title: normalizeTitle(payload?.title),
     title_en: normalizeTitle(payload?.title_en),
@@ -1493,6 +1493,16 @@ async function resolveAkwamIframe(browser, payload) {
       playerUrl = findPlayerUrl(content);
     }
 
+    // A /watch/<id> page is a content shell, not an acceptable iframe target.
+    // Resolve its provider-owned nested /player or /embed iframe instead.
+    if (playerUrl && /\/watch\/\d+(?:[/?#]|$)/i.test(new URL(playerUrl).pathname)) {
+      diagnostic("AKWAM_IFRAME_WATCH_SHELL", playerUrl);
+      const nested = await resolveNestedPlayerIframe(playerUrl);
+      if (nested) {
+        diagnostic("AKWAM_IFRAME_NESTED_PLAYER", nested);
+        playerUrl = nested;
+      }
+    }
   } catch (error) {
     diagnostic(
       "AKWAM_IFRAME_PLAYER_FALLBACK",
@@ -1504,15 +1514,17 @@ async function resolveAkwamIframe(browser, payload) {
     throw new Error("AKWAM_IFRAME_PLAYER: no dedicated player iframe found");
   }
 
-  // Akwam's native /watch/<id> route is the provider-owned player page.
-  // The #player fragment targets its native <video id="player"> element.
-  const iframeTarget = (() => {
-    const anchored = new URL(playerUrl);
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(anchored.pathname)) {
-      anchored.hash = "#player";
-    }
-    return anchored.toString();
-  })();
+  // Never return a /watch page: it contains the whole provider site.
+  // The final iframe must be Akwam's own dedicated /player or /embed route.
+  const finalUrl = new URL(playerUrl);
+  if (!/\/(?:player|embed)(?:\/|[?#]|$)/i.test(finalUrl.pathname)) {
+    throw new Error(
+      "AKWAM_IFRAME_PLAYER: resolved route is a page shell, not a dedicated player: " +
+      finalUrl.toString(),
+    );
+  }
+
+  const iframeTarget = finalUrl.toString();
   diagnostic("AKWAM_IFRAME_NATIVE_PLAYER", iframeTarget);
 
   diagnostic(
