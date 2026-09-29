@@ -238,14 +238,14 @@ function searchEntries(html, base) {
 }
 function parseSeriesSeason(value) {
   const text = normalizeTitle(value);
-  const numeric = text.match(/\\b(?:season|الموسم)\\s*#?\\s*(\\d{1,2})\\b/i);
+  const numeric = text.match(/\b(?:season|الموسم)\s*#?\s*(\d{1,2})\b/i);
   if (numeric) return Number(numeric[1]);
   const ordinals = {
     الاول: 1, الأول: 1, الثاني: 2, الثالث: 3, الرابع: 4, الخامس: 5,
     السادس: 6, السابع: 7, الثامن: 8, التاسع: 9, العاشر: 10,
     "الحادي عشر": 11, "الثاني عشر": 12,
   };
-  const arabic = text.match(/الموسم\\s+(الاول|الأول|الثاني|الثالث|الرابع|الخامس|السادس|السابع|الثامن|التاسع|العاشر|الحادي عشر|الثاني عشر)/i);
+  const arabic = text.match(/الموسم\s+(الاول|الأول|الثاني|الثالث|الرابع|الخامس|السادس|السابع|الثامن|التاسع|العاشر|الحادي عشر|الثاني عشر)/i);
   return arabic ? (ordinals[arabic[1]] || null) : null;
 }
 
