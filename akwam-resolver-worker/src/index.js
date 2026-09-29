@@ -1843,7 +1843,7 @@ async function proxyAkwamMedia(request, requestUrl) {
   const contentType = String(response.headers.get("content-type") || "").toLowerCase();
   const finalUrl = response.url || target.url;
   const looksPlaylist =
-    /mpegurl|vnd\\.apple\\.mpegurl/.test(contentType) ||
+    /mpegurl|vnd\.apple\\.mpegurl/.test(contentType) ||
     /\.m3u8(?:[?#]|$)/i.test(finalUrl);
 
   if (looksPlaylist && response.ok) {
