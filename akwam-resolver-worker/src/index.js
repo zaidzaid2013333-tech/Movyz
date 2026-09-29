@@ -1610,11 +1610,325 @@ async function resolveAkwam(browser, payload) {
   };
 }
 
+
+const PLAYER_TOKEN_TTL_MS = 30 * 60_000;
+const AKWAM_RESOLVER_CORS = CORS;
+
+function encodePlayerToken(payload) {
+  const jsonText = JSON.stringify(payload);
+  const bytes = new TextEncoder().encode(jsonText);
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function decodePlayerToken(value) {
+  const token = clean(value).replace(/-/g, "+").replace(/_/g, "/");
+  if (!token) return null;
+  try {
+    const padded = token + "=".repeat((4 - (token.length % 4)) % 4);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return null;
+  }
+}
+
+function normalizePlayerSourceList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => ({
+      quality: clean(item?.quality) || "auto",
+      type: clean(item?.type) || mediaTypeFromUrl(item?.url || item?.media_url || ""),
+      url: clean(item?.url || item?.media_url),
+    }))
+    .filter((item) => item.url)
+    .filter((item, index, list) =>
+      list.findIndex((candidate) => candidate.url === item.url) === index,
+    );
+}
+
+function buildPlayerToken(sources, referer, title) {
+  const normalized = normalizePlayerSourceList(sources);
+  if (!normalized.length) throw new Error("AKWAM_PLAYER: no resolved media sources");
+  return encodePlayerToken({
+    version: 2,
+    exp: Date.now() + PLAYER_TOKEN_TTL_MS,
+    title: clean(title) || "Akwam",
+    referer: clean(referer),
+    sources: normalized,
+  });
+}
+
+function playerTokenPayload(requestUrl) {
+  const token = requestUrl.searchParams.get("t");
+  const payload = decodePlayerToken(token);
+  if (!payload || Number(payload.exp || 0) < Date.now()) return null;
+  const sources = normalizePlayerSourceList(payload.sources);
+  if (!sources.length) return null;
+  return { ...payload, sources };
+}
+
+function playerHtml(token, payload) {
+  const title = String(payload.title || "Akwam Player")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+  const tokenLiteral = JSON.stringify(token);
+  const sourcesLiteral = JSON.stringify(payload.sources);
+
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>Movyz Akwam Player</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+body{display:flex;align-items:center;justify-content:center}
+.player-wrap{position:relative;width:100vw;height:100vh;background:#000}
+video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain}
+.controls{position:absolute;left:12px;right:12px;top:12px;z-index:5;display:flex;justify-content:flex-end;pointer-events:none}
+select{pointer-events:auto;background:rgba(15,15,15,.8);color:#fff;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:7px 10px;backdrop-filter:blur(8px)}
+.status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#cbd5e1;font-size:14px;pointer-events:none;text-align:center;padding:24px}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="player-wrap">
+  <video id="player" controls playsinline preload="metadata" referrerpolicy="no-referrer" aria-label="${title}"></video>
+  <div class="controls">
+    <select id="quality" aria-label="Quality"></select>
+  </div>
+  <div id="status" class="status">Loading player…</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+<script>
+const TOKEN=${tokenLiteral};
+const SOURCES=${sourcesLiteral};
+const video=document.getElementById("player");
+const select=document.getElementById("quality");
+const status=document.getElementById("status");
+let hls=null;
+
+function setStatus(message,show=true){
+  status.textContent=message;
+  status.classList.toggle("hidden",!show);
+}
+
+function proxyUrl(raw){
+  return "/media?t="+encodeURIComponent(TOKEN)+"&u="+encodeURIComponent(raw);
+}
+
+function loadSource(index){
+  const source=SOURCES[index]||SOURCES[0];
+  if(!source){setStatus("No playable source");return}
+  if(hls){try{hls.destroy()}catch{} hls=null}
+  video.removeAttribute("src");
+  video.load();
+  const type=String(source.type||"").toLowerCase();
+  const url=proxyUrl(source.url);
+  setStatus("Loading…",true);
+
+  if(type==="hls" || /\\.m3u8(?:[?#]|$)/i.test(source.url)){
+    if(window.Hls && Hls.isSupported()){
+      hls=new Hls({enableWorker:true});
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED,()=>setStatus("",false));
+      hls.on(Hls.Events.ERROR,(_,data)=>{
+        if(data && data.fatal){
+          setStatus("Playback failed");
+          try{hls.destroy()}catch{}
+        }
+      });
+      return;
+    }
+    if(video.canPlayType("application/vnd.apple.mpegurl")){
+      video.src=url;
+      video.addEventListener("loadedmetadata",()=>setStatus("",false),{once:true});
+      return;
+    }
+  }
+
+  if(type==="dash"){
+    setStatus("DASH playback is not available in this embedded player.");
+    return;
+  }
+
+  video.src=url;
+  video.addEventListener("loadedmetadata",()=>setStatus("",false),{once:true});
+  video.addEventListener("error",()=>setStatus("Playback failed"),{once:true});
+}
+
+SOURCES.forEach((source,index)=>{
+  const option=document.createElement("option");
+  option.value=String(index);
+  option.textContent=source.quality||"Auto";
+  select.appendChild(option);
+});
+select.hidden=SOURCES.length<2;
+select.addEventListener("change",()=>loadSource(Number(select.value)));
+loadSource(0);
+window.addEventListener("beforeunload",()=>{if(hls){try{hls.destroy()}catch{}}});
+</script>
+</body>
+</html>`;
+
+  return html;
+}
+
+function mediaProxyRequestUrl(rawUrl, requestUrl) {
+  try {
+    const target = new URL(rawUrl);
+    if (target.protocol !== "https:" || isPrivateHost(target.hostname)) return null;
+    const tokenPayload = playerTokenPayload(requestUrl);
+    if (!tokenPayload) return null;
+
+    const sourceHosts = new Set(
+      tokenPayload.sources.map((source) => {
+        try { return new URL(source.url).hostname.toLowerCase(); } catch { return ""; }
+      }).filter(Boolean),
+    );
+
+    if (sourceHosts.size && !sourceHosts.has(target.hostname.toLowerCase())) return null;
+    return { url: target.toString(), payload: tokenPayload };
+  } catch {
+    return null;
+  }
+}
+
+function proxyMediaHeaders(upstream) {
+  const headers = new Headers();
+  for (const name of [
+    "content-type",
+    "content-length",
+    "content-range",
+    "accept-ranges",
+    "cache-control",
+    "etag",
+    "last-modified",
+  ]) {
+    const value = upstream.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+  headers.set("X-Content-Type-Options", "nosniff");
+  return headers;
+}
+
+async function proxyAkwamMedia(request, requestUrl) {
+  const target = mediaProxyRequestUrl(requestUrl.searchParams.get("u") || "", requestUrl);
+  if (!target) return json({ ok: false, error: "Invalid media source" }, 400);
+
+  const range = request.headers.get("Range") || "";
+  const response = await fetch(target.url, {
+    redirect: "follow",
+    headers: {
+      Accept: "*/*",
+      "User-Agent": UA,
+      ...(range ? { Range: range } : {}),
+      ...(target.payload.referer ? { Referer: target.payload.referer } : {}),
+    },
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  const finalUrl = response.url || target.url;
+  const looksPlaylist =
+    /mpegurl|vnd\\.apple\\.mpegurl/.test(contentType) ||
+    /\\.m3u8(?:[?#]|$)/i.test(finalUrl);
+
+  if (looksPlaylist && response.ok) {
+    const text = await response.text();
+    const rewrite = (raw) => {
+      try {
+        const absolute = new URL(raw, finalUrl);
+        if (absolute.protocol !== "https:" || isPrivateHost(absolute.hostname)) return raw;
+        return "/media?t=" + encodeURIComponent(requestUrl.searchParams.get("t") || "") +
+          "&u=" + encodeURIComponent(absolute.toString());
+      } catch {
+        return raw;
+      }
+    };
+
+    const rewritten = text
+      .replace(/URI="([^"]+)"/g, (_, raw) => 'URI="' + rewrite(raw) + '"')
+      .split("\\n")
+      .map((line) => {
+        const value = line.trim();
+        if (!value || value.startsWith("#")) return line;
+        return rewrite(value);
+      })
+      .join("\\n");
+
+    return new Response(rewritten, {
+      status: response.status,
+      headers: {
+        "Content-Type": "application/vnd.apple.mpegurl; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Access-Control-Allow-Origin": "*",
+        "Cross-Origin-Resource-Policy": "cross-origin",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
+
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 800);
+    return json({ ok: false, error: "Media upstream failed", status: response.status, detail }, 502);
+  }
+
+  const headers = proxyMediaHeaders(response);
+  headers.set("Cache-Control", "private, max-age=30");
+  return new Response(response.body, { status: response.status, headers });
+}
+`
 export default { async fetch(request, env) {
   const url = new URL(request.url);
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-  if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "movyz-akwam-resolver", browser: Boolean(env.BROWSER), mode: "iframe-only" });
+  if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "movyz-akwam-resolver", browser: Boolean(env.BROWSER), mode: "movyz-player-shell" });
+
+  if (request.method === "GET" && url.pathname === "/player") {
+    const payload = playerTokenPayload(url);
+    if (!payload) {
+      return new Response("Invalid or expired player token", {
+        status: 400,
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...AKWAM_RESOLVER_CORS },
+      });
+    }
+
+    return new Response(playerHtml(url.searchParams.get("t") || "", payload), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "private, no-store",
+        "Referrer-Policy": "no-referrer",
+        "X-Frame-Options": "ALLOWALL",
+        "Content-Security-Policy":
+          "default-src 'none'; media-src * blob:; img-src * data:; style-src 'unsafe-inline'; script-src https://cdn.jsdelivr.net; connect-src *; font-src data:;",
+        ...AKWAM_RESOLVER_CORS,
+      },
+    });
+  }
+
+  if (request.method === "GET" && url.pathname === "/media") {
+    try {
+      return await proxyAkwamMedia(request, url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      diagnostic("AKWAM_MEDIA_PROXY_FAILED", message);
+      return json({ ok: false, error: message }, 502);
+    }
+  }
 
   if (request.method === "POST" && url.pathname === "/resolve-iframe") {
     let payload;
@@ -1630,12 +1944,34 @@ export default { async fetch(request, env) {
     }
 
     try {
+      const resolved = await resolveAkwamCached(env.BROWSER, {
+        ...payload,
+        type: payload?.type === "series" ? "series" : "movie",
+      });
+
+      const token = buildPlayerToken(
+        resolved.sources,
+        resolved.source_url,
+        resolved.title || payload?.title || "Akwam",
+      );
+
+      const iframeUrl =
+        new URL(request.url).origin +
+        "/player?t=" +
+        encodeURIComponent(token);
+
       return json({
         ok: true,
-        ...(await resolveAkwamIframeCached(env.BROWSER, {
-          ...payload,
-          type: payload?.type === "series" ? "series" : "movie",
-        })),
+        title: resolved.title || clean(payload?.title) || "",
+        source_url: resolved.source_url,
+        media_url: resolved.media_url,
+        type: "web",
+        quality: resolved.quality || "auto",
+        qualities: resolved.qualities || [],
+        sources: resolved.sources || [],
+        iframe_url: iframeUrl,
+        player_url: iframeUrl,
+        mode: "movyz-player-shell",
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1644,7 +1980,6 @@ export default { async fetch(request, env) {
     }
   }
 
-  return json({ ok: false, error: "Not found" }, 404);
-} };
+  return json({ ok: false, error: "Not found" }, 404); };
 
 // Production trigger marker: dedicated Akwam player/embed iframe contract.
