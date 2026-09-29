@@ -99,13 +99,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }
 
   return (
-    <div className="aspect-video w-full overflow-hidden bg-black">
+    <div className="relative aspect-video w-full overflow-hidden bg-black">
       {iframeUrl ? (
         <iframe
           key={iframeUrl}
           src={iframeUrl}
           title={displayTitle}
-          className="h-full w-full border-0 bg-black"
+          className="absolute inset-x-0 -top-[128px] h-[calc(100%+128px)] w-full border-0 bg-black sm:-top-[156px] sm:h-[calc(100%+156px)]"
           allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
           allowFullScreen
           loading="eager"
