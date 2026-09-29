@@ -18,7 +18,7 @@ interface VideoPlayerProps {
   onNavigateBack?: () => void;
 }
 
-const isAkwamWatchUrl = (value: string) => {
+const isAkwamPlayerUrl = (value: string) => {
   try {
     const url = new URL(value);
     const host = url.hostname.toLowerCase();
@@ -30,7 +30,9 @@ const isAkwamWatchUrl = (value: string) => {
       host === 'akwam.com.co' || host.endsWith('.akwam.com.co') || host === 'go.akwam.com.co' ||
       host === 'akwam.net' || host.endsWith('.akwam.net') ||
       host === 'downet.net' || host.endsWith('.downet.net');
-    return allowedHost && /\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname);
+    if (!allowedHost) return false;
+    if (/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(url.pathname)) return false;
+    return /\/(?:watch|player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
   } catch { return false; }
 };
 
@@ -63,7 +65,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           ? response.data.find((item: any) =>
               String(item?.providerKey || '').toLowerCase() === 'akwam-iframe' &&
               String(item?.type || '').toLowerCase() === 'web' &&
-              isAkwamWatchUrl(String(item?.iframeUrl || '').trim()))
+              isAkwamPlayerUrl(String(item?.iframeUrl || '').trim()))
           : null;
         const resolved = String(source?.iframeUrl || '').trim();
 
