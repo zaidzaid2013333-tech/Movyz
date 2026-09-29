@@ -1192,67 +1192,58 @@ async function resolveMovie(payload, env) {
 
   if (!titles.length) throw new Error("title is required");
 
+  let directError = null;
+
   try {
     return await resolveViaAkwamResolver(payload, "movie", env);
   } catch (error) {
-    console.warn("Akwam resolver movie fallback:", error instanceof Error ? error.message : String(error));
+    directError = error instanceof Error ? error : new Error(String(error));
+    console.warn(
+      "AKWAM_DIRECT_MOVIE_FAILED:",
+      directError.message,
+    );
   }
 
-  let best = null;
-  let lastError = null;
+  // A direct media URL is ideal, but it is not the only valid Akwam playback
+  // representation. When extraction of the media file fails, immediately fall
+  // back to Akwam's dedicated player route so the Movyz UI still gets a
+  // player-only source instead of falling through to the obsolete AbdoBest path.
+  try {
+    const player = await resolveViaAkwamIframeResolver(payload, "movie", env);
+    const playerUrl = normalizeAkwamUrl(
+      player?.iframe_url || player?.source_url || player?.media_url,
+    );
 
-  for (const title of titles) {
-    try {
-      const search = await abdoJson("/api/search?q=" + encodeURIComponent(title));
-      const ranked = asArray(search.body)
-        .map((item) => ({ item, score: scoreMatch(item, payload) }))
-        .filter((entry) => entry.score > 0)
-        .sort((a, b) => b.score - a.score);
-
-      for (const entry of ranked) {
-        const urls = sourceUrlsOf(entry.item);
-        if (urls.length) {
-          best = { item: entry.item, urls };
-          break;
-        }
-      }
-
-      if (best) break;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-  }
-
-  if (!best) {
-    throw new Error(lastError || "No Akwam source matched this title");
-  }
-
-  let lastErrorExtract = null;
-  for (const source of best.urls.slice(0, 3)) {
-    try {
-      // Akwam can rate-limit title search. AbdoBest's real Akwam page is a
-      // discovery fallback only; the dedicated resolver still owns extraction.
-      return await resolveDiscoveredAkwamContent(payload, "movie", source, env);
-    } catch (error) {
-      console.warn("AKWAM_DISCOVERY resolver fallback:", error instanceof Error ? error.message : String(error));
-    }
-
-    try {
-      const stream = await abdoExtract(source);
+    if (playerUrl && isAkwamUrl(playerUrl)) {
       return {
-        ...stream,
-        source_url: source,
-        matched_title: titleOf(best.item),
+        url: playerUrl,
+        type: "web",
+        quality: "auto",
+        qualities: ["auto"],
+        sources: [{
+          url: playerUrl,
+          type: "web",
+          quality: "auto",
+          iframe_url: playerUrl,
+        }],
+        cached: false,
+        via: "akwam-player-fallback",
+        source_url: player?.source_url || playerUrl,
+        iframe_url: playerUrl,
+        matched_title: player?.matched_title || player?.title || payload?.title || "",
       };
-    } catch (error) {
-      lastErrorExtract = error instanceof Error ? error : new Error(String(error));
     }
-  }
 
-  throw new Error(
-    "AbdoBest could not produce a direct playable stream" +
-    (lastErrorExtract ? ": " + lastErrorExtract.message : ""),
-  );
+    throw new Error("Akwam player resolver returned no usable player URL");
+  } catch (playerError) {
+    const message = playerError instanceof Error ? playerError.message : String(playerError);
+    console.warn("AKWAM_PLAYER_FALLBACK_FAILED:", message);
+    throw new Error(
+      "Akwam playback unavailable" +
+      (directError ? ": direct=" + directError.message : "") +
+      "; player=" + message,
+    );
+  }
 }
 
 function episodeNumberOf(item) {
@@ -1563,16 +1554,17 @@ async function resolveEpisode(payload, env) {
   // avoids re-discovering the episode and prevents returning the full Akwam page
   // to the Movyz player.
   if (payload?.mode === "direct") {
+    let directError = null;
+
     try {
       const page = await resolveViaAkwamIframeResolver(payload, "series", env);
       const pageUrl = normalizeAkwamUrl(
         page?.iframe_url || page?.source_url || page?.media_url,
       );
-      if (!pageUrl) throw new Error("Akwam episode resolver returned no episode page");
+      if (!pageUrl) throw new Error("Akwam episode resolver returned no episode/player URL");
 
-      // The dedicated Akwam resolver prefers /watch/<id> when available.
-      // Use that player document directly for series so Movyz never embeds the
-      // full /episode/... content page.
+      // /watch/<id> is the player-only route. Never return /episode/... to the
+      // frontend because that renders the full Akwam content page.
       if (/\/watch\/\d+(?:[/?#]|$)/i.test(pageUrl)) {
         return {
           url: pageUrl,
@@ -1593,15 +1585,57 @@ async function resolveEpisode(payload, env) {
         };
       }
 
+      // A true Akwam media URL remains preferable when the resolver returned
+      // an episode/content page that can be extracted to a file.
       return await resolveViaAkwamResolver({
         ...payload,
         content_url: pageUrl,
         source_url: pageUrl,
       }, "series", env);
     } catch (error) {
+      directError = error instanceof Error ? error : new Error(String(error));
       console.warn(
-        "AKWAM_DIRECT_EPISODE_RESOLVER_FALLBACK:",
-        error instanceof Error ? error.message : String(error),
+        "AKWAM_DIRECT_EPISODE_FAILED:",
+        directError.message,
+      );
+    }
+
+    // Second Akwam-native path: ask the iframe resolver/discovery flow for the
+    // player route again rather than falling through to obsolete AbdoBest APIs.
+    try {
+      const fallback = await resolveAkwamIframeOnly(payload, "series", env);
+      const playerUrl = normalizeAkwamUrl(
+        fallback?.iframe_url || fallback?.source_url || fallback?.url,
+      );
+
+      if (playerUrl && isAkwamUrl(playerUrl)) {
+        return {
+          url: playerUrl,
+          type: "web",
+          quality: "auto",
+          qualities: ["auto"],
+          sources: [{
+            url: playerUrl,
+            type: "web",
+            quality: "auto",
+            iframe_url: playerUrl,
+          }],
+          cached: false,
+          via: "akwam-player-fallback",
+          source_url: fallback?.source_url || playerUrl,
+          iframe_url: playerUrl,
+          matched_title: fallback?.matched_title || payload?.title || "",
+        };
+      }
+
+      throw new Error("Akwam player fallback returned no usable URL");
+    } catch (playerError) {
+      const message = playerError instanceof Error ? playerError.message : String(playerError);
+      console.warn("AKWAM_EPISODE_PLAYER_FALLBACK_FAILED:", message);
+      throw new Error(
+        "Akwam episode playback unavailable" +
+        (directError ? ": direct=" + directError.message : "") +
+        "; player=" + message,
       );
     }
   }
