@@ -2191,7 +2191,7 @@ async function proxyAkwamMedia(request, requestUrl) {
   if (range && response.status === 200) {
     const total = Number(
       response.headers.get("content-length") ||
-      String(response.headers.get("content-range") || "").match(/\\/(\\d+)$/)?.[1] ||
+      String(response.headers.get("content-range") || "").match(/\/(\d+)$/)?.[1] ||
       0,
     );
     const sliced = sliceRangeResponse(response, range, total, sourceQuality);
