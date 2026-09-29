@@ -38,10 +38,9 @@ const isAkwamPlayerUrl = (value: string) => {
 
     if (/\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname)) return true;
 
-    // Akwam's native player route is /watch/<id>; only accept it when the
-    // provider's #player anchor is present so the iframe opens at the player.
-    return /\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname) &&
-      url.hash.toLowerCase() === '#player';
+    // Akwam's native player is on /watch/<id>. The final normalization step
+    // anchors that page to #player before it reaches the iframe.
+    return /\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname);
   } catch {
     return false;
   }
@@ -51,6 +50,11 @@ const normalizeAkwamPlayerUrl = (value: string) => {
   try {
     const url = new URL(value);
     if (!isAkwamPlayerUrl(url.toString())) return '';
+
+    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) {
+      url.hash = 'player';
+    }
+
     return url.toString();
   } catch {
     return '';
