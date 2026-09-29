@@ -108,6 +108,12 @@ async function inspectReturnedPlayer(url, label) {
     const videoContext = videoIndex >= 0
       ? html.slice(Math.max(0, videoIndex - 2600), Math.min(html.length, videoIndex + 6200))
       : "";
+    const final = new URL(response.url);
+    const finalIsWatch = /\/watch\/\d+(?:[/?#]|$)/i.test(final.pathname);
+    const originalIsWatch = /\/watch\/\d+(?:[/?#]|$)/i.test(new URL(url).pathname);
+    if (!originalIsWatch && finalIsWatch && final.hash.toLowerCase() !== "#player") {
+      throw new Error(label + " player target redirects to a full /watch page: " + response.url);
+    }
     console.log(label + " TARGET_INSPECT", JSON.stringify({
       httpStatus: response.status,
       finalUrl: response.url,
