@@ -579,7 +579,12 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
         .maybeSingle();
 
       if (error) throw error;
-      if (!movie) throw new Error('Movie not found');
+      if (!movie) {
+        const notFound = new Error('Movie not found');
+        (notFound as Error & { status?: number; code?: string }).status = 404;
+        (notFound as Error & { status?: number; code?: string }).code = 'MOVIE_NOT_FOUND';
+        throw notFound;
+      }
 
       title = String(movie.title_ar || '');
       titleAr = String(movie.title_ar || '');
@@ -595,7 +600,12 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
         .maybeSingle();
 
       if (error) throw error;
-      if (!series) throw new Error('Series not found');
+      if (!series) {
+        const notFound = new Error('Series not found');
+        (notFound as Error & { status?: number; code?: string }).status = 404;
+        (notFound as Error & { status?: number; code?: string }).code = 'SERIES_NOT_FOUND';
+        throw notFound;
+      }
 
       title = String(series.title_ar || '');
       titleAr = String(series.title_ar || '');
@@ -679,7 +689,16 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     episode,
   });
   } catch (error) {
-    console.error('[watch-api]', error instanceof Error ? error.message : error);
+    const status = Number((error as { status?: number })?.status || 0);
+    const code = String((error as { code?: string })?.code || '');
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[watch-api]', message);
+    if (status === 404 && code === 'MOVIE_NOT_FOUND') {
+      return fail(res, 404, code, 'Movie not found');
+    }
+    if (status === 404 && code === 'SERIES_NOT_FOUND') {
+      return fail(res, 404, code, 'Series not found');
+    }
     return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load playback sources');
   }
 }));
