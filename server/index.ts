@@ -320,7 +320,7 @@ function watchSourceCacheKey(
   episode?: number,
 ) {
   return [
-    'iframe-v10',
+    'iframe-v11-player-only',
     mediaType,
     tmdbId,
     season ?? '',
@@ -396,15 +396,12 @@ function normalizeAkwamIframeUrl(value: unknown) {
     const playerPath = /\/(?:watch|player|embed)(?:\/|[?#]|$)/i;
     if (blockedPath.test(url.pathname) || !playerPath.test(url.pathname)) return '';
 
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) {
-      url.hash = '#player';
-      return url.toString();
-    }
-
     if (/\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname)) {
       return url.toString();
     }
 
+    // /watch/<id> is Akwam's surrounding page, not an embeddable player.
+    // Never pass it through to the frontend iframe.
     return '';
   } catch {
     return '';
@@ -614,7 +611,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   }
 
   return ok(res, sources, {
-    source: 'akwam_native_iframe_v7',
+    source: 'akwam_native_iframe_v8_player_only',
     mediaType,
     tmdbId,
     season,
