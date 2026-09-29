@@ -18,10 +18,17 @@ interface VideoPlayerProps {
   onNavigateBack?: () => void;
 }
 
+const AKWAM_RESOLVER_HOST = 'movyz-akwam-resolver.sameranede.workers.dev';
+
 const isAkwamPlayerUrl = (value: string) => {
   try {
     const url = new URL(value);
     const host = url.hostname.toLowerCase();
+
+    if (host === AKWAM_RESOLVER_HOST) {
+      return url.protocol === 'https:' && /^\/player(?:$|\/|\?)/i.test(url.pathname);
+    }
+
     const allowedHost =
       host === 'akwam.ss' || host.endsWith('.akwam.ss') ||
       host === 'akwam.it' || host.endsWith('.akwam.it') ||
@@ -36,11 +43,7 @@ const isAkwamPlayerUrl = (value: string) => {
       return false;
     }
 
-    if (/\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname)) return true;
-
-    // Akwam's native player is on /watch/<id>. The final normalization step
-    // anchors that page to #player before it reaches the iframe.
-    return /\/(?:player|embed)\/[^/?#]+(?:[/?#]|$)/i.test(url.pathname);
+    return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
   } catch {
     return false;
   }
@@ -51,9 +54,18 @@ const normalizeAkwamPlayerUrl = (value: string) => {
     const url = new URL(value);
     if (!isAkwamPlayerUrl(url.toString())) return '';
 
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) return '';
+    if (
+      url.hostname.toLowerCase() === AKWAM_RESOLVER_HOST &&
+      /^\/player(?:$|\/|\?)/i.test(url.pathname)
+    ) {
+      return url.toString();
+    }
 
-    return url.toString();
+    if (/\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname)) {
+      return url.toString();
+    }
+
+    return '';
   } catch {
     return '';
   }
