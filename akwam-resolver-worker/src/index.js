@@ -1,8 +1,8 @@
 const AKWAM_BASE = "https://akwam.it";
 const AKWAM_SEARCH_BASES = [
+  "https://akwam.ss",
   "https://akwam.it",
   "https://go.akwam.it",
-  "https://akwam.ss",
   "https://akwam.ee",
   "https://akwam.com.co",
   "https://go.akwam.com.co",
@@ -321,10 +321,17 @@ async function searchAkwam(browser, payload) {
   let lastError = null;
   let best = null;
 
+  // The current Akwam index is consistently available on akwam.ss.
+  // Prefer it for series so episode discovery does not waste the resolver
+  // timeout walking mirrors that are currently slow/offline.
+  const searchBases = section === "series"
+    ? ["https://akwam.ss", "https://akwam.it"]
+    : AKWAM_SEARCH_BASES;
+
   for (const candidateTitle of candidates.slice(0, 5)) {
     const query = encodeURIComponent(candidateTitle);
 
-    for (const base of AKWAM_SEARCH_BASES) {
+    for (const base of searchBases) {
       const searchUrl = `${base}/search?q=${query}&section=${section}&page=1`;
 
       for (let attempt = 0; attempt <= SEARCH_BACKOFF_MS.length; attempt += 1) {
