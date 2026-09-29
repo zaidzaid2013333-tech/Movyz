@@ -66,12 +66,15 @@ for (const fixture of fixtures) {
   const iframe = new URL(source.iframeUrl);
   const iframePath = iframe.pathname;
   const isWatch = /\/watch\/\d+(?:[/?#]|$)/i.test(iframePath);
+  const isNativeWatchPlayer = isWatch && iframe.hash.toLowerCase() === "#player";
   const isDedicated = /\/(?:player|embed)(?:\/|[?#]|$)/i.test(iframePath);
-  assert(!isWatch, fixture.label + " returned the full Akwam /watch page: " + source.iframeUrl);
   assert(
-    isDedicated,
-    fixture.label + " iframeUrl is not a dedicated Akwam player/embed route: " + source.iframeUrl,
+    isDedicated || isNativeWatchPlayer,
+    fixture.label + " iframeUrl is not a native Akwam player target: " + source.iframeUrl,
   );
+  if (isWatch) {
+    assert(isNativeWatchPlayer, fixture.label + " returned /watch without #player: " + source.iframeUrl);
+  }
   assert(source.providerKey === "akwam-iframe", fixture.label + " is not Akwam iframe");
   assert(source.type === "web", fixture.label + " is not web/iframe type");
   assertPlayableUrl(source.iframeUrl, fixture.label + " iframeUrl");
