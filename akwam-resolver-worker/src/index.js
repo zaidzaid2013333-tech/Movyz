@@ -334,6 +334,19 @@ async function getContentPageDirectFirst(browser, url, stage) {
     return await getContentPageResilient(browser, url, stage);
   }
 }
+function seasonSearchLabel(season) {
+  const value = Number(season);
+  if (!Number.isInteger(value) || value < 1) return "";
+  const arabic = [
+    "", "الأول", "الثاني", "الثالث", "الرابع", "الخامس",
+    "السادس", "السابع", "الثامن", "التاسع", "العاشر",
+    "الحادي عشر", "الثاني عشر",
+  ];
+  return value <= 12
+    ? "الموسم " + arabic[value]
+    : "Season " + value;
+}
+
 async function searchAkwam(browser, payload) {
   const section = payload?.type === "series" ? "series" : "movie";
   const baseCandidates = [
