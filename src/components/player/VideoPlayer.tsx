@@ -40,7 +40,7 @@ const isAkwamPlayerUrl = (value: string) => {
 
     // Akwam's native player is on /watch/<id>. The final normalization step
     // anchors that page to #player before it reaches the iframe.
-    return /\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname);
+    return /\/(?:player|embed)\/[^/?#]+(?:[/?#]|$)/i.test(url.pathname);
   } catch {
     return false;
   }
@@ -51,9 +51,7 @@ const normalizeAkwamPlayerUrl = (value: string) => {
     const url = new URL(value);
     if (!isAkwamPlayerUrl(url.toString())) return '';
 
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) {
-      url.hash = 'player';
-    }
+    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) return '';
 
     return url.toString();
   } catch {
