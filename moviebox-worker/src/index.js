@@ -651,6 +651,10 @@ async function searchAkwamEpisodeWeb(payload) {
   ];
 
   const engines = [
+    // Jina Reader fetches the public search result page and returns plain HTML/markdown,
+    // which is substantially easier to parse from a Cloudflare Worker than search-engine
+    // anti-bot/redirect markup.
+    (q) => "https://r.jina.ai/https://www.google.com/search?q=" + encodeURIComponent(q),
     (q) => "https://html.duckduckgo.com/html/?q=" + encodeURIComponent(q),
     (q) => "https://www.bing.com/search?q=" + encodeURIComponent(q),
   ];
