@@ -1261,7 +1261,6 @@ function isIframePlayerUrl(value, sourceUrl = "") {
       return false;
     }
 
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) return true;
     return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
   } catch {
     return false;
@@ -1272,9 +1271,6 @@ function isDedicatedIframeUrl(value, sourceUrl = "") {
   if (!isIframePlayerUrl(value, sourceUrl)) return false;
   try {
     const url = new URL(value);
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) {
-      return url.hash.toLowerCase() === "#player";
-    }
     return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
   } catch {
     return false;
@@ -1371,9 +1367,7 @@ async function resolveAkwamIframe(browser, payload) {
 
     // Akwam's native player page is /watch/<id>. Keep that route as the
     // iframe target; it contains the provider-owned <video id="player">.
-    const dedicatedWatch = extractDedicatedAkwamWatchUrl(content.html, content.url);
-    if (dedicatedWatch) addCandidate(dedicatedWatch);
-
+    // /watch/<id> is a normal Akwam document, never an iframe target.
     // Secondary: provider-specific player/embed routes, when Akwam exposes one.
     for (const match of String(content.html || "").matchAll(
       /<a\b[^>]*href=["']([^"']*\/(?:player|embed)\/[^"']+)["'][^>]*>/gi,
@@ -1446,40 +1440,9 @@ async function resolveAkwamIframe(browser, payload) {
     throw new Error("AKWAM_IFRAME_PLAYER: no valid Akwam player route found");
   }
 
-  // Akwam's native player lives inside its /watch page at <video id="player">.
-  // Canonicalize redirect-style go.ak.sv/watch URLs first, then point the iframe
-  // at that final watch URL with #player so the browser opens directly on the video.
-  let iframeTarget = playerUrl;
-  const targetUrl = new URL(playerUrl);
-
-  if (/\/watch\/\d+(?:[/?#]|$)/i.test(targetUrl.pathname)) {
-    try {
-      const playerPage = await getContentPageDirectFirst(
-        browser,
-        playerUrl,
-        "AKWAM_IFRAME_CANONICALIZE",
-      );
-      const canonicalUrl = new URL(playerPage.url);
-      if (/\/watch\/\d+(?:[/?#]|$)/i.test(canonicalUrl.pathname)) {
-        const hasNativePlayer = /<video\b[^>]*\bid=["']player["']/i.test(playerPage.html);
-        if (!hasNativePlayer) {
-          throw new Error("AKWAM_IFRAME_CANONICALIZE: canonical watch page has no native player element");
-        }
-        canonicalUrl.hash = "player";
-        iframeTarget = canonicalUrl.toString();
-      } else {
-        targetUrl.hash = "player";
-        iframeTarget = targetUrl.toString();
-      }
-    } catch (error) {
-      diagnostic(
-        "AKWAM_IFRAME_CANONICALIZE_FALLBACK",
-        error instanceof Error ? error.message : String(error),
-      );
-      targetUrl.hash = "player";
-      iframeTarget = targetUrl.toString();
-    }
-  }
+  // Never convert a /watch page into an iframe target.
+  // The resolver must return a real provider-owned /player or /embed document.
+  const iframeTarget = playerUrl;
 
   if (!isDedicatedIframeUrl(iframeTarget, safeSource)) {
     throw new Error(
