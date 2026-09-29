@@ -1504,28 +1504,23 @@ async function resolveAkwamIframe(browser, payload) {
     throw new Error("AKWAM_IFRAME_PLAYER: no valid Akwam player route found");
   }
 
-  // The current Akwam player is the provider-owned /watch/<id> page itself.
-  // Do not guess a crop or proxy its HTML. Return the native page with the
-  // #player fragment so the browser targets <video id="player"> on load.
-  const iframeTarget = (() => {
-    const target = new URL(playerUrl);
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(target.pathname)) {
-      target.hash = "#player";
+  // A /watch/<id> URL is a full Akwam page, not an embeddable player.
+  // Only return a provider-owned nested player/embed iframe. Never present
+  // the surrounding content page as if it were the player.
+  let iframeTarget = playerUrl;
+  if (/\/watch\/\d+(?:[/?#]|$)/i.test(new URL(playerUrl).pathname)) {
+    const nestedPlayer = await resolveNestedPlayerIframe(playerUrl);
+    if (!nestedPlayer) {
+      throw new Error("AKWAM_IFRAME_PLAYER: Akwam did not expose a dedicated embeddable player URL");
     }
-    return target.toString();
-  })();
-  if (/\/watch\/\d+(?:[/?#]|$)/i.test(new URL(iframeTarget).pathname)) {
-    const playerPage = await getContentPageDirectFirst(
-      browser,
-      iframeTarget,
-      "AKWAM_IFRAME_VERIFY_NATIVE_PLAYER",
-    );
-    if (!/<video\b[^>]*\bid=["']player["']/i.test(playerPage.html)) {
-      throw new Error("AKWAM_IFRAME_PLAYER: Akwam watch route does not expose native #player");
-    }
+    iframeTarget = nestedPlayer;
+  }
+  if (!isIframePlayerUrl(iframeTarget, safeSource) ||
+      !/\/(?:player|embed)\//i.test(new URL(iframeTarget).pathname)) {
+    throw new Error("AKWAM_IFRAME_PLAYER: resolved URL is not a dedicated player/embed route");
   }
 
-    diagnostic("AKWAM_IFRAME_NATIVE_PLAYER", iframeTarget);
+  diagnostic("AKWAM_IFRAME_NATIVE_PLAYER", iframeTarget);
 
   diagnostic(
     "AKWAM_IFRAME",
