@@ -31,8 +31,13 @@ type PlaybackSource = {
 };
 
 const MAX_VISIBLE_SOURCES = 4;
-const IFRAME_LOAD_TIMEOUT_MS = 20_000;
-const AKWAM_ORIGIN = 'https://akwam.ss';
+const getConnectionHintOrigin = (value: string) => {
+  try {
+    return value ? new URL(value).origin : '';
+  } catch {
+    return '';
+  }
+};
 
 const isAkwamWatchUrl = (value: string) => {
   try {
@@ -155,20 +160,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => {
     if (!activeIframe) return;
-    setLoading(true);
+    // The remote iframe owns its own loading lifecycle. Do not keep a full-page
+    // Movyz overlay waiting on a third-party document load event.
+    setLoading(false);
     setError('');
-
-    const timer = window.setTimeout(() => {
-      setLoading(false);
-      setError(
-        language === 'ar'
-          ? 'مشغل Akwam تأخر في التحميل. جرّب إعادة المحاولة.'
-          : 'The Akwam player took too long to load. Try again.',
-      );
-    }, IFRAME_LOAD_TIMEOUT_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [activeIframe, language]);
+  }, [activeIframe]);
 
   if (error && !sources.length) {
     return (
@@ -187,8 +183,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   return (
     <div className="w-full bg-black">
-      <link rel="dns-prefetch" href={AKWAM_ORIGIN} />
-      <link rel="preconnect" href={AKWAM_ORIGIN} />
+      {activeIframe && getConnectionHintOrigin(activeIframe) && (
+        <>
+          <link rel="dns-prefetch" href={getConnectionHintOrigin(activeIframe)} />
+          <link rel="preconnect" href={getConnectionHintOrigin(activeIframe)} />
+        </>
+      )}
 
       {sources.length > 1 && (
         <div className="border-b border-white/10 bg-[#080a0f] px-3 py-3 sm:px-4">
@@ -237,7 +237,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             allowFullScreen
             loading="eager"
-            referrerPolicy="strict-origin-when-cross-origin"
+            referrerPolicy="no-referrer"
+            sandbox="allow-forms allow-modals allow-orientation-lock allow-pointer-lock allow-presentation allow-same-origin allow-scripts allow-top-navigation-by-user-activation"
             onLoad={() => setLoading(false)}
             onError={() => {
               setLoading(false);
