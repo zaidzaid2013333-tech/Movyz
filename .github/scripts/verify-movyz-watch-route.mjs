@@ -71,6 +71,7 @@ for (const fixture of fixtures) {
     type: source.type,
     quality: source.quality,
     urlHost: new URL(source.url).hostname,
+    directMedia: true,
   }));
 }
 
