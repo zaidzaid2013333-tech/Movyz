@@ -165,7 +165,7 @@ for (const fixture of fixtures) {
     qualityCount: Array.isArray(body.qualities) ? body.qualities.length : 0,
     sourceCount: sources.length,
     mediaChecks: sourceChecks,
-    startupMp4Checks: mp4StartupChecks,
+    startup: { quality: initialSource?.quality || "auto", contentRange: startupRange, deliveredBytes },
     sourceIdentities: sources.map((source) => ({
       quality: source?.quality || "auto",
       urlTail: String(source?.url || "").split("/").pop() || "",
