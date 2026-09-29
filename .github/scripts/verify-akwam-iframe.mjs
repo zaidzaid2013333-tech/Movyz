@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 // Production verification: exactly one Movyz Akwam player iframe target.
 const RESOLVER_BASE = (process.env.AKWAM_RESOLVER_BASE ||
   "https://movyz-akwam-resolver.sameranede.workers.dev").replace(/\/+$/, "");
@@ -245,6 +246,33 @@ for (const fixture of fixtures) {
       seek,
       tail,
     }));
+
+    if (fixture.label === "Akwam resolver movie" && index === 0) {
+      const ffprobeStarted = Date.now();
+      const ffprobe = spawnSync(
+        "ffprobe",
+        [
+          "-v", "error",
+          "-rw_timeout", "15000000",
+          "-show_entries", "format=duration,format_name:stream=index,codec_name,codec_type,width,height",
+          "-of", "json",
+          mediaUrl,
+        ],
+        {
+          encoding: "utf8",
+          timeout: 20_000,
+          maxBuffer: 2 * 1024 * 1024,
+        },
+      );
+      console.log("Akwam resolver movie FFPROBE", JSON.stringify({
+        exitCode: ffprobe.status,
+        signal: ffprobe.signal || null,
+        elapsedMs: Date.now() - ffprobeStarted,
+        error: ffprobe.error ? String(ffprobe.error.message || ffprobe.error) : "",
+        stdout: String(ffprobe.stdout || "").slice(0, 12000),
+        stderr: String(ffprobe.stderr || "").slice(0, 4000),
+      }));
+    }
   }
 
 
