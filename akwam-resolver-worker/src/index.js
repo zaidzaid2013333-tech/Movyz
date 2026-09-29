@@ -1457,26 +1457,18 @@ async function resolveAkwamIframe(browser, payload) {
     throw new Error("AKWAM_IFRAME_PLAYER: no dedicated player iframe found");
   }
 
-  // A /watch/<id> URL can itself be a full Akwam shell around the real player.
-  // In that case resolve the provider's own nested iframe and return that exact
-  // player document so Movyz never renders the surrounding Akwam site.
-  let iframeTarget = playerUrl;
-  if (/\/watch\/\d+(?:[/?#]|$)/i.test(playerUrl)) {
-    const nested = await resolveNestedPlayerIframe(playerUrl);
-    if (nested) {
-      iframeTarget = nested;
-      diagnostic("AKWAM_IFRAME_NESTED", "watch=" + playerUrl + " nested=" + nested);
-    } else {
-      // Akwam's current watch route renders the provider's own video element
-      // with id="player" rather than exposing a separate iframe document.
-      // Open the same provider page at that anchor so the iframe viewport
-      // lands directly on the native Akwam player instead of the site header.
-      const anchored = new URL(playerUrl);
-      if (!anchored.hash) anchored.hash = "#player";
-      iframeTarget = anchored.toString();
-      diagnostic("AKWAM_IFRAME_ANCHORED_PLAYER", iframeTarget);
+  // Akwam's current /watch/<id> route is the native provider player page.
+  // Keep the provider page itself, but anchor the iframe to its #player element.
+  // Do not attempt to discover or substitute a secondary embed: that was the
+  // path that could return the surrounding site shell instead of the player.
+  const iframeTarget = (() => {
+    const anchored = new URL(playerUrl);
+    if (/\\/watch\\/\\d+(?:[/?#]|$)/i.test(anchored.pathname)) {
+      anchored.hash = "#player";
     }
-  }
+    return anchored.toString();
+  })();
+  diagnostic("AKWAM_IFRAME_ANCHORED_PLAYER", iframeTarget);
 
   diagnostic(
     "AKWAM_IFRAME",
