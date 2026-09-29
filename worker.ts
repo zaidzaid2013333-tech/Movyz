@@ -10,3 +10,5 @@ export default {
     return env.ASSETS.fetch(request);
   },
 };
+
+// Deployment verification marker: Akwam native iframe player.
