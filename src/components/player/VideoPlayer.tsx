@@ -83,9 +83,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           ? response.data.find((item: any) =>
               String(item?.providerKey || '').toLowerCase() === 'akwam-iframe' &&
               String(item?.type || '').toLowerCase() === 'web' &&
-              isAkwamPlayerUrl(String(item?.url || '').trim()))
+              isAkwamPlayerUrl(String(item?.iframeUrl || '').trim()))
           : null;
-        const resolved = normalizeAkwamPlayerUrl(String(source?.url || '').trim());
+        const resolved = normalizeAkwamPlayerUrl(String(source?.iframeUrl || '').trim());
 
         if (!resolved) throw new Error('No valid Akwam native player route was returned.');
         if (!cancelled) setIframeUrl(resolved);
