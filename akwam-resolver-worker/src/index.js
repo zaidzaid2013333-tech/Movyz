@@ -834,10 +834,13 @@ async function validateMediaUrl(initialUrl, referer = "") {
     diagnostic("AKWAM_FINAL_MEDIA", url);
     const response = await fetch(url, {
       headers: {
-        Accept: "*/*",
-        Range: "bytes=0-0",
+        Accept: "video/*,application/vnd.apple.mpegurl,application/dash+xml,*/*;q=0.8",
+        Range: "bytes=0-65535",
         "User-Agent": UA,
-        ...(referer ? { Referer: referer } : {}),
+        ...(referer ? {
+          Referer: referer,
+          Origin: (() => { try { return new URL(referer).origin; } catch { return ""; } })(),
+        } : {}),
       },
       redirect: "manual",
       signal: AbortSignal.timeout(10_000),
@@ -849,6 +852,24 @@ async function validateMediaUrl(initialUrl, referer = "") {
       if (!next) throw new Error("AKWAM_FINAL_MEDIA: unsafe redirect");
       url = next;
       continue;
+    }
+
+    // Some CDNs reject the small Range probe even though the resource is
+    // playable. Retry once without Range before declaring the source dead.
+    if (response.status === 416) {
+      try { response.body?.cancel(); } catch {}
+      response = await fetch(url, {
+        headers: {
+          Accept: "video/*,application/vnd.apple.mpegurl,application/dash+xml,*/*;q=0.8",
+          "User-Agent": UA,
+          ...(referer ? {
+            Referer: referer,
+            Origin: (() => { try { return new URL(referer).origin; } catch { return ""; } })(),
+          } : {}),
+        },
+        redirect: "manual",
+        signal: AbortSignal.timeout(10_000),
+      });
     }
 
     if (!response.ok) {
@@ -997,13 +1018,16 @@ async function resolveQuality(browser, quality) {
         isAkwamPage = isAllowedPageHost(new URL(directUrl).hostname);
       } catch {}
 
-      // Real media URLs are already extracted from the player document.
-      // Do not issue a second network request just to probe them; that probe
-      // was the largest fixed cost multiplied by every quality.
+      // Do not trust a filename/extension alone. Akwam player pages can
+      // expose URLs that look like MP4/HLS but return HTML, redirects, or
+      // hotlink-denied responses when the browser actually requests them.
+      // Validate the extracted target with a tiny ranged request before putting
+      // it into the player token.
       if (!isAkwamPage || looksLikeMediaUrl(directUrl)) {
+        const validated = await validateMediaUrl(directUrl, targetPage.url);
         const value = {
-          media_url: directUrl,
-          type: mediaTypeFromUrl(directUrl),
+          media_url: validated.media_url,
+          type: validated.type,
           quality: quality.quality,
         };
         qualityCache.set(cacheKey, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
@@ -1798,8 +1822,8 @@ function loadSource(index){
           failover();
         }
       });
-      hls.loadSource(proxiedUrl);
       hls.attachMedia(video);
+      hls.loadSource(proxiedUrl);
       return true;
     };
 
@@ -1843,7 +1867,7 @@ function mediaProxyRequestUrl(rawUrl, requestUrl) {
     const tokenPayload = playerTokenPayload(requestUrl);
     if (!tokenPayload) return null;
 
-    const sourceHosts = new Set(
+      const sourceHosts = new Set(
       tokenPayload.sources.map((source) => {
         try { return new URL(source.url).hostname.toLowerCase(); } catch { return ""; }
       }).filter(Boolean),
@@ -1854,7 +1878,12 @@ function mediaProxyRequestUrl(rawUrl, requestUrl) {
       const matchesAllowedHost = [...sourceHosts].some((sourceHost) =>
         targetHost === sourceHost || targetHost.endsWith("." + sourceHost),
       );
-      if (!matchesAllowedHost) return null;
+
+      // HLS manifests may legally reference segments/keys on a sibling CDN
+      // host. The source itself is already trusted by the resolver, so allow
+      // public HTTPS segment hosts while continuing to reject private hosts.
+      const isPublicHttpsHost = target.protocol === "https:" && !isPrivateHost(target.hostname);
+      if (!matchesAllowedHost && !isPublicHttpsHost) return null;
     }
     return { url: target.toString(), payload: tokenPayload };
   } catch {
