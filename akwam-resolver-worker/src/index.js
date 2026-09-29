@@ -1446,14 +1446,39 @@ async function resolveAkwamIframe(browser, payload) {
     throw new Error("AKWAM_IFRAME_PLAYER: no valid Akwam player route found");
   }
 
-  // Akwam's native player is served at /watch/<id>. The #player fragment makes
-  // the provider page open directly at its native <video id="player"> area.
-  // We deliberately do not extract or proxy media and do not recreate the UI.
+  // Akwam's native player lives inside its /watch page at <video id="player">.
+  // Canonicalize redirect-style go.ak.sv/watch URLs first, then point the iframe
+  // at that final watch URL with #player so the browser opens directly on the video.
   let iframeTarget = playerUrl;
   const targetUrl = new URL(playerUrl);
+
   if (/\/watch\/\d+(?:[/?#]|$)/i.test(targetUrl.pathname)) {
-    targetUrl.hash = "player";
-    iframeTarget = targetUrl.toString();
+    try {
+      const playerPage = await getContentPageDirectFirst(
+        browser,
+        playerUrl,
+        "AKWAM_IFRAME_CANONICALIZE",
+      );
+      const canonicalUrl = new URL(playerPage.url);
+      if (/\/watch\/\d+(?:[/?#]|$)/i.test(canonicalUrl.pathname)) {
+        const hasNativePlayer = /<video\b[^>]*\bid=["']player["']/i.test(playerPage.html);
+        if (!hasNativePlayer) {
+          throw new Error("AKWAM_IFRAME_CANONICALIZE: canonical watch page has no native player element");
+        }
+        canonicalUrl.hash = "player";
+        iframeTarget = canonicalUrl.toString();
+      } else {
+        targetUrl.hash = "player";
+        iframeTarget = targetUrl.toString();
+      }
+    } catch (error) {
+      diagnostic(
+        "AKWAM_IFRAME_CANONICALIZE_FALLBACK",
+        error instanceof Error ? error.message : String(error),
+      );
+      targetUrl.hash = "player";
+      iframeTarget = targetUrl.toString();
+    }
   }
 
   if (!isDedicatedIframeUrl(iframeTarget, safeSource)) {
