@@ -18,27 +18,30 @@ interface VideoPlayerProps {
   onNavigateBack?: () => void;
 }
 
-const AKWAM_RESOLVER_HOST = 'movyz-akwam-resolver.sameranede.workers.dev';
+const AKWAM_PLAYER_HOSTS = [
+  'akwam.ss',
+  'akwam.it',
+  'go.akwam.it',
+  'ak.sv',
+  'go.ak.sv',
+  'akwam.ee',
+  'akwam.com.co',
+  'go.akwam.com.co',
+  'akwam.net',
+  'downet.net',
+];
 
 const isAkwamPlayerUrl = (value: string) => {
   try {
     const url = new URL(value);
+    if (url.protocol !== 'https:') return false;
+
     const host = url.hostname.toLowerCase();
-
-    if (host === AKWAM_RESOLVER_HOST) {
-      return url.protocol === 'https:' && /^\/player(?:$|\/|\?)/i.test(url.pathname);
-    }
-
-    const allowedHost =
-      host === 'akwam.ss' || host.endsWith('.akwam.ss') ||
-      host === 'akwam.it' || host.endsWith('.akwam.it') ||
-      host === 'ak.sv' || host.endsWith('.ak.sv') ||
-      host === 'akwam.ee' || host.endsWith('.akwam.ee') ||
-      host === 'akwam.com.co' || host.endsWith('.akwam.com.co') ||
-      host === 'akwam.net' || host.endsWith('.akwam.net') ||
-      host === 'downet.net' || host.endsWith('.downet.net');
-
+    const allowedHost = AKWAM_PLAYER_HOSTS.some(
+      (base) => host === base || host.endsWith('.' + base),
+    );
     if (!allowedHost) return false;
+
     if (/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(url.pathname)) {
       return false;
     }
@@ -50,32 +53,22 @@ const isAkwamPlayerUrl = (value: string) => {
 };
 
 const normalizeAkwamPlayerUrl = (value: string) => {
-  try {
-    const url = new URL(value);
-    if (!isAkwamPlayerUrl(url.toString())) return '';
-
-    if (
-      url.hostname.toLowerCase() === AKWAM_RESOLVER_HOST &&
-      /^\/player(?:$|\/|\?)/i.test(url.pathname)
-    ) {
-      return url.toString();
-    }
-
-    if (/\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname)) {
-      return url.toString();
-    }
-
-    return '';
-  } catch {
-    return '';
-  }
+  const trimmed = value.trim();
+  return isAkwamPlayerUrl(trimmed) ? new URL(trimmed).toString() : '';
 };
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
-  contentType, title, titleEn, tmdbId, seasonNumber, episodeNumber, currentEpisode,
+  contentType,
+  title,
+  titleEn,
+  tmdbId,
+  seasonNumber,
+  episodeNumber,
+  currentEpisode,
 }) => {
   const { language } = useLanguage();
   const [iframeUrl, setIframeUrl] = useState('');
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [retryNonce, setRetryNonce] = useState(0);
 
@@ -85,33 +78,44 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => {
     let cancelled = false;
+
     const load = async () => {
-      setIframeUrl('');
+      setLoading(true);
       setError('');
 
       if (!Number.isFinite(Number(tmdbId)) || Number(tmdbId) <= 0) {
+        setLoading(false);
         setError(language === 'ar' ? 'معرّف TMDB غير متاح.' : 'TMDB id is unavailable.');
         return;
       }
 
       try {
-        const response = await MovyzaApi.getWatchSources(Number(tmdbId), contentType, seasonNumber, episodeNumber);
-        console.info('[movyza-player] watch API sources', response?.data);
+        const response = await MovyzaApi.getWatchSources(
+          Number(tmdbId),
+          contentType,
+          seasonNumber,
+          episodeNumber,
+        );
+
         const source = Array.isArray(response?.data)
           ? response.data.find((item: any) =>
               String(item?.providerKey || '').toLowerCase() === 'akwam-iframe' &&
               String(item?.type || '').toLowerCase() === 'web' &&
               isAkwamPlayerUrl(String(item?.iframeUrl || '').trim()))
           : null;
-        const rawPlayerUrl = String(source?.iframeUrl || '').trim();
-        const resolved = normalizeAkwamPlayerUrl(rawPlayerUrl);
-        console.info('[movyza-player] selected Akwam player URL', { rawPlayerUrl, resolved });
 
-        if (!resolved) throw new Error('No valid Akwam native player route was returned.');
-        if (!cancelled) setIframeUrl(resolved);
-      } catch (loadError) {
+        const resolved = normalizeAkwamPlayerUrl(String(source?.iframeUrl || '').trim());
+        if (!resolved) throw new Error('No dedicated Akwam iframe player was returned.');
+
         if (cancelled) return;
-        console.error('[movyza-player] Akwam iframe unavailable', loadError);
+
+        // Change the iframe src once per source. Do not blank the iframe first
+        // and do not use a React key that forces a second DOM reload.
+        setIframeUrl((current) => current === resolved ? current : resolved);
+        setLoading(false);
+      } catch {
+        if (cancelled) return;
+        setLoading(false);
         setError(language === 'ar'
           ? 'تعذر الحصول على مشغل Akwam حاليًا.'
           : 'Unable to load the Akwam player right now.');
@@ -120,15 +124,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     void load();
     return () => { cancelled = true; };
-  }, [contentType, episodeNumber, language, retryNonce, seasonNumber, tmdbId]);
+  }, [contentType, episodeNumber, retryNonce, seasonNumber, tmdbId]);
 
-  if (error) {
+  if (!iframeUrl && error) {
     return (
       <div className="flex min-h-52 w-full items-center justify-center bg-black px-6 py-10 text-center">
         <div>
           <p className="text-sm text-slate-300">{error}</p>
-          <button type="button" className="mt-4 rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15"
-            onClick={() => setRetryNonce((value) => value + 1)}>
+          <button
+            type="button"
+            className="mt-4 rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15"
+            onClick={() => setRetryNonce((value) => value + 1)}
+          >
             {language === 'ar' ? 'إعادة المحاولة' : 'Retry'}
           </button>
         </div>
@@ -143,7 +150,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     >
       {iframeUrl ? (
         <iframe
-          key={iframeUrl}
           src={iframeUrl}
           title={displayTitle}
           className="absolute inset-0 h-full w-full border-0 bg-black"
@@ -151,12 +157,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           allowFullScreen
           loading="eager"
           scrolling="no"
-          referrerPolicy="strict-origin-when-cross-origin"
-          data-player-engine="akwam-iframe-only"
+          referrerPolicy="no-referrer"
+          data-player-engine="akwam-native-iframe"
           onError={() => setError(language === 'ar'
             ? 'تعذر تحميل مشغل Akwam.'
             : 'The Akwam player could not be loaded.')}
         />
+      ) : null}
+
+      {loading && !error ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/70 text-sm text-slate-300">
+          {language === 'ar' ? 'جارٍ تحميل المشغل…' : 'Loading player…'}
+        </div>
+      ) : null}
+
+      {error && iframeUrl ? (
+        <div className="absolute inset-x-0 bottom-0 bg-black/75 px-4 py-3 text-center text-xs text-slate-300">
+          <span>{error}</span>
+          <button
+            type="button"
+            className="ml-3 underline underline-offset-2"
+            onClick={() => setRetryNonce((value) => value + 1)}
+          >
+            {language === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+          </button>
+        </div>
       ) : null}
     </div>
   );
