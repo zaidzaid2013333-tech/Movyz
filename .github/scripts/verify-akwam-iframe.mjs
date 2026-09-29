@@ -145,8 +145,8 @@ for (const fixture of fixtures) {
     });
   }
 
-  // Verify that the resolver bounds a large initial MP4 Range to roughly
-  // twenty seconds of the selected quality instead of forwarding a huge request.
+  // Verify that the resolver bounds the initial MP4 response to 4 MiB even when
+  // the upstream CDN returns an oversized 206 chunk.
   const startupSourceIndexes = [0, Math.max(0, sources.length - 1)]
     .filter((value, index, list) => list.indexOf(value) === index);
 
@@ -156,20 +156,7 @@ for (const fixture of fixtures) {
     if (!rawSource) continue;
 
     const quality = String(source?.quality || "720p").toLowerCase();
-    const bitrateByQuality = {
-      "2160p": 20_000_000,
-      "1440p": 12_000_000,
-      "1080p": 7_000_000,
-      "900p": 5_000_000,
-      "720p": 4_000_000,
-      "576p": 2_500_000,
-      "540p": 2_000_000,
-      "480p": 1_500_000,
-      "360p": 800_000,
-      "240p": 500_000,
-    };
-    const bitrate = bitrateByQuality[quality] || bitrateByQuality["720p"];
-    const maxStartupBytes = Math.ceil((bitrate * 20) / 8);
+    const maxStartupBytes = 4 * 1024 * 1024;
     const mediaUrl =
       RESOLVER_BASE +
       "/media?t=" + encodeURIComponent(token) +
@@ -184,9 +171,14 @@ for (const fixture of fixtures) {
     });
 
     const startupRange = startupResponse.headers.get("content-range") || "";
+    const startupContentType = String(startupResponse.headers.get("content-type") || "").toLowerCase();
     const startupMatch = startupRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
     assert(startupResponse.status === 206,
       fixture.label + " startup range did not return 206 for " + quality + ": " + startupResponse.status);
+    if (String(source?.type || "").toLowerCase() === "mp4") {
+      assert(/^video\/mp4/i.test(startupContentType),
+        fixture.label + " startup MP4 content-type is " + startupContentType);
+    }
     assert(startupMatch,
       fixture.label + " startup range missing Content-Range for " + quality + ": " + startupRange);
 
@@ -197,12 +189,42 @@ for (const fixture of fixtures) {
         ": " + deliveredBytes + " > " + maxStartupBytes,
     );
 
-    startupResponse.body?.cancel();
+    const startupBuffer = String(source?.type || "").toLowerCase() === "mp4"
+      ? new Uint8Array(await startupResponse.arrayBuffer())
+      : null;
+
+    let moovFound = null;
+    if (startupBuffer) {
+      let offset = 0;
+      const view = new DataView(startupBuffer.buffer, startupBuffer.byteOffset, startupBuffer.byteLength);
+      while (offset + 8 <= startupBuffer.byteLength) {
+        const size = view.getUint32(offset);
+        const type = String.fromCharCode(
+          startupBuffer[offset + 4],
+          startupBuffer[offset + 5],
+          startupBuffer[offset + 6],
+          startupBuffer[offset + 7],
+        );
+        const boxSize = size === 1 && offset + 16 <= startupBuffer.byteLength
+          ? Number(view.getUint32(offset + 12)) * 2 ** 32 + Number(view.getUint32(offset + 16 - 4))
+          : size;
+        if (type === "moov") {
+          moovFound = true;
+          break;
+        }
+        if (!boxSize || boxSize < 8) break;
+        offset += boxSize;
+      }
+      if (moovFound !== true) moovFound = false;
+    }
+
     console.log(fixture.label + " STARTUP_RANGE PASS", JSON.stringify({
       quality,
       deliveredBytes,
       maxStartupBytes,
       contentRange: startupRange,
+      contentType: startupContentType,
+      moovInInitialRange: moovFound,
     }));
   }
 

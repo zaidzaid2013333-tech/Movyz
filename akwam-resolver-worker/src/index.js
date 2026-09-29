@@ -1732,7 +1732,6 @@ select{pointer-events:auto;background:rgba(15,15,15,.8);color:#fff;border:1px so
   </div>
   <div id="status" class="status" role="status" aria-live="polite"></div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
 <script>
 const TOKEN=${tokenLiteral};
 const SOURCES=${sourcesLiteral};
@@ -1741,6 +1740,8 @@ const select=document.getElementById("quality");
 const status=document.getElementById("status");
 let hls=null;
 let fallbackTried=false;
+let loadSequence=0;
+let hlsLoader=null;
 
 function setStatus(message,show=true){
   status.textContent=message||"";
@@ -1777,7 +1778,32 @@ function resetMedia(){
   try{video.load()}catch{}
 }
 
-function loadSource(index){
+function ensureHlsLibrary(){
+  if(window.Hls) return Promise.resolve(window.Hls);
+  if(hlsLoader) return hlsLoader;
+
+  hlsLoader=new Promise((resolve,reject)=>{
+    const existing=document.querySelector('script[data-movyz-hls]');
+    if(existing){
+      existing.addEventListener('load',()=>window.Hls?resolve(window.Hls):reject(new Error("HLS library unavailable")),{once:true});
+      existing.addEventListener('error',()=>reject(new Error("HLS library failed to load")),{once:true});
+      return;
+    }
+
+    const script=document.createElement('script');
+    script.src='https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js';
+    script.async=true;
+    script.dataset.movyzHls='1';
+    script.onload=()=>window.Hls?resolve(window.Hls):reject(new Error("HLS library unavailable"));
+    script.onerror=()=>reject(new Error("HLS library failed to load"));
+    document.head.appendChild(script);
+  });
+
+  return hlsLoader;
+}
+
+async function loadSource(index){
+  const sequence=++loadSequence;
   const source=SOURCES[index]||SOURCES[0];
   if(!source){showPlaybackError("No playable source");return}
   const rawUrl=String(source.url||"").trim();
@@ -1793,10 +1819,17 @@ function loadSource(index){
   if(type==="hls" || /\.m3u8(?:[?#]|$)/i.test(rawUrl)){
     setStatus("Loading…",true);
 
-    const startHls=()=>{
-      if(!window.Hls || !Hls.isSupported()) return false;
+    const startHls=async()=>{
+      let HlsCtor=null;
+      try {
+        HlsCtor=await ensureHlsLibrary();
+      } catch {
+        return false;
+      }
 
-      hls=new Hls({
+      if(sequence!==loadSequence || !HlsCtor || !HlsCtor.isSupported()) return false;
+
+      hls=new HlsCtor({
         enableWorker:true,
         lowLatencyMode:false,
         backBufferLength:30,
@@ -1812,11 +1845,11 @@ function loadSource(index){
         attachNative(proxiedUrl);
       };
 
-      hls.on(Hls.Events.MANIFEST_PARSED,()=>{
+      hls.on(HlsCtor.Events.MANIFEST_PARSED,()=>{
         setStatus("",false);
         try{video.play().catch(()=>{})}catch{}
       });
-      hls.on(Hls.Events.ERROR,(_,data)=>{
+      hls.on(HlsCtor.Events.ERROR,(_,data)=>{
         if(data && data.fatal){
           console.error("[Movyz][AkwamHLS]",data);
           failover();
@@ -1827,7 +1860,10 @@ function loadSource(index){
       return true;
     };
 
-    if(!startHls()) attachNative(proxiedUrl);
+    if(!(await startHls())) {
+      if(sequence!==loadSequence) return;
+      attachNative(proxiedUrl);
+    }
     return;
   }
 
@@ -1847,11 +1883,16 @@ SOURCES.forEach((source,index)=>{
   select.appendChild(option);
 });
 select.hidden=SOURCES.length<2;
-select.addEventListener("change",()=>loadSource(Number(select.value)));
+select.addEventListener("change",()=>{void loadSource(Number(select.value));});
 video.addEventListener("waiting",()=>setStatus("",false));
 video.addEventListener("playing",()=>setStatus("",false));
 video.addEventListener("canplay",()=>setStatus("",false));
-loadSource(0);
+
+const preferredQualities=["720p","576p","540p","480p"];
+const preferredIndex=SOURCES.findIndex((source)=>preferredQualities.includes(String(source.quality||"").toLowerCase()));
+const initialIndex=preferredIndex>=0?preferredIndex:0;
+select.value=String(initialIndex);
+void loadSource(initialIndex);
 window.addEventListener("beforeunload",()=>{if(hls){try{hls.destroy()}catch{}}});
 </script>
 </body>
@@ -1911,7 +1952,6 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const STARTUP_BUFFER_SECONDS = 20;
 const INITIAL_RANGE_BYTES = 4 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
@@ -2082,15 +2122,114 @@ function sliceRangeResponse(upstream, rangeHeader, upstreamTotal, startupQuality
   return new Response(stream, { status: 206, headers });
 }
 
+function applyKnownMediaType(headers, sourceType, upstreamContentType = "") {
+  const normalized = String(sourceType || "").toLowerCase();
+  if (normalized === "mp4") {
+    headers.set("Content-Type", "video/mp4");
+    return;
+  }
+  if (normalized === "hls") {
+    headers.set("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8");
+    return;
+  }
+  if (normalized === "dash") {
+    headers.set("Content-Type", "application/dash+xml");
+    return;
+  }
+  if (upstreamContentType) headers.set("Content-Type", upstreamContentType);
+}
+
+function parseContentRangeHeader(value) {
+  const match = String(value || "").match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
+  if (!match) return null;
+  return {
+    start: Number(match[1]),
+    end: Number(match[2]),
+    total: match[3] === "*" ? 0 : Number(match[3]),
+  };
+}
+
+function capPartialResponse(upstream, parsed, upstreamTotal, sourceType = "") {
+  if (!upstream.body) {
+    const headers = new Headers({
+      "Content-Length": String(parsed.length),
+      "Content-Range": `bytes ${parsed.start}-${parsed.end}/${upstreamTotal > 0 ? upstreamTotal : "*"}`,
+      "Accept-Ranges": "bytes",
+      "Access-Control-Allow-Origin": "*",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+      "X-Content-Type-Options": "nosniff",
+    });
+    applyKnownMediaType(headers, sourceType, upstream.headers.get("content-type") || "");
+    return new Response(null, { status: 206, headers });
+  }
+
+  const reader = upstream.body.getReader();
+  let sent = 0;
+
+  const stream = new ReadableStream({
+    async pull(controller) {
+      try {
+        while (sent < parsed.length) {
+          const part = await reader.read();
+          if (part.done) {
+            controller.close();
+            return;
+          }
+          if (!part.value || !part.value.byteLength) continue;
+
+          const remaining = parsed.length - sent;
+          const chunk = part.value.byteLength > remaining
+            ? part.value.slice(0, remaining)
+            : part.value;
+
+          if (chunk.byteLength) {
+            controller.enqueue(chunk);
+            sent += chunk.byteLength;
+          }
+
+          if (sent >= parsed.length) {
+            try { await reader.cancel(); } catch {}
+            controller.close();
+            return;
+          }
+        }
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      try { await reader.cancel(reason); } catch {}
+    },
+  });
+
+  const headers = new Headers({
+    "Content-Length": String(parsed.length),
+    "Content-Range": `bytes ${parsed.start}-${parsed.end}/${upstreamTotal > 0 ? upstreamTotal : "*"}`,
+    "Accept-Ranges": "bytes",
+    "Access-Control-Allow-Origin": "*",
+    "Cross-Origin-Resource-Policy": "cross-origin",
+    "X-Content-Type-Options": "nosniff",
+  });
+  applyKnownMediaType(headers, sourceType, upstream.headers.get("content-type") || "");
+  for (const name of ["etag", "last-modified"]) {
+    const value = upstream.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+
+  return new Response(stream, { status: 206, headers });
+}
+
 async function proxyAkwamMedia(request, requestUrl) {
   const target = mediaProxyRequestUrl(requestUrl.searchParams.get("u") || "", requestUrl);
   if (!target) return json({ ok: false, error: "Invalid media source" }, 400);
 
   const range = request.headers.get("Range") || "";
-  const sourceQuality = (() => {
+  const sourceInfo = (() => {
     const requested = requestUrl.searchParams.get("u") || "";
-    return target.payload.sources.find((source) => source.url === requested)?.quality || "";
+    return target.payload.sources.find((source) => source.url === requested) || null;
   })();
+  const sourceQuality = sourceInfo?.quality || "";
+  const sourceType = String(sourceInfo?.type || mediaTypeFromUrl(target.url)).toLowerCase();
   const upstreamRange = (() => {
     if (!range || !/^bytes=\d+-/i.test(range) || !sourceQuality) return range;
     const totalHint = 50 * 1024 * 1024 * 1024;
@@ -2173,6 +2312,35 @@ async function proxyAkwamMedia(request, requestUrl) {
     return json({ ok: false, error: "Media upstream failed", status: response.status, detail }, 502);
   }
 
+  // A few upstream CDNs return 206 but ignore the requested end offset and
+  // send a much larger chunk (for example ~17.5 MB for a 1080p request).
+  // Never pass that oversized startup chunk through to the browser.
+  if (range && response.status === 206) {
+    const upstreamRangeInfo = parseContentRangeHeader(response.headers.get("content-range") || "");
+    if (upstreamRangeInfo && upstreamRangeInfo.end >= upstreamRangeInfo.start) {
+      const requested = parseSingleRange(
+        range,
+        upstreamRangeInfo.total,
+        { startupQuality: sourceQuality },
+      );
+      if (
+        requested &&
+        !requested.invalid &&
+        upstreamRangeInfo.start === requested.start &&
+        upstreamRangeInfo.end > requested.end
+      ) {
+        const capped = capPartialResponse(
+          response,
+          requested,
+          upstreamRangeInfo.total,
+          sourceType,
+        );
+        capped.headers.set("Cache-Control", "private, max-age=30");
+        return capped;
+      }
+    }
+  }
+
   // Some Akwam/Downet movie files ignore Range and return the entire file as
   // HTTP 200. Browsers expect byte-range semantics for seekable MP4 playback.
   // Convert that full response into the exact requested 206 slice instead of
@@ -2185,12 +2353,22 @@ async function proxyAkwamMedia(request, requestUrl) {
     );
     const sliced = sliceRangeResponse(response, range, total, sourceQuality);
     if (sliced) {
+      applyKnownMediaType(
+        sliced.headers,
+        sourceType,
+        response.headers.get("content-type") || "",
+      );
       sliced.headers.set("Cache-Control", "private, max-age=30");
       return sliced;
     }
   }
 
   const headers = proxyMediaHeaders(response);
+  applyKnownMediaType(
+    headers,
+    sourceType,
+    response.headers.get("content-type") || "",
+  );
   headers.set("Cache-Control", "private, max-age=30");
   return new Response(response.body, { status: response.status, headers });
 }
