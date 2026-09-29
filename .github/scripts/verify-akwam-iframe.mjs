@@ -106,7 +106,11 @@ function watchIframe(body, fixture, label) {
   if (fixture.type === "series") {
     assert(Number(body?.season) === Number(fixture.season), label + " season mismatch");
     assert(Number(body?.episode) === Number(fixture.episode), label + " episode mismatch");
-    assert(/\/episode\//i.test(new URL(iframe).pathname), label + " did not return an Akwam episode page: " + iframe);
+    const pathname = new URL(iframe).pathname;
+    assert(
+      /\/(?:watch|episode)\//i.test(pathname),
+      label + " did not return an Akwam episode/player route: " + iframe,
+    );
   }
 
   return iframe;
