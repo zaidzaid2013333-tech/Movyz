@@ -1912,24 +1912,13 @@ function proxyMediaHeaders(upstream) {
 }
 
 const STARTUP_BUFFER_SECONDS = 20;
-const QUALITY_BITRATES_BPS = {
-  "2160p": 20_000_000,
-  "1440p": 12_000_000,
-  "1080p": 7_000_000,
-  "900p": 5_000_000,
-  "720p": 4_000_000,
-  "576p": 2_500_000,
-  "540p": 2_000_000,
-  "480p": 1_500_000,
-  "360p": 800_000,
-  "240p": 500_000,
-};
+const INITIAL_RANGE_BYTES = 4 * 1024 * 1024;
 
-function startupRangeBytes(quality, total) {
-  const normalized = normalizeQuality(quality);
-  const bitrate = QUALITY_BITRATES_BPS[normalized] || QUALITY_BITRATES_BPS["720p"];
-  const target = Math.ceil((bitrate * STARTUP_BUFFER_SECONDS) / 8);
-  return Math.max(512 * 1024, Math.min(target, 50 * 1024 * 1024, Math.max(total, 0)));
+function startupRangeBytes(_quality, total) {
+  return Math.min(
+    INITIAL_RANGE_BYTES,
+    Number.isFinite(total) && total > 0 ? total : INITIAL_RANGE_BYTES,
+  );
 }
 
 function parseSingleRange(value, total, { startupQuality = "" } = {}) {
