@@ -326,7 +326,7 @@ function watchSourceCacheKey(
   episode?: number,
 ) {
   return [
-    'iframe-v3',
+    'iframe-v4',
     mediaType,
     tmdbId,
     season ?? '',
@@ -396,7 +396,13 @@ function normalizeAkwamIframeUrl(value: unknown) {
       host.endsWith('.akwam.net') ||
       host === 'downet.net' ||
       host.endsWith('.downet.net');
-    return allowed ? url.toString() : '';
+    if (!allowed) return '';
+
+    const blockedPath = /\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i;
+    const playerPath = /\/(?:watch|player|embed)(?:\/|[?#]|$)/i;
+    if (blockedPath.test(url.pathname) || !playerPath.test(url.pathname)) return '';
+
+    return url.toString();
   } catch {
     return '';
   }
@@ -404,15 +410,8 @@ function normalizeAkwamIframeUrl(value: unknown) {
 
 function normalizeWatchSources(payload: any) {
   const stream = payload?.stream || {};
-  const iframeUrl = normalizeAkwamIframeUrl(stream.iframe_url || stream.player_url);
+  const iframeUrl = normalizeAkwamIframeUrl(stream.iframe_url);
   if (!iframeUrl) return [];
-
-  try {
-    const url = new URL(iframeUrl);
-    if (!/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname)) return [];
-  } catch {
-    return [];
-  }
 
   return [{
     id: 'akwam-iframe',
@@ -551,17 +550,15 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   const cacheStatus = cachedResolution.cacheStatus;
   const sources = cachedResolution.sources;
   res.setHeader('x-movyz-watch-cache', cacheStatus);
-  res.setHeader(
-    'cache-control',
-    'public, max-age=600, s-maxage=1800, stale-while-revalidate=3600',
-  );
+  res.setHeader('cache-control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.setHeader('pragma', 'no-cache');
 
   if (!sources.length) {
     return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable watch source is currently available');
   }
 
   return ok(res, sources, {
-    source: 'akwam_iframe_resolver',
+    source: 'akwam_iframe_resolver_v2',
     mediaType,
     tmdbId,
     season,
