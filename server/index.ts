@@ -6,8 +6,6 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
-import { resolvePlaybackSources } from './providers/resolver';
-import { resolveUniversalSource } from './providers/universal-resolver';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -374,28 +372,7 @@ app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
   }
 }));
 
-app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
-  const parsed = z.object({
-    url: z.string().trim().url().max(4096),
-  }).safeParse(req.query);
-
-  if (!parsed.success) return fail(res, 400, 'INVALID_RESOLVE_QUERY', 'A valid HTTPS source URL is required');
-
-  try {
-    const source = await resolveUniversalSource(parsed.data.url);
-    return ok(res, {
-      ...source,
-      mode: source.type === 'embed' ? 'embed' : 'direct',
-      requested_url: parsed.data.url,
-    });
-  } catch (error) {
-    console.error('[universal-playback-resolve]', error instanceof Error ? error.message : error);
-    return fail(res, 422, 'UNIVERSAL_RESOLVE_FAILED', error instanceof Error ? error.message : 'Unable to resolve source');
-  }
-}));
-
-
-const WATCH_API_BASE = 'https://movyz-moviebox.sameranede.workers.dev';
+const AKWAM_RESOLVER_BASE = 'https://movyz-akwam-resolver.sameranede.workers.dev';
 
 let watchApiFetch: typeof fetch = fetch;
 
@@ -419,7 +396,7 @@ function watchSourceCacheKey(
   episode?: number,
 ) {
   return [
-    'iframe-v2',
+    'iframe-v3',
     mediaType,
     tmdbId,
     season ?? '',
@@ -466,14 +443,6 @@ async function resolveWatchSourcesWithCache(
   }
 }
 
-function streamTypeFromUrl(url: string) {
-  const value = String(url || '').toLowerCase();
-  if (value.includes('.m3u8')) return 'hls';
-  if (value.includes('.mpd')) return 'dash';
-  if (value.includes('.webm')) return 'webm';
-  return 'mp4';
-}
-
 function normalizeAkwamIframeUrl(value: unknown) {
   if (typeof value !== 'string' || !value.trim()) return '';
   try {
@@ -484,10 +453,17 @@ function normalizeAkwamIframeUrl(value: unknown) {
       host.endsWith('.akwam.ss') ||
       host === 'akwam.it' ||
       host.endsWith('.akwam.it') ||
+      host === 'go.akwam.it' ||
       host === 'ak.sv' ||
       host.endsWith('.ak.sv') ||
+      host === 'go.ak.sv' ||
       host === 'akwam.ee' ||
       host.endsWith('.akwam.ee') ||
+      host === 'akwam.com.co' ||
+      host.endsWith('.akwam.com.co') ||
+      host === 'go.akwam.com.co' ||
+      host === 'akwam.net' ||
+      host.endsWith('.akwam.net') ||
       host === 'downet.net' ||
       host.endsWith('.downet.net');
     return allowed ? url.toString() : '';
@@ -601,40 +577,27 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     }
 
     const response = await watchApiFetch(
-      `${WATCH_API_BASE}${mediaType === 'movie' ? '/watch/movie' : '/watch/episode'}`,
+      `${AKWAM_RESOLVER_BASE}/resolve-iframe`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
-          'User-Agent': 'Movyz-Watch-API/1.0',
+          'User-Agent': 'Movyz-Akwam-Iframe/1.0',
           'Cache-Control': 'no-cache',
         },
-        body: JSON.stringify(
-          mediaType === 'movie'
-            ? {
-                mode: 'iframe',
-                tmdb_id: tmdbId,
-                title: titleEn || titleAr || originalTitle || title,
-                title_en: titleEn,
-                title_ar: titleAr,
-                original_title: originalTitle,
-                titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
-                year,
-              }
-            : {
-                mode: 'iframe',
-                tmdb_id: tmdbId,
-                title: titleEn || titleAr || originalTitle || title,
-                title_en: titleEn,
-                title_ar: titleAr,
-                original_title: originalTitle,
-                titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
-                year,
-                season,
-                episode,
-              },
-        ),
+        body: JSON.stringify({
+          mode: 'iframe',
+          tmdb_id: tmdbId,
+          type: mediaType,
+          title: titleEn || titleAr || originalTitle || title,
+          title_en: titleEn,
+          title_ar: titleAr,
+          original_title: originalTitle,
+          titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
+          year,
+          ...(mediaType === 'series' ? { season, episode } : {}),
+        }),
         redirect: 'follow',
       },
     );
@@ -668,7 +631,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   }
 
   return ok(res, sources, {
-    source: 'akwam_watch_api',
+    source: 'akwam_iframe_resolver',
     mediaType,
     tmdbId,
     season,
@@ -689,24 +652,6 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
   }
 }));
 
-
-app.get(`${api}/playback/sources`, asyncRoute(async (req, res) => {
-  const parsed = z.object({
-    contentType: z.enum(['movie', 'episode']),
-    contentId: z.string().uuid(),
-  }).safeParse(req.query);
-
-  if (!parsed.success) return fail(res, 400, 'INVALID_PLAYBACK_QUERY', 'Invalid playback source parameters');
-
-  try {
-    const sources = await resolvePlaybackSources(parsed.data.contentType, parsed.data.contentId);
-    if (!sources.length) return fail(res, 404, 'PLAYBACK_SOURCES_NOT_FOUND', 'No playable sources are available for this title');
-    return ok(res, sources);
-  } catch (error) {
-    console.error('[playback-sources]', error instanceof Error ? error.message : error);
-    return fail(res, 502, 'PLAYBACK_RESOLUTION_FAILED', 'Unable to resolve playable sources');
-  }
-}));
 
 app.get('/health', asyncRoute(async (_req, res) => {
   const { error } = await adminSupabase.from('genres').select('id').limit(1);

@@ -1,8 +1,5 @@
 const RESOLVER_BASE = (process.env.AKWAM_RESOLVER_BASE ||
   "https://movyz-akwam-resolver.sameranede.workers.dev").replace(/\/+$/, "");
-const WATCH_BASE = (process.env.WATCH_API_BASE ||
-  "https://movyz-moviebox.sameranede.workers.dev").replace(/\/+$/, "");
-
 const movieFixture = {
   mode: "iframe",
   title: "Inception",
@@ -91,6 +88,7 @@ async function resolverIframe(fixture, label) {
   assert(body?.ok === true, label + " did not return ok=true");
   const iframe = body?.iframe_url || body?.source_url || body?.media_url || "";
   assertAkwamPage(iframe, label + " iframe_url");
+  assert(/\/watch\/\d+(?:[/?#]|$)/i.test(new URL(iframe).pathname), label + " did not return a dedicated Akwam watch-player route: " + iframe);
   return { body, iframe };
 }
 
@@ -116,60 +114,11 @@ function watchIframe(body, fixture, label) {
   return iframe;
 }
 
-console.log("AKWAM_IFRAME_SMOKE_START", JSON.stringify({
-  resolver: RESOLVER_BASE,
-  watch: WATCH_BASE,
-}));
 
 const resolverMovie = await resolverIframe(movieFixture, "Akwam resolver movie");
 const resolverEpisode = await resolverIframe(episodeFixture, "Akwam resolver episode");
-
-assertAkwamPage(resolverMovie.iframe, "Resolver movie");
-assertAkwamPage(resolverEpisode.iframe, "Resolver episode");
-assert(
-  /\/(?:watch|episode)\//i.test(new URL(resolverEpisode.iframe).pathname),
-  "Resolver episode is not an Akwam episode/player route: " + resolverEpisode.iframe,
-);
-
-const watchedMovie = await jsonFetch(
-  WATCH_BASE + "/watch/movie",
-  {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(movieFixture),
-  },
-  "Watch API movie iframe",
-);
-const watchedEpisode = await jsonFetch(
-  WATCH_BASE + "/watch/episode",
-  {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(episodeFixture),
-  },
-  "Watch API episode iframe",
-);
-
-const watchMovieIframe = watchIframe(watchedMovie, movieFixture, "Watch API movie");
-const watchEpisodeIframe = watchIframe(watchedEpisode, episodeFixture, "Watch API episode");
-
 console.log("AKWAM_IFRAME_SMOKE_RESULT", JSON.stringify({
-  movie: {
-    resolver: resolverMovie.iframe,
-    watch: watchMovieIframe,
-  },
-  episode: {
-    resolver: resolverEpisode.iframe,
-    watch: watchEpisodeIframe,
-    season: watchedEpisode.season,
-    episode: watchedEpisode.episode,
-  },
+  movie: resolverMovie.iframe,
+  episode: resolverEpisode.iframe,
 }));
-
 console.log("AKWAM_IFRAME_E2E=PASS");

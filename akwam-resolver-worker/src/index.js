@@ -1299,7 +1299,11 @@ async function resolveAkwamIframe(browser, payload) {
     );
   }
 
-  const iframeTarget = playerUrl || safeSource;
+  if (!playerUrl) {
+    throw new Error("AKWAM_IFRAME_PLAYER: no dedicated /watch/<id> player route found");
+  }
+
+  const iframeTarget = playerUrl;
 
   diagnostic(
     "AKWAM_IFRAME",
@@ -1310,8 +1314,8 @@ async function resolveAkwamIframe(browser, payload) {
 
   return {
     title: entry.title || clean(payload?.title) || "",
-    source_url: safeSource,
-    media_url: safeSource,
+    source_url: iframeTarget,
+    media_url: iframeTarget,
     type: "web",
     quality: "auto",
     qualities: ["auto"],
@@ -1463,7 +1467,7 @@ export default { async fetch(request, env) {
   const url = new URL(request.url);
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-  if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "movyz-akwam-resolver", browser: Boolean(env.BROWSER), mode: "direct-akwam-pipeline" });
+  if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "movyz-akwam-resolver", browser: Boolean(env.BROWSER), mode: "iframe-only" });
 
   if (request.method === "POST" && url.pathname === "/resolve-iframe") {
     let payload;
@@ -1493,10 +1497,5 @@ export default { async fetch(request, env) {
     }
   }
 
-  if (request.method !== "POST" || url.pathname !== "/resolve") return json({ ok: false, error: "Not found" }, 404);
-  let payload; try { payload = await request.json(); } catch { return json({ ok: false, error: "Valid JSON body required" }, 400); }
-  if (!clean(payload?.title) && !decodeContentUrl(payload)) return json({ ok: false, error: "title or Akwam content_url is required" }, 400);
-  if (!env.BROWSER?.quickAction) return json({ ok: false, error: "Browser Run Quick Actions unavailable" }, 500);
-  try { return json({ ok: true, ...(await resolveAkwamCached(env.BROWSER, { ...payload, type: payload?.type === "series" ? "series" : "movie" })) }); }
-  catch (error) { const message = error instanceof Error ? error.message : String(error); diagnostic("AKWAM_FAILED", message); return json({ ok: false, error: message }, 502); }
+  return json({ ok: false, error: "Not found" }, 404);
 } };

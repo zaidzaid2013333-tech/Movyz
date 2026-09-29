@@ -1,23 +1,17 @@
-name: Movyz Watch API Deploy
-# Deploy the exact legacy Akwam iframe worker path alongside the restored player.
-
+name: Movyz Akwam Iframe Resolver Deploy
 on:
   push:
     branches: ["main"]
     paths:
-      - "moviebox-worker/**"
       - "akwam-resolver-worker/**"
       - ".github/scripts/verify-akwam-iframe.mjs"
       - ".github/workflows/watch-api-deploy.yml"
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
-  group: movyz-watch-api-production
+  group: movyz-akwam-iframe-production
   cancel-in-progress: true
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -25,32 +19,16 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Validate Watch and Resolver Workers
-        run: |
-          node --check moviebox-worker/src/index.js
-          node --check akwam-resolver-worker/src/index.js
-
+      - name: Validate Akwam Resolver
+        run: node --check akwam-resolver-worker/src/index.js
       - name: Cloudflare dry run
-        run: |
-          npx --yes wrangler@4 deploy --config moviebox-worker/wrangler.toml --dry-run
-          npx --yes wrangler@4 deploy --config akwam-resolver-worker/wrangler.toml --dry-run
-
+        run: npx --yes wrangler@4 deploy --config akwam-resolver-worker/wrangler.toml --dry-run
       - name: Deploy Akwam Resolver
         run: npx --yes wrangler@4 deploy --config akwam-resolver-worker/wrangler.toml
-
-      - name: Deploy Watch API
-        run: npx --yes wrangler@4 deploy --config moviebox-worker/wrangler.toml
-
-      - name: Smoke test
-        run: |
-          node .github/scripts/verify-akwam-iframe.mjs
+      - name: Smoke test Akwam iframe resolver
+        run: node .github/scripts/verify-akwam-iframe.mjs
