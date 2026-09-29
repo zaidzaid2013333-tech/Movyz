@@ -516,6 +516,187 @@ async function resolveDiscoveredAkwamContent(payload, type, source, env) {
 }
 
 
+
+function decodeHtmlUrl(value) {
+  return String(value || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/\\\\\//g, "/");
+}
+
+function extractAkwamEpisodeSearchLinks(html) {
+  const source = decodeHtmlUrl(html);
+  const candidates = [];
+  const seen = new Set();
+
+  const add = (raw) => {
+    let value = decodeHtmlUrl(raw);
+    try {
+      value = decodeURIComponent(value);
+    } catch {}
+
+    try {
+      const u = new URL(value);
+      const href = u.href;
+      if (!isAkwamUrl(href)) return;
+      if (!/\/episode\//i.test(u.pathname)) return;
+      if (seen.has(href)) return;
+      seen.add(href);
+      candidates.push(href);
+    } catch {}
+  };
+
+  const directPattern = /https?:\/\/(?:www\.)?(?:akwam\.it|akwam\.ss|akwam\.ee|akwam\.net|ak\.sv|akwam\.com\.co|go\.akwam\.com\.co|akw\.cam)\/episode\/[^"'<>\\s&]+/gi;
+  for (const match of source.matchAll(directPattern)) add(match[0]);
+
+  const encodedPattern = /(?:uddg|url|target|u)=([^&"'<>\\s]+)/gi;
+  for (const match of source.matchAll(encodedPattern)) {
+    const value = match[1];
+    try {
+      const decoded = decodeURIComponent(value);
+      if (/https?:\\/\\/[^/]*akwam\\./i.test(decoded) || /https?:\\/\\/ak\\.sv/i.test(decoded)) add(decoded);
+    } catch {}
+  }
+
+  return candidates;
+}
+
+function seasonSearchLabel(season) {
+  const labels = {
+    1: "الموسم الاول",
+    2: "الموسم الثاني",
+    3: "الموسم الثالث",
+    4: "الموسم الرابع",
+    5: "الموسم الخامس",
+    6: "الموسم السادس",
+    7: "الموسم السابع",
+    8: "الموسم الثامن",
+    9: "الموسم التاسع",
+    10: "الموسم العاشر",
+    11: "الموسم الحادي عشر",
+    12: "الموسم الثاني عشر",
+  };
+  return labels[Number(season)] || ("season " + Number(season));
+}
+
+function scoreAkwamEpisodeSearchUrl(url, payload) {
+  let decoded = url;
+  try { decoded = decodeURIComponent(url); } catch {}
+  const text = normalizeTitle(decoded);
+  const titleVariants = [
+    payload?.title,
+    payload?.title_en,
+    payload?.original_title,
+    payload?.title_ar,
+  ].map(normalizeTitle).filter(Boolean);
+
+  let score = 0;
+  for (const wanted of titleVariants) {
+    if (text.includes(wanted)) score = Math.max(score, 700);
+  }
+
+  const season = Number(payload?.season);
+  const episode = Number(payload?.episode);
+  const seasonLabel = seasonSearchLabel(season);
+  const normalizedSeason = normalizeTitle(seasonLabel);
+
+  if (normalizedSeason && text.includes(normalizedSeason)) score += 220;
+  if (/(?:\\/episode\\/|\\/episodes\\/)/i.test(decoded)) score += 80;
+  if (new RegExp("(?:الحلقة|episode|ep)[-_\\\\s]?0*" + episode + "\\\\b", "i").test(decoded)) {
+    score += 250;
+  }
+
+  const seasonRoute = new RegExp("(?:season|الموسم)[-_\\\\s#]*0*" + season + "\\\\b", "i");
+  if (seasonRoute.test(decoded)) score += 120;
+
+  return score;
+}
+
+async function searchAkwamEpisodeWeb(payload) {
+  const title = clean(payload?.title) ||
+    clean(payload?.title_en) ||
+    clean(payload?.original_title) ||
+    clean(payload?.title_ar);
+  const season = Number(payload?.season);
+  const episode = Number(payload?.episode);
+
+  if (!title || !Number.isInteger(season) || season < 1 || !Number.isInteger(episode) || episode < 1) {
+    return "";
+  }
+
+  const seasonLabel = seasonSearchLabel(season);
+  const queries = [
+    'site:akwam.it/episode "' + title + '" "' + seasonLabel + '" "الحلقة ' + episode + '"',
+    'site:akwam.it/episode "' + title + '" "' + seasonLabel + '" "Episode ' + episode + '"',
+    'site:akwam.it/episode "' + title + '" "الحلقة ' + episode + '"',
+  ];
+
+  const engines = [
+    (q) => "https://html.duckduckgo.com/html/?q=" + encodeURIComponent(q),
+    (q) => "https://www.bing.com/search?q=" + encodeURIComponent(q),
+  ];
+
+  let best = "";
+  let bestScore = 0;
+  let lastError = null;
+
+  for (const engine of engines) {
+    for (const query of queries) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8_000);
+      try {
+        const response = await fetch(engine(query), {
+          method: "GET",
+          headers: {
+            Accept: "text/html,application/xhtml+xml",
+            "Accept-Language": "ar,en-US;q=0.8,en;q=0.6",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36",
+          },
+          redirect: "follow",
+          signal: controller.signal,
+          cf: { cacheTtl: 60 },
+        });
+
+        if (!response.ok) {
+          lastError = new Error("web search HTTP " + response.status);
+          continue;
+        }
+
+        const html = await response.text();
+        const links = extractAkwamEpisodeSearchLinks(html);
+
+        for (const link of links) {
+          const score = scoreAkwamEpisodeSearchUrl(link, payload);
+          if (score > bestScore) {
+            best = link;
+            bestScore = score;
+          }
+        }
+
+        if (bestScore >= 1_000) {
+          console.warn("AKWAM_IFRAME_WEB_SEARCH_MATCH", best, "score=" + bestScore);
+          return best;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  if (best) {
+    console.warn("AKWAM_IFRAME_WEB_SEARCH_BEST", best, "score=" + bestScore);
+    return best;
+  }
+
+  if (lastError) {
+    console.warn("AKWAM_IFRAME_WEB_SEARCH_FAILED", lastError.message);
+  }
+  return "";
+}
+
 async function resolveAkwamIframeOnly(payload, type, env) {
   const explicitSource = normalizeAkwamUrl(
     payload?.source_url ?? payload?.content_url ?? payload?.contentUrl,
@@ -543,28 +724,18 @@ async function resolveAkwamIframeOnly(payload, type, env) {
   const title = clean(payload?.title);
   if (!title) throw new Error("title is required");
 
-  // Prefer the dedicated Akwam resolver for series. It searches Akwam directly
-  // and can resolve the requested season/episode without depending on AbdoBest.
-  let directResolverError = "";
+  // For iframe playback, discover the actual Akwam episode page first.
+  // This avoids coupling the public iframe path to the legacy AbdoBest API.
   if (type === "series") {
-    try {
-      const resolved = await resolveViaAkwamResolver(payload, "series", env);
-      const source = normalizeAkwamUrl(
-        resolved?.source_url || resolved?.page_url || resolved?.sourceUrl || "",
-      );
-      if (source && isAkwamUrl(source)) {
-        return build(source, resolved?.title || resolved?.matched_title || title);
-      }
-    } catch (error) {
-      directResolverError = error instanceof Error ? error.message : String(error);
-      console.warn(
-        "AKWAM_IFRAME_DIRECT_RESOLVER_FALLBACK:",
-        error instanceof Error ? error.message : String(error),
-      );
+    const webEpisode = await searchAkwamEpisodeWeb(payload);
+    if (webEpisode && isAkwamUrl(webEpisode)) {
+      return build(webEpisode);
     }
   }
 
-  let search;
+  let directResolverError = "";
+  let search = null;
+
   try {
     search = await abdoJson("/api/search?q=" + encodeURIComponent(title), { method: "GET" });
   } catch (error) {
@@ -575,7 +746,7 @@ async function resolveAkwamIframeOnly(payload, type, env) {
       error instanceof Error ? error.message : String(error),
     );
     throw new Error(
-      "Akwam episode discovery failed; direct resolver: " +
+      "Akwam episode discovery failed; web search: no episode page; direct resolver: " +
       (directResolverError || "unknown") +
       "; AbdoBest search: " +
       (error instanceof Error ? error.message : String(error)),
