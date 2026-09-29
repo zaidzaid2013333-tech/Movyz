@@ -400,8 +400,10 @@ function normalizeAkwamIframeUrl(value: unknown) {
       return url.toString();
     }
 
-    // /watch/<id> is Akwam's surrounding page, not an embeddable player.
-    // Never pass it through to the frontend iframe.
+    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname) && url.hash.toLowerCase() === '#player') {
+      return url.toString();
+    }
+
     return '';
   } catch {
     return '';
