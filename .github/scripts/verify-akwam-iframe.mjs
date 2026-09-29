@@ -103,6 +103,35 @@ for (const fixture of fixtures) {
       "/media?t=" + encodeURIComponent(token) +
       "&u=" + encodeURIComponent(rawSource);
 
+    let directHead = null;
+    try {
+      const started = performance.now();
+      const response = await fetch(rawSource, {
+        method: "HEAD",
+        headers: {
+          Accept: "video/*,application/octet-stream,*/*;q=0.8",
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(15_000),
+      });
+      directHead = {
+        status: response.status,
+        contentType: response.headers.get("content-type") || "",
+        contentLength: response.headers.get("content-length") || "",
+        acceptRanges: response.headers.get("accept-ranges") || "",
+        elapsedMs: Math.round(performance.now() - started),
+      };
+    } catch (error) {
+      directHead = { error: error instanceof Error ? error.message : String(error) };
+    }
+
+    if (fixture.label === "Akwam resolver episode") {
+      console.log("Akwam resolver episode DIRECT_HEAD", JSON.stringify({
+        quality: source?.quality || "auto",
+        directHead,
+      }));
+    }
+
     const mediaResponse = await fetch(mediaUrl, {
       headers: {
         Accept: "video/*,application/vnd.apple.mpegurl,application/dash+xml,*/*;q=0.8",
