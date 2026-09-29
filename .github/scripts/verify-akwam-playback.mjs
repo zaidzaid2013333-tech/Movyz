@@ -231,6 +231,22 @@ if (!episode?.ok ||
     !isHttp(episodeIframe)) {
   throw new Error("Watch API episode did not return the expected iframe contract");
 }
+
+const episodeDescriptor = [
+  episodeIframe,
+  episode?.stream?.matched_title,
+  episode?.matched_title,
+  episode?.title,
+].filter(Boolean).join(" ");
+
+if (!/(الموسم[\s_-]*(?:الاول|الأول)|season[\s_-]*1)/i.test(episodeDescriptor) ||
+    !/(الحلقة[\s_-]*:?[\s]*1|episode[\s_-]*1|ep[\s_-]*1)/i.test(episodeDescriptor)) {
+  throw new Error(
+    "Watch API episode returned a page that does not identify S01E01: " +
+    episodeDescriptor.slice(0, 1200),
+  );
+}
+
 validateSource(episodeIframe);
 
 console.log("AKWAM_PLAYBACK_E2E=PASS");
