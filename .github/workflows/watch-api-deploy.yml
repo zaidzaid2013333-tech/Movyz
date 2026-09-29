@@ -1,4 +1,5 @@
 name: Movyz Watch API Deploy
+# Deploy the exact legacy Akwam iframe worker path alongside the restored player.
 
 on:
   push:
