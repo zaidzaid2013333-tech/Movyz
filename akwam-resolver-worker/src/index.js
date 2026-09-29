@@ -1682,7 +1682,7 @@ function playerHtml(token, payload) {
   const tokenLiteral = JSON.stringify(token);
   const sourcesLiteral = JSON.stringify(payload.sources);
 
-  const html = \`<!doctype html>
+  const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -1831,7 +1831,7 @@ loadSource(0);
 window.addEventListener("beforeunload",()=>{if(hls){try{hls.destroy()}catch{}}});
 </script>
 </body>
-</html>\`;
+</html>`;
 
   return html;
 }
