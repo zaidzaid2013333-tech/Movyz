@@ -943,8 +943,182 @@ async function resolveQuality(browser, quality) {
       targetPage.url,
   );
 }
+
+function extractAkwamEpisodeLinksFromSearch(html) {
+  const source = String(html || "");
+  const out = [];
+  const seen = new Set();
+
+  const add = (raw) => {
+    let value = String(raw || "")
+      .replace(/&amp;/gi, "&")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'");
+
+    for (let i = 0; i < 3; i += 1) {
+      try {
+        const decoded = decodeURIComponent(value);
+        if (decoded === value) break;
+        value = decoded;
+      } catch {
+        break;
+      }
+    }
+
+    const values = [value];
+    try {
+      const wrapped = new URL(value, "https://search.local");
+      for (const key of ["q", "url", "u", "uddg", "target"]) {
+        const candidate = wrapped.searchParams.get(key);
+        if (candidate) values.push(candidate);
+      }
+    } catch {}
+
+    for (const candidate of values) {
+      try {
+        const url = new URL(candidate);
+        if (!PAGE_HOSTS.has(url.hostname.toLowerCase())) continue;
+        if (!/\/episode\//i.test(url.pathname)) continue;
+        if (seen.has(url.href)) continue;
+        seen.add(url.href);
+        out.push(url.href);
+      } catch {}
+    }
+  };
+
+  const direct = /https?:\/\/(?:www\.)?(?:akwam\.ss|akwam\.it|akwam\.ee|akwam\.net|ak\.sv|akwam\.com\.co|go\.akwam\.com\.co|akw\.cam)\/episode\/[^"'<>\\s&]+/gi;
+  for (const match of source.matchAll(direct)) add(match[0]);
+
+  const anchors = /<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi;
+  for (const match of source.matchAll(anchors)) add(match[1]);
+
+  return out;
+}
+
+function scoreBrowserSearchEpisode(url, payload) {
+  let text = url;
+  try { text = decodeURIComponent(url); } catch {}
+  const normalized = normalizeTitle(text);
+  const wanted = [
+    payload?.title,
+    payload?.title_en,
+    payload?.original_title,
+    payload?.title_ar,
+  ].map(normalizeTitle).filter(Boolean);
+
+  let score = 0;
+  if (wanted.some((value) => normalized.includes(value))) score += 700;
+
+  const season = Number(payload?.season);
+  const episode = Number(payload?.episode);
+  const seasonLabel = normalizeTitle(seasonSearchLabel(season));
+
+  if (seasonLabel && normalized.includes(seasonLabel)) score += 300;
+  if (new RegExp("(?:الحلقة|episode|ep)[-_\\s:#]*0*" + episode + "\\b", "i").test(text)) score += 300;
+  return score;
+}
+
+async function searchAkwamEpisodeWithBrowser(browser, payload) {
+  const title = clean(payload?.title) ||
+    clean(payload?.title_en) ||
+    clean(payload?.original_title) ||
+    clean(payload?.title_ar);
+  const season = Number(payload?.season);
+  const episode = Number(payload?.episode);
+
+  if (
+    !title ||
+    !Number.isInteger(season) ||
+    season < 1 ||
+    !Number.isInteger(episode) ||
+    episode < 1
+  ) return "";
+
+  const seasonLabel = seasonSearchLabel(season);
+  const queries = [
+    'site:akwam.ss/episode "' + title + '" "' + seasonLabel + '" "الحلقة ' + episode + '"',
+    'site:akwam.it/episode "' + title + '" "' + seasonLabel + '" "الحلقة ' + episode + '"',
+    '"' + title + '" "' + seasonLabel + '" "الحلقة ' + episode + '" "akwam.ss/episode"',
+  ];
+
+  const engines = [
+    (q) => "https://www.google.com/search?hl=en&q=" + encodeURIComponent(q),
+    (q) => "https://www.bing.com/search?q=" + encodeURIComponent(q),
+  ];
+
+  let best = "";
+  let bestScore = 0;
+  let lastError = null;
+
+  for (const engine of engines) {
+    for (const query of queries) {
+      try {
+        const response = await browser.quickAction("content", {
+          url: engine(query),
+          userAgent: UA,
+          gotoOptions: {
+            waitUntil: "domcontentloaded",
+            timeout: 20_000,
+          },
+        });
+        const html = await getBrowserHtml(response);
+        if (!response.ok) {
+          lastError = new Error("browser search HTTP " + response.status);
+          continue;
+        }
+
+        const links = extractAkwamEpisodeLinksFromSearch(html);
+        for (const link of links) {
+          const score = scoreBrowserSearchEpisode(link, payload);
+          if (score > bestScore) {
+            best = link;
+            bestScore = score;
+          }
+        }
+
+        if (bestScore >= 1300) {
+          diagnostic("AKWAM_BROWSER_SEARCH_EPISODE", best);
+          return best;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+  }
+
+  if (best) {
+    diagnostic("AKWAM_BROWSER_SEARCH_EPISODE", best);
+    return best;
+  }
+  if (lastError) {
+    diagnostic("AKWAM_BROWSER_SEARCH_EPISODE_FAILED", lastError.message);
+  }
+  return "";
+}
+
 async function resolveAkwamIframe(browser, payload) {
   const directContent = decodeContentUrl(payload);
+
+  if (!directContent && payload?.type === "series" && Number(payload?.episode) > 0) {
+    const searchedEpisode = await searchAkwamEpisodeWithBrowser(browser, payload);
+    if (searchedEpisode) {
+      return {
+        title: clean(payload?.title) || "",
+        source_url: searchedEpisode,
+        media_url: searchedEpisode,
+        type: "web",
+        quality: "auto",
+        qualities: ["auto"],
+        sources: [{
+          quality: "auto",
+          type: "web",
+          url: searchedEpisode,
+        }],
+        iframe_url: searchedEpisode,
+      };
+    }
+  }
+
   const entry = directContent
     ? { title: clean(payload?.title), url: directContent }
     : await searchAkwam(browser, payload);
