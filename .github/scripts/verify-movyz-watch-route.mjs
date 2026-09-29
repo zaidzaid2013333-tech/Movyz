@@ -1,3 +1,4 @@
+// Merge-triggered production verification: iframe-only Akwam player.
 // Final production trigger: deploy Akwam resolver, then Movyz Worker.
 const API_BASE = (process.env.MOVYZ_API_BASE ||
   "https://movyz-api.sameranede.workers.dev/api/v1").replace(/\/+$/, "");
