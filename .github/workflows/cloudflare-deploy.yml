@@ -9,6 +9,7 @@ on:
       - "moviebox-worker/**"
       - "akwam-resolver-worker/**"
       - ".github/scripts/verify-akwam-playback.mjs"
+      - ".github/scripts/verify-akwam-iframe.mjs"
       - ".github/workflows/watch-api-deploy.yml"
   workflow_dispatch:
 
