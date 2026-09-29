@@ -32,6 +32,7 @@ const MAX_REDIRECTS = 6;
 const SEARCH_BACKOFF_MS = [750, 1_750];
 const PLAYBACK_CACHE_TTL_MS = 5 * 60_000;
 const playbackCache = new Map();
+const qualityCache = new Map();
 const playbackInflight = new Map();
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -783,34 +784,49 @@ async function validateMediaUrl(initialUrl, referer = "") {
 
   for (let count = 0; count <= MAX_REDIRECTS; count += 1) {
     diagnostic("AKWAM_FINAL_MEDIA", url);
-    const headers = {
-      Accept: "*/*",
-      Range: "bytes=0-65535",
-      "User-Agent": UA,
-      ...(referer ? { Referer: referer } : {}),
-    };
-
     const response = await fetch(url, {
-      headers,
+      headers: {
+        Accept: "*/*",
+        Range: "bytes=0-0",
+        "User-Agent": UA,
+        ...(referer ? { Referer: referer } : {}),
+      },
       redirect: "manual",
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(10_000),
     });
 
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const next = safeUrl(response.headers.get("location"), url);
+      try { response.body?.cancel(); } catch {}
       if (!next) throw new Error("AKWAM_FINAL_MEDIA: unsafe redirect");
       url = next;
       continue;
     }
 
-    if (!response.ok) throw new Error("AKWAM_FINAL_MEDIA: HTTP " + response.status);
+    if (!response.ok) {
+      try { response.body?.cancel(); } catch {}
+      throw new Error("AKWAM_FINAL_MEDIA: HTTP " + response.status);
+    }
 
     const contentType = (response.headers.get("content-type") || "").toLowerCase();
     const contentDisposition = response.headers.get("content-disposition") || "";
-    const bytes = await readProbeBytes(response);
-    const sample = new TextDecoder().decode(bytes.slice(0, 4096));
+    const obviousMedia =
+      /^video\//.test(contentType) ||
+      /mpegurl|vnd\.apple\.mpegurl|dash\+xml|application\/dash/.test(contentType) ||
+      /filename\s*=.*\.(?:mp4|m4v|webm|m3u8|mpd)/i.test(contentDisposition) ||
+      /\.(?:mp4|m4v|webm|m3u8|mpd)(?:[?#]|$)/i.test(url);
 
-    if (!bytes.byteLength) throw new Error("AKWAM_FINAL_MEDIA: media response is empty");
+    if (obviousMedia) {
+      try { response.body?.cancel(); } catch {}
+      const type = inferMediaType(url, contentType, contentDisposition, "", new Uint8Array());
+      if (!type) throw new Error("AKWAM_FINAL_MEDIA: response is not recognized media");
+      diagnostic("AKWAM_FINAL_MEDIA", "header-fast type=" + type + " contentType=" + contentType);
+      return { media_url: url, type, content_type: contentType };
+    }
+
+    // Only ambiguous responses get a tiny bounded probe.
+    const bytes = await readProbeBytes(response, 4096);
+    const sample = new TextDecoder().decode(bytes.slice(0, 4096));
     if (challengePage(sample) ||
         /text\/html|application\/xhtml/.test(contentType) ||
         /<\s*(?:!doctype\s+html|html)\b/i.test(sample.slice(0, 512))) {
@@ -818,15 +834,8 @@ async function validateMediaUrl(initialUrl, referer = "") {
     }
 
     const type = inferMediaType(url, contentType, contentDisposition, sample, bytes);
-    diagnostic(
-      "AKWAM_FINAL_MEDIA",
-      "status=" + response.status +
-      " type=" + (type || "unknown") +
-      " contentType=" + contentType +
-      " bytes=" + bytes.byteLength
-    );
-
     if (!type) throw new Error("AKWAM_FINAL_MEDIA: response is not recognized media");
+    try { response.body?.cancel(); } catch {}
     return { media_url: url, type, content_type: contentType };
   }
 
@@ -919,10 +928,12 @@ async function fetchDownloadTarget(initialUrl, referer = "") {
 
 async function resolveQuality(browser, quality) {
   const qualityUrl = quality.url;
+  const cacheKey = qualityUrl;
+  const cached = qualityCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { ...cached.value, quality: quality.quality };
+  }
 
-  // Current Akwam playback buttons point to go.ak.sv/watch/<id>. Treat the
-  // watch page as an intermediate player document and extract its real media
-  // source before returning anything to the caller.
   const targetPage = await getContentPageDirectFirst(
     browser,
     qualityUrl,
@@ -931,28 +942,34 @@ async function resolveQuality(browser, quality) {
 
   const directFromPage = extractFinalMediaUrl(targetPage.html, targetPage.url);
   if (directFromPage) {
-    return {
+    const value = {
       ...(await validateMediaUrl(directFromPage, targetPage.url)),
       quality: quality.quality,
     };
+    qualityCache.set(cacheKey, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
+    return value;
   }
 
   const downloadUrl = extractDownloadUrl(targetPage.html, targetPage.url);
   if (downloadUrl) {
     const target = await fetchDownloadTarget(downloadUrl, targetPage.url);
     if (target.kind === "media") {
-      return {
+      const value = {
         ...(await validateMediaUrl(target.url, targetPage.url)),
         quality: quality.quality,
       };
+      qualityCache.set(cacheKey, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
+      return value;
     }
 
     const finalUrl = extractFinalMediaUrl(target.html, target.url);
     if (finalUrl) {
-      return {
+      const value = {
         ...(await validateMediaUrl(finalUrl, target.url)),
         quality: quality.quality,
       };
+      qualityCache.set(cacheKey, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
+      return value;
     }
   }
 
@@ -1250,7 +1267,7 @@ async function resolveAkwamIframe(browser, payload) {
   };
 }
 
-async function resolveAkwamCached(browser, payload) {
+async function resolveAkwamCached(browser, payload, ctx) {
   const key = JSON.stringify({
     content_url: clean(payload?.content_url || payload?.contentUrl),
     title: normalizeTitle(payload?.title),
@@ -1263,11 +1280,35 @@ async function resolveAkwamCached(browser, payload) {
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   const inflight = playbackInflight.get(key);
   if (inflight) return await inflight;
+
   const task = (async () => {
     const value = await resolveAkwam(browser, payload);
-    playbackCache.set(key, { value, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
-    return value;
+    const background = value._background;
+    const initial = { ...value };
+    delete initial._background;
+
+    // Cache the immediately usable source now.
+    playbackCache.set(key, { value: initial, expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS });
+
+    // Complete the remaining qualities after the response is already usable.
+    if (background && ctx?.waitUntil) {
+      ctx.waitUntil(
+        background
+          .then((fullValue) => {
+            playbackCache.set(key, {
+              value: fullValue,
+              expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS,
+            });
+          })
+          .catch((error) => {
+            diagnostic("AKWAM_BACKGROUND", String(error?.message || error || "background quality resolution failed"));
+          }),
+      );
+    }
+
+    return initial;
   })();
+
   playbackInflight.set(key, task);
   try {
     return await task;
@@ -1275,91 +1316,94 @@ async function resolveAkwamCached(browser, payload) {
     playbackInflight.delete(key);
   }
 }
-
 async function resolveAkwam(browser, payload) {
   const directContent = decodeContentUrl(payload);
-  const entry = directContent ? { title: clean(payload?.title), url: directContent } : await searchAkwam(browser, payload);
+  const entry = directContent
+    ? { title: clean(payload?.title), url: directContent }
+    : await searchAkwam(browser, payload);
+
   const content = await getContentPageDirectFirst(browser, entry.url, "AKWAM_CONTENT");
-  const episodeUrl = payload?.type === "series" && payload?.episode ? extractEpisode(content.html, content.url, payload?.season, payload.episode) : "";
+  const episodeUrl =
+    payload?.type === "series" && payload?.episode
+      ? extractEpisode(content.html, content.url, payload?.season, payload.episode)
+      : "";
   const mediaPage = episodeUrl
     ? await getContentPageDirectFirst(browser, episodeUrl, "AKWAM_CONTENT")
     : content;
+
   const qualities = extractQualities(mediaPage.html, mediaPage.url);
   diagnostic("AKWAM_QUALITY", qualities.map((item) => item.quality).join(",") || "none");
+
   if (!qualities.length) {
-    const hrefs = [...String(mediaPage.html).matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)]
-      .map((match) => match[1])
-      .filter(Boolean)
-      .slice(0, 20);
-    const linkHrefs = hrefs.filter((value) => /\/link\/\d+/i.test(value)).slice(0, 12);
-    const qualityMentions = String(mediaPage.html).match(/\b(?:1080p|720p|480p|1080|720|480)\b/gi) || [];
-    const titleMatch = String(mediaPage.html).match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-    const pageTitle = stripHtml(titleMatch ? titleMatch[1] : "");
-    const firstLinkIndex = String(mediaPage.html).search(/\/link\/\d+/i);
-    const snippet = firstLinkIndex >= 0
-      ? stripHtml(String(mediaPage.html).slice(Math.max(0, firstLinkIndex - 1200), firstLinkIndex + 1800))
-      : stripHtml(String(mediaPage.html)).slice(0, 3000);
     throw new Error(
-      "AKWAM_QUALITY: no quality links; page=" + mediaPage.url +
-      "; bytes=" + mediaPage.html.length +
-      "; linkCount=" + (String(mediaPage.html).match(/\/link\/\d+/gi) || []).length +
-      "; linkHrefs=" + JSON.stringify(linkHrefs) +
-      "; qualityMentions=" + JSON.stringify(qualityMentions.slice(0, 30)) +
-      "; title=" + pageTitle +
-      "; snippet=" + snippet
+      "AKWAM_QUALITY: no quality links; page=" +
+        mediaPage.url +
+        "; bytes=" +
+        mediaPage.html.length,
     );
   }
-  const orderedQualities = qualities
-    .sort((a, b) => qualityRank(a.quality) - qualityRank(b.quality));
 
-  // Resolve quality targets concurrently. The previous sequential loop made the
-  // first playable source wait for every lower-quality extraction to finish.
-  const resolvedResults = await Promise.all(
-    orderedQualities.map(async (quality) => {
-      try {
-        const stream = await resolveQuality(browser, quality);
-        diagnostic("AKWAM_QUALITY", quality.quality + " resolved");
-        return { quality: quality.quality, stream, error: null };
-      } catch (error) {
-        diagnostic(
-          "AKWAM_QUALITY",
-          quality.quality + " failed: " + (error?.message || String(error)),
-        );
-        return { quality: quality.quality, stream: null, error };
-      }
-    }),
+  const orderedQualities = qualities.sort(
+    (a, b) => qualityRank(a.quality) - qualityRank(b.quality),
   );
 
-  const resolved = resolvedResults
-    .filter((item) => item.stream)
-    .map((item) => item.stream);
+  const buildResult = (resolved) => {
+    const sources = resolved
+      .filter(Boolean)
+      .map((item) => ({
+        quality: item.quality || "auto",
+        type: item.type || mediaTypeFromUrl(item.media_url || item.url),
+        url: item.media_url || item.url,
+      }));
 
-  const lastError = resolvedResults
-    .map((item) => item.error)
-    .filter(Boolean)
-    .at(-1);
+    const primary = sources[0];
+    return {
+      title: entry.title,
+      source_url: mediaPage.url,
+      media_url: primary?.url || "",
+      type: primary?.type || mediaTypeFromUrl(primary?.url || ""),
+      quality: primary?.quality || "auto",
+      qualities: sources.map((item) => item.quality),
+      sources,
+    };
+  };
 
-  if (!resolved.length) throw lastError || new Error("AKWAM_QUALITY: no usable quality");
+  // Start all quality resolutions together, but return as soon as ONE usable
+  // source is ready. The old implementation waited for every quality before
+  // responding, so one slow/blocked quality delayed the whole player.
+  const tasks = orderedQualities.map((quality) =>
+    resolveQuality(browser, quality)
+      .then((stream) => ({ quality: quality.quality, stream }))
+  );
 
-  const primary = resolved[0];
-  const sources = resolved.map((item) => ({
-    quality: item.quality || "auto",
-    type: item.type || mediaTypeFromUrl(item.media_url || item.url),
-    url: item.media_url || item.url,
-  }));
+  let first;
+  try {
+    first = await Promise.any(tasks);
+  } catch {
+    const settled = await Promise.allSettled(tasks);
+    const errors = settled
+      .filter((item) => item.status === "rejected")
+      .map((item) => item.reason);
+    throw errors.at(-1) || new Error("AKWAM_QUALITY: no usable quality");
+  }
 
+  const background = Promise.allSettled(tasks).then((settled) => {
+    const resolved = settled
+      .filter((item) => item.status === "fulfilled")
+      .map((item) => item.value.stream);
+
+    if (!resolved.length) return buildResult([first.stream]);
+    return buildResult(resolved.sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality)));
+  });
+
+  const initial = buildResult([first.stream]);
   return {
-    title: entry.title,
-    source_url: mediaPage.url,
-    media_url: primary.media_url || primary.url,
-    type: primary.type || mediaTypeFromUrl(primary.media_url || primary.url),
-    quality: primary.quality || "auto",
-    qualities: sources.map((item) => item.quality),
-    sources,
+    ...initial,
+    _background: background,
   };
 }
 
-export default { async fetch(request, env) {
+export default { async fetch(request, env, ctx) {
   const url = new URL(request.url);
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
@@ -1397,6 +1441,6 @@ export default { async fetch(request, env) {
   let payload; try { payload = await request.json(); } catch { return json({ ok: false, error: "Valid JSON body required" }, 400); }
   if (!clean(payload?.title) && !decodeContentUrl(payload)) return json({ ok: false, error: "title or Akwam content_url is required" }, 400);
   if (!env.BROWSER?.quickAction) return json({ ok: false, error: "Browser Run Quick Actions unavailable" }, 500);
-  try { return json({ ok: true, ...(await resolveAkwamCached(env.BROWSER, { ...payload, type: payload?.type === "series" ? "series" : "movie" })) }); }
+  try { return json({ ok: true, ...(await resolveAkwamCached(env.BROWSER, { ...payload, type: payload?.type === "series" ? "series" : "movie" }, ctx)) }); }
   catch (error) { const message = error instanceof Error ? error.message : String(error); diagnostic("AKWAM_FAILED", message); return json({ ok: false, error: message }, 502); }
 } };
