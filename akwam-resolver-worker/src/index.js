@@ -453,6 +453,53 @@ async function searchAkwam(browser, payload) {
   if (best) return best;
   throw lastError || new Error("AKWAM_SEARCH: no matching entry");
 }
+function extractDedicatedAkwamWatchUrl(html, base) {
+  const source = String(html || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#x2f;|&#47;/gi, "/")
+    .replace(/\\\//g, "/");
+
+  const candidates = [];
+  const seen = new Set();
+
+  const add = (raw) => {
+    const value = String(raw || "").trim();
+    if (!value) return;
+
+    const url = safeUrl(value, base, { pageOnly: true });
+    if (!url || seen.has(url)) return;
+
+    try {
+      if (!isIframePlayerUrl(url, base)) return;
+      if (!/\/watch\/\d+(?:[/?#]|$)/i.test(new URL(url).pathname)) return;
+      seen.add(url);
+      candidates.push(url);
+    } catch {}
+  };
+
+  for (const match of source.matchAll(
+    /<a\b[^>]*(?:href|data-href|data-url)=["']([^"']+)["'][^>]*>/gi,
+  )) {
+    add(match[1]);
+  }
+
+  for (const match of source.matchAll(
+    /https?:\/\/[^"'<>\\s]+\/watch\/\d+(?:[/?#][^"'<>\\s]*)?/gi,
+  )) {
+    add(match[0]);
+  }
+
+  for (const match of source.matchAll(
+    /(?:url|href|watch_url|watchUrl)\s*[:=]\s*["']([^"']*\/watch\/\d+(?:[/?#][^"']*)?)["']/gi,
+  )) {
+    add(match[1]);
+  }
+
+  return candidates[0] || "";
+}
+
 function extractQualities(html, base) {
   const source = String(html);
   const out = [];
@@ -1309,14 +1356,14 @@ async function resolveAkwamIframe(browser, payload) {
       candidates.push(candidate);
     };
 
-    // Current Akwam pages expose dedicated playback actions in quality tabs.
-    // Prefer the provider's own watch/player/embed routes, never the content page.
-    for (const quality of extractQualities(content.html, content.url)) {
-      if (quality.kind === "watch") addCandidate(quality.url);
-    }
+    // The iframe contract only needs one dedicated Akwam player route.
+    // Extract explicit /watch/<id> links first; do not depend on quality-tab markup.
+    const dedicatedWatch = extractDedicatedAkwamWatchUrl(content.html, content.url);
+    if (dedicatedWatch) addCandidate(dedicatedWatch);
 
+    // Secondary: provider-specific player/embed routes.
     for (const match of String(content.html || "").matchAll(
-      /<a\b[^>]*href=["']([^"']*\/(?:watch|player|embed)\/[^"']+)["'][^>]*>/gi,
+      /<a\b[^>]*href=["']([^"']*\/(?:player|embed)\/[^"']+)["'][^>]*>/gi,
     )) {
       addCandidate(match[1]);
     }
@@ -1432,6 +1479,15 @@ async function resolveAkwamIframe(browser, payload) {
     );
 
     playerUrl = findPlayerUrl(content);
+
+    // If Akwam already gave us a dedicated watch route, never throw it away.
+    if (
+      !playerUrl &&
+      isIframePlayerUrl(safeSource) &&
+      /\/watch\/\d+(?:[/?#]|$)/i.test(new URL(safeSource).pathname)
+    ) {
+      playerUrl = safeSource;
+    }
 
     if (!playerUrl) {
       diagnostic(
