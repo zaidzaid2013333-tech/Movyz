@@ -1979,6 +1979,6 @@ export default { async fetch(request, env) {
     }
   }
 
-  return json({ ok: false, error: "Not found" }, 404); };
+  return json({ ok: false, error: "Not found" }, 404); }};
 
 // Production trigger marker: dedicated Akwam player/embed iframe contract.
