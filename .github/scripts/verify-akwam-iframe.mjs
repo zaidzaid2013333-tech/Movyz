@@ -31,9 +31,43 @@ function isHttp(value) {
   return typeof value === "string" && /^https:\/\//i.test(value);
 }
 
-function assertAkwamPage(value, label) {
+async function assertPlayerTarget(value, label) {
   assert(isHttp(value), label + " is not HTTPS: " + value);
-  const host = new URL(value).hostname.toLowerCase();
+
+  const url = new URL(value);
+  const host = url.hostname.toLowerCase();
+
+  if (
+    host === "movyz-akwam-resolver.sameranede.workers.dev" &&
+    url.pathname === "/player"
+  ) {
+    const response = await fetch(url, {
+      headers: { Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(30_000),
+    });
+    const html = await response.text();
+
+    assert(response.ok, label + " player shell HTTP " + response.status);
+    assert(
+      /<video\b[^>]*\bid=["']player["']/i.test(html),
+      label + " player shell has no native video element",
+    );
+    assert(
+      /<title>Movyz Akwam Player<\/title>/i.test(html),
+      label + " player shell title is missing",
+    );
+    assert(
+      !/اكوام الموقع القديم|<nav\b/i.test(html),
+      label + " player shell contains Akwam site chrome",
+    );
+    console.log(label + " PLAYER_SHELL_OK", JSON.stringify({
+      finalUrl: response.url,
+      bytes: html.length,
+    }));
+    return;
+  }
+
   const allowed = [
     "ak.sv",
     "akwam.it",
@@ -45,26 +79,22 @@ function assertAkwamPage(value, label) {
     "akwam.net",
     "downet.net",
   ];
+
   assert(
     allowed.some((base) => host === base || host.endsWith("." + base)),
     label + " returned unexpected host: " + host,
   );
-  const url = new URL(value);
+
   const pathname = url.pathname;
   assert(
     !/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(pathname),
     label + " returned an Akwam content page instead of a player: " + value,
   );
-  const isWatch = /\/watch\/\d+(?:[/?#]|$)/i.test(pathname);
-  const isNativeWatchPlayer = isWatch && url.hash.toLowerCase() === "#player";
-  const isDedicated = /\/(?:player|embed)(?:\/|[?#]|$)/i.test(pathname);
+
   assert(
-    isDedicated || isNativeWatchPlayer,
-    label + " did not return a native Akwam player target: " + value,
+    /\/(?:player|embed)(?:\/|[?#]|$)/i.test(pathname),
+    label + " returned an Akwam page that is not a dedicated player: " + value,
   );
-  if (isWatch) {
-    assert(isNativeWatchPlayer, label + " returned /watch without #player: " + value);
-  }
 }
 
 async function jsonFetch(url, init, label) {
@@ -147,7 +177,7 @@ async function resolverIframe(fixture, label) {
 
   assert(body?.ok === true, label + " did not return ok=true");
   const iframe = body?.iframe_url || body?.source_url || body?.media_url || "";
-  assertAkwamPage(iframe, label + " iframe_url");
+  await assertPlayerTarget(iframe, label + " iframe_url");
   await inspectReturnedPlayer(iframe, label);
   return { body, iframe };
 }
@@ -159,16 +189,11 @@ function watchIframe(body, fixture, label) {
   assert(body?.stream?.type === "web", label + " stream.type is not web");
 
   const iframe = body?.stream?.iframe_url || body?.iframe_url || body?.source_url || body?.media_url || "";
-  assertAkwamPage(iframe, label + " iframe_url");
+  await assertPlayerTarget(iframe, label + " iframe_url");
 
   if (fixture.type === "series") {
     assert(Number(body?.season) === Number(fixture.season), label + " season mismatch");
     assert(Number(body?.episode) === Number(fixture.episode), label + " episode mismatch");
-    const pathname = new URL(iframe).pathname;
-    assert(
-      /\/(?:watch|player|embed)\//i.test(pathname),
-      label + " did not return an Akwam episode/player route: " + iframe,
-    );
   }
 
   return iframe;
