@@ -419,6 +419,7 @@ function watchSourceCacheKey(
   episode?: number,
 ) {
   return [
+    'direct-v1',
     mediaType,
     tmdbId,
     season ?? '',
@@ -505,27 +506,33 @@ function normalizeWatchSources(payload: any) {
         quality: stream.quality || (Array.isArray(stream.qualities) ? stream.qualities[0] : 'auto') || 'auto',
       }] : []);
 
+  const iframeUrl = normalizeAkwamIframeUrl(stream.iframe_url);
+  const isAkwamIframe = Boolean(iframeUrl);
+  const isAkwamDirect = Boolean(normalizeAkwamIframeUrl(stream.source_url)) && !isAkwamIframe;
+
   return rawSources
     .filter((source: any) => {
       if (typeof source?.url !== 'string' || !/^https:\/\//i.test(source.url)) return false;
-      return String(source?.providerKey || source?.provider || 'abdobest').toLowerCase() === 'abdobest';
+      const key = String(source?.providerKey || source?.provider || '').toLowerCase();
+      return !key || key === 'abdobest' || key === 'akwam' || key === 'akwam-direct' || key === 'akwam-iframe';
     })
     .map((source: any, index: number) => {
-      const iframeUrl = normalizeAkwamIframeUrl(stream.iframe_url);
-      const isAkwamIframe = Boolean(iframeUrl);
+      const providerKey = isAkwamIframe ? 'akwam-iframe' : isAkwamDirect ? 'akwam-direct' : 'abdobest';
+      const providerName = isAkwamIframe || isAkwamDirect ? 'Akwam' : 'AbdoBest';
+      const qualityLabel = source.quality && source.quality !== 'auto' ? 'Akwam · ' + source.quality : 'Akwam';
 
       return {
-        id: source.id || [isAkwamIframe ? 'akwam-iframe' : 'abdobest', source.type || streamTypeFromUrl(source.url), source.quality || 'auto', index].join('-'),
+        id: source.id || [providerKey, source.type || streamTypeFromUrl(source.url), source.quality || 'auto', index].join('-'),
         type: String(source.type || streamTypeFromUrl(source.url)).toLowerCase(),
-        quality: isAkwamIframe ? 'auto' : (source.quality || 'auto'),
+        quality: source.quality || 'auto',
         language: source.language || 'und',
-        label: isAkwamIframe ? 'Akwam' : (source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · ')),
-        labelEn: isAkwamIframe ? 'Akwam' : (source.labelEn || source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · ')),
+        label: isAkwamIframe || isAkwamDirect ? qualityLabel : (source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · ')),
+        labelEn: isAkwamIframe || isAkwamDirect ? qualityLabel : (source.labelEn || source.label || ['AbdoBest', source.quality || 'auto'].filter(Boolean).join(' · ')),
         url: source.url,
-        iframeUrl,
+        iframeUrl: isAkwamIframe ? iframeUrl : '',
         isWorking: true,
-        provider: isAkwamIframe ? 'Akwam' : 'AbdoBest',
-        providerKey: isAkwamIframe ? 'akwam-iframe' : 'abdobest',
+        provider: providerName,
+        providerKey,
         providerReference: source.providerReference,
         subtitleTracks: Array.isArray(source.subtitleTracks) ? source.subtitleTracks : [],
       };
@@ -613,7 +620,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
           body: JSON.stringify(
             mediaType === 'movie'
               ? {
-                  mode: 'iframe',
+                  mode: 'direct',
                   tmdb_id: tmdbId,
                   title: titleEn || titleAr || originalTitle || title,
                   title_en: titleEn,
@@ -623,7 +630,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
                   year,
                 }
               : {
-                  mode: 'iframe',
+                  mode: 'direct',
                   tmdb_id: tmdbId,
                   title: titleEn || title,
                   year,
