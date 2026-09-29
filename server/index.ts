@@ -320,7 +320,7 @@ function watchSourceCacheKey(
   episode?: number,
 ) {
   return [
-    'iframe-v11-player-only',
+    'iframe-v12-native-akwam-only',
     mediaType,
     tmdbId,
     season ?? '',
