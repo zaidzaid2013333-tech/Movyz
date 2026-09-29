@@ -161,6 +161,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setLoading(true);
 
     const markReady = () => {
+      if (timeoutId) window.clearTimeout(timeoutId);
       setLoading(false);
     };
 
