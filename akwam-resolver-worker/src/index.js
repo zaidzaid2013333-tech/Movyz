@@ -1271,15 +1271,32 @@ async function resolveAkwamIframe(browser, payload) {
       safeSource,
       "AKWAM_IFRAME_PLAYER",
     );
+    // Prefer the dedicated go.ak.sv playback router. Akwam content mirrors
+    // may also expose /watch/<id> links on their public domain, but those
+    // routes can render the full site shell instead of the player.
+    const watchCandidates = [];
     for (const match of String(content.html || "").matchAll(
       /<a\b[^>]*href=["']([^"']*\/watch\/\d+(?:[/?#][^"']*)?)["'][^>]*>/gi,
     )) {
       const candidate = safeUrl(match[1], content.url, { pageOnly: true });
       if (candidate && /\/watch\/\d+(?:[/?#]|$)/i.test(candidate)) {
-        playerUrl = candidate;
-        break;
+        watchCandidates.push(candidate);
       }
     }
+
+    watchCandidates.sort((a, b) => {
+      const score = (value) => {
+        try {
+          const host = new URL(value).hostname.toLowerCase();
+          if (host === "go.ak.sv" || host === "go.akwam.it" || host === "go.akwam.com.co") return 100;
+          if (host === "ak.sv" || host === "akwam.it" || host === "akwam.ss") return 50;
+        } catch {}
+        return 0;
+      };
+      return score(b) - score(a);
+    });
+
+    playerUrl = watchCandidates[0] || "";
 
     if (!playerUrl) {
       const rawWatch = String(content.html || "").match(
