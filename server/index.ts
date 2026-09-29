@@ -607,7 +607,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
           headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json',
-            'User-Agent': 'Movyz-AbdoBest-Proxy/1.0',
+            'User-Agent': 'Movyz-Watch-API/1.0',
             'Cache-Control': 'no-cache',
           },
           body: JSON.stringify(
@@ -645,7 +645,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
 
       const resolvedSources = normalizeWatchSources(payload);
       if (!resolvedSources.length) {
-        throw new Error('No playable AbdoBest source is currently available');
+        throw new Error('No playable watch source is currently available');
       }
 
       return resolvedSources;
@@ -664,7 +664,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     }
 
     return ok(res, sources, {
-      source: 'abdobest_watch_api',
+      source: 'akwam_watch_api',
       mediaType,
       tmdbId,
       season,
@@ -672,7 +672,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     });
   } catch (error) {
     console.error('[watch-api]', error instanceof Error ? error.message : error);
-    return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load AbdoBest playback sources');
+    return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load playback sources');
   }
 }));
 

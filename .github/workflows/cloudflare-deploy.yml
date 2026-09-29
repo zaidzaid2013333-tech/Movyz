@@ -72,6 +72,9 @@ jobs:
       - name: Deploy Movyz
         run: npx wrangler deploy --secrets-file .env.production
 
+      - name: Verify production Watch API route
+        run: node .github/scripts/verify-movyz-watch-route.mjs
+
 
       - name: Remove temporary secrets file
         if: always()
