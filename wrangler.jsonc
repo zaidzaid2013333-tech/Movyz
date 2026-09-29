@@ -18,4 +18,10 @@
   "browser": {
     "binding": "BROWSER"
   },
+  "services": [
+    {
+      "binding": "AKWAM_RESOLVER",
+      "service": "movyz-akwam-resolver"
+    }
+  ]
 }
