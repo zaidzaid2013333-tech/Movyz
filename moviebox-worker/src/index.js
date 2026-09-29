@@ -602,12 +602,12 @@ function scoreAkwamEpisodeSearchUrl(url, payload) {
   const normalizedSeason = normalizeTitle(seasonLabel);
 
   if (normalizedSeason && text.includes(normalizedSeason)) score += 220;
-  if (/(?:\\/episode\\/|\\/episodes\\/)/i.test(decoded)) score += 80;
-  if (new RegExp("(?:الحلقة|episode|ep)[-_\\\\s]?0*" + episode + "\\\\b", "i").test(decoded)) {
+  if (decoded.includes("/episode/") || decoded.includes("/episodes/")) score += 80;
+  if (new RegExp("(?:الحلقة|episode|ep)[-_\\s]?0*" + episode + "\\b", "i").test(decoded)) {
     score += 250;
   }
 
-  const seasonRoute = new RegExp("(?:season|الموسم)[-_\\\\s#]*0*" + season + "\\\\b", "i");
+  const seasonRoute = new RegExp("(?:season|الموسم)[-_\\s#]*0*" + season + "\\b", "i");
   if (seasonRoute.test(decoded)) score += 120;
 
   return score;
