@@ -184,7 +184,7 @@ for (const fixture of fixtures) {
     });
 
     const startupRange = startupResponse.headers.get("content-range") || "";
-    const startupMatch = startupRange.match(/^bytes\\s+(\\d+)-(\\d+)\\/(\\d+|\\*)$/i);
+    const startupMatch = startupRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
     assert(startupResponse.status === 206,
       fixture.label + " startup range did not return 206 for " + quality + ": " + startupResponse.status);
     assert(startupMatch,
