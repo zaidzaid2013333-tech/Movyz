@@ -65,9 +65,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           ? response.data.find((item: any) =>
               String(item?.providerKey || '').toLowerCase() === 'akwam-iframe' &&
               String(item?.type || '').toLowerCase() === 'web' &&
-              isAkwamPlayerUrl(String(item?.iframeUrl || '').trim()))
+              isAkwamPlayerUrl(String(item?.url || '').trim()))
           : null;
-        const resolved = String(source?.iframeUrl || '').trim();
+        const resolved = String(source?.url || '').trim();
 
         if (!resolved) throw new Error('No dedicated Akwam watch-player route was returned.');
         if (!cancelled) setIframeUrl(resolved);
