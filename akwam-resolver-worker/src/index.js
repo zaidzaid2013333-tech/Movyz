@@ -1979,6 +1979,8 @@ export default { async fetch(request, env) {
     }
   }
 
+  if (request.method === "GET" && url.pathname === "/") return json({ ok: true, service: "movyz-akwam-resolver", mode: "movyz-player-shell", health: "/health", player: "/player" });
+
   return json({ ok: false, error: "Not found" }, 404); }};
 
 // Production trigger marker: dedicated Akwam player/embed iframe contract.
