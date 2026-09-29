@@ -1,99 +1,69 @@
-// Final deployment verification marker: native Akwam #player contract.
+// Final deployment verification: Movyz returns one native Akwam player/embed URL.
 const RESOLVER_BASE = (process.env.AKWAM_RESOLVER_BASE ||
   "https://movyz-akwam-resolver.sameranede.workers.dev").replace(/\/+$/, "");
-const movieFixture = {
-  mode: "iframe",
-  title: "Inception",
-  title_en: "Inception",
-  original_title: "Inception",
-  year: 2010,
-  tmdb_id: 27205,
-  type: "movie",
-};
 
-const episodeFixture = {
-  mode: "iframe",
-  title: "The Mentalist",
-  title_en: "The Mentalist",
-  original_title: "The Mentalist",
-  year: 2008,
-  tmdb_id: 5920,
-  season: 1,
-  episode: 1,
-  type: "series",
-};
+const fixtures = [
+  {
+    label: "Akwam resolver movie",
+    mode: "iframe",
+    title: "Inception",
+    title_en: "Inception",
+    original_title: "Inception",
+    year: 2010,
+    tmdb_id: 27205,
+    type: "movie",
+  },
+  {
+    label: "Akwam resolver episode",
+    mode: "iframe",
+    title: "The Mentalist",
+    title_en: "The Mentalist",
+    original_title: "The Mentalist",
+    year: 2008,
+    tmdb_id: 5920,
+    season: 1,
+    episode: 1,
+    type: "series",
+  },
+];
+
+const ALLOWED_AKWAM_HOSTS = [
+  "akwam.ss",
+  "akwam.it",
+  "go.akwam.it",
+  "ak.sv",
+  "go.ak.sv",
+  "akwam.ee",
+  "akwam.com.co",
+  "go.akwam.com.co",
+  "akwam.net",
+  "downet.net",
+];
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function isHttp(value) {
-  return typeof value === "string" && /^https:\/\//i.test(value);
-}
-
-async function assertPlayerTarget(value, label) {
-  assert(isHttp(value), label + " is not HTTPS: " + value);
+function isDedicatedAkwamIframe(value, label) {
+  assert(typeof value === "string" && /^https:\/\//i.test(value), label + " is not HTTPS: " + value);
 
   const url = new URL(value);
   const host = url.hostname.toLowerCase();
-
-  if (
-    host === "movyz-akwam-resolver.sameranede.workers.dev" &&
-    url.pathname === "/player"
-  ) {
-    const response = await fetch(url, {
-      headers: { Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(30_000),
-    });
-    const html = await response.text();
-
-    assert(response.ok, label + " player shell HTTP " + response.status);
-    assert(
-      /<video\b[^>]*\bid=["']player["']/i.test(html),
-      label + " player shell has no native video element",
-    );
-    assert(
-      /<title>Movyz Akwam Player<\/title>/i.test(html),
-      label + " player shell title is missing",
-    );
-    assert(
-      !/اكوام الموقع القديم|<nav\b/i.test(html),
-      label + " player shell contains Akwam site chrome",
-    );
-    console.log(label + " PLAYER_SHELL_OK", JSON.stringify({
-      finalUrl: response.url,
-      bytes: html.length,
-    }));
-    return;
-  }
-
-  const allowed = [
-    "ak.sv",
-    "akwam.it",
-    "go.akwam.it",
-    "akwam.ss",
-    "akwam.ee",
-    "akwam.com.co",
-    "go.akwam.com.co",
-    "akwam.net",
-    "downet.net",
-  ];
-
   assert(
-    allowed.some((base) => host === base || host.endsWith("." + base)),
-    label + " returned unexpected host: " + host,
+    ALLOWED_AKWAM_HOSTS.some((base) => host === base || host.endsWith("." + base)),
+    label + " is not an Akwam host: " + host,
   );
-
-  const pathname = url.pathname;
   assert(
-    !/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(pathname),
-    label + " returned an Akwam content page instead of a player: " + value,
+    !/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(url.pathname),
+    label + " returned an Akwam content page: " + value,
   );
-
   assert(
-    /\/(?:player|embed)(?:\/|[?#]|$)/i.test(pathname),
-    label + " returned an Akwam page that is not a dedicated player: " + value,
+    /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname),
+    label + " is not a dedicated Akwam player/embed URL: " + value,
+  );
+  assert(
+    !host.includes("movyz-akwam-resolver"),
+    label + " unexpectedly returned the Movyz player shell: " + value,
   );
 }
 
@@ -103,65 +73,19 @@ async function jsonFetch(url, init, label) {
     signal: AbortSignal.timeout(120_000),
   });
   const text = await response.text();
-
-  let body;
+  let body = null;
   try {
     body = text ? JSON.parse(text) : null;
   } catch {
     throw new Error(label + " returned non-JSON HTTP " + response.status + ": " + text.slice(0, 800));
   }
-
   if (!response.ok) {
     throw new Error(label + " HTTP " + response.status + ": " + text.slice(0, 1600));
   }
-
   return body;
 }
 
-async function inspectReturnedPlayer(url, label) {
-  try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
-        "User-Agent": "Movyz-Akwam-Smoke/1.0",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(20_000),
-    });
-    const html = await response.text();
-    const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || "";
-    const iframes = [...html.matchAll(/<iframe\b[^>]*(?:src|data-src|data-lazy-src)=["']([^"']+)["']/gi)]
-      .map((m) => m[1]).slice(0, 8);
-    const videos = (html.match(/<video\b/gi) || []).length;
-    const sources = (html.match(/<source\b/gi) || []).length;
-    const hasNativePlayer = /<video\b[^>]*\bid=["']player["']/i.test(html);
-    const videoIndex = html.search(/<video\b/i);
-    const videoContext = videoIndex >= 0
-      ? html.slice(Math.max(0, videoIndex - 2600), Math.min(html.length, videoIndex + 6200))
-      : "";
-    const final = new URL(response.url);
-    const finalIsWatch = /\/watch\/\d+(?:[/?#]|$)/i.test(final.pathname);
-    const originalIsWatch = /\/watch\/\d+(?:[/?#]|$)/i.test(new URL(url).pathname);
-    if (!originalIsWatch && finalIsWatch && final.hash.toLowerCase() !== "#player") {
-      throw new Error(label + " player target redirects to a full /watch page: " + response.url);
-    }
-    console.log(label + " TARGET_INSPECT", JSON.stringify({
-      httpStatus: response.status,
-      finalUrl: response.url,
-      title: title.slice(0, 180),
-      iframeCount: iframes.length,
-      iframes,
-      videoTags: videos,
-      sourceTags: sources,
-      hasNativePlayer,
-      videoContext,
-    }));
-  } catch (error) {
-    console.log(label + " TARGET_INSPECT_FAILED", String(error?.message || error));
-  }
-}
-
-async function resolverIframe(fixture, label) {
+for (const fixture of fixtures) {
   const body = await jsonFetch(
     RESOLVER_BASE + "/resolve-iframe",
     {
@@ -172,38 +96,23 @@ async function resolverIframe(fixture, label) {
       },
       body: JSON.stringify(fixture),
     },
-    label,
+    fixture.label,
   );
 
-  assert(body?.ok === true, label + " did not return ok=true");
-  const iframe = body?.iframe_url || body?.source_url || body?.media_url || "";
-  await assertPlayerTarget(iframe, label + " iframe_url");
-  await inspectReturnedPlayer(iframe, label);
-  return { body, iframe };
+  assert(body?.ok === true, fixture.label + " did not return ok=true");
+  assert(body?.mode === "akwam-native-iframe", fixture.label + " did not return native iframe mode");
+  const iframe = body?.iframe_url || body?.player_url || "";
+  isDedicatedAkwamIframe(iframe, fixture.label + " iframe_url");
+
+  assert(
+    body?.iframe_url === body?.player_url,
+    fixture.label + " returned two different player targets",
+  );
+
+  console.log(fixture.label + " NATIVE_IFRAME_OK", JSON.stringify({
+    iframeUrl: iframe,
+    cached: body?.cached === true,
+  }));
 }
 
-async function watchIframe(body, fixture, label) {
-  assert(body?.ok === true, label + " did not return ok=true");
-  assert(body?.type === (fixture.type === "series" ? "episode" : "movie"), label + " returned wrong content type");
-  assert(body?.media_type === "web", label + " media_type is not web");
-  assert(body?.stream?.type === "web", label + " stream.type is not web");
-
-  const iframe = body?.stream?.iframe_url || body?.iframe_url || body?.source_url || body?.media_url || "";
-  await assertPlayerTarget(iframe, label + " iframe_url");
-
-  if (fixture.type === "series") {
-    assert(Number(body?.season) === Number(fixture.season), label + " season mismatch");
-    assert(Number(body?.episode) === Number(fixture.episode), label + " episode mismatch");
-  }
-
-  return iframe;
-}
-
-
-const resolverMovie = await resolverIframe(movieFixture, "Akwam resolver movie");
-const resolverEpisode = await resolverIframe(episodeFixture, "Akwam resolver episode");
-console.log("AKWAM_IFRAME_SMOKE_RESULT", JSON.stringify({
-  movie: resolverMovie.iframe,
-  episode: resolverEpisode.iframe,
-}));
 console.log("AKWAM_IFRAME_E2E=PASS");
