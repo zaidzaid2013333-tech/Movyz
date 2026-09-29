@@ -1569,6 +1569,30 @@ async function resolveEpisode(payload, env) {
         page?.iframe_url || page?.source_url || page?.media_url,
       );
       if (!pageUrl) throw new Error("Akwam episode resolver returned no episode page");
+
+      // The dedicated Akwam resolver prefers /watch/<id> when available.
+      // Use that player document directly for series so Movyz never embeds the
+      // full /episode/... content page.
+      if (/\/watch\/\d+(?:[/?#]|$)/i.test(pageUrl)) {
+        return {
+          url: pageUrl,
+          type: "web",
+          quality: "auto",
+          qualities: ["auto"],
+          sources: [{
+            url: pageUrl,
+            type: "web",
+            quality: "auto",
+            iframe_url: pageUrl,
+          }],
+          cached: false,
+          via: "akwam-watch-player",
+          source_url: page?.source_url || pageUrl,
+          iframe_url: pageUrl,
+          matched_title: page?.matched_title || page?.title || payload?.title || "",
+        };
+      }
+
       return await resolveViaAkwamResolver({
         ...payload,
         content_url: pageUrl,
