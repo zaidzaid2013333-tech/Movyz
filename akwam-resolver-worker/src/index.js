@@ -1291,7 +1291,7 @@ async function resolveAkwamIframe(browser, payload) {
           !isPrivateHost(url.hostname) &&
           (isAllowedPageHost(url.hostname) ||
             /(?:player|embed|video)/i.test(url.hostname) ||
-            /\\/(?:player|embed|watch)\\//i.test(url.pathname));
+            /\/(?:player|embed|watch)\//i.test(url.pathname));
       } catch {
         return false;
       }
