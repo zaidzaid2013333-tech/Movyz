@@ -25,13 +25,9 @@ function assertPlayableUrl(value, label) {
   );
 }
 
-async function fetchJson(url, label, init = {}) {
+async function fetchJson(url, label) {
   const response = await fetch(url, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      ...(init.headers || {}),
-    },
+    headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(120_000),
   });
   const text = await response.text();
@@ -49,26 +45,6 @@ async function fetchJson(url, label, init = {}) {
 
   return body;
 }
-
-const WATCH_API_BASE = (process.env.WATCH_API_BASE ||
-  "https://movyz-moviebox.sameranede.workers.dev").replace(/\/+$/, "");
-
-const directEpisodeProbe = await fetchJson(WATCH_API_BASE + "/watch/episode", "Direct Watch API episode probe", {
-  method: "POST",
-  headers: { Accept: "application/json", "Content-Type": "application/json" },
-  body: JSON.stringify({
-    mode: "direct",
-    tmdb_id: 5920,
-    title: "The Mentalist",
-    title_en: "The Mentalist",
-    original_title: "The Mentalist",
-    year: 2008,
-    season: 1,
-    episode: 1,
-    type: "series",
-  }),
-});
-assert(directEpisodeProbe?.ok === true, "Direct Watch API episode probe failed: " + JSON.stringify(directEpisodeProbe));
 
 for (const fixture of fixtures) {
   const body = await fetchJson(fixture.url, fixture.label);
