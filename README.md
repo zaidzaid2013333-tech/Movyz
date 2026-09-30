@@ -11,16 +11,15 @@ TMDB is used for catalog metadata. Playback does not go through a Watch Source A
 
 ## Playback
 
-The production playback path is intentionally simple:
+The production playback path is:
 
-1. The browser loads the published movie/series metadata from the Movyz API.
-2. WatchPage builds the VidCore URL directly from the TMDB ID.
-3. Movyz renders that URL as a direct HTTPS iframe.
-4. For series, the season and episode are included directly in the VidCore URL.
+1. The browser loads published movie/series metadata from the Movyz API.
+2. WatchPage requests `/api/v1/playback/resolve` with the TMDB ID and, for series, season/episode.
+3. Movyz resolves Akwam playback through OmegaTech and returns external HTTPS media URLs.
+4. WatchPage accepts only the `omegatech-akwam` provider and plays returned MP4/HLS media directly in the browser.
+5. Video bytes are never proxied or stored by Movyz.
 
-There is no client-side getWatchSources() call, no playback-source resolver, and no /api/v1/watch/:mediaType/:tmdbId playback endpoint.
-
-Playback remains external; video files are not hosted by the frontend.
+There is no VidCore URL generation and no VidCore iframe in the production WatchPage.
 
 ## Authentication and roles
 
@@ -41,4 +40,4 @@ A database trigger creates a profile automatically when a new Auth user is creat
 - Never ship mock catalog data.
 - Never trust a client-supplied role.
 - Keep TMDB metadata-only.
-- Keep playback as a direct VidCore iframe in the frontend.
+- Keep playback routed through OmegaTech/Akwam and played directly in the browser; never generate or embed VidCore URLs.
