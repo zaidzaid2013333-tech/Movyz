@@ -30,7 +30,14 @@ app.get('/api/v1/diagnostics/playback', async (_req, res) => {
       success: sources.length > 0 && externalOnly,
       buildId: MOVYZ_BUILD_ID,
       resolver: 'omegatech-akwam',
-      test: { type: 'movie', tmdbId: 27205, sourceCount: sources.length, externalOnly },
+      test: {
+        type: 'movie',
+        tmdbId: 27205,
+        sourceCount: sources.length,
+        sourceTypes: sources.map((source) => source.type),
+        embedCount: sources.filter((source) => source.type === 'embed').length,
+        externalOnly,
+      },
       latencyMs: Date.now() - started,
     });
   } catch (error) {
@@ -38,7 +45,14 @@ app.get('/api/v1/diagnostics/playback', async (_req, res) => {
       success: false,
       buildId: MOVYZ_BUILD_ID,
       resolver: 'omegatech-akwam',
-      test: { type: 'movie', tmdbId: 27205, sourceCount: 0, externalOnly: false },
+      test: {
+        type: 'movie',
+        tmdbId: 27205,
+        sourceCount: 0,
+        sourceTypes: [],
+        embedCount: 0,
+        externalOnly: false,
+      },
       latencyMs: Date.now() - started,
       error: error instanceof Error ? error.message : String(error),
     });
