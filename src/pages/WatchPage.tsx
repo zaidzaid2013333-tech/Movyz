@@ -23,11 +23,15 @@ interface WatchPageProps {
   onNavigate: (path: string) => void;
 }
 
+const isOmegaTechSource = (source: PlaybackSource) =>
+  source.providerKey === 'omegatech-akwam' || source.provider === 'OmegaTech';
+
 const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
   const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
+  const omegaSources = candidates.filter(isOmegaTechSource);
 
-  return candidates.find((source) => source.isWorking && /^https?:\/\//i.test(source.url?.trim() || ''))
-    ?? candidates.find((source) => /^https?:\/\//i.test(source.url?.trim() || ''))
+  return omegaSources.find((source) => source.isWorking && /^https?:\/\//i.test(source.url?.trim() || ''))
+    ?? omegaSources.find((source) => /^https?:\/\//i.test(source.url?.trim() || ''))
     ?? null;
 };
 
@@ -45,6 +49,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [theaterLighting, setTheaterLighting] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [remotePlaybackSources, setRemotePlaybackSources] = useState<PlaybackSource[]>([]);
   const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
   const [resolverLoading, setResolverLoading] = useState(false);
 
@@ -61,6 +66,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       try {
         setContent(null);
         setCurrentEpisode(undefined);
+        setRemotePlaybackSources([]);
         setRemotePlaybackSource(null);
         setResolverLoading(false);
 
@@ -132,18 +138,21 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     if (loading || !content) return;
 
     if (storedPlaybackSource) {
-      setRemotePlaybackSource(null);
+      setRemotePlaybackSources([storedPlaybackSource]);
+      setRemotePlaybackSource(storedPlaybackSource);
       setResolverLoading(false);
       return;
     }
 
     if (content.type === 'series' && !currentEpisode) {
+      setRemotePlaybackSources([]);
       setRemotePlaybackSource(null);
       setResolverLoading(false);
       return;
     }
 
     let mounted = true;
+    setRemotePlaybackSources([]);
     setRemotePlaybackSource(null);
     setResolverLoading(true);
 
@@ -161,16 +170,20 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       .then((response) => {
         if (!mounted) return;
 
-        const source = response.data.sources.find(
-          (candidate) => candidate.isWorking && /^https?:\/\//i.test(candidate.url?.trim() || ''),
-        ) ?? response.data.sources.find(
-          (candidate) => /^https?:\/\//i.test(candidate.url?.trim() || ''),
-        ) ?? null;
+        const sources = response.data.sources
+          .filter(isOmegaTechSource)
+          .filter((candidate) => /^https?:\/\//i.test(candidate.url?.trim() || ''))
+          .slice(0, 4);
 
+        const source = sources.find((candidate) => candidate.isWorking) ?? sources[0] ?? null;
+        setRemotePlaybackSources(sources);
         setRemotePlaybackSource(source);
       })
       .catch(() => {
-        if (mounted) setRemotePlaybackSource(null);
+        if (mounted) {
+          setRemotePlaybackSources([]);
+          setRemotePlaybackSource(null);
+        }
       })
       .finally(() => {
         if (mounted) setResolverLoading(false);
@@ -182,7 +195,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }, [loading, content, currentEpisode, storedPlaybackSource, activeSeason, activeEpisode]);
 
   const playbackSource = storedPlaybackSource ?? remotePlaybackSource;
-  const iframeUrl = playbackSource?.url?.trim() || '';
+  const playbackUrl = playbackSource?.url?.trim() || '';
+  const availableSources = storedPlaybackSource ? [storedPlaybackSource] : remotePlaybackSources;
 
 
   const handleSelectEpisode = (nextSeason: number, nextEpisode: number) => {
@@ -229,7 +243,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     );
   }
 
-  if (!iframeUrl) {
+  if (!playbackUrl) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center text-slate-300">
         {resolverLoading ? (
@@ -315,22 +329,50 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           <div className="absolute -inset-1 bg-gradient-to-r from-amber-600/15 via-orange-500/10 to-amber-700/15 blur-2xl -z-10 rounded-3xl opacity-75" />
         )}
 
+        {availableSources.length > 0 && (
+          <div className="flex items-center gap-2 px-1 pb-2 overflow-x-auto scrollbar-none">
+            <span className="shrink-0 text-[11px] text-slate-500 font-mono">
+              {language === 'ar' ? 'مصدر التشغيل:' : 'Playback:'}
+            </span>
+            {availableSources.map((source) => {
+              const active = source.id === playbackSource?.id;
+              return (
+                <button
+                  key={source.id}
+                  type="button"
+                  onClick={() => setRemotePlaybackSource(source)}
+                  className={
+                    'shrink-0 px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition-all ' +
+                    (active
+                      ? 'bg-amber-500 text-slate-950 border-amber-400'
+                      : 'bg-[#0b0d13] text-slate-300 border-amber-500/15 hover:border-amber-500/35 hover:text-white')
+                  }
+                >
+                  {source.quality || source.labelEn || 'Auto'}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
-            <iframe
-              key={iframeUrl}
-              src={iframeUrl}
-              title={isMovie
-                ? `Movyz player ${resolvedTmdbId}`
-                : `Movyz player ${resolvedTmdbId} S${activeSeason}E${activeEpisode}`}
-              className="block h-full w-full border-0 bg-black"
-              allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-              allowFullScreen
-              sandbox="allow-scripts allow-same-origin allow-forms"
+            <video
+              key={playbackUrl}
+              src={playbackUrl}
+              poster={content.backdropUrl || content.posterUrl}
+              className="block h-full w-full bg-black object-contain"
+              controls
+              playsInline
+              preload="metadata"
+              controlsList="nodownload noplaybackrate"
+              disablePictureInPicture={false}
               referrerPolicy="no-referrer"
-              loading="eager"
-              scrolling="no"
-            />
+            >
+              {language === 'ar'
+                ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
+                : 'Your browser does not support this playback source.'}
+            </video>
           </div>
         </div>
       </div>
@@ -399,8 +441,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 <p className="text-[11px] leading-relaxed">
                   {playbackSource
                     ? (language === 'ar'
-                      ? `المصدر الحالي: ${playbackSource.provider} — ${playbackSource.label}.`
-                      : `Current source: ${playbackSource.provider} — ${playbackSource.labelEn}.`)
+                      ? `المصدر الحالي: OmegaTech Akwam — ${playbackSource.quality || playbackSource.label}.`
+                      : `Current source: OmegaTech Akwam — ${playbackSource.quality || playbackSource.labelEn}.`)
                     : (language === 'ar'
                       ? 'لا يوجد مصدر تشغيل متاح لهذا العمل حاليًا.'
                       : 'No playback source is currently available for this title.')}
