@@ -2011,7 +2011,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "direct-first-stable-2026-09-30-r18";
+const RESOLVER_VERSION = "direct-first-stable-2026-09-30-r19";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
@@ -2382,7 +2382,6 @@ async function proxyAkwamMedia(request, requestUrl) {
       const requested = parseSingleRange(
         upstreamRange,
         upstreamRangeInfo.total,
-        { startupQuality: sourceQuality },
       );
       if (
         requested &&
