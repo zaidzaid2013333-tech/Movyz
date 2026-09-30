@@ -302,7 +302,7 @@ app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
   }
 }));
 
-const AKWAM_RESOLVER_BASE = 'https://movyz-akwam-resolver.sameranede.workers.dev';
+const VIDCORE_BASE = 'https://vidcore.io';
 
 type WatchSourceCacheEntry = {
   sources: any[];
@@ -313,19 +313,8 @@ const watchSourceCache = new Map<string, WatchSourceCacheEntry>();
 const watchSourceInflight = new Map<string, Promise<any[]>>();
 const WATCH_SOURCE_CACHE_TTL_MS = 30 * 60 * 1000;
 
-function watchSourceCacheKey(
-  mediaType: 'movie' | 'series',
-  tmdbId: number,
-  season?: number,
-  episode?: number,
-) {
-  return [
-    'iframe-v14-player-shell-single-iframe',
-    mediaType,
-    tmdbId,
-    season ?? '',
-    episode ?? '',
-  ].join(':');
+function watchSourceCacheKey(mediaType: 'movie' | 'series', tmdbId: number, season?: number, episode?: number) {
+  return ['vidcore-iframe-v1', mediaType, tmdbId, season ?? '', episode ?? ''].join(':');
 }
 
 function getFreshWatchCache(key: string) {
@@ -338,110 +327,63 @@ function getFreshWatchCache(key: string) {
   return entry;
 }
 
-async function resolveWatchSourcesWithCache(
-  key: string,
-  resolver: () => Promise<any[]>,
-) {
+async function resolveWatchSourcesWithCache(key: string, resolver: () => Promise<any[]>) {
   const cached = getFreshWatchCache(key);
-  if (cached) {
-    return { sources: cached.sources, cacheStatus: 'HIT' as const };
-  }
+  if (cached) return { sources: cached.sources, cacheStatus: 'HIT' as const };
 
   const existing = watchSourceInflight.get(key);
-  if (existing) {
-    return { sources: await existing, cacheStatus: 'COALESCED' as const };
-  }
+  if (existing) return { sources: await existing, cacheStatus: 'COALESCED' as const };
 
   const pending = resolver();
   watchSourceInflight.set(key, pending);
-
   try {
     const sources = await pending;
-    watchSourceCache.set(key, {
-      sources,
-      expiresAt: Date.now() + WATCH_SOURCE_CACHE_TTL_MS,
-    });
+    watchSourceCache.set(key, { sources, expiresAt: Date.now() + WATCH_SOURCE_CACHE_TTL_MS });
     return { sources, cacheStatus: 'MISS' as const };
   } finally {
     watchSourceInflight.delete(key);
   }
 }
 
-function normalizeAkwamIframeUrl(value: unknown) {
+function buildVidCoreIframeUrl(mediaType: 'movie' | 'series', tmdbId: number, season?: number, episode?: number) {
+  const path = mediaType === 'movie'
+    ? `/movie/${encodeURIComponent(String(tmdbId))}`
+    : `/tv/${encodeURIComponent(String(tmdbId))}/${encodeURIComponent(String(season))}/${encodeURIComponent(String(episode))}`;
+
+  const url = new URL(path, VIDCORE_BASE);
+  url.searchParams.set('autoPlay', 'true');
+  url.searchParams.set('fullscreenButton', 'true');
+  url.searchParams.set('chromecast', 'true');
+  return url.toString();
+}
+
+function normalizeVidCoreIframeUrl(value: unknown) {
   if (typeof value !== 'string' || !value.trim()) return '';
   try {
     const url = new URL(value.trim());
-    const host = url.hostname.toLowerCase();
-
-    if (host === 'movyz-akwam-resolver.sameranede.workers.dev') {
-      return url.protocol === 'https:' && /^\/player(?:$|\/|\?)/i.test(url.pathname)
-        ? url.toString()
-        : '';
-    }
-    const allowed =
-      host === 'akwam.ss' ||
-      host.endsWith('.akwam.ss') ||
-      host === 'akwam.it' ||
-      host.endsWith('.akwam.it') ||
-      host === 'go.akwam.it' ||
-      host === 'ak.sv' ||
-      host.endsWith('.ak.sv') ||
-      host === 'go.ak.sv' ||
-      host === 'akwam.ee' ||
-      host.endsWith('.akwam.ee') ||
-      host === 'akwam.com.co' ||
-      host.endsWith('.akwam.com.co') ||
-      host === 'go.akwam.com.co' ||
-      host === 'akwam.net' ||
-      host.endsWith('.akwam.net') ||
-      host === 'downet.net' ||
-      host.endsWith('.downet.net');
-    if (!allowed) return '';
-
-    const blockedPath = /\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i;
-    const playerPath = /\/(?:watch|player|embed)(?:\/|[?#]|$)/i;
-    if (blockedPath.test(url.pathname) || !playerPath.test(url.pathname)) return '';
-
-    if (/\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname)) {
-      return url.toString();
-    }
-
-    if (/\/watch\/\d+(?:[/?#]|$)/i.test(url.pathname) && url.hash.toLowerCase() === '#player') {
-      return url.toString();
-    }
-
-    return '';
+    if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'vidcore.io') return '';
+    if (!/^\/(?:movie|tv)\//i.test(url.pathname)) return '';
+    return url.toString();
   } catch {
     return '';
   }
 }
 
-function normalizeWatchSources(payload: any) {
-  const stream = payload?.stream || {};
-  const iframeUrl = normalizeAkwamIframeUrl(
-    payload?.iframe_url ||
-    payload?.iframeUrl ||
-    payload?.player_url ||
-    payload?.playerUrl ||
-    stream.iframe_url ||
-    stream.iframeUrl ||
-    stream.player_url ||
-    stream.playerUrl,
-  );
+function buildVidCoreSource(mediaType: 'movie' | 'series', tmdbId: number, season?: number, episode?: number) {
+  const iframeUrl = normalizeVidCoreIframeUrl(buildVidCoreIframeUrl(mediaType, tmdbId, season, episode));
   if (!iframeUrl) return [];
-
   return [{
-    id: 'akwam-iframe',
+    id: 'vidcore-iframe',
     type: 'web',
     quality: 'auto',
     language: 'und',
-    label: 'Akwam',
-    labelEn: 'Akwam',
+    label: 'VidCore',
+    labelEn: 'VidCore',
     url: iframeUrl,
     iframeUrl,
     isWorking: true,
-    provider: 'Akwam',
-    providerKey: 'akwam-iframe',
+    provider: 'VidCore',
+    providerKey: 'vidcore-iframe',
     providerReference: iframeUrl,
     subtitleTracks: [],
   }];
@@ -460,9 +402,7 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
     episode: req.query.episode,
   });
 
-  if (!parsed.success) {
-    return fail(res, 400, 'INVALID_WATCH_QUERY', 'Invalid watch parameters');
-  }
+  if (!parsed.success) return fail(res, 400, 'INVALID_WATCH_QUERY', 'Invalid watch parameters');
 
   const { mediaType, tmdbId, season, episode } = parsed.data;
   const debugWatch = req.query.debug === '1';
@@ -473,186 +413,59 @@ app.get(`${api}/watch/:mediaType/:tmdbId`, asyncRoute(async (req, res) => {
 
   try {
     const cacheKey = watchSourceCacheKey(mediaType, tmdbId, season, episode);
-  const cachedResolution = await resolveWatchSourcesWithCache(cacheKey, async () => {
-    let title = '';
-    let titleEn = '';
-    let titleAr = '';
-    let originalTitle = '';
-    let year: number | undefined;
-
-    if (mediaType === 'movie') {
-      const { data: movie, error } = await adminSupabase
-        .from('movies')
-        .select('title_ar,title_en,original_title,release_date')
+    const cachedResolution = await resolveWatchSourcesWithCache(cacheKey, async () => {
+      const table = mediaType === 'movie' ? 'movies' : 'series';
+      const { data, error } = await adminSupabase
+        .from(table)
+        .select('id')
         .eq('tmdb_id', tmdbId)
         .eq('status', 'published')
         .maybeSingle();
 
       if (error) throw error;
-      if (!movie) {
-        const notFound = new Error('Movie not found');
-        (notFound as Error & { status?: number; code?: string }).status = 404;
-        (notFound as Error & { status?: number; code?: string }).code = 'MOVIE_NOT_FOUND';
+
+      if (!data) {
+        const notFound = new Error(mediaType === 'movie' ? 'Movie not found' : 'Series not found');
+        const typed = notFound as Error & { status?: number; code?: string };
+        typed.status = 404;
+        typed.code = mediaType === 'movie' ? 'MOVIE_NOT_FOUND' : 'SERIES_NOT_FOUND';
         throw notFound;
       }
 
-      title = String(movie.title_ar || '');
-      titleAr = String(movie.title_ar || '');
-      titleEn = String(movie.title_en || '');
-      originalTitle = String(movie.original_title || '');
-      year = movie.release_date ? Number(String(movie.release_date).slice(0, 4)) : undefined;
-    } else {
-      const { data: series, error } = await adminSupabase
-        .from('series')
-        .select('title_ar,title_en,original_title,first_air_date')
-        .eq('tmdb_id', tmdbId)
-        .eq('status', 'published')
-        .maybeSingle();
-
-      if (error) throw error;
-      if (!series) {
-        const notFound = new Error('Series not found');
-        (notFound as Error & { status?: number; code?: string }).status = 404;
-        (notFound as Error & { status?: number; code?: string }).code = 'SERIES_NOT_FOUND';
-        throw notFound;
-      }
-
-      title = String(series.title_ar || '');
-      titleAr = String(series.title_ar || '');
-      titleEn = String(series.title_en || '');
-      originalTitle = String(series.original_title || '');
-      year = series.first_air_date ? Number(String(series.first_air_date).slice(0, 4)) : undefined;
-    }
-
-    const resolverBody = JSON.stringify({
-      mode: 'iframe',
-      tmdb_id: tmdbId,
-      type: mediaType,
-      title: titleEn || titleAr || originalTitle || title,
-      title_en: titleEn,
-      title_ar: titleAr,
-      original_title: originalTitle,
-      titles: [titleEn, titleAr, originalTitle, title].filter(Boolean),
-      year,
-      ...(mediaType === 'series' ? { season, episode } : {}),
+      const sources = buildVidCoreSource(mediaType, tmdbId, season, episode);
+      if (!sources.length) throw new Error('Unable to build VidCore playback source');
+      return sources;
     });
 
-    const resolverUrl = `${AKWAM_RESOLVER_BASE}/resolve-iframe`;
-    const resolverBinding = req.env?.AKWAM_RESOLVER as
-      | { fetch(request: Request, init?: RequestInit): Promise<Response> }
-      | undefined;
+    res.setHeader('x-movyz-watch-cache', cachedResolution.cacheStatus);
+    res.setHeader('cache-control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.setHeader('pragma', 'no-cache');
 
-    let response: Response | null = null;
-    let responseText = '';
+    if (!cachedResolution.sources.length) {
+      return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable watch source is currently available');
+    }
 
-    // In Cloudflare production, call the resolver through the Service Binding.
-    // This avoids the platform's cross-Worker public-fetch restriction (1042).
-    const makeResolverRequest = () => new Request(resolverUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'User-Agent': 'Movyz-Akwam-Iframe/1.0',
-        'Cache-Control': 'no-cache, no-store',
-      },
-      body: resolverBody,
+    return ok(res, cachedResolution.sources, {
+      source: 'vidcore_iframe',
+      mediaType,
+      tmdbId,
+      season,
+      episode,
+      ...(debugWatch ? { iframeHost: 'vidcore.io' } : {}),
     });
-
-    // Service Binding is authoritative in production. Public fetch remains only
-    // as a local/dev fallback where the binding is unavailable.
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      response = resolverBinding
-        ? await resolverBinding.fetch(makeResolverRequest())
-        : await fetch(makeResolverRequest());
-
-      responseText = await response.text();
-      const retryable =
-        response.status === 404 ||
-        response.status === 429 ||
-        response.status >= 500;
-
-      if (response.ok || !retryable || attempt === 3) break;
-
-      const backoffMs = 600 * (2 ** attempt);
-      await new Promise((resolve) => setTimeout(resolve, backoffMs));
-    }
-
-    if (!response) {
-      throw new Error('Akwam resolver request did not produce a response');
-    }
-    let payload: any = null;
-    try {
-      payload = responseText ? JSON.parse(responseText) : null;
-    } catch {
-      payload = null;
-    }
-
-    if (!response.ok || !payload?.ok) {
-      const upstreamUrl = response.url || `${AKWAM_RESOLVER_BASE}/resolve-iframe`;
-      const location = response.headers.get('location') || '';
-      const detail = responseText.slice(0, 700).replace(/\s+/g, ' ').trim();
-      const message = payload?.error || `Watch API request failed (${response.status})`;
-      console.error('[watch-api]', mediaType, tmdbId, {
-        status: response.status,
-        url: upstreamUrl,
-        location,
-        body: detail,
-        message,
-      });
-      if (debugWatch) {
-        throw new Error(`${message}; upstream=${response.status}; url=${upstreamUrl}; location=${location}; body=${detail}`);
-      }
-      throw new Error(message);
-    }
-
-    const resolvedSources = normalizeWatchSources(payload);
-    if (!resolvedSources.length) {
-      throw new Error('No playable watch source is currently available');
-    }
-
-    return resolvedSources;
-  });
-
-  const cacheStatus = cachedResolution.cacheStatus;
-  const sources = cachedResolution.sources;
-  res.setHeader('x-movyz-watch-cache', cacheStatus);
-  res.setHeader('cache-control', 'no-store, no-cache, must-revalidate, max-age=0');
-  res.setHeader('pragma', 'no-cache');
-
-  if (!sources.length) {
-    return fail(res, 404, 'WATCH_SOURCES_NOT_FOUND', 'No playable watch source is currently available');
-  }
-
-  return ok(res, sources, {
-    source: 'akwam_native_iframe_v8_player_only',
-    mediaType,
-    tmdbId,
-    season,
-    episode,
-  });
   } catch (error) {
     const status = Number((error as { status?: number })?.status || 0);
     const code = String((error as { code?: string })?.code || '');
     const message = error instanceof Error ? error.message : String(error);
     console.error('[watch-api]', message);
-    if (status === 404 && code === 'MOVIE_NOT_FOUND') {
-      return fail(res, 404, code, 'Movie not found');
-    }
-    if (status === 404 && code === 'SERIES_NOT_FOUND') {
-      return fail(res, 404, code, 'Series not found');
-    }
-    if (debugWatch) {
-      return fail(
-        res,
-        502,
-        'WATCH_API_FAILED',
-        message || 'Unable to load playback sources',
-      );
-    }
+
+    if (status === 404 && code === 'MOVIE_NOT_FOUND') return fail(res, 404, code, 'Movie not found');
+    if (status === 404 && code === 'SERIES_NOT_FOUND') return fail(res, 404, code, 'Series not found');
+
+    if (debugWatch) return fail(res, 502, 'WATCH_API_FAILED', message || 'Unable to load playback sources');
     return fail(res, 502, 'WATCH_API_FAILED', 'Unable to load playback sources');
   }
 }));
-
 
 app.get('/health', asyncRoute(async (_req, res) => {
   const { error } = await adminSupabase.from('genres').select('id').limit(1);
