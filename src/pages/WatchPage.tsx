@@ -257,9 +257,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           sources.find(
             (candidate) =>
               candidate.isWorking &&
-              new RegExp(`\\\\b${mobilePreferredQuality}p\\\\b`, 'i').test(
-                candidate.quality || candidate.labelEn || '',
-              ),
+              (candidate.quality || candidate.labelEn || '')
+                .toLowerCase()
+                .includes(`${mobilePreferredQuality}p`),
           ) ??
           sources.find((candidate) => candidate.isWorking) ??
           sources[0] ??
