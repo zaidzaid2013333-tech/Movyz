@@ -53,17 +53,23 @@ export function buildRemoteResolverUrl(
   }
 
   const url = new URL(resolved);
-  const hasTemplate = Object.keys(replacements).some((key) => template.includes(`{{${key}}}`));
-  if (!hasTemplate) {
-    url.searchParams.set('type', request.type);
+  if (!template.includes('{{type}}')) url.searchParams.set('type', request.type);
+  if (!template.includes('{{tmdbId}}') && !template.includes('{{tmdb_id}}')) {
     url.searchParams.set('tmdb_id', String(request.tmdbId));
-    if (request.season !== undefined) url.searchParams.set('season', String(request.season));
-    if (request.episode !== undefined) url.searchParams.set('episode', String(request.episode));
-    if (request.episodeTmdbId !== undefined) {
-      url.searchParams.set('episode_tmdb_id', String(request.episodeTmdbId));
-    }
   }
-
+  if (request.season !== undefined && !template.includes('{{season}}')) {
+    url.searchParams.set('season', String(request.season));
+  }
+  if (request.episode !== undefined && !template.includes('{{episode}}')) {
+    url.searchParams.set('episode', String(request.episode));
+  }
+  if (
+    request.episodeTmdbId !== undefined &&
+    !template.includes('{{episodeTmdbId}}') &&
+    !template.includes('{{episode_tmdb_id}}')
+  ) {
+    url.searchParams.set('episode_tmdb_id', String(request.episodeTmdbId));
+  }
   return url.toString();
 }
 
