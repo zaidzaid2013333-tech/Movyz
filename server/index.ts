@@ -16,42 +16,31 @@ registerBuiltInProviders();
 app.disable('x-powered-by');
 
 // Temporary production diagnostics for the OmegaTech-only playback path.
-const MOVYZ_BUILD_ID = 'd409d35c52694f08df40ac4b1beddc9b4c699fef';
+const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 app.get('/api/v1/diagnostics/playback', async (_req, res) => {
   const started = Date.now();
-  const url = 'https://api.omegatech.app/api/movie/Akwam?action=search&query=Inception';
   try {
-    const response = await fetch(url, {
-      headers: { Accept: 'application/json', 'User-Agent': 'Movyz/1.0' },
-      signal: AbortSignal.timeout(8_000),
+    const sources = await resolveRemotePlayback({ type: 'movie', tmdbId: 27205 });
+    const externalOnly = sources.every((source) => {
+      try { return new URL(source.url).hostname !== 'movyz-api.sameranede.workers.dev'; }
+      catch { return false; }
     });
-    const body = await response.text();
-    let parsed: unknown = null;
-    try { parsed = JSON.parse(body); } catch { /* text response */ }
+
     return ok(res, {
-      success: response.ok,
+      success: sources.length > 0 && externalOnly,
       buildId: MOVYZ_BUILD_ID,
       resolver: 'omegatech-akwam',
-      omegaTech: {
-        ok: response.ok,
-        status: response.status,
-        responseType: parsed !== null ? 'json' : 'text',
-        responseBytes: body.length,
-        latencyMs: Date.now() - started,
-      },
+      test: { type: 'movie', tmdbId: 27205, sourceCount: sources.length, externalOnly },
+      latencyMs: Date.now() - started,
     });
   } catch (error) {
     return ok(res, {
       success: false,
       buildId: MOVYZ_BUILD_ID,
       resolver: 'omegatech-akwam',
-      omegaTech: {
-        ok: false,
-        status: 0,
-        responseType: 'error',
-        latencyMs: Date.now() - started,
-        error: error instanceof Error ? error.message : String(error),
-      },
+      test: { type: 'movie', tmdbId: 27205, sourceCount: 0, externalOnly: false },
+      latencyMs: Date.now() - started,
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 });
