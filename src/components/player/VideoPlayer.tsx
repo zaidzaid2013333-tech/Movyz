@@ -18,50 +18,22 @@ interface VideoPlayerProps {
   onNavigateBack?: () => void;
 }
 
-const RESOLVER_PLAYER_HOST = 'movyz-akwam-resolver.sameranede.workers.dev';
+const VIDCORE_HOST = 'vidcore.io';
 
-const isAkwamPlayerUrl = (value: string) => {
+const isVidCorePlayerUrl = (value: string) => {
   try {
     const url = new URL(value);
-    if (url.protocol !== 'https:') return false;
-
-    const host = url.hostname.toLowerCase();
-    if (host === RESOLVER_PLAYER_HOST && /^\/player\/?$/i.test(url.pathname)) {
-      return true;
-    }
-
-    // Never embed an Akwam content page directly; that would show the
-    // complete site instead of the player.
-    const akwamHosts = [
-      'akwam.ss',
-      'akwam.it',
-      'go.akwam.it',
-      'ak.sv',
-      'go.ak.sv',
-      'akwam.ee',
-      'akwam.com.co',
-      'go.akwam.com.co',
-      'akwam.net',
-      'downet.net',
-    ];
-    const allowedHost = akwamHosts.some(
-      (base) => host === base || host.endsWith('.' + base),
-    );
-    if (!allowedHost) return false;
-
-    if (/\/(?:movie|movies|series|episode|episodes|download|link|search|login|register)(?:\/|[?#]|$)/i.test(url.pathname)) {
-      return false;
-    }
-
-    return /\/(?:player|embed)(?:\/|[?#]|$)/i.test(url.pathname);
+    return url.protocol === 'https:' &&
+      url.hostname.toLowerCase() === VIDCORE_HOST &&
+      /^\/(?:movie|tv)\//i.test(url.pathname);
   } catch {
     return false;
   }
 };
 
-const normalizeAkwamPlayerUrl = (value: string) => {
+const normalizeVidCorePlayerUrl = (value: string) => {
   const trimmed = value.trim();
-  return isAkwamPlayerUrl(trimmed) ? new URL(trimmed).toString() : '';
+  return isVidCorePlayerUrl(trimmed) ? new URL(trimmed).toString() : '';
 };
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -128,16 +100,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           const type = String(item?.type || '').toLowerCase();
 
           return (
-            (providerKey === 'akwam-iframe' ||
-              providerKey === 'akwam' ||
-              provider === 'akwam' ||
-              provider.includes('akwam')) &&
+            (providerKey === 'vidcore-iframe' ||
+              providerKey === 'vidcore' ||
+              provider === 'vidcore' ||
+              provider.includes('vidcore')) &&
             (!type || type === 'web') &&
-            isAkwamPlayerUrl(candidateUrl)
+            isVidCorePlayerUrl(candidateUrl)
           );
         });
 
-        const resolved = normalizeAkwamPlayerUrl(
+        const resolved = normalizeVidCorePlayerUrl(
           String(
             (source as any)?.iframeUrl ||
             (source as any)?.iframe_url ||
@@ -147,7 +119,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             '',
           ).trim(),
         );
-        if (!resolved) throw new Error('No dedicated Akwam iframe player was returned.');
+        if (!resolved) throw new Error('No dedicated VidCore iframe player was returned.');
 
         if (cancelled) return;
 
@@ -156,12 +128,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setIframeUrl((current) => current === resolved ? current : resolved);
         setLoading(false);
       } catch (caughtError) {
-        console.error('[Movyz][AkwamPlayer]', caughtError);
+        console.error('[Movyz][VidCorePlayer]', caughtError);
         if (cancelled) return;
         setLoading(false);
         setError(language === 'ar'
-          ? 'تعذر الحصول على مشغل Akwam حاليًا.'
-          : 'Unable to load the Akwam player right now.');
+          ? 'تعذر الحصول على مشغل VidCore حاليًا.'
+          : 'Unable to load the VidCore player right now.');
       }
     };
 
@@ -201,10 +173,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           loading="eager"
           scrolling="no"
           referrerPolicy="no-referrer"
-          data-player-engine="akwam-native-iframe"
+          data-player-engine="vidcore-iframe"
           onError={() => setError(language === 'ar'
-            ? 'تعذر تحميل مشغل Akwam.'
-            : 'The Akwam player could not be loaded.')}
+            ? 'تعذر تحميل مشغل VidCore.'
+            : 'The VidCore player could not be loaded.')}
         />
       ) : null}
 
