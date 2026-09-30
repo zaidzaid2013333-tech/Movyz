@@ -15,6 +15,47 @@ registerBuiltInProviders();
 
 app.disable('x-powered-by');
 
+// Temporary production diagnostics for the OmegaTech-only playback path.
+const MOVYZ_BUILD_ID = 'd409d35c52694f08df40ac4b1beddc9b4c699fef';
+app.get('/api/v1/diagnostics/playback', async (_req, res) => {
+  const started = Date.now();
+  const url = 'https://api.omegatech.app/api/movie/Akwam?action=search&query=Inception';
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'Movyz/1.0' },
+      signal: AbortSignal.timeout(8_000),
+    });
+    const body = await response.text();
+    let parsed: unknown = null;
+    try { parsed = JSON.parse(body); } catch { /* text response */ }
+    return ok(res, {
+      success: response.ok,
+      buildId: MOVYZ_BUILD_ID,
+      resolver: 'omegatech-akwam',
+      omegaTech: {
+        ok: response.ok,
+        status: response.status,
+        responseType: parsed !== null ? 'json' : 'text',
+        responseBytes: body.length,
+        latencyMs: Date.now() - started,
+      },
+    });
+  } catch (error) {
+    return ok(res, {
+      success: false,
+      buildId: MOVYZ_BUILD_ID,
+      resolver: 'omegatech-akwam',
+      omegaTech: {
+        ok: false,
+        status: 0,
+        responseType: 'error',
+        latencyMs: Date.now() - started,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
+  }
+});
+
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   const origin = req.headers.get('origin');
   const allow = (process.env.CORS_ORIGINS || '').split(',').map((x) => x.trim()).filter(Boolean);
