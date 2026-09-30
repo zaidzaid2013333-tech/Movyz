@@ -73,15 +73,17 @@ jobs:
         continue-on-error: true
         run: |
           set -u
-          API_BASE="https://movyz-api.sameranede.workers.dev"
+          export API_BASE="https://movyz-api.sameranede.workers.dev"
 
           python - <<'PY'
           import json
+          import os
           import urllib.request
 
+          api_base = os.environ["API_BASE"]
           api_checks = [
-              (f"{API_BASE}/api/v1/movies/tmdb/1477712", "movie", 1477712),
-              (f"{API_BASE}/api/v1/series/tmdb/65733", "series", 65733),
+              (f"{api_base}/api/v1/movies/tmdb/1477712", "movie", 1477712),
+              (f"{api_base}/api/v1/series/tmdb/65733", "series", 65733),
           ]
 
           for url, expected_type, expected_tmdb in api_checks:
