@@ -65,8 +65,6 @@ jobs:
             printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_ANON_KEY"
             printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
             printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
-            if [ -n "$PLAYBACK_RESOLVER_URL" ]; then printf 'PLAYBACK_RESOLVER_URL=%s\n' "$PLAYBACK_RESOLVER_URL"; fi
-            if [ -n "$PLAYBACK_RESOLVER_URLS" ]; then printf 'PLAYBACK_RESOLVER_URLS=%s\n' "$PLAYBACK_RESOLVER_URLS"; fi
           } > .env.production
 
       - name: Deploy Movyz
