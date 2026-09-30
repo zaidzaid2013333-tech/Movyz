@@ -23,7 +23,7 @@ interface WatchPageProps {
   onNavigate: (path: string) => void;
 }
 
-const buildVidCoreUrl = (
+const buildUrPlayerUrl = (
   mediaType: 'movie' | 'series',
   tmdbId: number,
   seasonNumber?: number,
@@ -31,23 +31,15 @@ const buildVidCoreUrl = (
 ) => {
   if (!Number.isFinite(tmdbId) || tmdbId <= 0) return '';
 
-  const path = mediaType === 'movie'
-    ? `/movie/${encodeURIComponent(String(tmdbId))}`
-    : seasonNumber != null && episodeNumber != null
-      ? `/tv/${encodeURIComponent(String(tmdbId))}/${encodeURIComponent(String(seasonNumber))}/${encodeURIComponent(String(episodeNumber))}`
-      : '';
+  const id = encodeURIComponent(String(tmdbId));
 
-  if (!path) return '';
+  if (mediaType === 'movie') {
+    return `https://urplayer.net/embed/movie/${id}`;
+  }
 
-  const baseUrl = mediaType === 'movie'
-    ? 'https://urplayer.net/embed/movie'
-    : 'https://urplayer.net/embed/tv';
+  if (seasonNumber == null || episodeNumber == null) return '';
 
-  return mediaType === 'movie'
-    ? `${baseUrl}/${encodeURIComponent(String(tmdbId))}`
-    : seasonNumber != null && episodeNumber != null
-      ? `${baseUrl}/${encodeURIComponent(String(tmdbId))}/${encodeURIComponent(String(seasonNumber))}/${encodeURIComponent(String(episodeNumber))}`
-      : '';
+  return `https://urplayer.net/embed/tv/${id}/${encodeURIComponent(String(seasonNumber))}/${encodeURIComponent(String(episodeNumber))}`;
 };
 
 export const WatchPage: React.FC<WatchPageProps> = ({
@@ -131,7 +123,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }, [tmdbId, activeSeason, activeEpisode]);
 
   const iframeUrl = useMemo(
-    () => buildVidCoreUrl(mediaType, tmdbId, activeSeason, activeEpisode),
+    () => buildUrPlayerUrl(mediaType, tmdbId, activeSeason, activeEpisode),
     [mediaType, tmdbId, activeSeason, activeEpisode],
   );
 
