@@ -39,11 +39,15 @@ const buildVidCoreUrl = (
 
   if (!path) return '';
 
-  const url = new URL(path, 'https://vidcore.io');
-  url.searchParams.set('autoPlay', 'true');
-  url.searchParams.set('fullscreenButton', 'true');
-  url.searchParams.set('chromecast', 'true');
-  return url.toString();
+  const baseUrl = mediaType === 'movie'
+    ? 'https://urplayer.net/embed/movie'
+    : 'https://urplayer.net/embed/tv';
+
+  return mediaType === 'movie'
+    ? `${baseUrl}/${encodeURIComponent(String(tmdbId))}`
+    : seasonNumber != null && episodeNumber != null
+      ? `${baseUrl}/${encodeURIComponent(String(tmdbId))}/${encodeURIComponent(String(seasonNumber))}/${encodeURIComponent(String(episodeNumber))}`
+      : '';
 };
 
 export const WatchPage: React.FC<WatchPageProps> = ({
