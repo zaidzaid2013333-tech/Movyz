@@ -201,6 +201,28 @@ jobs:
               if any("movyz-api.sameranede.workers.dev" in value for value in external):
                   raise SystemExit(f"{media_type} {tmdb_id}: Movyz is proxying a playback URL")
 
+              probe = external[0]
+              try:
+                  range_request = urllib.request.Request(
+                      probe,
+                      headers={
+                          "User-Agent": "Movyz-CI/1.0",
+                          "Range": "bytes=0-1023",
+                      },
+                  )
+                  with urllib.request.urlopen(range_request, timeout=20) as probe_response:
+                      probe_response.read(1024)
+                      print(
+                          "Media probe: "
+                          f"status={probe_response.status} "
+                          f"content-type={probe_response.headers.get('Content-Type')} "
+                          f"content-length={probe_response.headers.get('Content-Length')} "
+                          f"accept-ranges={probe_response.headers.get('Accept-Ranges')} "
+                          f"content-range={probe_response.headers.get('Content-Range')}"
+                      )
+              except Exception as probe_error:
+                  print(f"Media probe warning: {probe_error}")
+
               print(f"Playback OK: {media_type} TMDB {tmdb_id}; sources={len(external)}")
 
           diagnostic_url = "https://movyz-api.sameranede.workers.dev/api/v1/diagnostics/playback"
