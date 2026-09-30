@@ -350,7 +350,7 @@ async function resolveOmegaTechAkwamPlayback(
       let targetPayload: unknown;
       if (request.type === 'series') {
         const episodeNumber = request.episode;
-        if (!Number.isInteger(episodeNumber) || episodeNumber < 1) {
+        if (typeof episodeNumber !== 'number' || !Number.isInteger(episodeNumber) || episodeNumber < 1) {
           throw new Error('OmegaTech Akwam series playback requires episode');
         }
 
