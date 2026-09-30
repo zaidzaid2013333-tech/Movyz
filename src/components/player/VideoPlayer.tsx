@@ -1,6 +1,4 @@
-import React, { useEffect, useState } from 'react';
-import { useLanguage } from '../../context/LanguageContext';
-import { MovyzaApi } from '../../services/api';
+import React, { useMemo, useState } from 'react';
 
 interface VideoPlayerProps {
   contentId: string;
@@ -20,21 +18,28 @@ interface VideoPlayerProps {
 
 const VIDCORE_HOST = 'vidcore.io';
 
-const isVidCorePlayerUrl = (value: string) => {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' &&
-      url.hostname.toLowerCase() === VIDCORE_HOST &&
-      /^\/(?:movie|tv)\//i.test(url.pathname);
-  } catch {
-    return false;
-  }
-};
+function buildVidCoreIframeUrl(
+  contentType: 'movie' | 'series',
+  tmdbId: number,
+  seasonNumber?: number,
+  episodeNumber?: number,
+) {
+  if (!Number.isFinite(Number(tmdbId)) || Number(tmdbId) <= 0) return '';
 
-const normalizeVidCorePlayerUrl = (value: string) => {
-  const trimmed = value.trim();
-  return isVidCorePlayerUrl(trimmed) ? new URL(trimmed).toString() : '';
-};
+  const mediaPath = contentType === 'movie'
+    ? `/movie/${encodeURIComponent(String(tmdbId))}`
+    : seasonNumber != null && episodeNumber != null
+      ? `/tv/${encodeURIComponent(String(tmdbId))}/${encodeURIComponent(String(seasonNumber))}/${encodeURIComponent(String(episodeNumber))}`
+      : '';
+
+  if (!mediaPath) return '';
+
+  const url = new URL(mediaPath, `https://${VIDCORE_HOST}`);
+  url.searchParams.set('autoPlay', 'true');
+  url.searchParams.set('fullscreenButton', 'true');
+  url.searchParams.set('chromecast', 'true');
+  return url.toString();
+}
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   contentType,
@@ -45,157 +50,44 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   episodeNumber,
   currentEpisode,
 }) => {
-  const { language } = useLanguage();
-  const [iframeUrl, setIframeUrl] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [retryNonce, setRetryNonce] = useState(0);
+  const { iframeUrl, invalid } = useMemo(() => {
+    const url = buildVidCoreIframeUrl(contentType, Number(tmdbId), seasonNumber, episodeNumber);
+    return { iframeUrl: url, invalid: !url };
+  }, [contentType, episodeNumber, seasonNumber, tmdbId]);
+
+  const [iframeError, setIframeError] = useState(false);
 
   const displayTitle = contentType === 'movie'
     ? (titleEn || title)
     : (currentEpisode?.titleEn || currentEpisode?.title || titleEn || title);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      setLoading(true);
-      setError('');
-
-      if (!Number.isFinite(Number(tmdbId)) || Number(tmdbId) <= 0) {
-        setLoading(false);
-        setError(language === 'ar' ? 'معرّف TMDB غير متاح.' : 'TMDB id is unavailable.');
-        return;
-      }
-
-      try {
-        const response = await MovyzaApi.getWatchSources(
-          Number(tmdbId),
-          contentType,
-          seasonNumber,
-          episodeNumber,
-        );
-
-        const rawData: any = response?.data;
-        const candidates = Array.isArray(rawData)
-          ? rawData
-          : [
-              rawData,
-              rawData?.source,
-              rawData?.stream,
-              ...(Array.isArray(rawData?.sources) ? rawData.sources : []),
-            ].filter(Boolean);
-
-        const source = candidates.find((item: any) => {
-          const candidateUrl = String(
-            item?.iframeUrl ||
-            item?.iframe_url ||
-            item?.playerUrl ||
-            item?.player_url ||
-            item?.url ||
-            '',
-          ).trim();
-          const providerKey = String(item?.providerKey || item?.provider_key || '').toLowerCase();
-          const provider = String(item?.provider || item?.label || item?.labelEn || '').toLowerCase();
-          const type = String(item?.type || '').toLowerCase();
-
-          return (
-            (providerKey === 'vidcore-iframe' ||
-              providerKey === 'vidcore' ||
-              provider === 'vidcore' ||
-              provider.includes('vidcore')) &&
-            (!type || type === 'web') &&
-            isVidCorePlayerUrl(candidateUrl)
-          );
-        });
-
-        const resolved = normalizeVidCorePlayerUrl(
-          String(
-            (source as any)?.iframeUrl ||
-            (source as any)?.iframe_url ||
-            (source as any)?.playerUrl ||
-            (source as any)?.player_url ||
-            (source as any)?.url ||
-            '',
-          ).trim(),
-        );
-        if (!resolved) throw new Error('No dedicated VidCore iframe player was returned.');
-
-        if (cancelled) return;
-
-        // Keep the same iframe document alive when the resolved URL has not changed.
-        // Re-mounting the iframe here causes another provider bootstrap and makes
-        // slow providers look like the Movyz page is stuck in an endless loader.
-        setIframeUrl((current) => current === resolved ? current : resolved);
-        setLoading(false);
-      } catch (caughtError) {
-        console.error('[Movyz][VidCorePlayer]', caughtError);
-        if (cancelled) return;
-        setLoading(false);
-        setError(language === 'ar'
-          ? 'تعذر الحصول على مشغل VidCore حاليًا.'
-          : 'Unable to load the VidCore player right now.');
-      }
-    };
-
-    void load();
-    return () => { cancelled = true; };
-  }, [contentType, episodeNumber, retryNonce, seasonNumber, tmdbId]);
-
-  if (!iframeUrl && error) {
+  if (invalid) {
     return (
-      <div className="flex min-h-52 w-full items-center justify-center bg-black px-6 py-10 text-center">
-        <div>
-          <p className="text-sm text-slate-300">{error}</p>
-          <button
-            type="button"
-            className="mt-4 rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15"
-            onClick={() => setRetryNonce((value) => value + 1)}
-          >
-            {language === 'ar' ? 'إعادة المحاولة' : 'Retry'}
-          </button>
-        </div>
+      <div className="flex aspect-video w-full items-center justify-center bg-black px-6 py-10 text-center text-sm text-slate-300">
+        {contentType === 'series'
+          ? 'Season and episode are required for playback.'
+          : 'TMDB id is unavailable for this title.'}
       </div>
     );
   }
 
   return (
-    <div
-      className="relative aspect-video w-full overflow-hidden bg-black"
-      aria-label={displayTitle}
-    >
-      {iframeUrl ? (
-        <iframe
-          src={iframeUrl}
-          title={displayTitle}
-          className="absolute inset-0 h-full w-full border-0 bg-black"
-          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-          allowFullScreen
-          loading="eager"
-          scrolling="no"
-          data-player-engine="vidcore-iframe"
-          onError={() => setError(language === 'ar'
-            ? 'تعذر تحميل مشغل VidCore.'
-            : 'The VidCore player could not be loaded.')}
-        />
-      ) : null}
+    <div className="relative aspect-video w-full overflow-hidden bg-black" aria-label={displayTitle}>
+      <iframe
+        src={iframeUrl}
+        title={displayTitle}
+        className="absolute inset-0 h-full w-full border-0 bg-black"
+        allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+        allowFullScreen
+        loading="eager"
+        scrolling="no"
+        data-player-engine="vidcore-iframe-direct"
+        onError={() => setIframeError(true)}
+      />
 
-      {loading && !error ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/70 text-sm text-slate-300">
-          {language === 'ar' ? 'جارٍ تحميل المشغل…' : 'Loading player…'}
-        </div>
-      ) : null}
-
-      {error && iframeUrl ? (
-        <div className="absolute inset-x-0 bottom-0 bg-black/75 px-4 py-3 text-center text-xs text-slate-300">
-          <span>{error}</span>
-          <button
-            type="button"
-            className="ml-3 underline underline-offset-2"
-            onClick={() => setRetryNonce((value) => value + 1)}
-          >
-            {language === 'ar' ? 'إعادة المحاولة' : 'Retry'}
-          </button>
+      {iframeError ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/80 px-4 py-3 text-center text-xs text-slate-300">
+          تعذر تحميل إطار VidCore.
         </div>
       ) : null}
     </div>
