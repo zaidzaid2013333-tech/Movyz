@@ -1,5 +1,6 @@
 import { extractPlaybackCandidates, fetchJsonOrText, inferPlaybackType, inferQuality } from './http';
 import type { WorkerEnvironment } from '../mini-http';
+import { launch as launchBrowser } from '@cloudflare/playwright';
 
 export type RemotePlaybackRequest = {
   type: 'movie' | 'series';
@@ -321,53 +322,144 @@ function extractEmbedUrlsFromHtml(html: string, baseUrl: string) {
   ).values()].map((item) => item.url).slice(0, 4);
 }
 
-type BrowserQuickActionBinding = {
-  quickAction(action: 'content', options: Record<string, unknown>): Promise<Response>;
-};
-
-function getBrowserQuickAction(env?: WorkerEnvironment): BrowserQuickActionBinding | null {
-  const browser = env?.BROWSER;
-  if (!browser || typeof (browser as { quickAction?: unknown }).quickAction !== 'function') return null;
-  return browser as BrowserQuickActionBinding;
-}
-
-async function renderAkwamPageWithBrowser(
-  browser: BrowserQuickActionBinding,
+async function resolveAkwamInteractiveEmbedUrls(
+  env: WorkerEnvironment,
   pageUrl: string,
   timeoutMs: number,
 ) {
-  const response = await browser.quickAction('content', {
-    url: pageUrl,
-    userAgent: 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36 Movyza/1.0',
-    gotoOptions: {
-      waitUntil: 'networkidle2',
+  const browserBinding = env.BROWSER;
+  if (!browserBinding) return [];
+
+  let browser: any;
+  let context: any;
+  try {
+    browser = await launchBrowser(browserBinding as any);
+    context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36 Movyza/1.0',
+    });
+    const page = await context.newPage();
+
+    await page.goto(pageUrl, {
+      waitUntil: 'domcontentloaded',
       timeout: Math.min(Math.max(timeoutMs, 5_000), 12_000),
-    },
-  });
+    });
 
-  if (!response.ok) {
-    throw new Error(`Browser Run content failed with HTTP ${response.status}`);
-  }
-
-  return response.text();
-}
-
-function extractAkwamWatchPageUrls(html: string, baseUrl: string) {
-  const base = new URL(baseUrl);
-  const candidates = new Set<string>();
-  const hrefRe = /(?:href|data-href|data-url)=[\"']([^\"']*\/watch\/[^ \"'#>]+)[\"']/gi;
-  let match: RegExpExecArray | null;
-
-  while ((match = hrefRe.exec(html)) !== null) {
     try {
-      const absolute = new URL(match[1].replace(/&amp;/g, '&'), baseUrl).toString();
-      if (new URL(absolute).hostname === base.hostname) candidates.add(absolute);
+      await page.waitForLoadState('networkidle', { timeout: 5_000 });
     } catch {
-      // Ignore malformed watch links.
+      // Dynamic players may keep background connections open.
     }
-  }
 
-  return [...candidates].slice(0, 4);
+    const collectEmbedUrls = async () => {
+      const iframeUrls = await page.locator('iframe,embed,frame').evaluateAll((elements: Element[]) =>
+        elements.map((element) =>
+          element.getAttribute('src') ||
+          element.getAttribute('data-src') ||
+          element.getAttribute('data-url') ||
+          element.getAttribute('data-embed') ||
+          element.getAttribute('data-player') ||
+          ''
+        ).filter(Boolean)
+      );
+
+      const frameUrls = page.frames().map((frame: any) => frame.url()).filter(Boolean);
+      return [...new Set([...iframeUrls, ...frameUrls])].filter((url) => /^https?:\/\//i.test(url));
+    };
+
+    let embeds = await collectEmbedUrls();
+    if (embeds.length) return embeds;
+
+    const candidates = await page.locator('a,button,[role="button"]').evaluateAll((elements: Element[]) =>
+      elements.map((element, index) => ({
+        index,
+        text: (element.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+        aria: element.getAttribute('aria-label') || '',
+        title: element.getAttribute('title') || '',
+        href: element.getAttribute('href') || '',
+        className: element.getAttribute('class') || '',
+      }))
+      .filter((item) => /(?:مشاهدة|مشاهده|شاهد|تشغيل|المشاهدة|watch|play|watch now|play now)/i.test(
+        [item.text, item.aria, item.title, item.href, item.className].join(' ')
+      ))
+      .slice(0, 12)
+    );
+
+    const allInteractive = page.locator('a,button,[role="button"]');
+    for (const candidate of candidates) {
+      try {
+        const count = await allInteractive.count();
+        if (candidate.index >= count) continue;
+
+        const popupPromise = page.waitForEvent('popup', { timeout: 2_500 }).catch(() => null);
+        await allInteractive.nth(candidate.index).click({ timeout: 2_500 });
+        const popup = await popupPromise;
+
+        if (popup) {
+          try {
+            await popup.waitForLoadState('domcontentloaded', { timeout: 5_000 });
+          } catch {
+            // Keep inspecting the popup.
+          }
+          try {
+            embeds = await popup.locator('iframe,embed,frame').evaluateAll((elements: Element[]) =>
+              elements.map((element) =>
+                element.getAttribute('src') ||
+                element.getAttribute('data-src') ||
+                element.getAttribute('data-url') ||
+                element.getAttribute('data-embed') ||
+                element.getAttribute('data-player') ||
+                ''
+              ).filter(Boolean)
+            );
+          } catch {
+            embeds = [];
+          }
+          if (!embeds.length) embeds = popup.frames().map((frame: any) => frame.url()).filter(Boolean);
+          if (embeds.length) return [...new Set(embeds)].filter((url) => /^https?:\/\//i.test(url));
+          try { await popup.close(); } catch {}
+        }
+
+        await page.waitForTimeout(1_200);
+        embeds = await collectEmbedUrls();
+        if (embeds.length) return embeds;
+
+        const navigatedUrl = page.url();
+        if (/(?:\/watch\/|\/player\/|\/embed\/|\/play(?:\/|$))/i.test(navigatedUrl)) {
+          try {
+            const navigationEmbeds = await page.locator('iframe,embed,frame').evaluateAll((elements: Element[]) =>
+              elements.map((element) =>
+                element.getAttribute('src') ||
+                element.getAttribute('data-src') ||
+                element.getAttribute('data-url') ||
+                element.getAttribute('data-embed') ||
+                element.getAttribute('data-player') ||
+                ''
+              ).filter(Boolean)
+            );
+            if (navigationEmbeds.length) return navigationEmbeds;
+          } catch {}
+        }
+
+        if (page.url() !== pageUrl) {
+          await page.goto(pageUrl, {
+            waitUntil: 'domcontentloaded',
+            timeout: Math.min(Math.max(timeoutMs, 5_000), 12_000),
+          }).catch(() => {});
+          await page.waitForTimeout(600);
+        }
+      } catch {
+        // Try the next plausible watch control.
+      }
+    }
+
+    embeds = await collectEmbedUrls();
+    return embeds;
+  } catch {
+    return [];
+  } finally {
+    try { await context?.close(); } catch {}
+    try { await browser?.close(); } catch {}
+  }
 }
 
 async function resolveAkwamEmbedUrls(
@@ -375,28 +467,6 @@ async function resolveAkwamEmbedUrls(
   timeoutMs: number,
   env?: WorkerEnvironment,
 ) {
-  const browser = getBrowserQuickAction(env);
-
-  const tryHtml = async (html: string) => {
-    const direct = extractEmbedUrlsFromHtml(html, pageUrl);
-    if (direct.length) return direct;
-
-    const watchPages = extractAkwamWatchPageUrls(html, pageUrl);
-    if (!browser || !watchPages.length) return [];
-
-    for (const watchPage of watchPages) {
-      try {
-        const watchHtml = await renderAkwamPageWithBrowser(browser, watchPage, timeoutMs);
-        const watchEmbeds = extractEmbedUrlsFromHtml(watchHtml, watchPage);
-        if (watchEmbeds.length) return watchEmbeds;
-      } catch {
-        // Continue with the next watch page.
-      }
-    }
-
-    return [];
-  };
-
   try {
     const page = await fetchJsonOrText(
       pageUrl,
@@ -408,21 +478,15 @@ async function resolveAkwamEmbedUrls(
       },
     );
     if (typeof page === 'string') {
-      const direct = await tryHtml(page);
+      const direct = extractEmbedUrlsFromHtml(page, pageUrl);
       if (direct.length) return direct;
     }
   } catch {
-    // Fall through to Browser Run when available.
+    // Continue to interactive browser.
   }
 
-  if (!browser) return [];
-
-  try {
-    const renderedHtml = await renderAkwamPageWithBrowser(browser, pageUrl, timeoutMs);
-    return await tryHtml(renderedHtml);
-  } catch {
-    return [];
-  }
+  if (!env) return [];
+  return resolveAkwamInteractiveEmbedUrls(env, pageUrl, timeoutMs);
 }
 
 async function resolveOmegaDownloadUrls(
