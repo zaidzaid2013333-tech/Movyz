@@ -298,7 +298,8 @@ async function resolveOmegaTechAkwamPlayback(
 
   throw new Error(lastError);
 }
-\nexport async function resolveRemotePlayback(
+
+export async function resolveRemotePlayback(
   request: RemotePlaybackRequest,
 ): Promise<RemotePlaybackSource[]> {
   const cacheKey = remoteResolveCacheKey(request);
