@@ -37,7 +37,7 @@ async function resolveTmdbExternalId(type: 'movie' | 'series', tmdbId: number, t
 
   if (!response || typeof response !== 'object') throw new Error('TMDB external ids response is invalid');
   const imdbId = (response as Record<string, unknown>).imdb_id;
-  if (typeof imdbId !== 'string' || !/^tt\\d+$/i.test(imdbId)) {
+  if (typeof imdbId !== 'string' || !/^tt\d+$/i.test(imdbId)) {
     throw new Error(`No IMDb id found for TMDB ${tmdbId}`);
   }
   return imdbId;
