@@ -45,10 +45,10 @@ async function resolveTmdbTitle(type: 'movie' | 'series', tmdbId: number, timeou
 function normalizeTitle(value: string) {
   return value
     .normalize('NFKD')
-    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^\\p{L}\\p{N}]+/gu, ' ')
-    .replace(/\\s+/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -74,30 +74,65 @@ const DEFAULT_OMEGATECH_URLS = [
   'https://omegatech-api.dixonomega.tech',
 ] as const;
 
+const URL_KEYS = [
+  'url', 'link', 'href', 'pageUrl', 'page_url', 'contentUrl', 'content_url',
+  'episodeUrl', 'episode_url', 'watchUrl', 'watch_url', 'watch',
+  'playerUrl', 'player_url', 'player',
+  'download', 'downloadUrl', 'download_url',
+  'downloadLink', 'download_link', 'stream', 'streamUrl', 'stream_url',
+  'videoUrl', 'video_url', 'file', 'src',
+] as const;
+
+const CONTENT_URL_KEYS = [
+  'contentUrl', 'content_url', 'pageUrl', 'page_url', 'detailUrl', 'detail_url',
+  'url', 'link', 'href', 'slug',
+] as const;
+
+const EPISODE_URL_KEYS = [
+  'episodeUrl', 'episode_url', 'watchUrl', 'watch_url', 'watch',
+  'playerUrl', 'player_url', 'player', 'url', 'link', 'href', 'pageUrl', 'page_url',
+] as const;
+
+function extractUrlsFromText(value: string) {
+  const matches = value.match(/https?:\/\/[^\s"'<>\\]+/gi) || [];
+  return matches
+    .map((url) => url.replace(/[),.;]+$/g, ''))
+    .filter(Boolean);
+}
+
 function collectUrlStrings(value: unknown, depth = 0): string[] {
-  if (depth > 6 || value == null) return [];
-  if (typeof value === 'string' && /^https?:\/\//i.test(value.trim())) return [value.trim()];
+  if (depth > 7 || value == null) return [];
+  if (typeof value === 'string') return extractUrlsFromText(value);
   if (Array.isArray(value)) return value.flatMap((item) => collectUrlStrings(item, depth + 1));
 
   const obj = asRecord(value);
   if (!obj) return [];
 
-  const preferredKeys = [
-    'url', 'link', 'href', 'pageUrl', 'page_url', 'contentUrl', 'content_url',
-    'episodeUrl', 'episode_url', 'download', 'downloadUrl', 'download_url',
-    'downloadLink', 'download_link', 'stream', 'streamUrl', 'stream_url',
-    'videoUrl', 'video_url', 'file', 'src',
-  ];
-
   const urls: string[] = [];
-  for (const key of preferredKeys) {
-    if (typeof obj[key] === 'string' && /^https?:\/\//i.test(obj[key].trim())) {
-      urls.push(obj[key].trim());
-    }
+  for (const key of URL_KEYS) {
+    const raw = obj[key];
+    if (typeof raw === 'string') urls.push(...extractUrlsFromText(raw));
+    else if (Array.isArray(raw)) urls.push(...collectUrlStrings(raw, depth + 1));
   }
 
   for (const [key, nested] of Object.entries(obj)) {
-    if (!preferredKeys.includes(key)) urls.push(...collectUrlStrings(nested, depth + 1));
+    if (!URL_KEYS.includes(key as typeof URL_KEYS[number])) {
+      urls.push(...collectUrlStrings(nested, depth + 1));
+    }
+  }
+
+  return [...new Set(urls)];
+}
+
+function collectUrlsFromKeys(value: unknown, keys: readonly string[]) {
+  const obj = asRecord(value);
+  if (!obj) return [];
+  const urls: string[] = [];
+  for (const key of keys) {
+    const raw = obj[key];
+    if (typeof raw === 'string') urls.push(...extractUrlsFromText(raw));
+    else if (Array.isArray(raw)) urls.push(...collectUrlStrings(raw));
+    else if (raw && typeof raw === 'object') urls.push(...collectUrlStrings(raw));
   }
   return [...new Set(urls)];
 }
@@ -107,8 +142,23 @@ function isLikelyPlaybackUrl(url: string) {
     || /(?:stream|video|play|embed)/i.test(url);
 }
 
+function isLikelyPageUrl(url: string) {
+  return /^https?:\/\//i.test(url)
+    && !/\.(?:jpg|jpeg|png|gif|webp|svg|avif|bmp|ico|m3u8|mp4|mpd|zip|rar|pdf)(?:$|[?#])/i.test(url)
+    && !/(?:image|images|poster|thumbnail|thumb|logo|avatar|icon)/i.test(url);
+}
+
+function pickContentUrl(payload: unknown, fallback: string[] = []) {
+  const preferred = [
+    ...collectUrlsFromKeys(payload, CONTENT_URL_KEYS),
+    ...fallback.filter(isLikelyPageUrl),
+    ...fallback,
+  ];
+  return [...new Set(preferred)].find((url) => isLikelyPageUrl(url)) || [...new Set(preferred)][0] || null;
+}
+
 function collectNamedResults(payload: unknown, depth = 0): Array<{ title: string; urls: string[]; raw: Record<string, unknown> }> {
-  if (depth > 5 || payload == null) return [];
+  if (depth > 6 || payload == null) return [];
   if (Array.isArray(payload)) return payload.flatMap((item) => collectNamedResults(item, depth + 1));
 
   const obj = asRecord(payload);
@@ -131,22 +181,26 @@ function pickBestResult(payload: unknown, titles: string[]) {
   const wanted = titles.map(normalizeTitle).filter(Boolean);
   const results = collectNamedResults(payload);
 
-  const exact = results.find((item) => wanted.includes(normalizeTitle(item.title)));
-  if (exact) return exact;
-
-  const partial = results.find((item) => {
+  const score = (item: { title: string; urls: string[] }) => {
     const normalized = normalizeTitle(item.title);
-    return wanted.some((title) => normalized.includes(title) || title.includes(normalized));
-  });
-  return partial || results[0] || null;
+    const exact = wanted.some((title) => normalized === title);
+    const partial = wanted.some((title) => normalized.includes(title) || title.includes(normalized));
+    const contentUrl = pickContentUrl(item.raw, item.urls);
+    return (exact ? 100 : partial ? 50 : 0) + (contentUrl ? 10 : 0);
+  };
+
+  return results
+    .map((item, index) => ({ item, index, score: score(item) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)[0]?.item || null;
 }
 
 function pickEpisodeUrl(payload: unknown, episodeNumber: number, seasonNumber?: number) {
-  const visit = (value: unknown, depth = 0): string | null => {
-    if (depth > 7 || value == null) return null;
+  const visit = (value: unknown, depth = 0, inheritedSeason?: number): string | null => {
+    if (depth > 9 || value == null) return null;
+
     if (Array.isArray(value)) {
       for (const item of value) {
-        const found = visit(item, depth + 1);
+        const found = visit(item, depth + 1, inheritedSeason);
         if (found) return found;
       }
       return null;
@@ -155,28 +209,36 @@ function pickEpisodeUrl(payload: unknown, episodeNumber: number, seasonNumber?: 
     const obj = asRecord(value);
     if (!obj) return null;
 
+    const seasonValues = [
+      obj.seasonNumber, obj.season_number, obj.season, obj.seasonNo, obj.season_no,
+    ];
+    const explicitSeason = seasonValues
+      .map((raw) => Number(raw))
+      .find((number) => Number.isInteger(number) && number > 0);
+    const effectiveSeason = explicitSeason ?? inheritedSeason;
+
     const numberValues = [
-      obj.episodeNumber,
-      obj.episode_number,
-      obj.episode,
-      obj.number,
-      obj.ep,
-      obj.no,
+      obj.episodeNumber, obj.episode_number, obj.episode, obj.number, obj.ep, obj.no,
     ];
     const matchesNumber = numberValues.some((raw) => Number(raw) === episodeNumber);
-    const seasonValues = [obj.seasonNumber, obj.season_number, obj.season, obj.seasonNo, obj.season_no];
-    const hasSeason = seasonNumber !== undefined;
-    const matchesSeason = !hasSeason || seasonValues.some((raw) => Number(raw) === seasonNumber);
+    const matchesSeason = seasonNumber === undefined
+      || effectiveSeason === undefined
+      || effectiveSeason === seasonNumber;
 
     if (matchesNumber && matchesSeason) {
-      const urls = collectUrlStrings(obj);
-      const episodeUrl = urls.find((url) => !isLikelyPlaybackUrl(url));
+      const urls = [
+        ...collectUrlsFromKeys(obj, EPISODE_URL_KEYS),
+        ...collectUrlStrings(obj),
+      ];
+      const episodeUrl = [...new Set(urls)].find((url) => isLikelyPageUrl(url) && !isLikelyPlaybackUrl(url));
       if (episodeUrl) return episodeUrl;
     }
 
     for (const nested of Object.values(obj)) {
-      const found = visit(nested, depth + 1);
-      if (found) return found;
+      if (nested && typeof nested === 'object') {
+        const found = visit(nested, depth + 1, effectiveSeason);
+        if (found) return found;
+      }
     }
     return null;
   };
@@ -185,8 +247,16 @@ function pickEpisodeUrl(payload: unknown, episodeNumber: number, seasonNumber?: 
 }
 
 function collectDownloadOrPlaybackUrls(payload: unknown) {
-  const urls = collectUrlStrings(payload);
-  return urls.filter((url) => isLikelyPlaybackUrl(url) || /(?:download|dl|file)/i.test(url));
+  const candidates = extractPlaybackCandidates(payload);
+  const urls = [
+    ...candidates.map((candidate) => candidate.url),
+    ...collectUrlStrings(payload),
+  ];
+
+  return [...new Set(urls)].filter((url) =>
+    isLikelyPlaybackUrl(url)
+    || /(?:download|downloadurl|download_url|downloadlink|download_link|(?:^|[/_-])dl(?:[/_.?-]|$)|file)/i.test(url),
+  );
 }
 
 async function omegaRequest(
@@ -204,14 +274,20 @@ async function resolveOmegaDownloadUrls(
   payload: unknown,
   timeoutMs: number,
 ) {
-  const direct = collectDownloadOrPlaybackUrls(payload);
-  const resolved: string[] = direct.filter(isLikelyPlaybackUrl);
+  const candidates = extractPlaybackCandidates(payload);
+  const resolved = candidates.map((candidate) => candidate.url).filter(isLikelyPlaybackUrl);
 
-  const downloadUrls = direct.filter((url) => !isLikelyPlaybackUrl(url));
-  for (const download of [...new Set(downloadUrls)].slice(0, 3)) {
+  const allUrls = collectDownloadOrPlaybackUrls(payload);
+  const downloadUrls = allUrls.filter((url) => !isLikelyPlaybackUrl(url));
+
+  for (const download of [...new Set(downloadUrls)].slice(0, 6)) {
     try {
       const resolvePayload = await omegaRequest(base, { action: 'resolve', download }, timeoutMs);
-      resolved.push(...collectDownloadOrPlaybackUrls(resolvePayload).filter(isLikelyPlaybackUrl));
+      const resolvedCandidates = [
+        ...extractPlaybackCandidates(resolvePayload).map((candidate) => candidate.url),
+        ...collectDownloadOrPlaybackUrls(resolvePayload),
+      ].filter(isLikelyPlaybackUrl);
+      resolved.push(...resolvedCandidates);
     } catch {
       // Keep trying other candidates.
     }
@@ -251,18 +327,19 @@ async function resolveOmegaTechAkwamPlayback(
   let lastError = 'OmegaTech Akwam returned no playback source';
   for (const base of DEFAULT_OMEGATECH_URLS) {
     try {
-      let searchPayload: unknown = null;
       let selected: { title: string; urls: string[]; raw: Record<string, unknown> } | null = null;
 
       for (const title of titles) {
-        searchPayload = await omegaRequest(base, { action: 'search', query: title }, timeoutMs);
+        const searchPayload = await omegaRequest(base, { action: 'search', query: title }, timeoutMs);
         selected = pickBestResult(searchPayload, [title, primaryTitle]);
         if (selected) break;
       }
 
-      if (!selected) throw new Error(`OmegaTech Akwam search found no match for "${primaryTitle}"`);
+      if (!selected) {
+        throw new Error(`OmegaTech Akwam search found no match for "${primaryTitle}"`);
+      }
 
-      const contentUrl = selected.urls.find((url) => !isLikelyPlaybackUrl(url)) || selected.urls[0];
+      const contentUrl = pickContentUrl(selected.raw, selected.urls);
       if (!contentUrl) throw new Error('OmegaTech Akwam search returned no content URL');
 
       let targetPayload: unknown;
@@ -331,7 +408,7 @@ async function resolveRemotePlaybackUncached(
   }> = [];
 
   try {
-    candidates.push(...await resolveOmegaTechAkwamPlayback(request, timeoutMs));
+    candidates.push(...await resolveOmegaTechAkwamPlayback(request));
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
   }
