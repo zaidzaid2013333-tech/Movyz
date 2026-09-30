@@ -82,7 +82,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       {/* Grand Cinema Spotlight Hero Banner */}
       <HeroBanner
         item={hero}
-        onWatch={(id, type) => onNavigate(`/watch/${id}`)}
+        onWatch={() => onNavigate(hero.type === 'movie' ? `/watch/movie/${hero.tmdbId}` : `/watch/tv/${hero.tmdbId}/1/1`)}
         onDetails={(id, type) =>
           onNavigate(type === 'movie' ? `/movies/${id}` : `/series/${id}`)
         }
@@ -100,7 +100,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           {continueWatching.map((item) => (
             <div
               key={item.contentId}
-              onClick={() => onNavigate(`/watch/${item.contentId}`)}
+              onClick={() => onNavigate(item.contentType === 'movie' ? `/watch/movie/${item.tmdbId}` : `/watch/tv/${item.tmdbId}/${item.seasonNumber || 1}/${item.episodeNumber || 1}`)}
               className="w-56 sm:w-64 shrink-0 group cursor-pointer space-y-2 select-none"
             >
               <div className="relative aspect-video rounded-xl overflow-hidden bg-slate-900 shadow-md group-hover:shadow-xl transition-all duration-300 group-hover:-translate-y-0.5">
