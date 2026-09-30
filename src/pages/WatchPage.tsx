@@ -29,13 +29,20 @@ const buildUrPlayerUrl = (
   seasonNumber?: number,
   episodeNumber?: number,
 ) => {
-  if (!Number.isFinite(tmdbId) || tmdbId <= 0) return '';
+  if (!Number.isInteger(tmdbId) || tmdbId <= 0) return '';
 
   if (mediaType === 'movie') {
     return `https://urplayer.net/embed/movie/${tmdbId}`;
   }
 
-  if (seasonNumber == null || episodeNumber == null) return '';
+  if (
+    !Number.isInteger(seasonNumber) ||
+    !Number.isInteger(episodeNumber) ||
+    seasonNumber <= 0 ||
+    episodeNumber <= 0
+  ) {
+    return '';
+  }
 
   return `https://urplayer.net/embed/tv/${tmdbId}/${seasonNumber}/${episodeNumber}`;
 };
@@ -120,9 +127,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setTheaterLighting(true);
   }, [tmdbId, activeSeason, activeEpisode]);
 
+  const resolvedTmdbId = content?.tmdbId && Number.isInteger(content.tmdbId)
+    ? content.tmdbId
+    : tmdbId;
+
   const iframeUrl = useMemo(
-    () => buildUrPlayerUrl(mediaType, tmdbId, activeSeason, activeEpisode),
-    [mediaType, tmdbId, activeSeason, activeEpisode],
+    () => buildUrPlayerUrl(mediaType, resolvedTmdbId, activeSeason, activeEpisode),
+    [mediaType, resolvedTmdbId, activeSeason, activeEpisode],
   );
 
   const handleSelectEpisode = (nextSeason: number, nextEpisode: number) => {
@@ -233,7 +244,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </button>
 
           <div className="flex items-center gap-2 text-slate-500">
-            <span className="text-amber-400/90 font-bold">VIDCORE</span>
+            <span className="text-amber-400/90 font-bold">URPLAYER</span>
             <span>·</span>
             <span>{language === 'ar' ? 'مشغل مضمّن مباشرة' : 'Direct embedded player'}</span>
           </div>
@@ -248,16 +259,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
             <iframe
+              key={iframeUrl}
               src={iframeUrl}
               title={isMovie
-                ? `VidCore movie ${tmdbId}`
-                : `VidCore series ${tmdbId} S${activeSeason}E${activeEpisode}`}
+                ? `URPlayer movie ${resolvedTmdbId}`
+                : `URPlayer series ${resolvedTmdbId} S${activeSeason}E${activeEpisode}`}
               className="block h-full w-full border-0 bg-black"
               allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
               allowFullScreen
               loading="eager"
               scrolling="no"
-              referrerPolicy="strict-origin-when-cross-origin"
             />
           </div>
         </div>
@@ -322,12 +333,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <div className="space-y-1">
                 <span className="font-bold text-slate-200">
-                  {language === 'ar' ? 'تشغيل VidCore' : 'VidCore playback'}
+                  {language === 'ar' ? 'تشغيل URPlayer' : 'URPlayer playback'}
                 </span>
                 <p className="text-[11px] leading-relaxed">
                   {language === 'ar'
-                    ? 'يتم عرض مشغل VidCore مباشرة داخل Movyz بدون طبقة مشغل إضافية.'
-                    : 'VidCore is embedded directly inside Movyz without an extra player layer.'}
+                    ? 'يتم تضمين URPlayer مباشرة داخل Movyz باستخدام معرف TMDB الحقيقي للعمل.'
+                    : 'URPlayer is embedded directly inside Movyz using the title\'s real TMDB ID.'}
                 </p>
               </div>
             </div>
