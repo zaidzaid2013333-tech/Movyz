@@ -26,8 +26,8 @@ interface WatchPageProps {
 const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
   const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
 
-  return candidates.find((source) => source.isWorking && /^https?:\\/\\//i.test(source.url?.trim() || ''))
-    ?? candidates.find((source) => /^https?:\\/\\//i.test(source.url?.trim() || ''))
+  return candidates.find((source) => source.isWorking && /^https?:\/\//i.test(source.url?.trim() || ''))
+    ?? candidates.find((source) => /^https?:\/\//i.test(source.url?.trim() || ''))
     ?? null;
 };
 
@@ -117,7 +117,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }, [contentId, activeSeason, activeEpisode]);
 
   const playbackSource = useMemo(
-    () => pickPlaybackSource(content!, currentEpisode),
+    () => (content ? pickPlaybackSource(content, currentEpisode) : null),
     [content, currentEpisode],
   );
   const iframeUrl = playbackSource?.url?.trim() || '';
@@ -322,12 +322,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <div className="space-y-1">
                 <span className="font-bold text-slate-200">
-                  {language === 'ar' ? 'تشغيل URPlayer' : 'URPlayer playback'}
+                  {language === 'ar' ? 'مصدر التشغيل' : 'Playback source'}
                 </span>
                 <p className="text-[11px] leading-relaxed">
-                  {language === 'ar'
-                    ? 'يتم تضمين URPlayer مباشرة داخل Movyz باستخدام معرف TMDB الحقيقي للعمل.'
-                    : 'URPlayer is embedded directly inside Movyz using the title\'s real TMDB ID.'}
+                  {playbackSource
+                    ? (language === 'ar'
+                      ? `المصدر الحالي: ${playbackSource.provider} — ${playbackSource.label}.`
+                      : `Current source: ${playbackSource.provider} — ${playbackSource.labelEn}.`)
+                    : (language === 'ar'
+                      ? 'لا يوجد مصدر تشغيل متاح لهذا العمل حاليًا.'
+                      : 'No playback source is currently available for this title.')}
                 </p>
               </div>
             </div>
