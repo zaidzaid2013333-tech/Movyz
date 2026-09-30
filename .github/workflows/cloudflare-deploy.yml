@@ -68,7 +68,11 @@ jobs:
           } > .env.production
 
       - name: Deploy Movyz
-        run: npx wrangler deploy --secrets-file .env.production
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --secrets-file .env.production
 
       - name: Smoke test production watch paths
         continue-on-error: true
