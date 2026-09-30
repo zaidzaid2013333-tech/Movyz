@@ -27,6 +27,10 @@ interface WatchPageProps {
 const isOmegaTechSource = (source: PlaybackSource) =>
   source.providerKey === 'omegatech-akwam' || source.provider === 'OmegaTech';
 
+const isAkwamEmbedSource = (source: PlaybackSource) =>
+  isOmegaTechSource(source) &&
+  (source.type === 'embed' || Boolean(source.embedUrl));
+
 const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
   const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
   const omegaSources = candidates.filter(isOmegaTechSource);
@@ -284,6 +288,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const playbackSource = storedPlaybackSource ?? remotePlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
+  const embedUrl = playbackSource?.embedUrl?.trim()
+    || (playbackSource?.type === 'embed' ? playbackUrl : '');
   const availableSources = storedPlaybackSource ? [storedPlaybackSource] : remotePlaybackSources;
 
   useEffect(() => {
