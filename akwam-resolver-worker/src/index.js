@@ -1773,6 +1773,8 @@ let hls=null;
 let fallbackTried=false;
 let loadSequence=0;
 let hlsLoader=null;
+let stallNudgeTimer=null;
+let stallNudgeUsed=false;
  
 function setStatus(message,show=true){
   status.textContent=message||"";
@@ -1788,12 +1790,58 @@ function showPlaybackError(message){
   setStatus(message||"Playback failed",true);
 }
 
+function clearStallNudge(){
+  if(stallNudgeTimer!==null){
+    window.clearTimeout(stallNudgeTimer);
+    stallNudgeTimer=null;
+  }
+}
+
+function scheduleStallNudge(sequence){
+  if(stallNudgeUsed || stallNudgeTimer!==null || video.paused || video.ended) return;
+  const startTime=Number(video.currentTime||0);
+  if(startTime>=60) return;
+
+  stallNudgeTimer=window.setTimeout(()=>{
+    stallNudgeTimer=null;
+    if(sequence!==loadSequence || stallNudgeUsed || video.paused || video.ended) return;
+
+    const current=Number(video.currentTime||0);
+    if(current>=60 || current>startTime+0.2) return;
+
+    let ahead=0;
+    try{
+      for(let i=0;i<video.buffered.length;i++){
+        if(current>=video.buffered.start(i)-0.25 && current<=video.buffered.end(i)+0.25){
+          ahead=Math.max(0,video.buffered.end(i)-current);
+          break;
+        }
+      }
+    }catch{}
+    if(video.readyState>=3 && ahead>=1) return;
+
+    const duration=Number(video.duration||0);
+    if(!Number.isFinite(duration) || duration<=0 || current+0.15>=duration) return;
+
+    // A tiny same-source seek nudges native range loading without changing
+    // quality or restarting playback from the beginning.
+    stallNudgeUsed=true;
+    setStatus("Resuming…",true);
+    try{video.currentTime=Math.min(current+0.15,duration-0.05)}catch{}
+  },6000);
+}
+
 function attachNative(primaryUrl, fallbackUrl, sequence, mode="direct", retryCount=0){
   const url=mode==="proxy"?fallbackUrl:primaryUrl;
+  clearStallNudge();
   video.src=url;
   try{video.load()}catch{}
 
   const clearStatus=()=>setStatus("",false);
+  const onWaiting=()=>{
+    if(sequence!==loadSequence) return;
+    scheduleStallNudge(sequence);
+  };
   const onError=()=>{
     if(sequence!==loadSequence) return;
     const code=video.error && video.error.code;
@@ -1823,11 +1871,14 @@ function attachNative(primaryUrl, fallbackUrl, sequence, mode="direct", retryCou
 
   video.addEventListener("loadedmetadata",clearStatus,{once:true});
   video.addEventListener("canplay",clearStatus,{once:true});
-  video.addEventListener("playing",clearStatus,{once:true});
+  video.addEventListener("playing",clearStatus);
+  video.addEventListener("waiting",onWaiting);
+  video.addEventListener("stalled",onWaiting);
   video.addEventListener("error",onError,{once:true});
 }
 
 function resetMedia(){
+  clearStallNudge();
   if(hls){try{hls.destroy()}catch{} hls=null}
   video.pause();
   video.removeAttribute("src");
@@ -1865,6 +1916,7 @@ async function loadSource(index){
   const rawUrl=String(source.url||"").trim();
   if(!rawUrl){showPlaybackError("Empty media source");return}
   fallbackTried=false;
+  stallNudgeUsed=false;
 
   resetMedia();
   setStatus("",false);
@@ -2011,7 +2063,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "direct-first-stable-2026-09-30-r19";
+const RESOLVER_VERSION = "direct-first-stable-2026-09-30-r20";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
