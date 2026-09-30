@@ -31,15 +31,13 @@ const buildUrPlayerUrl = (
 ) => {
   if (!Number.isFinite(tmdbId) || tmdbId <= 0) return '';
 
-  const id = encodeURIComponent(String(tmdbId));
-
   if (mediaType === 'movie') {
-    return `https://urplayer.net/embed/movie/${id}`;
+    return `https://urplayer.net/embed/movie/${tmdbId}`;
   }
 
   if (seasonNumber == null || episodeNumber == null) return '';
 
-  return `https://urplayer.net/embed/tv/${id}/${encodeURIComponent(String(seasonNumber))}/${encodeURIComponent(String(episodeNumber))}`;
+  return `https://urplayer.net/embed/tv/${tmdbId}/${seasonNumber}/${episodeNumber}`;
 };
 
 export const WatchPage: React.FC<WatchPageProps> = ({
