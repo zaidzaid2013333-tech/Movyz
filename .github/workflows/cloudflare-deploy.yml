@@ -98,30 +98,7 @@ jobs:
                   raise SystemExit(f"{url}: expected TMDB {expected_tmdb}, got {actual}")
               print(f"API OK: {expected_type} TMDB {actual}")
 
-          urplayer_checks = [
-              "https://urplayer.net/embed/movie/550",
-              "https://urplayer.net/embed/movie/1477712",
-              "https://urplayer.net/embed/tv/1399/1/1",
-              "https://urplayer.net/embed/tv/65733/1/1",
-          ]
-
-          for url in urplayer_checks:
-              req = urllib.request.Request(url, headers={"User-Agent": "Movyz-CI/1.0"})
-              with urllib.request.urlopen(req, timeout=25) as response:
-                  body = response.read(160_000).decode("utf-8", "ignore")
-                  status = response.status
-
-              print(f"URPlayer {status}: {url} ({len(body)} bytes)")
-              lowered = body.lower()
-              blocked_markers = (
-                  "غير متوفر",
-                  "not available",
-                  "not found",
-                  "content unavailable",
-              )
-              if status >= 400 or any(marker.lower() in lowered for marker in blocked_markers):
-                  raise SystemExit(f"URPlayer returned an unavailable/not-found response for {url}")
-          PY
+          print("Playback provider checks skipped: production player is now resolved from Movyz API playback sources.")
 
       - name: Remove temporary secrets file
         if: always()
