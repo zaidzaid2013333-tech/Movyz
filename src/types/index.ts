@@ -134,6 +134,7 @@ export type MediaItem = Movie | Series;
 
 export interface WatchProgress {
   contentId: string;
+  tmdbId: number;
   contentType: ContentType;
   title: string;
   titleEn: string;
