@@ -47,7 +47,7 @@ async function resolveStreamArPlayback(
   request: RemotePlaybackRequest,
   timeoutMs: number,
 ): Promise<ReturnType<typeof extractPlaybackCandidates>> {
-  const base = (process.env.STREAMAR_ADDON_URL?.trim() || DEFAULT_STREAMAR_ADDON_URL).replace(/\\/$/, '');
+  const base = (process.env.STREAMAR_ADDON_URL?.trim() || DEFAULT_STREAMAR_ADDON_URL).replace(/\/$/, '');
   const imdbId = await resolveTmdbExternalId(request.type, request.tmdbId, timeoutMs);
 
   let path: string;
