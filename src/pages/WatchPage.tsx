@@ -366,7 +366,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               playsInline
               preload="metadata"
               controlsList="nodownload noplaybackrate"
-              disablePictureInPicture={false}
               referrerPolicy="no-referrer"
             >
               {language === 'ar'
