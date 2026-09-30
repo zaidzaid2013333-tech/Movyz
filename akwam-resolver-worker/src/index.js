@@ -1774,6 +1774,7 @@ let fallbackTried=false;
 let loadSequence=0;
 let hlsLoader=null;
 let stallTimer=null;
+let startupTimer=null;
 
 function setStatus(message,show=true){
   status.textContent=message||"";
@@ -1806,6 +1807,49 @@ function clearStallTimer(){
     window.clearTimeout(stallTimer);
     stallTimer=null;
   }
+  if(startupTimer!==null){
+    window.clearTimeout(startupTimer);
+    startupTimer=null;
+  }
+}
+
+function scheduleStartupRecovery(sequence, primaryUrl, fallbackUrl, sourceIndex, mode, retryCount, playObserved){
+  if(startupTimer!==null) window.clearTimeout(startupTimer);
+  startupTimer=window.setTimeout(()=>{
+    startupTimer=null;
+    if(sequence!==loadSequence || video.ended) return;
+
+    // Do not change source merely because the user has not pressed Play.
+    if(video.paused && !playObserved) return;
+    if(video.readyState>=3) return;
+
+    const resumeTime=Number(video.currentTime||0);
+    if(mode==="proxy" && primaryUrl && fallbackUrl && primaryUrl!==fallbackUrl){
+      setStatus("Switching source…",true);
+      attachNative(primaryUrl,fallbackUrl,sourceIndex,"direct",0,resumeTime);
+      return;
+    }
+    if(mode==="direct" && fallbackUrl && fallbackUrl!==primaryUrl){
+      setStatus("Recovering playback…",true);
+      attachNative(primaryUrl,fallbackUrl,sourceIndex,"proxy",0,resumeTime);
+      return;
+    }
+    if(retryCount<1){
+      setStatus("Retrying…",true);
+      attachNative(primaryUrl,fallbackUrl,sourceIndex,mode,retryCount+1,resumeTime);
+      return;
+    }
+    const nextIndex=Number(sourceIndex)+1;
+    if(nextIndex<SOURCES.length){
+      setStatus("Switching quality…",true);
+      window.setTimeout(()=>{
+        if(sequence!==loadSequence) return;
+        void loadSource(nextIndex);
+      },120);
+      return;
+    }
+    showPlaybackError("Startup stalled");
+  },5000);
 }
 
 function scheduleStallRecovery(sequence, primaryUrl, fallbackUrl, sourceIndex, mode, retryCount){
@@ -1858,6 +1902,7 @@ function scheduleStallRecovery(sequence, primaryUrl, fallbackUrl, sourceIndex, m
 
 function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retryCount=0, resumeTime=0){
   const sequence=loadSequence;
+  const wasPlaying=!video.paused;
   const url=mode==="proxy"?fallbackUrl:primaryUrl;
   clearStallTimer();
 
@@ -1872,6 +1917,9 @@ function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retry
           video.currentTime=resumeTime;
         }
       }catch{}
+    }
+    if(wasPlaying){
+      try{video.play().catch(()=>{})}catch{}
     }
     setStatus("",false);
   };
@@ -1936,12 +1984,25 @@ function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retry
     showPlaybackError("Playback failed"+(code?" ("+code+")":""));
   };
 
+  let playObserved=wasPlaying;
+  const onPlay=()=>{
+    if(sequence!==loadSequence) return;
+    playObserved=true;
+    if(startupTimer!==null){
+      window.clearTimeout(startupTimer);
+      startupTimer=null;
+    }
+  };
+
   video.addEventListener("loadedmetadata",onMeta,{once:true});
   video.addEventListener("canplay",onCanPlay,{once:true});
   video.addEventListener("playing",onPlaying,{once:true});
+  video.addEventListener("play",onPlay);
   video.addEventListener("waiting",onStall);
   video.addEventListener("stalled",onStall);
   video.addEventListener("error",onError,{once:true});
+
+  scheduleStartupRecovery(sequence,primaryUrl,fallbackUrl,sourceIndex,mode,retryCount,playObserved);
 }
 
 function resetMedia(){
@@ -2061,7 +2122,6 @@ SOURCES.forEach((source,index)=>{
 });
 select.hidden=SOURCES.length<2;
 select.addEventListener("change",()=>{void loadSource(Number(select.value));});
-video.addEventListener("waiting",()=>setStatus("",false));
 video.addEventListener("playing",()=>setStatus("",false));
 video.addEventListener("canplay",()=>setStatus("",false));
 
@@ -2130,7 +2190,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "proxy-first-2026-09-30-r13";
+const RESOLVER_VERSION = "proxy-first-2026-09-30-r14";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
