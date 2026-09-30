@@ -29,7 +29,7 @@ export interface PlaybackSubtitleTrack {
 
 export interface PlaybackSource {
   id: string;
-  type: 'hls' | 'mp4' | 'dash' | 'webm' | 'web';
+  type: 'hls' | 'mp4' | 'dash' | 'webm' | 'web' | 'embed';
   quality: string;
   language: string;
   label: string; // e.g., 'سيرفر سريع (Akamai CDN)'
@@ -39,6 +39,7 @@ export interface PlaybackSource {
   provider: string; // e.g. 'AbdoBest', 'StreamProvider', 'TMDB Embed'
   providerKey?: string;
   providerReference?: string;
+  embedUrl?: string;
   subtitleTracks?: PlaybackSubtitleTrack[];
 }
 
