@@ -39,6 +39,57 @@ function query(params: Record<string, unknown>) {
 }
 
 export const MovyzaApi = {
+  async getHomeData() {
+    const home = await request<{
+      hero: Movie | Series;
+      continueWatching: WatchProgress[];
+      trending: (Movie | Series)[];
+      popularMovies: Movie[];
+      featuredSeries: Series[];
+      recentAdded: (Movie | Series)[];
+      genres: Genre[];
+    }>('/home');
+
+    if (supabase) {
+      const session = (await supabase.auth.getSession()).data.session;
+      if (session) {
+        try {
+          const history = await request<WatchProgress[]>('/history');
+          home.data.continueWatching = history.data.filter((item) => !item.completed && item.percentage > 2);
+        } catch {
+          // Public home remains usable when a session has expired.
+        }
+      }
+    }
+
+    return home;
+  },
+
+  getMovies: (params?: {
+    genreId?: number; year?: number; minRating?: number;
+    sortBy?: 'popular' | 'rating' | 'newest'; search?: string;
+    page?: number; limit?: number;
+  }) => request<Movie[]>(`/movies${query(params || {})}`),
+
+  getMovieById: (id: string) =>
+    request<{ movie: Movie; similar: Movie[] }>(`/movies/${encodeURIComponent(id)}`),
+
+  getSeries: (params?: {
+    genreId?: number; year?: number;
+    sortBy?: 'popular' | 'rating' | 'newest'; search?: string;
+    page?: number; limit?: number;
+  }) => request<Series[]>(`/series${query(params || {})}`),
+
+  getSeriesById: (id: string) =>
+    request<{ series: Series; similar: Series[] }>(`/series/${encodeURIComponent(id)}`),
+
+  searchCatalog: (search: string) =>
+    request<{
+      movies: Movie[];
+      series: Series[];
+      cast: { name: string; nameEn: string; worksCount: number; avatarUrl: string }[];
+    }>(`/search?q=${encodeURIComponent(search)}`),
+
   getGenres: () => request<Genre[]>('/genres'),
 
   getWatchlist: () => request<WatchlistItem[]>('/watchlist'),
