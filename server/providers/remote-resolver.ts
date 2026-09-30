@@ -75,8 +75,7 @@ function resolverTemplates() {
     .filter(Boolean);
 
   const unique = [...new Set(configured)];
-  if (!unique.length) throw new Error('PLAYBACK_RESOLVER_URL is not configured');
-
+  
   for (const value of unique) {
     const parsed = new URL(value);
     if (parsed.protocol !== 'https:') {
