@@ -123,8 +123,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         if (cancelled) return;
 
-        // Change the iframe src once per source. Do not blank the iframe first
-        // and do not use a React key that forces a second DOM reload.
+        // Keep the same iframe document alive when the resolved URL has not changed.
+        // Re-mounting the iframe here causes another provider bootstrap and makes
+        // slow providers look like the Movyz page is stuck in an endless loader.
         setIframeUrl((current) => current === resolved ? current : resolved);
         setLoading(false);
       } catch (caughtError) {
@@ -172,7 +173,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           allowFullScreen
           loading="eager"
           scrolling="no"
-          referrerPolicy="no-referrer"
           data-player-engine="vidcore-iframe"
           onError={() => setError(language === 'ar'
             ? 'تعذر تحميل مشغل VidCore.'
