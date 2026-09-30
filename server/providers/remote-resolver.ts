@@ -70,6 +70,7 @@ function remoteResolveCacheKey(request: RemotePlaybackRequest) {
   ]);
 }
 
+// Akwam embed probe follows the provider page before direct media fallback.
 const DEFAULT_OMEGATECH_URLS = [
   'https://api.omegatech.app',
   'https://omegatech-api.dixonomega.tech',
