@@ -1569,43 +1569,67 @@ async function resolveAkwamQualityPlan(browser, payload) {
   };
 }
 
-function preferredQualityRef(qualities) {
+function uniqueQualityNames(qualities) {
+  return [...new Set(qualities.map((item) => String(item?.quality || "").toLowerCase()).filter(Boolean))];
+}
+
+function qualityCandidates(qualities, qualityName) {
+  return qualities
+    .filter((item) => String(item?.quality || "").toLowerCase() === String(qualityName || "").toLowerCase())
+    .sort((a, b) => Number(b?.kind === "download") - Number(a?.kind === "download"));
+}
+
+function preferredQualityNames(qualities) {
   const preferred = ["720p", "576p", "540p", "480p"];
-  return (
-    qualities.find((item) => preferred.includes(String(item?.quality || "").toLowerCase())) ||
-    qualities[0] ||
-    null
-  );
+  const names = uniqueQualityNames(qualities);
+  return [
+    ...preferred.filter((quality) => names.includes(quality)),
+    ...names.filter((quality) => !preferred.includes(quality)),
+  ];
 }
 
 async function resolveAkwamInitial(browser, payload) {
   const plan = await resolveAkwamQualityPlan(browser, payload);
-  const initialRef = preferredQualityRef(plan.orderedQualities);
-  if (!initialRef) throw new Error("AKWAM_QUALITY: no initial quality");
+  const qualityNames = preferredQualityNames(plan.orderedQualities);
+  let lastError = null;
 
-  const initial = await resolveQuality(browser, initialRef);
-  diagnostic("AKWAM_QUALITY", String(initial.quality || initialRef.quality) + " initial resolved");
+  for (const qualityName of qualityNames) {
+    for (const candidate of qualityCandidates(plan.orderedQualities, qualityName)) {
+      try {
+        const initial = await resolveQuality(browser, candidate);
+        diagnostic("AKWAM_QUALITY", String(initial.quality || candidate.quality) + " initial resolved");
 
-  const source = {
-    quality: initial.quality || initialRef.quality || "auto",
-    type: initial.type || mediaTypeFromUrl(initial.media_url || initial.url),
-    url: initial.media_url || initial.url,
-  };
+        const source = {
+          quality: initial.quality || candidate.quality || "auto",
+          type: initial.type || mediaTypeFromUrl(initial.media_url || initial.url),
+          url: initial.media_url || initial.url,
+        };
 
-  return {
-    title: plan.entry.title,
-    source_url: plan.mediaPage.url,
-    media_url: source.url,
-    type: source.type,
-    quality: source.quality,
-    qualities: plan.orderedQualities.map((item) => item.quality),
-    sources: [source],
-    quality_refs: plan.orderedQualities.map((item) => ({
-      quality: item.quality,
-      type: item.kind || "watch",
-      url: item.url,
-    })),
-  };
+        return {
+          title: plan.entry.title,
+          source_url: plan.mediaPage.url,
+          media_url: source.url,
+          type: source.type,
+          quality: source.quality,
+          qualities: uniqueQualityNames(plan.orderedQualities),
+          sources: [source],
+          quality_refs: plan.orderedQualities.map((item) => ({
+            quality: item.quality,
+            type: item.kind || "watch",
+            url: item.url,
+          })),
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        diagnostic(
+          "AKWAM_INITIAL_FALLBACK",
+          String(candidate.quality || qualityName) + " " + String(candidate.kind || "ref") + ": " + lastError.message,
+        );
+      }
+    }
+  }
+
+  throw lastError || new Error("AKWAM_QUALITY: no usable initial quality");
 }
 
 async function resolveAkwamCached(browser, payload) {
@@ -1749,7 +1773,7 @@ function normalizeQualityRefList(value) {
       }
     })
     .filter((item, index, list) =>
-      list.findIndex((candidate) => candidate.quality === item.quality) === index,
+      list.findIndex((candidate) => candidate.url === item.url) === index,
     );
 }
 
@@ -2151,7 +2175,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "direct-first-stable-2026-09-30-r22";
+const RESOLVER_VERSION = "direct-first-stable-2026-09-30-r23";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
@@ -2619,13 +2643,11 @@ export default { async fetch(request, env) {
     }
 
     const requestedQuality = normalizeQuality(url.searchParams.get("q") || "");
-    const ref = (payload.qualityRefs || []).find(
-      (item) => String(item.quality || "").toLowerCase() === requestedQuality.toLowerCase(),
-    );
-    if (!ref) return json({ ok: false, error: "Requested quality is unavailable" }, 404);
+    const refs = (payload.qualityRefs || [])
+      .filter((item) => String(item.quality || "").toLowerCase() === requestedQuality.toLowerCase())
+      .sort((a, b) => Number(b?.type === "download") - Number(a?.type === "download"));
 
-    const safeRef = safeUrl(ref.url, AKWAM_BASE, { pageOnly: true });
-    if (!safeRef) return json({ ok: false, error: "Invalid quality reference" }, 400);
+    if (!refs.length) return json({ ok: false, error: "Requested quality is unavailable" }, 404);
 
     const existing = payload.sources.find(
       (item) => String(item.quality || "").toLowerCase() === requestedQuality.toLowerCase(),
@@ -2638,29 +2660,40 @@ export default { async fetch(request, env) {
       });
     }
 
-    try {
-      const stream = await resolveQuality(env.BROWSER, {
-        quality: ref.quality,
-        url: safeRef,
-        kind: ref.type,
-      });
-      const source = {
-        quality: stream.quality || ref.quality,
-        type: stream.type || mediaTypeFromUrl(stream.media_url || stream.url),
-        url: stream.media_url || stream.url,
-      };
-      if (!source.url) throw new Error("Resolved quality has no media URL");
+    let lastError = null;
+    for (const ref of refs) {
+      const safeRef = safeUrl(ref.url, AKWAM_BASE, { pageOnly: true });
+      if (!safeRef) continue;
 
-      return json({
-        ok: true,
-        source,
-        cached: qualityCache.has(safeRef),
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      diagnostic("AKWAM_QUALITY_ON_DEMAND_FAILED", message);
-      return json({ ok: false, error: message }, 502);
+      try {
+        const stream = await resolveQuality(env.BROWSER, {
+          quality: ref.quality,
+          url: safeRef,
+          kind: ref.type,
+        });
+        const source = {
+          quality: stream.quality || ref.quality,
+          type: stream.type || mediaTypeFromUrl(stream.media_url || stream.url),
+          url: stream.media_url || stream.url,
+        };
+        if (!source.url) throw new Error("Resolved quality has no media URL");
+
+        return json({
+          ok: true,
+          source,
+          cached: qualityCache.has(safeRef),
+        });
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        diagnostic(
+          "AKWAM_QUALITY_ON_DEMAND_FALLBACK",
+          requestedQuality + " " + String(ref.type || "ref") + ": " + lastError.message,
+        );
+      }
     }
+
+    const message = lastError?.message || "Unable to resolve requested quality";
+    return json({ ok: false, error: message }, 502);
   }
 
   if (request.method === "POST" && url.pathname === "/resolve-iframe") {
