@@ -20,7 +20,7 @@ const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 app.get('/api/v1/diagnostics/playback', async (_req, res) => {
   const started = Date.now();
   try {
-    const sources = await resolveRemotePlayback({ type: 'movie', tmdbId: 27205 });
+    const sources = await resolveRemotePlayback({ type: 'movie', tmdbId: 27205 }, _req.env);
     const externalOnly = sources.every((source) => {
       try { return new URL(source.url).hostname !== 'movyz-api.sameranede.workers.dev'; }
       catch { return false; }
@@ -295,7 +295,7 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       ...(season !== undefined ? { season } : {}),
       ...(episode !== undefined ? { episode } : {}),
       ...(episodeTmdbId !== undefined ? { episodeTmdbId } : {}),
-    });
+    }, req.env);
 
     if (!sources.length) {
       return fail(res, 404, 'PLAYBACK_SOURCE_NOT_FOUND', 'No playback source was returned by the resolver');

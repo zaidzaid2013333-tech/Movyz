@@ -1,4 +1,5 @@
 import { extractPlaybackCandidates, fetchJsonOrText, inferPlaybackType, inferQuality } from './http';
+import type { WorkerEnvironment } from '../mini-http';
 
 export type RemotePlaybackRequest = {
   type: 'movie' | 'series';
@@ -320,7 +321,82 @@ function extractEmbedUrlsFromHtml(html: string, baseUrl: string) {
   ).values()].map((item) => item.url).slice(0, 4);
 }
 
-async function resolveAkwamEmbedUrls(pageUrl: string, timeoutMs: number) {
+type BrowserQuickActionBinding = {
+  quickAction(action: 'content', options: Record<string, unknown>): Promise<Response>;
+};
+
+function getBrowserQuickAction(env?: WorkerEnvironment): BrowserQuickActionBinding | null {
+  const browser = env?.BROWSER;
+  if (!browser || typeof (browser as { quickAction?: unknown }).quickAction !== 'function') return null;
+  return browser as BrowserQuickActionBinding;
+}
+
+async function renderAkwamPageWithBrowser(
+  browser: BrowserQuickActionBinding,
+  pageUrl: string,
+  timeoutMs: number,
+) {
+  const response = await browser.quickAction('content', {
+    url: pageUrl,
+    userAgent: 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36 Movyza/1.0',
+    gotoOptions: {
+      waitUntil: 'networkidle2',
+      timeout: Math.min(Math.max(timeoutMs, 5_000), 12_000),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Browser Run content failed with HTTP ${response.status}`);
+  }
+
+  return response.text();
+}
+
+function extractAkwamWatchPageUrls(html: string, baseUrl: string) {
+  const base = new URL(baseUrl);
+  const candidates = new Set<string>();
+  const hrefRe = /(?:href|data-href|data-url)=[\"']([^\"']*\/watch\/[^ \"'#>]+)[\"']/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = hrefRe.exec(html)) !== null) {
+    try {
+      const absolute = new URL(match[1].replace(/&amp;/g, '&'), baseUrl).toString();
+      if (new URL(absolute).hostname === base.hostname) candidates.add(absolute);
+    } catch {
+      // Ignore malformed watch links.
+    }
+  }
+
+  return [...candidates].slice(0, 4);
+}
+
+async function resolveAkwamEmbedUrls(
+  pageUrl: string,
+  timeoutMs: number,
+  env?: WorkerEnvironment,
+) {
+  const browser = getBrowserQuickAction(env);
+
+  const tryHtml = async (html: string) => {
+    const direct = extractEmbedUrlsFromHtml(html, pageUrl);
+    if (direct.length) return direct;
+
+    const watchPages = extractAkwamWatchPageUrls(html, pageUrl);
+    if (!browser || !watchPages.length) return [];
+
+    for (const watchPage of watchPages) {
+      try {
+        const watchHtml = await renderAkwamPageWithBrowser(browser, watchPage, timeoutMs);
+        const watchEmbeds = extractEmbedUrlsFromHtml(watchHtml, watchPage);
+        if (watchEmbeds.length) return watchEmbeds;
+      } catch {
+        // Continue with the next watch page.
+      }
+    }
+
+    return [];
+  };
+
   try {
     const page = await fetchJsonOrText(
       pageUrl,
@@ -331,12 +407,24 @@ async function resolveAkwamEmbedUrls(pageUrl: string, timeoutMs: number) {
         'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36 Movyza/1.0',
       },
     );
-    if (typeof page !== 'string') return [];
-    return extractEmbedUrlsFromHtml(page, pageUrl);
+    if (typeof page === 'string') {
+      const direct = await tryHtml(page);
+      if (direct.length) return direct;
+    }
+  } catch {
+    // Fall through to Browser Run when available.
+  }
+
+  if (!browser) return [];
+
+  try {
+    const renderedHtml = await renderAkwamPageWithBrowser(browser, pageUrl, timeoutMs);
+    return await tryHtml(renderedHtml);
   } catch {
     return [];
   }
 }
+
 async function resolveOmegaDownloadUrls(
   base: string,
   payload: unknown,
@@ -368,6 +456,7 @@ async function resolveOmegaDownloadUrls(
 async function resolveOmegaTechAkwamPlayback(
   request: RemotePlaybackRequest,
   timeoutMs: number,
+  env?: WorkerEnvironment,
 ) {
   const titles = new Set<string>();
   const primaryTitle = await resolveTmdbTitle(request.type, request.tmdbId, timeoutMs);
@@ -428,7 +517,7 @@ async function resolveOmegaTechAkwamPlayback(
         targetPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
       }
 
-      const embedUrls = await resolveAkwamEmbedUrls(playerPageUrl, timeoutMs);
+      const embedUrls = await resolveAkwamEmbedUrls(playerPageUrl, timeoutMs, env);
       if (embedUrls.length) {
         return embedUrls.map((url, index) => ({
           url,
@@ -465,13 +554,14 @@ async function resolveOmegaTechAkwamPlayback(
 
 export async function resolveRemotePlayback(
   request: RemotePlaybackRequest,
+  env?: WorkerEnvironment,
 ): Promise<RemotePlaybackSource[]> {
   const cacheKey = remoteResolveCacheKey(request);
   const now = Date.now();
   const cached = remoteResolveCache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.promise;
 
-  const promise = resolveRemotePlaybackUncached(request);
+  const promise = resolveRemotePlaybackUncached(request, env);
   remoteResolveCache.set(cacheKey, { expiresAt: now + REMOTE_RESOLVE_CACHE_TTL_MS, promise });
   promise.catch(() => {
     const current = remoteResolveCache.get(cacheKey);
@@ -482,6 +572,7 @@ export async function resolveRemotePlayback(
 
 async function resolveRemotePlaybackUncached(
   request: RemotePlaybackRequest,
+  env?: WorkerEnvironment,
 ): Promise<RemotePlaybackSource[]> {
   const timeoutMs = Math.max(2_000, Number(process.env.PLAYBACK_RESOLVER_TIMEOUT_MS || 9_000));
   const errors: string[] = [];
@@ -496,7 +587,7 @@ async function resolveRemotePlaybackUncached(
   }> = [];
 
   try {
-    candidates.push(...await resolveOmegaTechAkwamPlayback(request, timeoutMs));
+    candidates.push(...await resolveOmegaTechAkwamPlayback(request, timeoutMs, env));
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
   }

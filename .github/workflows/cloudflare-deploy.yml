@@ -170,7 +170,7 @@ jobs:
               print(f"AKWAM PAGE ERROR: {error}")
               raise SystemExit(0)
 
-          iframe_matches = re.findall(r"<(?:iframe|embed|frame)[^>]+(?:src|data-src|data-url|data-embed|data-player)=['"][^'"]+['"]", html, re.I)
+          iframe_matches = re.findall(r'''<(?:iframe|embed|frame)[^>]+(?:src|data-src|data-url|data-embed|data-player)=["'][^"']+["']''', html, re.I)
           print("AKWAM IFRAME TAGS:", len(iframe_matches))
           for item in iframe_matches[:10]: print(item[:1000])
 
