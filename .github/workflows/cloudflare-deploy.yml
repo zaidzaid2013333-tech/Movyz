@@ -1,4 +1,5 @@
 name: Movyz Cloudflare Deploy
+# CI trigger: production deploys run from a real main-branch push.
 
 on:
   push:
