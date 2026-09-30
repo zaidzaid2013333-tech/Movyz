@@ -85,7 +85,6 @@ export function buildRemoteResolverUrl(
   return url.toString();
 }
 
-export async function resolveRemotePlayback
 export async function resolveRemotePlayback(
   request: RemotePlaybackRequest,
 ): Promise<RemotePlaybackSource[]> {
