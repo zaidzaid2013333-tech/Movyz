@@ -1853,7 +1853,7 @@ function scheduleStallRecovery(sequence, primaryUrl, fallbackUrl, sourceIndex, m
     }
 
     showPlaybackError("Playback stalled");
-  },7000);
+  },4500);
 }
 
 function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retryCount=0, resumeTime=0){
@@ -2130,7 +2130,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "direct-first-2026-09-29-r12";
+const RESOLVER_VERSION = "proxy-first-2026-09-30-r13";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
