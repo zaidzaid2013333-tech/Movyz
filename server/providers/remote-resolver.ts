@@ -400,19 +400,6 @@ async function resolveRemotePlaybackUncached(
     errors.push(error instanceof Error ? error.message : String(error));
   }
 
-  if (!candidates.length) {
-    for (const template of resolverTemplates()) {
-      try {
-        const url = buildRemoteResolverUrl(request, template);
-        const payload = await fetchJsonOrText(url, timeoutMs);
-        candidates.push(...extractPlaybackCandidates(payload));
-        if (candidates.length >= 6) break;
-      } catch (error) {
-        errors.push(error instanceof Error ? error.message : String(error));
-      }
-    }
-  }
-
   if (!candidates.length && errors.length) {
     throw new Error(errors.join(' | '));
   }
