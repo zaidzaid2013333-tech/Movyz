@@ -47,4 +47,4 @@ export default {
   },
 };
 
-// Deployment verification marker: URPlayer iframe player.
+// Playback architecture marker: external resolver returns links; Movyz never proxies video bytes.
