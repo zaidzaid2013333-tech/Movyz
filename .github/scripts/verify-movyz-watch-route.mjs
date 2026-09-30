@@ -1,5 +1,5 @@
-// Merge-triggered production verification: iframe-only Akwam player.
-// Final production trigger: deploy Akwam resolver, then Movyz Worker.
+// Merge-triggered production verification: iframe-only VidCore player.
+// Final production trigger: deploy VidCore resolver, then Movyz Worker.
 const API_BASE = (process.env.MOVYZ_API_BASE ||
   "https://movyz-api.sameranede.workers.dev/api/v1").replace(/\/+$/, "");
 
@@ -55,27 +55,27 @@ for (const fixture of fixtures) {
   assert(body.data.length > 0, fixture.label + " returned no playback sources");
 
   const source = body.data.find((item) =>
-    String(item?.providerKey || "").toLowerCase() === "akwam-iframe" &&
+    String(item?.providerKey || "").toLowerCase() === "vidcore-iframe" &&
     String(item?.type || "").toLowerCase() === "web" &&
     typeof item?.iframeUrl === "string" &&
     item.iframeUrl.trim()
   );
 
-  assert(source, fixture.label + " returned no Akwam iframe source");
+  assert(source, fixture.label + " returned no VidCore iframe source");
 
   const iframe = new URL(source.iframeUrl);
   const iframePath = iframe.pathname;
   const host = iframe.hostname.toLowerCase();
-  const isSingleMovyzPlayer =
-    host === "movyz-akwam-resolver.sameranede.workers.dev" &&
-    iframePath === "/player";
+  const isVidCorePlayer =
+    host === "vidcore.io" &&
+    /^\/(?:movie|tv)\//i.test(iframePath);
 
   assert(
-    isSingleMovyzPlayer,
-    fixture.label + " iframeUrl is not the single Movyz player shell: " + source.iframeUrl,
+    isVidCorePlayer,
+    fixture.label + " iframeUrl is not a VidCore player URL: " + source.iframeUrl,
   );
 
-  assert(source.providerKey === "akwam-iframe", fixture.label + " is not Akwam iframe");
+  assert(source.providerKey === "vidcore-iframe", fixture.label + " is not VidCore iframe");
   assert(source.type === "web", fixture.label + " is not web/iframe type");
   assertPlayableUrl(source.iframeUrl, fixture.label + " iframeUrl");
 
