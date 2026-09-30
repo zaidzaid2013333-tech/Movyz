@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -36,6 +36,18 @@ const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
     ?? null;
 };
 
+const playbackQualityRank = (source: PlaybackSource) => {
+  const match = source.quality?.match(/(\d{3,4})p/i);
+  const quality = match ? Number(match[1]) : 9999;
+  if (quality === 720) return 0;
+  if (quality === 480) return 1;
+  if (quality === 1080) return 2;
+  return 3;
+};
+
+const sortPlaybackSources = (sources: PlaybackSource[]) =>
+  [...sources].sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
+
 export const WatchPage: React.FC<WatchPageProps> = ({
   mediaType,
   contentId,
@@ -53,6 +65,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [remotePlaybackSources, setRemotePlaybackSources] = useState<PlaybackSource[]>([]);
   const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
   const [resolverLoading, setResolverLoading] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const startupRecoveryStage = useRef<'idle' | 'recovering' | 'done'>('idle');
+  const startupRecoveryTimer = useRef<number | null>(null);
 
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
@@ -130,6 +145,72 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setTheaterLighting(true);
   }, [contentId, activeSeason, activeEpisode]);
 
+  useEffect(() => {
+    startupRecoveryStage.current = 'idle';
+    if (startupRecoveryTimer.current !== null) {
+      window.clearTimeout(startupRecoveryTimer.current);
+      startupRecoveryTimer.current = null;
+    }
+  }, [playbackUrl]);
+
+  const recoverStartupBuffer = () => {
+    const video = videoRef.current;
+    if (
+      !video ||
+      startupRecoveryStage.current !== 'idle' ||
+      !Number.isFinite(video.duration) ||
+      video.duration < 45
+    ) {
+      return;
+    }
+
+    startupRecoveryStage.current = 'recovering';
+    const originalTime = Math.max(0, video.currentTime);
+    const targetTime = Math.min(
+      Math.max(originalTime + 180, 180),
+      Math.max(video.duration - 15, 1),
+    );
+
+    const finish = () => {
+      if (startupRecoveryTimer.current !== null) {
+        window.clearTimeout(startupRecoveryTimer.current);
+        startupRecoveryTimer.current = null;
+      }
+      if (startupRecoveryStage.current !== 'recovering') return;
+
+      video.removeEventListener('canplay', finish);
+      try {
+        video.currentTime = originalTime;
+      } catch {
+        // Ignore a provider that rejects seeking.
+      }
+      startupRecoveryStage.current = 'done';
+      void video.play().catch(() => {
+        // The browser may still require the user's play gesture.
+      });
+    };
+
+    video.addEventListener('canplay', finish, { once: true });
+    startupRecoveryTimer.current = window.setTimeout(() => {
+      video.removeEventListener('canplay', finish);
+      startupRecoveryTimer.current = null;
+      if (startupRecoveryStage.current === 'recovering') {
+        startupRecoveryStage.current = 'idle';
+      }
+    }, 12000);
+
+    try {
+      video.currentTime = targetTime;
+    } catch {
+      video.removeEventListener('canplay', finish);
+      if (startupRecoveryTimer.current !== null) {
+        window.clearTimeout(startupRecoveryTimer.current);
+        startupRecoveryTimer.current = null;
+      }
+      startupRecoveryStage.current = 'idle';
+    }
+  };
+
   const storedPlaybackSource = useMemo(
     () => (content ? pickPlaybackSource(content, currentEpisode) : null),
     [content, currentEpisode],
@@ -171,10 +252,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       .then((response) => {
         if (!mounted) return;
 
-        const sources = response.data.sources
-          .filter(isOmegaTechSource)
-          .filter((candidate) => /^https?:\/\//i.test(candidate.url?.trim() || ''))
-          .slice(0, 4);
+        const sources = sortPlaybackSources(
+          response.data.sources
+            .filter(isOmegaTechSource)
+            .filter((candidate) => /^https?:\/\//i.test(candidate.url?.trim() || ''))
+            .slice(0, 4),
+        );
 
         const source = sources.find((candidate) => candidate.isWorking) ?? sources[0] ?? null;
         setRemotePlaybackSources(sources);
@@ -359,14 +442,42 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
             <video
+              ref={videoRef}
               key={playbackUrl}
               src={playbackUrl}
               poster={content.backdropUrl || content.posterUrl}
               className="block h-full w-full bg-black object-contain"
               controls
               playsInline
-              preload="metadata"
+              preload="auto"
               controlsList="nodownload noplaybackrate"
+              onLoadedMetadata={() => {
+                const video = videoRef.current;
+                if (
+                  video &&
+                  video.currentTime < 1 &&
+                  video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
+                ) {
+                  window.setTimeout(() => recoverStartupBuffer(), 250);
+                }
+              }}
+              onWaiting={() => {
+                const video = videoRef.current;
+                if (video && video.currentTime < 20) {
+                  recoverStartupBuffer();
+                }
+              }}
+              onError={() => {
+                const currentIndex = availableSources.findIndex(
+                  (source) => source.id === playbackSource?.id,
+                );
+                const fallback = availableSources.find(
+                  (source, index) => index > currentIndex,
+                );
+                if (fallback) {
+                  setRemotePlaybackSource(fallback);
+                }
+              }}
             >
               {language === 'ar'
                 ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
