@@ -6,37 +6,39 @@ Arabic-first movie and series platform.
 
 Browser UI -> Movyz API -> Supabase/PostgreSQL
                      -> TMDB metadata sync
-                     -> provider registry -> playback sources
 
-TMDB is used for catalog metadata. Playback URLs are resolved server-side by registered providers and exposed to the Movyza player through the Movyz API.
+TMDB is used for catalog metadata. Playback does not go through a Watch Source API or server-side playback resolver.
 
 ## Playback
 
-The current production playback path:
-1. The player asks `/api/v1/watch/:mediaType/:tmdbId` for direct movie/series playback.
-2. Watch playback reads only valid cached rows from `playback_sources`.
-3. Sources are filtered to HTTPS HLS, MP4, or DASH URLs and only active/working rows are returned.
-4. The legacy provider resolver remains available separately for source management and compatibility.
+The production playback path is intentionally simple:
 
-Playback sources are external URLs; video files are not hosted by the frontend.
+1. The browser loads the published movie/series metadata from the Movyz API.
+2. VideoPlayer builds the VidCore URL directly from the TMDB ID.
+3. Movyz renders that URL as a direct HTTPS iframe.
+4. For series, the season and episode are included directly in the VidCore URL.
+
+There is no client-side getWatchSources() call, no playback-source resolver, and no /api/v1/watch/:mediaType/:tmdbId playback endpoint.
+
+Playback remains external; video files are not hosted by the frontend.
 
 ## Authentication and roles
 
-Supabase Auth handles credentials and sessions. Roles are stored in `public.profiles` as USER, ADMIN, or OWNER.
+Supabase Auth handles credentials and sessions. Roles are stored in public.profiles as USER, ADMIN, or OWNER.
 A database trigger creates a profile automatically when a new Auth user is created.
 
 ## Local development
 
-1. Copy `.env.example` to `.env`.
-2. Create the Supabase project and run `supabase/MOVYZ_FULL_SETUP.sql`.
+1. Copy .env.example to .env.
+2. Create the Supabase project and run supabase/MOVYZ_FULL_SETUP.sql.
 3. Fill Supabase and TMDB credentials.
-4. Start the API with `npm run server:dev`.
-5. Start Vite with `npm run dev`.
+4. Start the API with npm run server:dev.
+5. Start Vite with npm run dev.
 
 ## Production rules
 
-- Never commit `.env` files or secrets.
+- Never commit .env files or secrets.
 - Never ship mock catalog data.
 - Never trust a client-supplied role.
 - Keep TMDB metadata-only.
-- Keep playback provider configuration server-side.
+- Keep playback as a direct VidCore iframe in the frontend.
