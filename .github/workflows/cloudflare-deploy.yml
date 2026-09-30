@@ -1,5 +1,5 @@
 name: Movyz Cloudflare Deploy
-# OmegaTech playback resolver deployment
+# OmegaTech-only playback resolver deployment
 # CI trigger: production deploys run from a real main-branch push.
 
 on:
@@ -28,8 +28,6 @@ jobs:
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
-      PLAYBACK_RESOLVER_URL: ${{ secrets.PLAYBACK_RESOLVER_URL }}
-      PLAYBACK_RESOLVER_URLS: ${{ secrets.PLAYBACK_RESOLVER_URLS }}
     steps:
       - uses: actions/checkout@v4
 
