@@ -1813,14 +1813,14 @@ function clearStallTimer(){
   }
 }
 
-function scheduleStartupRecovery(sequence, primaryUrl, fallbackUrl, sourceIndex, mode, retryCount, playObserved){
+function scheduleStartupRecovery(sequence, primaryUrl, fallbackUrl, sourceIndex, mode, retryCount, playState){
   if(startupTimer!==null) window.clearTimeout(startupTimer);
   startupTimer=window.setTimeout(()=>{
     startupTimer=null;
     if(sequence!==loadSequence || video.ended) return;
 
     // Do not change source merely because the user has not pressed Play.
-    if(video.paused && !playObserved) return;
+    if(video.paused && !playState.played) return;
     if(video.readyState>=3) return;
 
     const resumeTime=Number(video.currentTime||0);
@@ -1903,6 +1903,7 @@ function scheduleStallRecovery(sequence, primaryUrl, fallbackUrl, sourceIndex, m
 function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retryCount=0, resumeTime=0){
   const sequence=loadSequence;
   const wasPlaying=!video.paused;
+  const playState={played:wasPlaying};
   const url=mode==="proxy"?fallbackUrl:primaryUrl;
   clearStallTimer();
 
@@ -1984,10 +1985,9 @@ function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retry
     showPlaybackError("Playback failed"+(code?" ("+code+")":""));
   };
 
-  let playObserved=wasPlaying;
   const onPlay=()=>{
     if(sequence!==loadSequence) return;
-    playObserved=true;
+    playState.played=true;
     if(startupTimer!==null){
       window.clearTimeout(startupTimer);
       startupTimer=null;
@@ -2002,7 +2002,7 @@ function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retry
   video.addEventListener("stalled",onStall);
   video.addEventListener("error",onError,{once:true});
 
-  scheduleStartupRecovery(sequence,primaryUrl,fallbackUrl,sourceIndex,mode,retryCount,playObserved);
+  scheduleStartupRecovery(sequence,primaryUrl,fallbackUrl,sourceIndex,mode,retryCount,playState);
 }
 
 function resetMedia(){
