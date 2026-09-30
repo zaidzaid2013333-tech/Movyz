@@ -1,3 +1,0 @@
-Trigger Cloudflare Worker deployment for latest playback fix cb5371f7.
-rollback: restored pre-quality-change deployment
-legacy iframe deployment recheck 2026-09-29T05:00Z
