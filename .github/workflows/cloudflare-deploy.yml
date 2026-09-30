@@ -69,6 +69,58 @@ jobs:
       - name: Deploy Movyz
         run: npx wrangler deploy --secrets-file .env.production
 
+      - name: Smoke test production watch paths
+        continue-on-error: true
+        run: |
+          set -u
+          API_BASE="https://movyz-api.sameranede.workers.dev"
+
+          python - <<'PY'
+          import json
+          import urllib.request
+
+          api_checks = [
+              (f"{API_BASE}/api/v1/movies/tmdb/1477712", "movie", 1477712),
+              (f"{API_BASE}/api/v1/series/tmdb/65733", "series", 65733),
+          ]
+
+          for url, expected_type, expected_tmdb in api_checks:
+              with urllib.request.urlopen(url, timeout=20) as response:
+                  payload = json.load(response)
+              if payload.get("success") is not True:
+                  raise SystemExit(f"{url}: API success=false")
+              key = "movie" if expected_type == "movie" else "series"
+              item = payload.get("data", {}).get(key)
+              actual = int(item.get("tmdbId", 0)) if item else 0
+              if actual != expected_tmdb:
+                  raise SystemExit(f"{url}: expected TMDB {expected_tmdb}, got {actual}")
+              print(f"API OK: {expected_type} TMDB {actual}")
+
+          urplayer_checks = [
+              "https://urplayer.net/embed/movie/550",
+              "https://urplayer.net/embed/movie/1477712",
+              "https://urplayer.net/embed/tv/1399/1/1",
+              "https://urplayer.net/embed/tv/65733/1/1",
+          ]
+
+          for url in urplayer_checks:
+              req = urllib.request.Request(url, headers={"User-Agent": "Movyz-CI/1.0"})
+              with urllib.request.urlopen(req, timeout=25) as response:
+                  body = response.read(160_000).decode("utf-8", "ignore")
+                  status = response.status
+
+              print(f"URPlayer {status}: {url} ({len(body)} bytes)")
+              lowered = body.lower()
+              blocked_markers = (
+                  "غير متوفر",
+                  "not available",
+                  "not found",
+                  "content unavailable",
+              )
+              if status >= 400 or any(marker.lower() in lowered for marker in blocked_markers):
+                  raise SystemExit(f"URPlayer returned an unavailable/not-found response for {url}")
+          PY
+
       - name: Remove temporary secrets file
         if: always()
         run: rm -f .env.production
