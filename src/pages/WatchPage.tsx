@@ -80,9 +80,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
         const loaded = response.data;
         if (mediaType === 'movie') {
+          if (!('movie' in loaded)) {
+            throw new Error('Unexpected movie response');
+          }
           setContent(loaded.movie);
           setCurrentEpisode(undefined);
         } else {
+          if (!('series' in loaded)) {
+            throw new Error('Unexpected series response');
+          }
           const series = loaded.series;
           const season =
             series.seasons.find((item) => item.seasonNumber === activeSeason) ||
