@@ -9,7 +9,6 @@ type MovyzEnvironment = WorkerEnvironment & {
   ASSETS: { fetch(request: Request): Promise<Response> };
   BROWSER?: unknown;
   WATCH_API?: ServiceBinding;
-  AKWAM_RESOLVER?: ServiceBinding;
 };
 export default {
   async fetch(request: Request, env: MovyzEnvironment): Promise<Response> {
@@ -23,4 +22,4 @@ export default {
   },
 };
 
-// Deployment verification marker: Akwam native iframe player.
+// Deployment verification marker: VidCore iframe player.
