@@ -10,7 +10,8 @@ export type RemotePlaybackRequest = {
 
 export type RemotePlaybackSource = {
   id: string;
-  type: 'hls' | 'mp4' | 'dash' | 'web';
+  type: 'hls' | 'mp4' | 'dash' | 'web' | 'embed';
+  embedUrl?: string;
   quality: string;
   language: string;
   label: string;
@@ -274,6 +275,67 @@ async function omegaRequest(
   return fetchJsonOrText(url.toString(), timeoutMs);
 }
 
+function isBlockedEmbedHost(hostname: string) {
+  return /(?:doubleclick|googlesyndication|google-analytics|googletagmanager|facebook|pubmatic|securedvisit|viglink|popads|adsterra|exoclick)/i.test(hostname)
+    || /(?:^|\\.)youtube(?:-nocookie)?\\.com$/i.test(hostname)
+    || /(?:^|\\.)youtu\\.be$/i.test(hostname);
+}
+
+function scoreEmbedUrl(url: string, tagName = 'iframe') {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' || isBlockedEmbedHost(parsed.hostname)) return -Infinity;
+    const path = (parsed.pathname + parsed.search).toLowerCase();
+    let score = tagName === 'iframe' ? 100 : 80;
+    if (/(?:embed|player|watch|stream|video|play)/i.test(path)) score += 30;
+    if (/(?:ads?|advert|banner|popup)/i.test(path)) score -= 80;
+    if (/^akwam\\.ss$/i.test(parsed.hostname) && !/(?:embed|player|watch|stream|play)/i.test(path)) score -= 60;
+    return score;
+  } catch {
+    return -Infinity;
+  }
+}
+
+function extractEmbedUrlsFromHtml(html: string, baseUrl: string) {
+  const candidates: Array<{ url: string; score: number }> = [];
+  const add = (raw: string, tagName: string) => {
+    const cleaned = raw.trim().replace(/&amp;/g, '&');
+    if (!cleaned) return;
+    try {
+      const absolute = new URL(cleaned, baseUrl).toString();
+      const score = scoreEmbedUrl(absolute, tagName);
+      if (Number.isFinite(score)) candidates.push({ url: absolute, score });
+    } catch {
+      // Ignore malformed embed URLs.
+    }
+  };
+
+  const iframeRe = /<(iframe|frame|embed)\\b[^>]*?(?:src|data-src|data-url|data-embed|data-player)=["']([^"']+)["'][^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = iframeRe.exec(html)) !== null) add(match[2], match[1]);
+
+  return [...new Map(
+    candidates.sort((a, b) => b.score - a.score).map((item) => [item.url, item]),
+  ).values()].map((item) => item.url).slice(0, 4);
+}
+
+async function resolveAkwamEmbedUrls(pageUrl: string, timeoutMs: number) {
+  try {
+    const page = await fetchJsonOrText(
+      pageUrl,
+      timeoutMs,
+      {
+        Accept: 'text/html,application/xhtml+xml',
+        Referer: 'https://akwam.ss/',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36 Movyza/1.0',
+      },
+    );
+    if (typeof page !== 'string') return [];
+    return extractEmbedUrlsFromHtml(page, pageUrl);
+  } catch {
+    return [];
+  }
+}
 async function resolveOmegaDownloadUrls(
   base: string,
   payload: unknown,
@@ -348,6 +410,7 @@ async function resolveOmegaTechAkwamPlayback(
       if (!contentUrl) throw new Error('OmegaTech Akwam search returned no content URL');
 
       let targetPayload: unknown;
+      let playerPageUrl = contentUrl;
       if (request.type === 'series') {
         const episodeNumber = request.episode;
         if (typeof episodeNumber !== 'number' || !Number.isInteger(episodeNumber) || episodeNumber < 1) {
@@ -357,10 +420,24 @@ async function resolveOmegaTechAkwamPlayback(
         const contentPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
         const episodeUrl = pickEpisodeUrl(contentPayload, episodeNumber, request.season);
         if (!episodeUrl) throw new Error(`OmegaTech Akwam episode ${request.episode} was not found`);
+        playerPageUrl = episodeUrl;
 
         targetPayload = await omegaRequest(base, { action: 'episode', episode: episodeUrl }, timeoutMs);
       } else {
         targetPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
+      }
+
+      const embedUrls = await resolveAkwamEmbedUrls(playerPageUrl, timeoutMs);
+      if (embedUrls.length) {
+        return embedUrls.map((url, index) => ({
+          url,
+          type: 'embed' as const,
+          embedUrl: url,
+          quality: 'auto',
+          language: 'ar',
+          label: `OmegaTech Akwam Player ${index + 1}`,
+          providerReference: playerPageUrl,
+        }));
       }
 
       let urls = await resolveOmegaDownloadUrls(base, targetPayload, timeoutMs);
@@ -414,6 +491,7 @@ async function resolveRemotePlaybackUncached(
     language?: string;
     label?: string;
     providerReference?: string;
+    embedUrl?: string;
   }> = [];
 
   try {
@@ -444,5 +522,6 @@ async function resolveRemotePlaybackUncached(
     provider: 'OmegaTech',
     providerKey: 'omegatech-akwam',
     ...(candidate.providerReference ? { providerReference: candidate.providerReference } : {}),
+    ...(candidate.embedUrl ? { embedUrl: candidate.embedUrl } : {}),
   }));
 }

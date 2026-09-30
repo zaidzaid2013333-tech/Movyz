@@ -27,6 +27,10 @@ interface WatchPageProps {
 const isOmegaTechSource = (source: PlaybackSource) =>
   source.providerKey === 'omegatech-akwam' || source.provider === 'OmegaTech';
 
+const isAkwamEmbedSource = (source: PlaybackSource) =>
+  isOmegaTechSource(source) &&
+  (source.type === 'embed' || Boolean(source.embedUrl));
+
 const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
   const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
   const omegaSources = candidates.filter(isOmegaTechSource);
@@ -37,6 +41,7 @@ const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
 };
 
 const playbackQualityRank = (source: PlaybackSource) => {
+  if (isAkwamEmbedSource(source)) return -1;
   const match = source.quality?.match(/(\d{3,4})p/i);
   const quality = match ? Number(match[1]) : 9999;
   if (quality === 720) return 0;
@@ -254,6 +259,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         const mobilePreferredQuality =
           typeof window !== 'undefined' && window.innerWidth < 768 ? 480 : 720;
         const source =
+          sources.find((candidate) => candidate.isWorking && isAkwamEmbedSource(candidate)) ??
           sources.find(
             (candidate) =>
               candidate.isWorking &&
@@ -284,6 +290,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const playbackSource = storedPlaybackSource ?? remotePlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
+  const embedUrl = playbackSource?.embedUrl?.trim()
+    || (playbackSource?.type === 'embed' ? playbackUrl : '');
   const availableSources = storedPlaybackSource ? [storedPlaybackSource] : remotePlaybackSources;
 
   useEffect(() => {
@@ -453,48 +461,67 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
-            <video
-              ref={videoRef}
-              key={playbackUrl}
-              src={playbackUrl}
-              poster={content.backdropUrl || content.posterUrl}
-              className="block h-full w-full bg-black object-contain"
-              controls
-              playsInline
-              preload="auto"
-              controlsList="nodownload noplaybackrate"
-              onLoadedMetadata={() => {
-                const video = videoRef.current;
-                if (
-                  video &&
-                  video.currentTime < 1 &&
-                  video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
-                ) {
-                  window.setTimeout(() => recoverStartupBuffer(), 250);
-                }
-              }}
-              onWaiting={() => {
-                const video = videoRef.current;
-                if (video && video.currentTime < 20) {
-                  recoverStartupBuffer();
-                }
-              }}
-              onError={() => {
-                const currentIndex = availableSources.findIndex(
-                  (source) => source.id === playbackSource?.id,
-                );
-                const fallback = availableSources.find(
-                  (source, index) => index > currentIndex,
-                );
-                if (fallback) {
-                  setRemotePlaybackSource(fallback);
-                }
-              }}
-            >
-              {language === 'ar'
-                ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
-                : 'Your browser does not support this playback source.'}
-            </video>
+            {embedUrl ? (
+              <iframe
+                key={embedUrl}
+                src={embedUrl}
+                title={displayTitle || 'Akwam Player'}
+                className="block h-full w-full border-0 bg-black"
+                allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+                allowFullScreen
+                referrerPolicy="origin"
+                onError={() => {
+                  const currentIndex = availableSources.findIndex(
+                    (source) => source.id === playbackSource?.id,
+                  );
+                  const fallback = availableSources.find(
+                    (source, index) => index > currentIndex,
+                  );
+                  if (fallback) setRemotePlaybackSource(fallback);
+                }}
+              />
+            ) : (
+              <video
+                ref={videoRef}
+                key={playbackUrl}
+                src={playbackUrl}
+                poster={content.backdropUrl || content.posterUrl}
+                className="block h-full w-full bg-black object-contain"
+                controls
+                playsInline
+                preload="auto"
+                controlsList="nodownload noplaybackrate"
+                onLoadedMetadata={() => {
+                  const video = videoRef.current;
+                  if (
+                    video &&
+                    video.currentTime < 1 &&
+                    video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
+                  ) {
+                    window.setTimeout(() => recoverStartupBuffer(), 250);
+                  }
+                }}
+                onWaiting={() => {
+                  const video = videoRef.current;
+                  if (video && video.currentTime < 20) {
+                    recoverStartupBuffer();
+                  }
+                }}
+                onError={() => {
+                  const currentIndex = availableSources.findIndex(
+                    (source) => source.id === playbackSource?.id,
+                  );
+                  const fallback = availableSources.find(
+                    (source, index) => index > currentIndex,
+                  );
+                  if (fallback) setRemotePlaybackSource(fallback);
+                }}
+              >
+                {language === 'ar'
+                  ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
+                  : 'Your browser does not support this playback source.'}
+              </video>
+            )}
           </div>
         </div>
       </div>
