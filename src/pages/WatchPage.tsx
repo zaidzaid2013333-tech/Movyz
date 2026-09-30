@@ -163,17 +163,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     }
   };
 
-  if (!iframeUrl) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center text-slate-300">
-        <ErrorState
-          message={language === 'ar' ? 'رابط المشاهدة غير صالح.' : 'Invalid watch URL.'}
-          onGoHome={() => onNavigate('/')}
-        />
-      </div>
-    );
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen bg-[#030406] px-4 py-8">
@@ -190,6 +179,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         <ErrorState
           message={error || undefined}
           onRetry={() => window.location.reload()}
+          onGoHome={() => onNavigate('/')}
+        />
+      </div>
+    );
+  }
+
+  if (!iframeUrl) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center text-slate-300">
+        <ErrorState
+          message={language === 'ar' ? 'رابط المشاهدة غير صالح.' : 'Invalid watch URL.'}
           onGoHome={() => onNavigate('/')}
         />
       </div>
