@@ -408,7 +408,7 @@ async function resolveRemotePlaybackUncached(
   }> = [];
 
   try {
-    candidates.push(...await resolveOmegaTechAkwamPlayback(request));
+    candidates.push(...await resolveOmegaTechAkwamPlayback(request, timeoutMs));
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
   }
