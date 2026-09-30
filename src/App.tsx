@@ -108,11 +108,11 @@ function MainApp() {
       const mediaType = segments[1];
       const contentId = segments[2] || '';
 
-      if (mediaType === 'movie' && Number.isFinite(tmdbId) && tmdbId > 0) {
+      if (mediaType === 'movie' && contentId) {
         return (
           <WatchPage
             mediaType="movie"
-            tmdbId={tmdbId}
+            contentId={contentId}
             onNavigate={navigate}
           />
         );
@@ -120,15 +120,14 @@ function MainApp() {
 
       if (
         mediaType === 'tv' &&
-        Number.isFinite(tmdbId) &&
-        tmdbId > 0 &&
+        contentId &&
         Number.isFinite(Number(segments[3])) &&
         Number.isFinite(Number(segments[4]))
       ) {
         return (
           <WatchPage
             mediaType="series"
-            tmdbId={tmdbId}
+            contentId={contentId}
             seasonNumber={Number(segments[3])}
             episodeNumber={Number(segments[4])}
             onNavigate={navigate}
@@ -139,7 +138,7 @@ function MainApp() {
       return (
         <WatchPage
           mediaType="movie"
-          tmdbId={0}
+          contentId=""
           onNavigate={navigate}
         />
       );
