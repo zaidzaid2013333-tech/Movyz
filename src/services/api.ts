@@ -74,6 +74,9 @@ export const MovyzaApi = {
   getMovieById: (id: string) =>
     request<{ movie: Movie; similar: Movie[] }>(`/movies/${encodeURIComponent(id)}`),
 
+  getMovieByTmdbId: (tmdbId: number) =>
+    request<{ movie: Movie; similar: Movie[] }>(`/movies/tmdb/${encodeURIComponent(String(tmdbId))}`),
+
   getSeries: (params?: {
     genreId?: number; year?: number;
     sortBy?: 'popular' | 'rating' | 'newest'; search?: string;
@@ -82,6 +85,9 @@ export const MovyzaApi = {
 
   getSeriesById: (id: string) =>
     request<{ series: Series; similar: Series[] }>(`/series/${encodeURIComponent(id)}`),
+
+  getSeriesByTmdbId: (tmdbId: number) =>
+    request<{ series: Series; similar: Series[] }>(`/series/tmdb/${encodeURIComponent(String(tmdbId))}`),
 
   searchCatalog: (search: string) =>
     request<{
