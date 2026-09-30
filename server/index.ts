@@ -6,6 +6,7 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
+import { resolveRemotePlayback } from './providers/remote-resolver';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -216,6 +217,57 @@ async function seriesDto(row: any) {
     status: row.status, addedAt: row.created_at, ageRating: row.age_rating || '',
   } as any;
 }
+
+app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
+  const type = req.query.type === 'movie' || req.query.type === 'series'
+    ? req.query.type
+    : null;
+  const tmdbId = Number(req.query.tmdbId || req.query.tmdb_id);
+  const season = req.query.season !== undefined ? Number(req.query.season) : undefined;
+  const episode = req.query.episode !== undefined ? Number(req.query.episode) : undefined;
+  const episodeTmdbId = req.query.episodeTmdbId !== undefined
+    ? Number(req.query.episodeTmdbId)
+    : req.query.episode_tmdb_id !== undefined
+      ? Number(req.query.episode_tmdb_id)
+      : undefined;
+
+  if (!type || !Number.isInteger(tmdbId) || tmdbId <= 0) {
+    return fail(res, 400, 'INVALID_PLAYBACK_REQUEST', 'Invalid playback request');
+  }
+  if (season !== undefined && (!Number.isInteger(season) || season < 1)) {
+    return fail(res, 400, 'INVALID_SEASON', 'Invalid season');
+  }
+  if (episode !== undefined && (!Number.isInteger(episode) || episode < 1)) {
+    return fail(res, 400, 'INVALID_EPISODE', 'Invalid episode');
+  }
+  if (episodeTmdbId !== undefined && (!Number.isInteger(episodeTmdbId) || episodeTmdbId <= 0)) {
+    return fail(res, 400, 'INVALID_EPISODE_TMDB_ID', 'Invalid episode TMDB id');
+  }
+
+  if (!process.env.PLAYBACK_RESOLVER_URL?.trim()) {
+    return fail(res, 503, 'PLAYBACK_RESOLVER_NOT_CONFIGURED', 'External playback resolver is not configured');
+  }
+
+  try {
+    const sources = await resolveRemotePlayback({
+      type,
+      tmdbId,
+      ...(season !== undefined ? { season } : {}),
+      ...(episode !== undefined ? { episode } : {}),
+      ...(episodeTmdbId !== undefined ? { episodeTmdbId } : {}),
+    });
+
+    if (!sources.length) {
+      return fail(res, 404, 'PLAYBACK_SOURCE_NOT_FOUND', 'No playback source was returned by the resolver');
+    }
+
+    res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=30');
+    return ok(res, { sources });
+  } catch (error) {
+    console.error('[remote-playback]', error instanceof Error ? error.message : error);
+    return fail(res, 502, 'PLAYBACK_RESOLVER_FAILED', 'External playback resolver failed');
+  }
+}));
 
 app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
   const rawUrl = typeof req.query.url === 'string' ? req.query.url : '';
