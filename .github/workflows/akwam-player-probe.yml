@@ -31,45 +31,49 @@ jobs:
 
           with urllib.request.urlopen(request, timeout=45) as response:
               html = response.read().decode("utf-8", "replace")
-              print("STATUS:", response.status)
-              print("CONTENT_TYPE:", response.headers.get("content-type"))
-              print("BYTES:", len(html))
+              print("MOVIE_STATUS:", response.status)
+              print("MOVIE_BYTES:", len(html))
 
           def clean(value):
               return re.sub(r"\\s+", " ", value).strip()
 
-          print("SCRIPT_SRC:")
-          for src in re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html, re.I):
-              print(" ", src)
+          watch_urls = re.findall(r"""https://akwam\\.ss/watch/[^\\s"<>]+""", html, re.I)
+          watch_urls = list(dict.fromkeys(watch_urls))
+          print("WATCH_URLS:", len(watch_urls))
+          for value in watch_urls[:10]:
+              print(" WATCH:", value)
 
-          print("LINK_HREFS:")
-          for href in re.findall(r'<a[^>]+href=["\']([^"\']+)["\']', html, re.I):
-              if re.search(r'watch|view|play|download|episode|quality|movie|file|stream', href, re.I):
-                  print(" ", href)
+          for watch_url in watch_urls[:3]:
+              try:
+                  watch_request = urllib.request.Request(
+                      watch_url,
+                      headers={
+                          "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36",
+                          "Accept": "text/html,application/xhtml+xml",
+                          "Referer": url,
+                      },
+                  )
+                  with urllib.request.urlopen(watch_request, timeout=45) as response:
+                      watch_html = response.read().decode("utf-8", "replace")
+                      print("\nWATCH_PAGE:", watch_url)
+                      print(" WATCH_STATUS:", response.status)
+                      print(" WATCH_TYPE:", response.headers.get("content-type"))
+                      print(" WATCH_BYTES:", len(watch_html))
+                      print(" WATCH_XFO:", response.headers.get("x-frame-options"))
+                      print(" WATCH_CSP:", response.headers.get("content-security-policy"))
 
-          print("PLAYER_LIKE_TAGS:")
-          for tag in re.findall(r'<[^>]+>', html, re.I):
-              if re.search(r'(?:id|class)=["\'][^"\']*(?:player|watch|video|media|quality|stream|download)[^"\']*["\']', tag, re.I):
-                  print(" ", clean(tag)[:1200])
+                      for marker in ["<iframe", "<embed", "<video", "<source", "m3u8", ".mp4", "player", "jwplayer", "videojs", "stream"]:
+                          print(f" WATCH_PATTERN {marker}: {len(re.findall(re.escape(marker), watch_html, re.I))}")
 
-          print("INLINE_URLS:")
-          for url_value in re.findall(r'https?://[^\s"\'<>]+|/(?:api|ajax|assets|player|watch|view|stream|video|download)/[^\s"\'<>]+', html, re.I):
-              print(" ", url_value[:1000])
+                      print(" WATCH_SCRIPT_SRC:")
+                      for src in re.findall(r"""<script[^>]+src=["'][^"']+["']""", watch_html, re.I):
+                          print("  ", clean(src)[:1200])
 
-          for label, pattern in [
-              ("PAGE_ID", r'id=["\']page_id["\'][^>]*value=["\']([^"\']+)'),
-              ("PAGE_APP", r'id=["\']page_app["\'][^>]*value=["\']([^"\']+)'),
-              ("AJAX", r'(?:\\$\\.ajax|\\$\\.get|\\$\\.post|fetch\\(|axios\\.)'),
-              ("API_TEXT", r'/(?:api|ajax)/[^"\'\\s<]+'),
-              ("WATCH_TEXT", r'/(?:watch|view|player|stream|video)/[^"\'\\s<]+'),
-          ]:
-              matches = re.findall(pattern, html, re.I)
-              print(f"{label}: {len(matches)}")
-              for value in matches[:20]:
-                  print("  ", clean(value)[:1200])
-
-          pos = html.lower().find('id="page_id"')
-          if pos >= 0:
-              print("PAGE_CONTEXT:")
-              print(clean(html[max(0,pos-2500):pos+5000])[:7500])
+                      print(" WATCH_PLAYER_CONTEXT:")
+                      for marker in ["<iframe", "<video", "player", "m3u8", ".mp4", "stream"]:
+                          pos = watch_html.lower().find(marker.lower())
+                          if pos >= 0:
+                              print("  ", marker, clean(watch_html[max(0,pos-500):pos+1800])[:2200])
+              except Exception as error:
+                  print(" WATCH_ERROR:", watch_url, error)
           PY
