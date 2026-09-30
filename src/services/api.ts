@@ -38,6 +38,7 @@ function query(params: Record<string, unknown>) {
   return encoded ? `?${encoded}` : '';
 }
 
+export const MovyzaApi = {
   getGenres: () => request<Genre[]>('/genres'),
 
   getWatchlist: () => request<WatchlistItem[]>('/watchlist'),
