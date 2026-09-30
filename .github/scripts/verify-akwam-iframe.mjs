@@ -121,16 +121,28 @@ for (const fixture of fixtures) {
     "/media?t=" + encodeURIComponent(token) +
     "&u=" + encodeURIComponent(rawInitialSource);
 
-  // Exercise the exact media route used by the player, not a direct CDN
-  // request that bypasses the Worker and its Referer/Range handling.
-  const playbackPath = "proxy";
-  const startupResponse = await fetch(mediaUrl, {
+  // Mirror the player: direct CDN first, proxy only if the direct Range fails.
+  let playbackPath = "direct";
+  let startupResponse = await fetch(rawInitialSource, {
     headers: {
       Accept: "video/mp4,video/*,application/octet-stream,*/*;q=0.8",
       Range: "bytes=0-2097151",
     },
+    redirect: "follow",
     signal: AbortSignal.timeout(60_000),
   });
+
+  if (!startupResponse.ok || startupResponse.status !== 206) {
+    try { startupResponse.body?.cancel(); } catch {}
+    playbackPath = "proxy";
+    startupResponse = await fetch(mediaUrl, {
+      headers: {
+        Accept: "video/mp4,video/*,application/octet-stream,*/*;q=0.8",
+        Range: "bytes=0-2097151",
+      },
+      signal: AbortSignal.timeout(60_000),
+    });
+  }
 
   const startupType = String(startupResponse.headers.get("content-type") || "").toLowerCase();
   const startupRange = startupResponse.headers.get("content-range") || "";
