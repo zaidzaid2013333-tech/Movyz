@@ -102,16 +102,44 @@ function MainApp() {
     const [pathOnly, queryString] = currentPath.split('?');
     const searchParams = new URLSearchParams(queryString || '');
 
-    // Watch route
+    // Direct iframe watch routes. No API request is made here.
     if (pathOnly.startsWith('/watch/')) {
-      const contentId = pathOnly.replace('/watch/', '');
-      const season = searchParams.get('season') ? Number(searchParams.get('season')) : undefined;
-      const episode = searchParams.get('episode') ? Number(searchParams.get('episode')) : undefined;
+      const segments = pathOnly.split('/').filter(Boolean);
+      const mediaType = segments[1];
+      const tmdbId = Number(segments[2]);
+
+      if (mediaType === 'movie' && Number.isFinite(tmdbId) && tmdbId > 0) {
+        return (
+          <WatchPage
+            mediaType="movie"
+            tmdbId={tmdbId}
+            onNavigate={navigate}
+          />
+        );
+      }
+
+      if (
+        mediaType === 'tv' &&
+        Number.isFinite(tmdbId) &&
+        tmdbId > 0 &&
+        Number.isFinite(Number(segments[3])) &&
+        Number.isFinite(Number(segments[4]))
+      ) {
+        return (
+          <WatchPage
+            mediaType="series"
+            tmdbId={tmdbId}
+            seasonNumber={Number(segments[3])}
+            episodeNumber={Number(segments[4])}
+            onNavigate={navigate}
+          />
+        );
+      }
+
       return (
         <WatchPage
-          contentId={contentId}
-          seasonParam={season}
-          episodeParam={episode}
+          mediaType="movie"
+          tmdbId={0}
           onNavigate={navigate}
         />
       );
