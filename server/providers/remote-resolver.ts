@@ -410,6 +410,7 @@ async function resolveOmegaTechAkwamPlayback(
       if (!contentUrl) throw new Error('OmegaTech Akwam search returned no content URL');
 
       let targetPayload: unknown;
+      let playerPageUrl = contentUrl;
       if (request.type === 'series') {
         const episodeNumber = request.episode;
         if (typeof episodeNumber !== 'number' || !Number.isInteger(episodeNumber) || episodeNumber < 1) {
@@ -419,15 +420,12 @@ async function resolveOmegaTechAkwamPlayback(
         const contentPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
         const episodeUrl = pickEpisodeUrl(contentPayload, episodeNumber, request.season);
         if (!episodeUrl) throw new Error(`OmegaTech Akwam episode ${request.episode} was not found`);
+        playerPageUrl = episodeUrl;
 
         targetPayload = await omegaRequest(base, { action: 'episode', episode: episodeUrl }, timeoutMs);
       } else {
         targetPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
       }
-
-      const playerPageUrl = request.type === 'series'
-        ? pickEpisodeUrl(targetPayload, request.episode as number, request.season) || contentUrl
-        : contentUrl;
 
       const embedUrls = await resolveAkwamEmbedUrls(playerPageUrl, timeoutMs);
       if (embedUrls.length) {
