@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { MovyzaApi } from '../services/api';
-import { Movie, Series, Episode } from '../types';
+import { Movie, Series, Episode, PlaybackSource } from '../types';
 import { ErrorState } from '../components/ui/FeedbackStates';
 import { HeroSkeleton } from '../components/ui/Skeletons';
 
@@ -45,6 +45,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [theaterLighting, setTheaterLighting] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
+  const [resolverLoading, setResolverLoading] = useState(false);
 
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
@@ -57,6 +59,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       setError(null);
 
       try {
+        setContent(null);
+        setCurrentEpisode(undefined);
+        setRemotePlaybackSource(null);
+        setResolverLoading(false);
+
         const legacyTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
         const response = mediaType === 'movie'
           ? legacyTmdbId
@@ -116,10 +123,65 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setTheaterLighting(true);
   }, [contentId, activeSeason, activeEpisode]);
 
-  const playbackSource = useMemo(
+  const storedPlaybackSource = useMemo(
     () => (content ? pickPlaybackSource(content, currentEpisode) : null),
     [content, currentEpisode],
   );
+
+  useEffect(() => {
+    if (loading || !content) return;
+
+    if (storedPlaybackSource) {
+      setRemotePlaybackSource(null);
+      setResolverLoading(false);
+      return;
+    }
+
+    if (content.type === 'series' && !currentEpisode) {
+      setRemotePlaybackSource(null);
+      setResolverLoading(false);
+      return;
+    }
+
+    let mounted = true;
+    setRemotePlaybackSource(null);
+    setResolverLoading(true);
+
+    void MovyzaApi.resolvePlaybackSource({
+      type: content.type,
+      tmdbId: content.tmdbId,
+      ...(content.type === 'series'
+        ? {
+            season: currentEpisode?.seasonNumber ?? activeSeason,
+            episode: currentEpisode?.episodeNumber ?? activeEpisode,
+            ...(currentEpisode?.tmdbId ? { episodeTmdbId: currentEpisode.tmdbId } : {}),
+          }
+        : {}),
+    })
+      .then((response) => {
+        if (!mounted) return;
+
+        const source = response.data.sources.find(
+          (candidate) => candidate.isWorking && /^https?:\/\//i.test(candidate.url?.trim() || ''),
+        ) ?? response.data.sources.find(
+          (candidate) => /^https?:\/\//i.test(candidate.url?.trim() || ''),
+        ) ?? null;
+
+        setRemotePlaybackSource(source);
+      })
+      .catch(() => {
+        if (mounted) setRemotePlaybackSource(null);
+      })
+      .finally(() => {
+        if (mounted) setResolverLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [loading, content, currentEpisode, storedPlaybackSource, activeSeason, activeEpisode]);
+
+  const playbackSource = storedPlaybackSource ?? remotePlaybackSource;
   const iframeUrl = playbackSource?.url?.trim() || '';
 
 
@@ -170,10 +232,19 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   if (!iframeUrl) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center text-slate-300">
-        <ErrorState
-          message={language === 'ar' ? 'لا يوجد مصدر تشغيل متاح حاليًا.' : 'No playback source is currently available.'}
-          onGoHome={() => onNavigate('/')}
-        />
+        {resolverLoading ? (
+          <div className="text-center px-6">
+            <div className="mx-auto mb-4 h-10 w-10 rounded-full border-2 border-amber-400/25 border-t-amber-400 animate-spin" />
+            <p className="text-sm font-medium text-slate-200">
+              {language === 'ar' ? 'جاري تجهيز مصدر التشغيل…' : 'Preparing playback source…'}
+            </p>
+          </div>
+        ) : (
+          <ErrorState
+            message={language === 'ar' ? 'لا يوجد مصدر تشغيل متاح حاليًا.' : 'No playback source is currently available.'}
+            onGoHome={() => onNavigate('/')}
+          />
+        )}
       </div>
     );
   }
