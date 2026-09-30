@@ -23,28 +23,12 @@ interface WatchPageProps {
   onNavigate: (path: string) => void;
 }
 
-const buildUrPlayerUrl = (
-  mediaType: 'movie' | 'series',
-  tmdbId: number,
-  seasonNumber?: number,
-  episodeNumber?: number,
-) => {
-  if (!Number.isInteger(tmdbId) || tmdbId <= 0) return '';
+const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
+  const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
 
-  if (mediaType === 'movie') {
-    return `https://urplayer.net/embed/movie/${tmdbId}`;
-  }
-
-  if (
-    !Number.isInteger(seasonNumber) ||
-    !Number.isInteger(episodeNumber) ||
-    seasonNumber <= 0 ||
-    episodeNumber <= 0
-  ) {
-    return '';
-  }
-
-  return `https://urplayer.net/embed/tv/${tmdbId}/${seasonNumber}/${episodeNumber}`;
+  return candidates.find((source) => source.isWorking && /^https?:\\/\\//i.test(source.url?.trim() || ''))
+    ?? candidates.find((source) => /^https?:\\/\\//i.test(source.url?.trim() || ''))
+    ?? null;
 };
 
 export const WatchPage: React.FC<WatchPageProps> = ({
@@ -132,14 +116,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setTheaterLighting(true);
   }, [contentId, activeSeason, activeEpisode]);
 
-  const resolvedTmdbId = content?.tmdbId && Number.isInteger(content.tmdbId)
-    ? content.tmdbId
-    : 0;
-
-  const iframeUrl = useMemo(
-    () => buildUrPlayerUrl(mediaType, resolvedTmdbId, activeSeason, activeEpisode),
-    [mediaType, resolvedTmdbId, activeSeason, activeEpisode],
+  const playbackSource = useMemo(
+    () => pickPlaybackSource(content!, currentEpisode),
+    [content, currentEpisode],
   );
+  const iframeUrl = playbackSource?.url?.trim() || '';
+
 
   const handleSelectEpisode = (nextSeason: number, nextEpisode: number) => {
     onNavigate(`/watch/tv/${contentId}/${nextSeason}/${nextEpisode}`);
@@ -197,6 +179,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }
 
   const isMovie = content.type === 'movie';
+  const resolvedTmdbId = content.tmdbId;
   const displayTitle = language === 'ar' ? content.title : content.titleEn;
   const originalTitle = language === 'ar' ? content.titleEn : content.originalTitle;
   const overview = isMovie
@@ -249,7 +232,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </button>
 
           <div className="flex items-center gap-2 text-slate-500">
-            <span className="text-amber-400/90 font-bold">URPLAYER</span>
+            <span className="text-amber-400/90 font-bold">{playbackSource?.provider || 'MOVYZ SOURCE'}</span>
             <span>·</span>
             <span>{language === 'ar' ? 'مشغل مضمّن مباشرة' : 'Direct embedded player'}</span>
           </div>
@@ -267,8 +250,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               key={iframeUrl}
               src={iframeUrl}
               title={isMovie
-                ? `URPlayer movie ${resolvedTmdbId}`
-                : `URPlayer series ${resolvedTmdbId} S${activeSeason}E${activeEpisode}`}
+                ? `Movyz player ${resolvedTmdbId}`
+                : `Movyz player ${resolvedTmdbId} S${activeSeason}E${activeEpisode}`}
               className="block h-full w-full border-0 bg-black"
               allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
               allowFullScreen
