@@ -1,4 +1,4 @@
-import { extractPlaybackCandidates, fetchJsonOrText, inferPlaybackType } from './http';
+import { extractPlaybackCandidates, fetchJsonOrText, inferPlaybackType, inferQuality } from './http';
 
 const DEFAULT_STREAMAR_ADDON_URL = 'https://2ecbbd610840-stremio-ar.baby-beamup.club';
 
