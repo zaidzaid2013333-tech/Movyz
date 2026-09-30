@@ -171,7 +171,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return (
       <div className="min-h-screen bg-black flex items-center justify-center text-slate-300">
         <ErrorState
-          message={language === 'ar' ? 'رابط المشاهدة غير صالح.' : 'Invalid watch URL.'}
+          message={language === 'ar' ? 'لا يوجد مصدر تشغيل متاح حاليًا.' : 'No playback source is currently available.'}
           onGoHome={() => onNavigate('/')}
         />
       </div>
@@ -255,6 +255,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               className="block h-full w-full border-0 bg-black"
               allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
               allowFullScreen
+              sandbox="allow-scripts allow-same-origin allow-forms"
               referrerPolicy="no-referrer"
               loading="eager"
               scrolling="no"
