@@ -30,7 +30,9 @@ function qualityRank(value) {
 }
 const MAX_REDIRECTS = 6;
 const SEARCH_BACKOFF_MS = [750, 1_750];
-const PLAYBACK_CACHE_TTL_MS = 5 * 60_000;
+const PLAYBACK_CACHE_TTL_MS = 25 * 60_000;
+const RESOLVE_RESPONSE_CACHE_TTL_SECONDS = 25 * 60;
+const RESOLVE_RESPONSE_CACHE_PATH = "/__movyz_cache/resolve-iframe";
 const IFRAME_CACHE_TTL_MS = 30 * 60_000;
 const playbackCache = new Map();
 const iframeCache = new Map();
@@ -2063,7 +2065,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "direct-first-stable-2026-09-30-r20";
+const RESOLVER_VERSION = "direct-first-stable-2026-09-30-r21";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
@@ -2536,6 +2538,36 @@ export default { async fetch(request, env) {
       return json({ ok: false, error: "Browser Run Quick Actions unavailable" }, 500);
     }
 
+    const cacheIdentity = JSON.stringify({
+      content_url: clean(payload?.content_url || payload?.contentUrl),
+      title: normalizeTitle(payload?.title),
+      title_en: normalizeTitle(payload?.title_en),
+      title_ar: normalizeTitle(payload?.title_ar),
+      original_title: normalizeTitle(payload?.original_title),
+      year: Number(payload?.year) || 0,
+      type: payload?.type === "series" ? "series" : "movie",
+      season: Number(payload?.season) || 0,
+      episode: Number(payload?.episode) || 0,
+    });
+    const responseCacheKey = new Request(
+      new URL(
+        RESOLVE_RESPONSE_CACHE_PATH + "?key=" + encodeURIComponent(cacheIdentity),
+        request.url,
+      ).toString(),
+      { method: "GET" },
+    );
+
+    const cachedResponse = await caches.default.match(responseCacheKey);
+    if (cachedResponse) {
+      const headers = new Headers(cachedResponse.headers);
+      headers.set("X-Movyz-Resolver-Cache", "HIT");
+      return new Response(cachedResponse.body, {
+        status: cachedResponse.status,
+        statusText: cachedResponse.statusText,
+        headers,
+      });
+    }
+
     try {
       // One iframe only: Movyz UI embeds this player shell.
       // The resolver resolves Akwam media sources once, caches them, and
@@ -2570,7 +2602,7 @@ export default { async fetch(request, env) {
         "/player?t=" +
         encodeURIComponent(token);
 
-      return json({
+      const responseBody = {
         ok: true,
         title: resolved.title || clean(payload?.title) || "",
         source_url: resolved.source_url,
@@ -2583,7 +2615,13 @@ export default { async fetch(request, env) {
         player_url: iframeUrl,
         mode: "movyz-player-shell",
         cached: false,
-      });
+      };
+
+      const response = json(responseBody);
+      response.headers.set("Cache-Control", "public, max-age=0, s-maxage=" + RESOLVE_RESPONSE_CACHE_TTL_SECONDS + ", stale-while-revalidate=60");
+      response.headers.set("X-Movyz-Resolver-Cache", "MISS");
+      await caches.default.put(responseCacheKey, response.clone());
+      return response;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       diagnostic("AKWAM_IFRAME_FAILED", message);
