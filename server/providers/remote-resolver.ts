@@ -326,7 +326,7 @@ async function resolveAkwamInteractiveEmbedUrls(
   env: WorkerEnvironment,
   pageUrl: string,
   timeoutMs: number,
-) {
+): Promise<string[]> {
   const browserBinding = env.BROWSER;
   if (!browserBinding) return [];
 
@@ -479,7 +479,7 @@ async function resolveAkwamEmbedUrls(
   pageUrl: string,
   timeoutMs: number,
   env?: WorkerEnvironment,
-) {
+): Promise<string[]> {
   try {
     const page = await fetchJsonOrText(
       pageUrl,
@@ -594,9 +594,9 @@ async function resolveOmegaTechAkwamPlayback(
         targetPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
       }
 
-      const embedUrls = await resolveAkwamEmbedUrls(playerPageUrl, timeoutMs, env);
+      const embedUrls: string[] = await resolveAkwamEmbedUrls(playerPageUrl, timeoutMs, env);
       if (embedUrls.length) {
-        return embedUrls.map((url, index) => ({
+        return embedUrls.map((url: string, index: number) => ({
           url,
           type: 'embed' as const,
           embedUrl: url,
