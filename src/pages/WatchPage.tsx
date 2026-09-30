@@ -73,9 +73,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       setError(null);
 
       try {
+        const legacyTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
         const response = mediaType === 'movie'
-          ? await MovyzaApi.getMovieByTmdbId(tmdbId)
-          : await MovyzaApi.getSeriesByTmdbId(tmdbId);
+          ? legacyTmdbId
+            ? await MovyzaApi.getMovieByTmdbId(legacyTmdbId)
+            : await MovyzaApi.getMovieById(contentId)
+          : legacyTmdbId
+            ? await MovyzaApi.getSeriesByTmdbId(legacyTmdbId)
+            : await MovyzaApi.getSeriesById(contentId);
 
         if (!mounted) return;
 
@@ -125,7 +130,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   useEffect(() => {
     setTheaterLighting(true);
-  }, [tmdbId, activeSeason, activeEpisode]);
+  }, [contentId, activeSeason, activeEpisode]);
 
   const resolvedTmdbId = content?.tmdbId && Number.isInteger(content.tmdbId)
     ? content.tmdbId
