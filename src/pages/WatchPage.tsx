@@ -145,14 +145,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setTheaterLighting(true);
   }, [contentId, activeSeason, activeEpisode]);
 
-  useEffect(() => {
-    startupRecoveryStage.current = 'idle';
-    if (startupRecoveryTimer.current !== null) {
-      window.clearTimeout(startupRecoveryTimer.current);
-      startupRecoveryTimer.current = null;
-    }
-  }, [playbackUrl]);
-
   const recoverStartupBuffer = () => {
     const video = videoRef.current;
     if (
@@ -281,6 +273,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const playbackSource = storedPlaybackSource ?? remotePlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
   const availableSources = storedPlaybackSource ? [storedPlaybackSource] : remotePlaybackSources;
+
+  useEffect(() => {
+    startupRecoveryStage.current = 'idle';
+    if (startupRecoveryTimer.current !== null) {
+      window.clearTimeout(startupRecoveryTimer.current);
+      startupRecoveryTimer.current = null;
+    }
+  }, [playbackUrl]);
 
 
   const handleSelectEpisode = (nextSeason: number, nextEpisode: number) => {
