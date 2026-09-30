@@ -121,6 +121,19 @@ export function buildRemoteResolverUrl(
 
 
 
+const REMOTE_RESOLVE_CACHE_TTL_MS = 20_000;
+const remoteResolveCache = new Map<string, { expiresAt: number; promise: Promise<RemotePlaybackSource[]> }>();
+
+function remoteResolveCacheKey(request: RemotePlaybackRequest) {
+  return JSON.stringify([
+    request.type,
+    request.tmdbId,
+    request.season ?? null,
+    request.episode ?? null,
+    request.episodeTmdbId ?? null,
+  ]);
+}
+
 const DEFAULT_OMEGATECH_URLS = [
   'https://api.omegatech.app',
   'https://omegatech-api.dixonomega.tech',
@@ -193,7 +206,7 @@ function pickBestResult(payload: unknown, titles: string[]) {
   return partial || results[0] || null;
 }
 
-function pickEpisodeUrl(payload: unknown, episodeNumber: number) {
+function pickEpisodeUrl(payload: unknown, episodeNumber: number, seasonNumber?: number) {
   const visit = (value: unknown, depth = 0): string | null => {
     if (depth > 7 || value == null) return null;
     if (Array.isArray(value)) {
@@ -216,8 +229,11 @@ function pickEpisodeUrl(payload: unknown, episodeNumber: number) {
       obj.no,
     ];
     const matchesNumber = numberValues.some((raw) => Number(raw) === episodeNumber);
+    const seasonValues = [obj.seasonNumber, obj.season_number, obj.season, obj.seasonNo, obj.season_no];
+    const hasSeason = seasonNumber !== undefined;
+    const matchesSeason = !hasSeason || seasonValues.some((raw) => Number(raw) === seasonNumber);
 
-    if (matchesNumber) {
+    if (matchesNumber && matchesSeason) {
       const urls = collectUrlStrings(obj);
       const episodeUrl = urls.find((url) => !isLikelyPlaybackUrl(url));
       if (episodeUrl) return episodeUrl;
@@ -321,7 +337,7 @@ async function resolveOmegaTechAkwamPlayback(
         }
 
         const contentPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
-        const episodeUrl = pickEpisodeUrl(contentPayload, request.episode);
+        const episodeUrl = pickEpisodeUrl(contentPayload, request.episode, request.season);
         if (!episodeUrl) throw new Error(`OmegaTech Akwam episode ${request.episode} was not found`);
 
         targetPayload = await omegaRequest(base, { action: 'episode', episode: episodeUrl }, timeoutMs);
@@ -348,6 +364,23 @@ async function resolveOmegaTechAkwamPlayback(
   throw new Error(lastError);
 }
 \nexport async function resolveRemotePlayback(
+  request: RemotePlaybackRequest,
+): Promise<RemotePlaybackSource[]> {
+  const cacheKey = remoteResolveCacheKey(request);
+  const now = Date.now();
+  const cached = remoteResolveCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.promise;
+
+  const promise = resolveRemotePlaybackUncached(request);
+  remoteResolveCache.set(cacheKey, { expiresAt: now + REMOTE_RESOLVE_CACHE_TTL_MS, promise });
+  promise.catch(() => {
+    const current = remoteResolveCache.get(cacheKey);
+    if (current?.promise === promise) remoteResolveCache.delete(cacheKey);
+  });
+  return promise;
+}
+
+async function resolveRemotePlaybackUncached(
   request: RemotePlaybackRequest,
 ): Promise<RemotePlaybackSource[]> {
   const timeoutMs = Math.max(2_000, Number(process.env.PLAYBACK_RESOLVER_TIMEOUT_MS || 9_000));
