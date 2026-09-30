@@ -41,6 +41,7 @@ const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
 };
 
 const playbackQualityRank = (source: PlaybackSource) => {
+  if (isAkwamEmbedSource(source)) return -1;
   const match = source.quality?.match(/(\d{3,4})p/i);
   const quality = match ? Number(match[1]) : 9999;
   if (quality === 720) return 0;
@@ -258,6 +259,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         const mobilePreferredQuality =
           typeof window !== 'undefined' && window.innerWidth < 768 ? 480 : 720;
         const source =
+          sources.find((candidate) => candidate.isWorking && isAkwamEmbedSource(candidate)) ??
           sources.find(
             (candidate) =>
               candidate.isWorking &&
