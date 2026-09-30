@@ -1998,7 +1998,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "stable-single-source-2026-09-30-r15";
+const RESOLVER_VERSION = "stable-single-source-2026-09-30-r16";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
@@ -2367,7 +2367,7 @@ async function proxyAkwamMedia(request, requestUrl) {
     const upstreamRangeInfo = parseContentRangeHeader(response.headers.get("content-range") || "");
     if (upstreamRangeInfo && upstreamRangeInfo.end >= upstreamRangeInfo.start) {
       const requested = parseSingleRange(
-        requestedRange,
+        upstreamRange,
         upstreamRangeInfo.total,
         { startupQuality: sourceQuality },
       );
@@ -2399,7 +2399,7 @@ async function proxyAkwamMedia(request, requestUrl) {
       String(response.headers.get("content-range") || "").match(/\/(\d+)$/)?.[1] ||
       0,
     );
-    const sliced = sliceRangeResponse(response, requestedRange, total);
+    const sliced = sliceRangeResponse(response, upstreamRange, total);
     if (sliced) {
       applyKnownMediaType(
         sliced.headers,
