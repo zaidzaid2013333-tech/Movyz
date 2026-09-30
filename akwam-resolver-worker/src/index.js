@@ -1533,40 +1533,7 @@ async function resolveAkwamIframe(browser, payload) {
   };
 }
 
-async function resolveAkwamCached(browser, payload) {
-  const key = JSON.stringify({
-    content_url: clean(payload?.content_url || payload?.contentUrl),
-    title: normalizeTitle(payload?.title),
-    year: Number(payload?.year) || 0,
-    type: payload?.type === "series" ? "series" : "movie",
-    season: Number(payload?.season) || 0,
-    episode: Number(payload?.episode) || 0,
-  });
-
-  const cached = playbackCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
-
-  const inflight = playbackInflight.get(key);
-  if (inflight) return await inflight;
-
-  const task = (async () => {
-    const value = await resolveAkwam(browser, payload);
-    playbackCache.set(key, {
-      value,
-      expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS,
-    });
-    return value;
-  })();
-
-  playbackInflight.set(key, task);
-  try {
-    return await task;
-  } finally {
-    playbackInflight.delete(key);
-  }
-}
-
-async function resolveAkwam(browser, payload) {
+async function resolveAkwamQualityPlan(browser, payload) {
   const directContent = decodeContentUrl(payload);
   const entry = directContent
     ? { title: clean(payload?.title), url: directContent }
@@ -1593,36 +1560,92 @@ async function resolveAkwam(browser, payload) {
     );
   }
 
-  const orderedQualities = qualities.sort(
-    (a, b) => qualityRank(a.quality) - qualityRank(b.quality),
+  return {
+    entry,
+    mediaPage,
+    orderedQualities: qualities.sort(
+      (a, b) => qualityRank(a.quality) - qualityRank(b.quality),
+    ),
+  };
+}
+
+function preferredQualityRef(qualities) {
+  const preferred = ["720p", "576p", "540p", "480p"];
+  return (
+    qualities.find((item) => preferred.includes(String(item?.quality || "").toLowerCase())) ||
+    qualities[0] ||
+    null
   );
+}
 
-  const buildResult = (resolved) => {
-    const sources = resolved
-      .filter(Boolean)
-      .map((item) => ({
-        quality: item.quality || "auto",
-        type: item.type || mediaTypeFromUrl(item.media_url || item.url),
-        url: item.media_url || item.url,
-      }));
+async function resolveAkwamInitial(browser, payload) {
+  const plan = await resolveAkwamQualityPlan(browser, payload);
+  const initialRef = preferredQualityRef(plan.orderedQualities);
+  if (!initialRef) throw new Error("AKWAM_QUALITY: no initial quality");
 
-    const primary = sources[0];
-    return {
-      title: entry.title,
-      source_url: mediaPage.url,
-      media_url: primary?.url || "",
-      type: primary?.type || mediaTypeFromUrl(primary?.url || ""),
-      quality: primary?.quality || "auto",
-      qualities: sources.map((item) => item.quality),
-      sources,
-    };
+  const initial = await resolveQuality(browser, initialRef);
+  diagnostic("AKWAM_QUALITY", String(initial.quality || initialRef.quality) + " initial resolved");
+
+  const source = {
+    quality: initial.quality || initialRef.quality || "auto",
+    type: initial.type || mediaTypeFromUrl(initial.media_url || initial.url),
+    url: initial.media_url || initial.url,
   };
 
-  // Resolve all available qualities concurrently. Each quality now skips
-  // the redundant media probe when a real media URL is already present, so
-  // returning the complete quality set is fast again.
+  return {
+    title: plan.entry.title,
+    source_url: plan.mediaPage.url,
+    media_url: source.url,
+    type: source.type,
+    quality: source.quality,
+    qualities: plan.orderedQualities.map((item) => item.quality),
+    sources: [source],
+    quality_refs: plan.orderedQualities.map((item) => ({
+      quality: item.quality,
+      type: item.kind || "watch",
+      url: item.url,
+    })),
+  };
+}
+
+async function resolveAkwamCached(browser, payload) {
+  const key = JSON.stringify({
+    content_url: clean(payload?.content_url || payload?.contentUrl),
+    title: normalizeTitle(payload?.title),
+    year: Number(payload?.year) || 0,
+    type: payload?.type === "series" ? "series" : "movie",
+    season: Number(payload?.season) || 0,
+    episode: Number(payload?.episode) || 0,
+  });
+
+  const cached = playbackCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const inflight = playbackInflight.get(key);
+  if (inflight) return await inflight;
+
+  const task = (async () => {
+    const value = await resolveAkwamInitial(browser, payload);
+    playbackCache.set(key, {
+      value,
+      expiresAt: Date.now() + PLAYBACK_CACHE_TTL_MS,
+    });
+    return value;
+  })();
+
+  playbackInflight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    playbackInflight.delete(key);
+  }
+}
+
+async function resolveAkwam(browser, payload) {
+  const plan = await resolveAkwamQualityPlan(browser, payload);
+
   const resolvedResults = await Promise.allSettled(
-    orderedQualities.map(async (quality) => {
+    plan.orderedQualities.map(async (quality) => {
       const stream = await resolveQuality(browser, quality);
       diagnostic("AKWAM_QUALITY", quality.quality + " resolved");
       return stream;
@@ -1656,9 +1679,10 @@ async function resolveAkwam(browser, payload) {
 
   const sources = [...byQuality.values()]
     .sort((a, b) => qualityRank(a.quality) - qualityRank(b.quality));
+
   return {
-    title: entry.title,
-    source_url: mediaPage.url,
+    title: plan.entry.title,
+    source_url: plan.mediaPage.url,
     media_url: sources[0]?.url || "",
     type: sources[0]?.type || mediaTypeFromUrl(sources[0]?.url || ""),
     quality: sources[0]?.quality || "auto",
@@ -1708,15 +1732,38 @@ function normalizePlayerSourceList(value) {
     );
 }
 
-function buildPlayerToken(sources, referer, title) {
+function normalizeQualityRefList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => ({
+      quality: clean(item?.quality) || "auto",
+      type: clean(item?.type) || "watch",
+      url: clean(item?.url),
+    }))
+    .filter((item) => item.url)
+    .filter((item) => {
+      try {
+        return Boolean(safeUrl(item.url, AKWAM_BASE, { pageOnly: true }));
+      } catch {
+        return false;
+      }
+    })
+    .filter((item, index, list) =>
+      list.findIndex((candidate) => candidate.quality === item.quality) === index,
+    );
+}
+
+function buildPlayerToken(sources, referer, title, qualityRefs = []) {
   const normalized = normalizePlayerSourceList(sources);
+  const normalizedRefs = normalizeQualityRefList(qualityRefs);
   if (!normalized.length) throw new Error("AKWAM_PLAYER: no resolved media sources");
   return encodePlayerToken({
-    version: 2,
+    version: 3,
     exp: Date.now() + PLAYER_TOKEN_TTL_MS,
     title: clean(title) || "Akwam",
     referer: clean(referer),
     sources: normalized,
+    quality_refs: normalizedRefs,
   });
 }
 
@@ -1725,8 +1772,9 @@ function playerTokenPayload(requestUrl) {
   const payload = decodePlayerToken(token);
   if (!payload || Number(payload.exp || 0) < Date.now()) return null;
   const sources = normalizePlayerSourceList(payload.sources);
+  const qualityRefs = normalizeQualityRefList(payload.quality_refs);
   if (!sources.length) return null;
-  return { ...payload, sources };
+  return { ...payload, sources, qualityRefs };
 }
 
 function playerHtml(token, payload) {
@@ -1738,6 +1786,7 @@ function playerHtml(token, payload) {
 
   const tokenLiteral = JSON.stringify(token);
   const sourcesLiteral = JSON.stringify(payload.sources);
+  const qualityRefsLiteral = JSON.stringify(payload.qualityRefs || []);
 
   const html = `<!doctype html>
 <html lang="en">
@@ -1768,6 +1817,8 @@ select{pointer-events:auto;background:rgba(15,15,15,.8);color:#fff;border:1px so
 <script>
 const TOKEN=${tokenLiteral};
 const SOURCES=${sourcesLiteral};
+const QUALITY_REFS=${qualityRefsLiteral};
+const QUALITY_OPTIONS=[...new Set([...SOURCES.map((source)=>String(source.quality||"auto")),...QUALITY_REFS.map((ref)=>String(ref.quality||"auto"))])];
 const video=document.getElementById("player");
 const select=document.getElementById("quality");
 const status=document.getElementById("status");
@@ -1911,9 +1962,44 @@ function ensureHlsLibrary(){
   return hlsLoader;
 }
 
+async function resolveQualityForPlayer(quality){
+  const wanted=String(quality||"").toLowerCase();
+  const existing=SOURCES.find((source)=>String(source.quality||"").toLowerCase()===wanted);
+  if(existing) return existing;
+
+  const ref=QUALITY_REFS.find((item)=>String(item.quality||"").toLowerCase()===wanted);
+  if(!ref) return null;
+
+  setStatus("Loading quality…",true);
+  const response=await fetch("/resolve-quality?t="+encodeURIComponent(TOKEN)+"&q="+encodeURIComponent(ref.quality),{
+    headers:{Accept:"application/json"},
+    cache:"no-store",
+  });
+  const body=await response.json().catch(()=>null);
+  if(!response.ok || !body?.ok || !body?.source?.url){
+    throw new Error(body?.error||"Quality resolution failed");
+  }
+
+  const source={
+    quality:String(body.source.quality||ref.quality),
+    type:String(body.source.type||"mp4"),
+    url:String(body.source.url),
+  };
+  SOURCES.push(source);
+  return source;
+}
+
 async function loadSource(index){
   const sequence=++loadSequence;
-  const source=SOURCES[index]||SOURCES[0];
+  const desiredQuality=QUALITY_OPTIONS[index]||QUALITY_OPTIONS[0]||"auto";
+  let source;
+  try{
+    source=await resolveQualityForPlayer(desiredQuality);
+  }catch(error){
+    if(sequence===loadSequence) showPlaybackError(String(error?.message||error||"Quality resolution failed"));
+    return;
+  }
+  if(sequence!==loadSequence) return;
   if(!source){showPlaybackError("No playable source");return}
   const rawUrl=String(source.url||"").trim();
   if(!rawUrl){showPlaybackError("Empty media source");return}
@@ -1989,19 +2075,19 @@ async function loadSource(index){
   attachNative(rawUrl, proxiedUrl, sequence, "direct", 0);
 }
 
-SOURCES.forEach((source,index)=>{
+QUALITY_OPTIONS.forEach((quality,index)=>{
   const option=document.createElement("option");
   option.value=String(index);
-  option.textContent=source.quality||"Auto";
+  option.textContent=quality||"Auto";
   select.appendChild(option);
 });
-select.hidden=SOURCES.length<2;
+select.hidden=QUALITY_OPTIONS.length<2;
 select.addEventListener("change",()=>{void loadSource(Number(select.value));});
 video.addEventListener("playing",()=>setStatus("",false));
 video.addEventListener("canplay",()=>setStatus("",false));
 
 const preferredQualities=["720p","576p","540p","480p"];
-const preferredIndex=SOURCES.findIndex((source)=>preferredQualities.includes(String(source.quality||"").toLowerCase()));
+const preferredIndex=QUALITY_OPTIONS.findIndex((quality)=>preferredQualities.includes(String(quality||"").toLowerCase()));
 const initialIndex=preferredIndex>=0?preferredIndex:0;
 select.value=String(initialIndex);
 void loadSource(initialIndex);
@@ -2065,7 +2151,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "direct-first-stable-2026-09-30-r21";
+const RESOLVER_VERSION = "direct-first-stable-2026-09-30-r22";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
@@ -2525,6 +2611,58 @@ export default { async fetch(request, env) {
     }
   }
 
+  if (request.method === "GET" && url.pathname === "/resolve-quality") {
+    const payload = playerTokenPayload(url);
+    if (!payload) return json({ ok: false, error: "Invalid or expired player token" }, 400);
+    if (!env.BROWSER?.quickAction) {
+      return json({ ok: false, error: "Browser Run Quick Actions unavailable" }, 500);
+    }
+
+    const requestedQuality = normalizeQuality(url.searchParams.get("q") || "");
+    const ref = (payload.qualityRefs || []).find(
+      (item) => String(item.quality || "").toLowerCase() === requestedQuality.toLowerCase(),
+    );
+    if (!ref) return json({ ok: false, error: "Requested quality is unavailable" }, 404);
+
+    const safeRef = safeUrl(ref.url, AKWAM_BASE, { pageOnly: true });
+    if (!safeRef) return json({ ok: false, error: "Invalid quality reference" }, 400);
+
+    const existing = payload.sources.find(
+      (item) => String(item.quality || "").toLowerCase() === requestedQuality.toLowerCase(),
+    );
+    if (existing) {
+      return json({
+        ok: true,
+        source: existing,
+        cached: true,
+      });
+    }
+
+    try {
+      const stream = await resolveQuality(env.BROWSER, {
+        quality: ref.quality,
+        url: safeRef,
+        kind: ref.type,
+      });
+      const source = {
+        quality: stream.quality || ref.quality,
+        type: stream.type || mediaTypeFromUrl(stream.media_url || stream.url),
+        url: stream.media_url || stream.url,
+      };
+      if (!source.url) throw new Error("Resolved quality has no media URL");
+
+      return json({
+        ok: true,
+        source,
+        cached: qualityCache.has(safeRef),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      diagnostic("AKWAM_QUALITY_ON_DEMAND_FAILED", message);
+      return json({ ok: false, error: message }, 502);
+    }
+  }
+
   if (request.method === "POST" && url.pathname === "/resolve-iframe") {
     let payload;
     try { payload = await request.json(); } catch {
@@ -2595,6 +2733,7 @@ export default { async fetch(request, env) {
         sources,
         resolved.source_url,
         resolved.title || payload?.title || "Akwam",
+        resolved.quality_refs || [],
       );
 
       const iframeUrl =
@@ -2610,6 +2749,7 @@ export default { async fetch(request, env) {
         type: "web",
         quality: resolved.quality || sources[0]?.quality || "auto",
         qualities: resolved.qualities || sources.map((item) => item.quality),
+        quality_refs: resolved.quality_refs || [],
         sources,
         iframe_url: iframeUrl,
         player_url: iframeUrl,
