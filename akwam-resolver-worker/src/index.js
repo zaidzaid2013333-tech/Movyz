@@ -1801,7 +1801,7 @@ function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retry
     if(mode==="direct" && fallbackUrl && fallbackUrl!==primaryUrl){
       setStatus("Switching source…",true);
       window.setTimeout(()=>{
-        if(sequence!==loadSequence) return;
+        if(sourceIndex !== loadSequence) return;
         attachNative(primaryUrl, fallbackUrl, sourceIndex, "proxy", 0);
       },120);
       return;
@@ -1810,7 +1810,7 @@ function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retry
     if(retryCount<1){
       setStatus("Retrying…",true);
       window.setTimeout(()=>{
-        if(sequence!==loadSequence) return;
+        if(sourceIndex !== loadSequence) return;
         attachNative(primaryUrl, fallbackUrl, sourceIndex, mode, retryCount+1);
       },250);
       return;
@@ -1820,7 +1820,7 @@ function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retry
     if(nextIndex<SOURCES.length){
       setStatus("Switching quality…",true);
       window.setTimeout(()=>{
-        if(sequence!==loadSequence) return;
+        if(sourceIndex !== loadSequence) return;
         void loadSource(nextIndex);
       },120);
       return;
@@ -1924,8 +1924,8 @@ async function loadSource(index){
     };
 
     if(!(await startHls())) {
-      if(sequence!==loadSequence) return;
-      attachNative(proxiedUrl);
+      if(sourceIndex !== loadSequence) return;
+      attachNative(rawUrl, proxiedUrl, index, "direct", 0);
     }
     return;
   }
@@ -1936,7 +1936,9 @@ async function loadSource(index){
   }
 
   setStatus("Loading…",true);
-  attachNative(proxiedUrl);
+  // MP4: direct CDN first, Movyz proxy only as fallback.
+  // This removes an unnecessary Worker hop on normal playback.
+  attachNative(rawUrl, proxiedUrl, index, "direct", 0);
 }
 
 SOURCES.forEach((source,index)=>{
