@@ -1998,7 +1998,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "stable-single-source-2026-09-30-r16";
+const RESOLVER_VERSION = "stable-single-source-2026-09-30-r17";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
@@ -2263,7 +2263,7 @@ async function proxyAkwamMedia(request, requestUrl) {
   })();
   const sourceType = String(sourceInfo?.type || mediaTypeFromUrl(target.url)).toLowerCase();
   const requestedRange = range;
-  const openEndedRange = String(range).match(/^bytes=(\\d+)-$/i);
+  const openEndedRange = String(range).match(/^bytes=(\d+)-$/i);
   const upstreamRange = openEndedRange
     ? "bytes=" + Number(openEndedRange[1]) + "-" + (Number(openEndedRange[1]) + 8 * 1024 * 1024 - 1)
     : range;
