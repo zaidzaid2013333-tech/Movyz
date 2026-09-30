@@ -14,7 +14,7 @@ TMDB is used for catalog metadata. Playback does not go through a Watch Source A
 The production playback path is intentionally simple:
 
 1. The browser loads the published movie/series metadata from the Movyz API.
-2. VideoPlayer builds the VidCore URL directly from the TMDB ID.
+2. WatchPage builds the VidCore URL directly from the TMDB ID.
 3. Movyz renders that URL as a direct HTTPS iframe.
 4. For series, the season and episode are included directly in the VidCore URL.
 

@@ -11,6 +11,7 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
+        selfDestroying: true,
         includeAssets: ['favicon.ico', 'pwa-icon.svg'],
         manifest: {
           name: 'MOVYZA - منصة السينما والدراما',
