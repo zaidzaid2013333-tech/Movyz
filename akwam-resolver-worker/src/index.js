@@ -1788,30 +1788,42 @@ function showPlaybackError(message){
   setStatus(message||"Playback failed",true);
 }
 
-function attachNative(url, sequence, allowRetry=true){
+function attachNative(primaryUrl, fallbackUrl, sequence, mode="direct", retryCount=0){
+  const url=mode==="proxy"?fallbackUrl:primaryUrl;
   video.src=url;
   try{video.load()}catch{}
 
-  const onMeta=()=>setStatus("",false);
-  const onCanPlay=()=>setStatus("",false);
-  const onPlaying=()=>setStatus("",false);
+  const clearStatus=()=>setStatus("",false);
   const onError=()=>{
     if(sequence!==loadSequence) return;
     const code=video.error && video.error.code;
-    if(allowRetry){
+
+    // Only switch transport after a real media error. Never switch qualities
+    // automatically and never restart playback just because buffering is slow.
+    if(mode==="direct" && fallbackUrl && fallbackUrl!==primaryUrl){
       setStatus("Retrying…",true);
       window.setTimeout(()=>{
         if(sequence!==loadSequence) return;
-        attachNative(url,sequence,false);
+        attachNative(primaryUrl,fallbackUrl,sequence,"proxy",0);
+      },250);
+      return;
+    }
+
+    if(retryCount<1){
+      setStatus("Retrying…",true);
+      window.setTimeout(()=>{
+        if(sequence!==loadSequence) return;
+        attachNative(primaryUrl,fallbackUrl,sequence,mode,retryCount+1);
       },500);
       return;
     }
+
     showPlaybackError("Playback failed"+(code?" ("+code+")":""));
   };
 
-  video.addEventListener("loadedmetadata",onMeta,{once:true});
-  video.addEventListener("canplay",onCanPlay,{once:true});
-  video.addEventListener("playing",onPlaying,{once:true});
+  video.addEventListener("loadedmetadata",clearStatus,{once:true});
+  video.addEventListener("canplay",clearStatus,{once:true});
+  video.addEventListener("playing",clearStatus,{once:true});
   video.addEventListener("error",onError,{once:true});
 }
 
@@ -1886,7 +1898,7 @@ async function loadSource(index){
         fallbackTried=true;
         try{hls&&hls.destroy()}catch{}
         hls=null;
-        attachNative(proxiedUrl,sequence,true);
+        attachNative(proxiedUrl,rawUrl,sequence,"proxy",0);
       };
 
       hls.on(HlsCtor.Events.MANIFEST_PARSED,()=>{
@@ -1906,7 +1918,7 @@ async function loadSource(index){
 
     if(!(await startHls())) {
       if(sequence!==loadSequence) return;
-      attachNative(proxiedUrl,sequence,true);
+      attachNative(proxiedUrl,rawUrl,sequence,"proxy",0);
     }
     return;
   }
@@ -1917,9 +1929,10 @@ async function loadSource(index){
   }
 
   setStatus("Loading…",true);
-  // Keep playback on the selected quality and the referer-aware Movyz proxy.
-  // Retry the same URL only after a media error; never switch sources on stalls.
-  attachNative(proxiedUrl, sequence, true);
+  // MP4: use the CDN directly for the lowest-latency normal path.
+  // Fall back to the referer-aware proxy only on a real media error.
+  // Buffering alone never changes source or quality.
+  attachNative(rawUrl, proxiedUrl, sequence, "direct", 0);
 }
 
 SOURCES.forEach((source,index)=>{
@@ -1998,7 +2011,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "stable-single-source-2026-09-30-r17";
+const RESOLVER_VERSION = "direct-first-stable-2026-09-30-r18";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
