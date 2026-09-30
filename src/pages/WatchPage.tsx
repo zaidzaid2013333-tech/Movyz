@@ -367,7 +367,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               playsInline
               preload="metadata"
               controlsList="nodownload noplaybackrate"
-              referrerPolicy="no-referrer"
             >
               {language === 'ar'
                 ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
