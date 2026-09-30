@@ -16,6 +16,22 @@
   </head>
   <body class="bg-[#050507] text-slate-100 antialiased selection:bg-amber-500/30 selection:text-amber-200 min-h-screen">
     <div id="root"></div>
+    <script>
+      (async () => {
+        try {
+          if ('serviceWorker' in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(registrations.map((registration) => registration.unregister()));
+          }
+          if ('caches' in window) {
+            const cacheNames = await caches.keys();
+            await Promise.all(cacheNames.map((name) => caches.delete(name)));
+          }
+        } catch {
+          // Legacy PWA cleanup must never block the application.
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

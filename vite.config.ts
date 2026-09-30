@@ -12,6 +12,7 @@ export default defineConfig(() => {
       VitePWA({
         registerType: 'autoUpdate',
         selfDestroying: true,
+        injectRegister: null,
         includeAssets: ['favicon.ico', 'pwa-icon.svg'],
         manifest: {
           name: 'MOVYZA - منصة السينما والدراما',
