@@ -350,6 +350,20 @@ async function resolveAkwamInteractiveEmbedUrls(
       // Dynamic players may keep background connections open.
     }
 
+    const filterEmbedCandidates = (urls: string[]) => [...new Set(urls)]
+      .filter((url) => /^https?:\/\//i.test(url))
+      .filter((url) => {
+        try {
+          const parsed = new URL(url);
+          const path = (parsed.pathname + parsed.search).toLowerCase();
+          return parsed.hostname !== new URL(page.url()).hostname
+            || /(?:embed|player|watch|stream|video|play)/i.test(path);
+        } catch {
+          return false;
+        }
+      })
+      .slice(0, 8);
+
     const collectEmbedUrls = async () => {
       const iframeUrls = await page.locator('iframe,embed,frame').evaluateAll((elements: Element[]) =>
         elements.map((element) =>
@@ -362,8 +376,7 @@ async function resolveAkwamInteractiveEmbedUrls(
         ).filter(Boolean)
       );
 
-      const frameUrls = page.frames().map((frame: any) => frame.url()).filter(Boolean);
-      return [...new Set([...iframeUrls, ...frameUrls])].filter((url) => /^https?:\/\//i.test(url));
+      return filterEmbedCandidates(iframeUrls);
     };
 
     let embeds = await collectEmbedUrls();
