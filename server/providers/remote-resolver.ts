@@ -22,20 +22,32 @@ export type RemotePlaybackSource = {
   providerReference?: string;
 };
 
-function requiredResolverUrl() {
-  const value = process.env.PLAYBACK_RESOLVER_URL?.trim();
-  if (!value) throw new Error('PLAYBACK_RESOLVER_URL is not configured');
+function resolverTemplates() {
+  const configured = [
+    process.env.PLAYBACK_RESOLVER_URLS,
+    process.env.PLAYBACK_RESOLVER_URL,
+  ]
+    .filter(Boolean)
+    .flatMap((value) => String(value).split(','))
+    .map((value) => value.trim())
+    .filter(Boolean);
 
-  const parsed = new URL(value);
-  if (parsed.protocol !== 'https:') {
-    throw new Error('PLAYBACK_RESOLVER_URL must use HTTPS');
+  const unique = [...new Set(configured)];
+  if (!unique.length) throw new Error('PLAYBACK_RESOLVER_URL is not configured');
+
+  for (const value of unique) {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:') {
+      throw new Error('PLAYBACK_RESOLVER_URL must use HTTPS');
+    }
   }
-  return value;
+
+  return unique;
 }
 
 export function buildRemoteResolverUrl(
   request: RemotePlaybackRequest,
-  template = requiredResolverUrl(),
+  template: string,
 ) {
   const replacements: Record<string, string> = {
     type: request.type,
@@ -73,18 +85,37 @@ export function buildRemoteResolverUrl(
   return url.toString();
 }
 
+export async function resolveRemotePlayback
 export async function resolveRemotePlayback(
   request: RemotePlaybackRequest,
 ): Promise<RemotePlaybackSource[]> {
-  const url = buildRemoteResolverUrl(request);
-  const payload = await fetchJsonOrText(
-    url,
-    Math.max(2_000, Number(process.env.PLAYBACK_RESOLVER_TIMEOUT_MS || 7_000)),
-  );
+  const urls = resolverTemplates();
+  const timeoutMs = Math.max(2_000, Number(process.env.PLAYBACK_RESOLVER_TIMEOUT_MS || 7_000));
+  const candidates = [];
+  const errors: string[] = [];
 
-  const candidates = extractPlaybackCandidates(payload).slice(0, 6);
+  for (const template of urls) {
+    try {
+      const url = buildRemoteResolverUrl(request, template);
+      const payload = await fetchJsonOrText(url, timeoutMs);
+      candidates.push(...extractPlaybackCandidates(payload));
+      if (candidates.length >= 6) break;
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
 
-  return candidates.map((candidate, index) => ({
+  const unique = new Map<string, (typeof candidates)[number]>();
+  for (const candidate of candidates) {
+    if (!unique.has(candidate.url)) unique.set(candidate.url, candidate);
+    if (unique.size >= 6) break;
+  }
+
+  if (!unique.size && errors.length) {
+    throw new Error(errors.join(' | '));
+  }
+
+  return [...unique.values()].map((candidate, index) => ({
     id: `remote-${index + 1}-${candidate.providerReference || 'source'}`,
     type: inferPlaybackType(candidate.url, candidate.type) || 'web',
     quality: candidate.quality || 'auto',
