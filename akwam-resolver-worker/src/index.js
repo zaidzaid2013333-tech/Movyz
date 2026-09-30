@@ -1789,6 +1789,7 @@ function showPlaybackError(message){
 }
 
 function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retryCount=0){
+  const sequence=loadSequence;
   const url=mode==="proxy"?fallbackUrl:primaryUrl;
   video.src=url;
   try{video.load()}catch{}
@@ -1801,7 +1802,7 @@ function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retry
     if(mode==="direct" && fallbackUrl && fallbackUrl!==primaryUrl){
       setStatus("Switching source…",true);
       window.setTimeout(()=>{
-        if(sourceIndex !== loadSequence) return;
+        if(sequence!==loadSequence) return;
         attachNative(primaryUrl, fallbackUrl, sourceIndex, "proxy", 0);
       },120);
       return;
@@ -1810,7 +1811,7 @@ function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retry
     if(retryCount<1){
       setStatus("Retrying…",true);
       window.setTimeout(()=>{
-        if(sourceIndex !== loadSequence) return;
+        if(sequence!==loadSequence) return;
         attachNative(primaryUrl, fallbackUrl, sourceIndex, mode, retryCount+1);
       },250);
       return;
@@ -1820,7 +1821,7 @@ function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retry
     if(nextIndex<SOURCES.length){
       setStatus("Switching quality…",true);
       window.setTimeout(()=>{
-        if(sourceIndex !== loadSequence) return;
+        if(sequence!==loadSequence) return;
         void loadSource(nextIndex);
       },120);
       return;
@@ -1924,7 +1925,7 @@ async function loadSource(index){
     };
 
     if(!(await startHls())) {
-      if(sourceIndex !== loadSequence) return;
+      if(sequence!==loadSequence) return;
       attachNative(rawUrl, proxiedUrl, index, "direct", 0);
     }
     return;
