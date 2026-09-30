@@ -1,5 +1,7 @@
 import { extractPlaybackCandidates, fetchJsonOrText, inferPlaybackType } from './http';
 
+const DEFAULT_STREAMAR_ADDON_URL = 'https://2ecbbd610840-stremio-ar.baby-beamup.club';
+
 export type RemotePlaybackRequest = {
   type: 'movie' | 'series';
   tmdbId: number;
@@ -21,6 +23,46 @@ export type RemotePlaybackSource = {
   providerKey: string;
   providerReference?: string;
 };
+
+async function resolveTmdbExternalId(type: 'movie' | 'series', tmdbId: number, timeoutMs: number) {
+  const token = process.env.TMDB_API_READ_ACCESS_TOKEN?.trim();
+  if (!token) throw new Error('TMDB_API_READ_ACCESS_TOKEN is not configured');
+
+  const path = type === 'movie' ? `/movie/${tmdbId}/external_ids` : `/tv/${tmdbId}/external_ids`;
+  const response = await fetchJsonOrText(
+    `https://api.themoviedb.org/3${path}`,
+    timeoutMs,
+    { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  );
+
+  if (!response || typeof response !== 'object') throw new Error('TMDB external ids response is invalid');
+  const imdbId = (response as Record<string, unknown>).imdb_id;
+  if (typeof imdbId !== 'string' || !/^tt\\d+$/i.test(imdbId)) {
+    throw new Error(`No IMDb id found for TMDB ${tmdbId}`);
+  }
+  return imdbId;
+}
+
+async function resolveStreamArPlayback(
+  request: RemotePlaybackRequest,
+  timeoutMs: number,
+): Promise<ReturnType<typeof extractPlaybackCandidates>> {
+  const base = (process.env.STREAMAR_ADDON_URL?.trim() || DEFAULT_STREAMAR_ADDON_URL).replace(/\\/$/, '');
+  const imdbId = await resolveTmdbExternalId(request.type, request.tmdbId, timeoutMs);
+
+  let path: string;
+  if (request.type === 'movie') {
+    path = `/stream/movie/${encodeURIComponent(imdbId)}.json`;
+  } else {
+    if (!Number.isInteger(request.season) || !Number.isInteger(request.episode)) {
+      throw new Error('StreamAR series playback requires season and episode');
+    }
+    path = `/stream/series/${encodeURIComponent(imdbId + ':' + request.season + ':' + request.episode)}.json`;
+  }
+
+  const payload = await fetchJsonOrText(base + path, timeoutMs);
+  return extractPlaybackCandidates(payload);
+}
 
 function resolverTemplates() {
   const configured = [
@@ -110,11 +152,25 @@ export async function resolveRemotePlayback(
     if (unique.size >= 6) break;
   }
 
+  if (!unique.size) {
+    try {
+      candidates.push(...await resolveStreamArPlayback(request, timeoutMs));
+    } catch (error) {
+      errors.push(error instanceof Error ? `StreamAR: ${error.message}` : `StreamAR: ${String(error)}`);
+    }
+  }
+
   if (!unique.size && errors.length) {
     throw new Error(errors.join(' | '));
   }
 
-  return [...unique.values()].map((candidate, index) => ({
+  const fallbackUnique = new Map<string, (typeof candidates)[number]>();
+  for (const candidate of candidates) {
+    if (!fallbackUnique.has(candidate.url)) fallbackUnique.set(candidate.url, candidate);
+    if (fallbackUnique.size >= 6) break;
+  }
+
+  return [...fallbackUnique.values()].map((candidate, index) => ({
     id: `remote-${index + 1}-${candidate.providerReference || 'source'}`,
     type: inferPlaybackType(candidate.url, candidate.type) || 'web',
     quality: candidate.quality || 'auto',
