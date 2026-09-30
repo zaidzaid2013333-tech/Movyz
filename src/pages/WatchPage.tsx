@@ -272,6 +272,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               className="block h-full w-full border-0 bg-black"
               allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
               allowFullScreen
+              referrerPolicy="no-referrer"
               loading="eager"
               scrolling="no"
             />
