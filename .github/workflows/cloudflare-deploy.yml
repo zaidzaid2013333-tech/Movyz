@@ -104,6 +104,32 @@ jobs:
 
           print("Playback provider checks skipped: production player is now resolved from Movyz API playback sources.")
 
+      - name: Smoke test StreamAR
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+
+          base = "https://2ecbbd610840-stremio-ar.baby-beamup.club"
+          urls = [
+              f"{base}/manifest.json",
+              f"{base}/stream/movie/tt0133093.json",
+          ]
+          for url in urls:
+              request = urllib.request.Request(url, headers={"User-Agent": "Movyz/1.0"})
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  payload = response.read().decode("utf-8", "replace")
+              if not payload.strip():
+                  raise SystemExit(f"StreamAR returned empty body: {url}")
+              print(f"StreamAR HTTP OK: {url}")
+              if "/stream/" in url:
+                  data = json.loads(payload)
+                  streams = data.get("streams")
+                  print(f"StreamAR stream count: {len(streams) if isinstance(streams, list) else 0}")
+                  if not isinstance(streams, list) or not streams:
+                      raise SystemExit("StreamAR returned no streams for smoke-test movie")
+          PY
+
       - name: Remove temporary secrets file
         if: always()
         run: rm -f .env.production
