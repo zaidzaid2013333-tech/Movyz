@@ -555,7 +555,7 @@ app.get(`${api}/history`, requireAuth, asyncRoute(async (req: AuthenticatedReque
   const movieIds = rows.filter((x: any) => x.content_type === 'movie').map((x: any) => x.content_id);
   const episodeIds = rows.filter((x: any) => x.content_type === 'episode').map((x: any) => x.content_id);
   const [movies, episodes] = await Promise.all([
-    movieIds.length ? adminSupabase.from('movies').select('id,title_ar,title_en,poster_url,backdrop_url,rating').in('id', movieIds) : { data: [] as any[] },
+    movieIds.length ? adminSupabase.from('movies').select('id,tmdb_id,title_ar,title_en,poster_url,backdrop_url,rating').in('id', movieIds) : { data: [] as any[] },
     episodeIds.length ? adminSupabase.from('episodes').select('id,season_id,episode_number,name_ar,name_en').in('id', episodeIds) : { data: [] as any[] },
   ]);
   const movieMap = new Map((movies.data || []).map((x: any) => [x.id, x]));
@@ -563,12 +563,12 @@ app.get(`${api}/history`, requireAuth, asyncRoute(async (req: AuthenticatedReque
   const { data: seasons } = seasonIds.length ? await adminSupabase.from('seasons').select('id,series_id,season_number').in('id', seasonIds) : { data: [] as any[] };
   const seasonMap = new Map((seasons || []).map((x: any) => [x.id, x]));
   const seriesIds = [...new Set((seasons || []).map((x: any) => x.series_id))];
-  const { data: seriesRows } = seriesIds.length ? await adminSupabase.from('series').select('id,title_ar,title_en,poster_url,backdrop_url,rating').in('id', seriesIds) : { data: [] as any[] };
+  const { data: seriesRows } = seriesIds.length ? await adminSupabase.from('series').select('id,tmdb_id,title_ar,title_en,poster_url,backdrop_url,rating').in('id', seriesIds) : { data: [] as any[] };
   const seriesMap = new Map((seriesRows || []).map((x: any) => [x.id, x])); const episodeMap = new Map(episodeRows.map((x: any) => [x.id, x]));
   return ok(res, rows.map((x: any) => {
     const movie = x.content_type === 'movie' ? movieMap.get(x.content_id) : null; const episode = x.content_type === 'episode' ? episodeMap.get(x.content_id) : null;
     const season = episode ? seasonMap.get(episode.season_id) : null; const series = season ? seriesMap.get(season.series_id) : null; const base = movie || series;
-    return { contentId: base?.id || x.content_id, contentType: movie ? 'movie' : 'series', episodeId: episode?.id || undefined, episodeNumber: episode?.episode_number || undefined, seasonNumber: season?.season_number || undefined,
+    return { contentId: base?.id || x.content_id, tmdbId: Number(base?.tmdb_id || 0), contentType: movie ? 'movie' : 'series', episodeId: episode?.id || undefined, episodeNumber: episode?.episode_number || undefined, seasonNumber: season?.season_number || undefined,
       title: base?.title_ar || episode?.name_ar || '', titleEn: base?.title_en || episode?.name_en || '', posterUrl: base?.poster_url || '', backdropUrl: base?.backdrop_url || '',
       positionSeconds: x.position_seconds, durationSeconds: x.duration_seconds, percentage: x.duration_seconds ? Math.floor((x.position_seconds / x.duration_seconds) * 100) : 0, lastWatchedAt: x.updated_at, completed: x.completed };
   }));
