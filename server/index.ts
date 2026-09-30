@@ -315,6 +315,22 @@ app.get(`${api}/movies`, asyncRoute(async (req, res) => {
   return ok(res, output, { page: q.page, limit: q.limit, total: count || 0, totalPages: Math.ceil((count || 0) / q.limit) || 1 });
 }));
 
+app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
+  const tmdbId = Number(req.params.tmdbId);
+  if (!Number.isInteger(tmdbId) || tmdbId <= 0) return fail(res, 400, 'INVALID_TMDB_ID', 'Invalid TMDB id');
+
+  const { data, error } = await adminSupabase
+    .from('movies')
+    .select('*')
+    .eq('tmdb_id', tmdbId)
+    .eq('status', 'published')
+    .maybeSingle();
+
+  if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
+  const movie = await movieDto(data);
+  return ok(res, { movie, similar: [] });
+}));
+
 app.get(`${api}/movies/:id`, asyncRoute(async (req, res) => {
   const { data, error } = await adminSupabase.from('movies').select('*').eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
@@ -345,6 +361,22 @@ app.get(`${api}/series`, asyncRoute(async (req, res) => {
   const genreMap = await batchSeriesGenres(rows.map((row: any) => row.id));
   const output = rows.map((row: any) => seriesCardDto(row, genreMap.get(row.id) || []));
   return ok(res, output, { page: q.page, limit: q.limit, total: count || 0, totalPages: Math.ceil((count || 0) / q.limit) || 1 });
+}));
+
+app.get(`${api}/series/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
+  const tmdbId = Number(req.params.tmdbId);
+  if (!Number.isInteger(tmdbId) || tmdbId <= 0) return fail(res, 400, 'INVALID_TMDB_ID', 'Invalid TMDB id');
+
+  const { data, error } = await adminSupabase
+    .from('series')
+    .select('*')
+    .eq('tmdb_id', tmdbId)
+    .eq('status', 'published')
+    .maybeSingle();
+
+  if (error || !data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
+  const series = await seriesDto(data);
+  return ok(res, { series, similar: [] });
 }));
 
 app.get(`${api}/series/:id`, asyncRoute(async (req, res) => {
