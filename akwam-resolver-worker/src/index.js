@@ -1773,6 +1773,7 @@ let hls=null;
 let fallbackTried=false;
 let loadSequence=0;
 let hlsLoader=null;
+let stallTimer=null;
 
 function setStatus(message,show=true){
   status.textContent=message||"";
@@ -1788,22 +1789,127 @@ function showPlaybackError(message){
   setStatus(message||"Playback failed",true);
 }
 
-function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retryCount=0){
+function bufferedAhead(){
+  try{
+    const now=video.currentTime;
+    for(let i=0;i<video.buffered.length;i++){
+      const s=video.buffered.start(i);
+      const e=video.buffered.end(i);
+      if(now>=s-0.25 && now<=e+0.25) return Math.max(0,e-now);
+    }
+  }catch{}
+  return 0;
+}
+
+function clearStallTimer(){
+  if(stallTimer!==null){
+    window.clearTimeout(stallTimer);
+    stallTimer=null;
+  }
+}
+
+function scheduleStallRecovery(sequence, primaryUrl, fallbackUrl, sourceIndex, mode, retryCount){
+  clearStallTimer();
+  if(video.paused || video.ended) return;
+
+  stallTimer=window.setTimeout(()=>{
+    stallTimer=null;
+    if(sequence!==loadSequence || video.paused || video.ended) return;
+
+    const ahead=bufferedAhead();
+    const current=Number(video.currentTime||0);
+
+    if(video.readyState>=3 && ahead>=1.5) return;
+    if(current>90 && ahead>=0.5) return;
+
+    const resumeTime=current>0.5?current:0;
+
+    if(mode==="proxy" && primaryUrl && fallbackUrl && primaryUrl!==fallbackUrl){
+      setStatus("Switching source…",true);
+      attachNative(primaryUrl,fallbackUrl,sourceIndex,"direct",0,resumeTime);
+      return;
+    }
+
+    if(mode==="direct" && fallbackUrl && fallbackUrl!==primaryUrl){
+      setStatus("Recovering playback…",true);
+      attachNative(primaryUrl,fallbackUrl,sourceIndex,"proxy",0,resumeTime);
+      return;
+    }
+
+    if(retryCount<1){
+      setStatus("Retrying…",true);
+      attachNative(primaryUrl,fallbackUrl,sourceIndex,mode,retryCount+1,resumeTime);
+      return;
+    }
+
+    const nextIndex=Number(sourceIndex)+1;
+    if(nextIndex<SOURCES.length){
+      setStatus("Switching quality…",true);
+      window.setTimeout(()=>{
+        if(sequence!==loadSequence) return;
+        void loadSource(nextIndex);
+      },120);
+      return;
+    }
+
+    showPlaybackError("Playback stalled");
+  },7000);
+}
+
+function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retryCount=0, resumeTime=0){
   const sequence=loadSequence;
   const url=mode==="proxy"?fallbackUrl:primaryUrl;
+  clearStallTimer();
+
   video.src=url;
   try{video.load()}catch{}
 
-  const onMeta=()=>setStatus("",false);
-  const onCanPlay=()=>setStatus("",false);
+  const onMeta=()=>{
+    if(sequence!==loadSequence) return;
+    if(resumeTime>0.5){
+      try{
+        if(Number.isFinite(video.duration) && resumeTime<video.duration-0.25){
+          video.currentTime=resumeTime;
+        }
+      }catch{}
+    }
+    setStatus("",false);
+  };
+  const onCanPlay=()=>{
+    if(sequence!==loadSequence) return;
+    setStatus("",false);
+  };
+  const onPlaying=()=>{
+    if(sequence!==loadSequence) return;
+    clearStallTimer();
+    setStatus("",false);
+  };
+  const onStall=()=>{
+    if(sequence!==loadSequence || video.paused || video.ended) return;
+    if(Number(video.currentTime||0)>90) return;
+    scheduleStallRecovery(sequence,primaryUrl,fallbackUrl,sourceIndex,mode,retryCount);
+  };
   const onError=()=>{
+    if(sequence!==loadSequence) return;
     const code=video.error && video.error.code;
+    const current=Number(video.currentTime||0);
+
+    clearStallTimer();
+
+    if(mode==="proxy" && primaryUrl && fallbackUrl && primaryUrl!==fallbackUrl){
+      setStatus("Switching source…",true);
+      window.setTimeout(()=>{
+        if(sequence!==loadSequence) return;
+        attachNative(primaryUrl,fallbackUrl,sourceIndex,"direct",0,current);
+      },120);
+      return;
+    }
 
     if(mode==="direct" && fallbackUrl && fallbackUrl!==primaryUrl){
       setStatus("Switching source…",true);
       window.setTimeout(()=>{
         if(sequence!==loadSequence) return;
-        attachNative(primaryUrl, fallbackUrl, sourceIndex, "proxy", 0);
+        attachNative(primaryUrl,fallbackUrl,sourceIndex,"proxy",0,current);
       },120);
       return;
     }
@@ -1812,7 +1918,7 @@ function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retry
       setStatus("Retrying…",true);
       window.setTimeout(()=>{
         if(sequence!==loadSequence) return;
-        attachNative(primaryUrl, fallbackUrl, sourceIndex, mode, retryCount+1);
+        attachNative(primaryUrl,fallbackUrl,sourceIndex,mode,retryCount+1,current);
       },250);
       return;
     }
@@ -1827,15 +1933,19 @@ function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retry
       return;
     }
 
-    showPlaybackError("Playback failed" + (code ? " ("+code+")" : ""));
+    showPlaybackError("Playback failed"+(code?" ("+code+")":""));
   };
 
   video.addEventListener("loadedmetadata",onMeta,{once:true});
   video.addEventListener("canplay",onCanPlay,{once:true});
+  video.addEventListener("playing",onPlaying,{once:true});
+  video.addEventListener("waiting",onStall);
+  video.addEventListener("stalled",onStall);
   video.addEventListener("error",onError,{once:true});
 }
 
 function resetMedia(){
+  clearStallTimer();
   if(hls){try{hls.destroy()}catch{} hls=null}
   video.pause();
   video.removeAttribute("src");
@@ -1906,7 +2016,7 @@ async function loadSource(index){
         fallbackTried=true;
         try{hls&&hls.destroy()}catch{}
         hls=null;
-        attachNative(proxiedUrl,index);
+        attachNative(proxiedUrl,rawUrl,index,"proxy",0,0);
       };
 
       hls.on(HlsCtor.Events.MANIFEST_PARSED,()=>{
@@ -1926,7 +2036,7 @@ async function loadSource(index){
 
     if(!(await startHls())) {
       if(sequence!==loadSequence) return;
-      attachNative(rawUrl, proxiedUrl, index, "direct", 0);
+      attachNative(proxiedUrl,rawUrl,index,"proxy",0,0);
     }
     return;
   }
@@ -1937,9 +2047,10 @@ async function loadSource(index){
   }
 
   setStatus("Loading…",true);
-  // MP4: direct CDN first, Movyz proxy only as fallback.
-  // This removes an unnecessary Worker hop on normal playback.
-  attachNative(rawUrl, proxiedUrl, index, "direct", 0);
+  // MP4: proxy first for Akwam reliability. The proxy preserves byte ranges,
+  // sends the upstream referer, and normalizes the response to video/mp4.
+  // Direct CDN playback remains the fast fallback if the proxy stalls/fails.
+  attachNative(rawUrl, proxiedUrl, index, "proxy", 0, 0);
 }
 
 SOURCES.forEach((source,index)=>{
