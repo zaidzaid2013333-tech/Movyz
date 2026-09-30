@@ -1773,9 +1773,7 @@ let hls=null;
 let fallbackTried=false;
 let loadSequence=0;
 let hlsLoader=null;
-let stallTimer=null;
-let startupTimer=null;
-
+ 
 function setStatus(message,show=true){
   status.textContent=message||"";
   status.classList.toggle("visible",Boolean(show && message));
@@ -1790,223 +1788,34 @@ function showPlaybackError(message){
   setStatus(message||"Playback failed",true);
 }
 
-function bufferedAhead(){
-  try{
-    const now=video.currentTime;
-    for(let i=0;i<video.buffered.length;i++){
-      const s=video.buffered.start(i);
-      const e=video.buffered.end(i);
-      if(now>=s-0.25 && now<=e+0.25) return Math.max(0,e-now);
-    }
-  }catch{}
-  return 0;
-}
-
-function clearStallTimer(){
-  if(stallTimer!==null){
-    window.clearTimeout(stallTimer);
-    stallTimer=null;
-  }
-  if(startupTimer!==null){
-    window.clearTimeout(startupTimer);
-    startupTimer=null;
-  }
-}
-
-function scheduleStartupRecovery(sequence, primaryUrl, fallbackUrl, sourceIndex, mode, retryCount, playState){
-  if(startupTimer!==null) window.clearTimeout(startupTimer);
-  startupTimer=window.setTimeout(()=>{
-    startupTimer=null;
-    if(sequence!==loadSequence || video.ended) return;
-
-    // Do not change source merely because the user has not pressed Play.
-    if(video.paused && !playState.played) return;
-    if(video.readyState>=3) return;
-
-    const resumeTime=Number(video.currentTime||0);
-    if(mode==="proxy" && primaryUrl && fallbackUrl && primaryUrl!==fallbackUrl){
-      setStatus("Switching source…",true);
-      attachNative(primaryUrl,fallbackUrl,sourceIndex,"direct",0,resumeTime);
-      return;
-    }
-    if(mode==="direct" && fallbackUrl && fallbackUrl!==primaryUrl){
-      setStatus("Recovering playback…",true);
-      attachNative(primaryUrl,fallbackUrl,sourceIndex,"proxy",0,resumeTime);
-      return;
-    }
-    if(retryCount<1){
-      setStatus("Retrying…",true);
-      attachNative(primaryUrl,fallbackUrl,sourceIndex,mode,retryCount+1,resumeTime);
-      return;
-    }
-    const nextIndex=Number(sourceIndex)+1;
-    if(nextIndex<SOURCES.length){
-      setStatus("Switching quality…",true);
-      window.setTimeout(()=>{
-        if(sequence!==loadSequence) return;
-        void loadSource(nextIndex);
-      },120);
-      return;
-    }
-    showPlaybackError("Startup stalled");
-  },5000);
-}
-
-function scheduleStallRecovery(sequence, primaryUrl, fallbackUrl, sourceIndex, mode, retryCount){
-  clearStallTimer();
-  if(video.paused || video.ended) return;
-
-  stallTimer=window.setTimeout(()=>{
-    stallTimer=null;
-    if(sequence!==loadSequence || video.paused || video.ended) return;
-
-    const ahead=bufferedAhead();
-    const current=Number(video.currentTime||0);
-
-    if(video.readyState>=3 && ahead>=1.5) return;
-    if(current>90 && ahead>=0.5) return;
-
-    const resumeTime=current>0.5?current:0;
-
-    if(mode==="proxy" && primaryUrl && fallbackUrl && primaryUrl!==fallbackUrl){
-      setStatus("Switching source…",true);
-      attachNative(primaryUrl,fallbackUrl,sourceIndex,"direct",0,resumeTime);
-      return;
-    }
-
-    if(mode==="direct" && fallbackUrl && fallbackUrl!==primaryUrl){
-      setStatus("Recovering playback…",true);
-      attachNative(primaryUrl,fallbackUrl,sourceIndex,"proxy",0,resumeTime);
-      return;
-    }
-
-    if(retryCount<1){
-      setStatus("Retrying…",true);
-      attachNative(primaryUrl,fallbackUrl,sourceIndex,mode,retryCount+1,resumeTime);
-      return;
-    }
-
-    const nextIndex=Number(sourceIndex)+1;
-    if(nextIndex<SOURCES.length){
-      setStatus("Switching quality…",true);
-      window.setTimeout(()=>{
-        if(sequence!==loadSequence) return;
-        void loadSource(nextIndex);
-      },120);
-      return;
-    }
-
-    showPlaybackError("Playback stalled");
-  },4500);
-}
-
-function attachNative(primaryUrl, fallbackUrl, sourceIndex, mode="direct", retryCount=0, resumeTime=0){
-  const sequence=loadSequence;
-  const wasPlaying=!video.paused;
-  const playState={played:wasPlaying};
-  const url=mode==="proxy"?fallbackUrl:primaryUrl;
-  clearStallTimer();
-
+function attachNative(url, sequence, allowRetry=true){
   video.src=url;
   try{video.load()}catch{}
 
-  const onMeta=()=>{
-    if(sequence!==loadSequence) return;
-    if(resumeTime>0.5){
-      try{
-        if(Number.isFinite(video.duration) && resumeTime<video.duration-0.25){
-          video.currentTime=resumeTime;
-        }
-      }catch{}
-    }
-    if(wasPlaying){
-      try{video.play().catch(()=>{})}catch{}
-    }
-    setStatus("",false);
-  };
-  const onCanPlay=()=>{
-    if(sequence!==loadSequence) return;
-    setStatus("",false);
-  };
-  const onPlaying=()=>{
-    if(sequence!==loadSequence) return;
-    clearStallTimer();
-    setStatus("",false);
-  };
-  const onStall=()=>{
-    if(sequence!==loadSequence || video.paused || video.ended) return;
-    if(Number(video.currentTime||0)>90) return;
-    scheduleStallRecovery(sequence,primaryUrl,fallbackUrl,sourceIndex,mode,retryCount);
-  };
+  const onMeta=()=>setStatus("",false);
+  const onCanPlay=()=>setStatus("",false);
+  const onPlaying=()=>setStatus("",false);
   const onError=()=>{
     if(sequence!==loadSequence) return;
     const code=video.error && video.error.code;
-    const current=Number(video.currentTime||0);
-
-    clearStallTimer();
-
-    if(mode==="proxy" && primaryUrl && fallbackUrl && primaryUrl!==fallbackUrl){
-      setStatus("Switching source…",true);
-      window.setTimeout(()=>{
-        if(sequence!==loadSequence) return;
-        attachNative(primaryUrl,fallbackUrl,sourceIndex,"direct",0,current);
-      },120);
-      return;
-    }
-
-    if(mode==="direct" && fallbackUrl && fallbackUrl!==primaryUrl){
-      setStatus("Switching source…",true);
-      window.setTimeout(()=>{
-        if(sequence!==loadSequence) return;
-        attachNative(primaryUrl,fallbackUrl,sourceIndex,"proxy",0,current);
-      },120);
-      return;
-    }
-
-    if(retryCount<1){
+    if(allowRetry){
       setStatus("Retrying…",true);
       window.setTimeout(()=>{
         if(sequence!==loadSequence) return;
-        attachNative(primaryUrl,fallbackUrl,sourceIndex,mode,retryCount+1,current);
-      },250);
+        attachNative(url,sequence,false);
+      },500);
       return;
     }
-
-    const nextIndex=Number(sourceIndex)+1;
-    if(nextIndex<SOURCES.length){
-      setStatus("Switching quality…",true);
-      window.setTimeout(()=>{
-        if(sequence!==loadSequence) return;
-        void loadSource(nextIndex);
-      },120);
-      return;
-    }
-
     showPlaybackError("Playback failed"+(code?" ("+code+")":""));
-  };
-
-  const onPlay=()=>{
-    if(sequence!==loadSequence) return;
-    playState.played=true;
-    if(startupTimer!==null){
-      window.clearTimeout(startupTimer);
-      startupTimer=null;
-    }
   };
 
   video.addEventListener("loadedmetadata",onMeta,{once:true});
   video.addEventListener("canplay",onCanPlay,{once:true});
   video.addEventListener("playing",onPlaying,{once:true});
-  video.addEventListener("play",onPlay);
-  video.addEventListener("waiting",onStall);
-  video.addEventListener("stalled",onStall);
   video.addEventListener("error",onError,{once:true});
-
-  scheduleStartupRecovery(sequence,primaryUrl,fallbackUrl,sourceIndex,mode,retryCount,playState);
 }
 
 function resetMedia(){
-  clearStallTimer();
   if(hls){try{hls.destroy()}catch{} hls=null}
   video.pause();
   video.removeAttribute("src");
@@ -2077,7 +1886,7 @@ async function loadSource(index){
         fallbackTried=true;
         try{hls&&hls.destroy()}catch{}
         hls=null;
-        attachNative(proxiedUrl,rawUrl,index,"proxy",0,0);
+        attachNative(proxiedUrl,sequence,true);
       };
 
       hls.on(HlsCtor.Events.MANIFEST_PARSED,()=>{
@@ -2097,7 +1906,7 @@ async function loadSource(index){
 
     if(!(await startHls())) {
       if(sequence!==loadSequence) return;
-      attachNative(proxiedUrl,rawUrl,index,"proxy",0,0);
+      attachNative(proxiedUrl,sequence,true);
     }
     return;
   }
@@ -2108,10 +1917,9 @@ async function loadSource(index){
   }
 
   setStatus("Loading…",true);
-  // MP4: proxy first for Akwam reliability. The proxy preserves byte ranges,
-  // sends the upstream referer, and normalizes the response to video/mp4.
-  // Direct CDN playback remains the fast fallback if the proxy stalls/fails.
-  attachNative(rawUrl, proxiedUrl, index, "proxy", 0, 0);
+  // Keep playback on the selected quality and the referer-aware Movyz proxy.
+  // Retry the same URL only after a media error; never switch sources on stalls.
+  attachNative(proxiedUrl, sequence, true);
 }
 
 SOURCES.forEach((source,index)=>{
@@ -2190,7 +1998,7 @@ function proxyMediaHeaders(upstream) {
   return headers;
 }
 
-const RESOLVER_VERSION = "proxy-first-2026-09-30-r14";
+const RESOLVER_VERSION = "stable-single-source-2026-09-30-r15";
 const INITIAL_RANGE_BYTES = 2 * 1024 * 1024;
 
 function startupRangeBytes(_quality, total) {
@@ -2454,7 +2262,11 @@ async function proxyAkwamMedia(request, requestUrl) {
     return target.payload.sources.find((source) => source.url === requested) || null;
   })();
   const sourceType = String(sourceInfo?.type || mediaTypeFromUrl(target.url)).toLowerCase();
-  const upstreamRange = range;
+  const requestedRange = range;
+  const openEndedRange = String(range).match(/^bytes=(\\d+)-$/i);
+  const upstreamRange = openEndedRange
+    ? "bytes=" + Number(openEndedRange[1]) + "-" + (Number(openEndedRange[1]) + 8 * 1024 * 1024 - 1)
+    : range;
   const upstreamHeaders = {
     Accept: "video/*,application/octet-stream,*/*;q=0.8",
     "User-Agent": UA,
@@ -2551,11 +2363,11 @@ async function proxyAkwamMedia(request, requestUrl) {
   // A few upstream CDNs return 206 but ignore the requested end offset and
   // send a much larger chunk (for example ~17.5 MB for a 1080p request).
   // Never pass that oversized startup chunk through to the browser.
-  if (range && response.status === 206) {
+  if (requestedRange && response.status === 206) {
     const upstreamRangeInfo = parseContentRangeHeader(response.headers.get("content-range") || "");
     if (upstreamRangeInfo && upstreamRangeInfo.end >= upstreamRangeInfo.start) {
       const requested = parseSingleRange(
-        range,
+        requestedRange,
         upstreamRangeInfo.total,
         { startupQuality: sourceQuality },
       );
@@ -2581,13 +2393,13 @@ async function proxyAkwamMedia(request, requestUrl) {
   // HTTP 200. Browsers expect byte-range semantics for seekable MP4 playback.
   // Convert that full response into the exact requested 206 slice instead of
   // forcing the browser to download hundreds of MB before playback starts.
-  if (range && response.status === 200) {
+  if (requestedRange && response.status === 200) {
     const total = Number(
       response.headers.get("content-length") ||
       String(response.headers.get("content-range") || "").match(/\/(\d+)$/)?.[1] ||
       0,
     );
-    const sliced = sliceRangeResponse(response, range, total);
+    const sliced = sliceRangeResponse(response, requestedRange, total);
     if (sliced) {
       applyKnownMediaType(
         sliced.headers,
