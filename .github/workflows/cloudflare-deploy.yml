@@ -104,6 +104,7 @@ jobs:
 
           print("Playback provider checks skipped: production player is now resolved from Movyz API playback sources.")
 
+      # StreamAR is a lightweight external resolver; playback bytes stay on the provider.
       - name: Smoke test StreamAR
         run: |
           python - <<'PY'
