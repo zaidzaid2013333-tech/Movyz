@@ -248,13 +248,18 @@ function pickEpisodeUrl(payload: unknown, episodeNumber: number, seasonNumber?: 
 
 function collectDownloadOrPlaybackUrls(payload: unknown) {
   const candidates = extractPlaybackCandidates(payload);
+  const explicitDownloadUrls = collectUrlsFromKeys(payload, [
+    'download', 'downloadUrl', 'download_url', 'downloadLink', 'download_link', 'file',
+  ]);
   const urls = [
     ...candidates.map((candidate) => candidate.url),
+    ...explicitDownloadUrls,
     ...collectUrlStrings(payload),
   ];
 
   return [...new Set(urls)].filter((url) =>
     isLikelyPlaybackUrl(url)
+    || explicitDownloadUrls.includes(url)
     || /(?:download|downloadurl|download_url|downloadlink|download_link|(?:^|[/_-])dl(?:[/_.?-]|$)|file)/i.test(url),
   );
 }
@@ -357,7 +362,10 @@ async function resolveOmegaTechAkwamPlayback(
         targetPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
       }
 
-      const urls = await resolveOmegaDownloadUrls(base, targetPayload, timeoutMs);
+      let urls = await resolveOmegaDownloadUrls(base, targetPayload, timeoutMs);
+      if (!urls.length) {
+        urls = await resolveOmegaDownloadUrls(base, selected.raw, timeoutMs);
+      }
       if (!urls.length) throw new Error('OmegaTech Akwam returned no direct playback URL');
 
       return urls.map((url, index) => ({
