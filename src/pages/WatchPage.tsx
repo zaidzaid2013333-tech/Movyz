@@ -159,7 +159,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     startupRecoveryStage.current = 'recovering';
     const originalTime = Math.max(0, video.currentTime);
     const targetTime = Math.min(
-      Math.max(originalTime + 180, 180),
+      Math.max(originalTime + 120, 120),
       Math.max(video.duration - 15, 1),
     );
 
@@ -251,7 +251,19 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             .slice(0, 4),
         );
 
-        const source = sources.find((candidate) => candidate.isWorking) ?? sources[0] ?? null;
+        const mobilePreferredQuality =
+          typeof window !== 'undefined' && window.innerWidth < 768 ? 480 : 720;
+        const source =
+          sources.find(
+            (candidate) =>
+              candidate.isWorking &&
+              new RegExp(`\\\\b${mobilePreferredQuality}p\\\\b`, 'i').test(
+                candidate.quality || candidate.labelEn || '',
+              ),
+          ) ??
+          sources.find((candidate) => candidate.isWorking) ??
+          sources[0] ??
+          null;
         setRemotePlaybackSources(sources);
         setRemotePlaybackSource(source);
       })
