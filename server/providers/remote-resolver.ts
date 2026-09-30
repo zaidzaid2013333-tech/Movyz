@@ -181,7 +181,7 @@ function pickBestResult(payload: unknown, titles: string[]) {
   const wanted = titles.map(normalizeTitle).filter(Boolean);
   const results = collectNamedResults(payload);
 
-  const score = (item: { title: string; urls: string[] }) => {
+  const score = (item: { title: string; urls: string[]; raw: Record<string, unknown> }) => {
     const normalized = normalizeTitle(item.title);
     const exact = wanted.some((title) => normalized === title);
     const partial = wanted.some((title) => normalized.includes(title) || title.includes(normalized));
@@ -349,12 +349,13 @@ async function resolveOmegaTechAkwamPlayback(
 
       let targetPayload: unknown;
       if (request.type === 'series') {
-        if (!Number.isInteger(request.episode) || request.episode < 1) {
+        const episodeNumber = request.episode;
+        if (!Number.isInteger(episodeNumber) || episodeNumber < 1) {
           throw new Error('OmegaTech Akwam series playback requires episode');
         }
 
         const contentPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
-        const episodeUrl = pickEpisodeUrl(contentPayload, request.episode, request.season);
+        const episodeUrl = pickEpisodeUrl(contentPayload, episodeNumber, request.season);
         if (!episodeUrl) throw new Error(`OmegaTech Akwam episode ${request.episode} was not found`);
 
         targetPayload = await omegaRequest(base, { action: 'episode', episode: episodeUrl }, timeoutMs);
