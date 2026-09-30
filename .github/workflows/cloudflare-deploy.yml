@@ -72,7 +72,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --secrets-file .env.production
+          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }}
 
       - name: Smoke test production watch paths
         continue-on-error: true
@@ -156,6 +156,18 @@ jobs:
                   raise SystemExit(f"{media_type} {tmdb_id}: Movyz is proxying a playback URL")
 
               print(f"Playback OK: {media_type} TMDB {tmdb_id}; sources={len(external)}")
+
+          diagnostic_url = "https://movyz-api.sameranede.workers.dev/api/v1/diagnostics/playback"
+          request = urllib.request.Request(diagnostic_url, headers={"User-Agent": "Movyz/1.0", "Accept": "application/json"})
+          with urllib.request.urlopen(request, timeout=45) as response:
+              content_type = response.headers.get("content-type", "")
+              body = response.read().decode("utf-8", "replace")
+          if "application/json" not in content_type.lower():
+              raise SystemExit(f"diagnostic endpoint returned non-JSON content: {content_type}")
+          diagnostic = json.loads(body)
+          if diagnostic.get("success") is not True:
+              raise SystemExit(f"diagnostic endpoint failed: {diagnostic}")
+          print(f"Diagnostic OK: build={diagnostic.get('data', {}).get('buildId')}")
           PY
 
       - name: Remove temporary secrets file
