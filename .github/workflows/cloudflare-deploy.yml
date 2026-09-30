@@ -6,9 +6,6 @@ on:
     paths-ignore:
       - "supabase/**"
       - ".github/workflows/tmdb-sync.yml"
-      - "moviebox-worker/**"
-      - "akwam-resolver-worker/**"
-      - ".github/workflows/watch-api-deploy.yml"
   workflow_dispatch:
 
 permissions:
