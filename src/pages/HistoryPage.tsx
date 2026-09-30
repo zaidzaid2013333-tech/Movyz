@@ -83,8 +83,8 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigate }) => {
             const isFinished = item.percentage >= 90;
             const watchUrl =
               item.contentType === 'movie'
-                ? `/watch/movie/${item.tmdbId}`
-                : `/watch/tv/${item.tmdbId}/${item.seasonNumber || 1}/${item.episodeNumber || 1}`;
+                ? `/watch/movie/${item.contentId}`
+                : `/watch/tv/${item.contentId}/${item.seasonNumber || 1}/${item.episodeNumber || 1}`;
 
             return (
               <div

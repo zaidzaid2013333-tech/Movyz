@@ -106,7 +106,7 @@ function MainApp() {
     if (pathOnly.startsWith('/watch/')) {
       const segments = pathOnly.split('/').filter(Boolean);
       const mediaType = segments[1];
-      const tmdbId = Number(segments[2]);
+      const contentId = segments[2] || '';
 
       if (mediaType === 'movie' && Number.isFinite(tmdbId) && tmdbId > 0) {
         return (

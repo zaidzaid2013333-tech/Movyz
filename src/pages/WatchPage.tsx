@@ -17,7 +17,7 @@ import { HeroSkeleton } from '../components/ui/Skeletons';
 
 interface WatchPageProps {
   mediaType: 'movie' | 'series';
-  tmdbId: number;
+  contentId: string;
   seasonNumber?: number;
   episodeNumber?: number;
   onNavigate: (path: string) => void;
@@ -49,7 +49,7 @@ const buildUrPlayerUrl = (
 
 export const WatchPage: React.FC<WatchPageProps> = ({
   mediaType,
-  tmdbId,
+  contentId,
   seasonNumber,
   episodeNumber,
   onNavigate,
@@ -121,7 +121,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return () => {
       mounted = false;
     };
-  }, [mediaType, tmdbId, activeSeason, activeEpisode, language]);
+  }, [mediaType, contentId, activeSeason, activeEpisode, language]);
 
   useEffect(() => {
     setTheaterLighting(true);
@@ -129,7 +129,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const resolvedTmdbId = content?.tmdbId && Number.isInteger(content.tmdbId)
     ? content.tmdbId
-    : tmdbId;
+    : 0;
 
   const iframeUrl = useMemo(
     () => buildUrPlayerUrl(mediaType, resolvedTmdbId, activeSeason, activeEpisode),
@@ -137,7 +137,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   );
 
   const handleSelectEpisode = (nextSeason: number, nextEpisode: number) => {
-    onNavigate(`/watch/tv/${tmdbId}/${nextSeason}/${nextEpisode}`);
+    onNavigate(`/watch/tv/${contentId}/${nextSeason}/${nextEpisode}`);
   };
 
   const handleShare = async () => {
