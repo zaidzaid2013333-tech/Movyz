@@ -133,7 +133,7 @@ export const MovyzaApi = {
       `/watch/${contentType}/${encodeURIComponent(String(tmdbId))}${query({
         season: contentType === 'series' ? seasonNumber : undefined,
         episode: contentType === 'series' ? episodeNumber : undefined,
-        player: 'akwam-iframe-v2',
+        player: 'vidcore-iframe-v1',
       })}`,
       { cache: 'no-store' },
       { skipAuth: true },
