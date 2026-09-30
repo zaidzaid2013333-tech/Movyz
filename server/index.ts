@@ -244,10 +244,6 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
     return fail(res, 400, 'INVALID_EPISODE_TMDB_ID', 'Invalid episode TMDB id');
   }
 
-  if (!process.env.PLAYBACK_RESOLVER_URL?.trim() && !process.env.PLAYBACK_RESOLVER_URLS?.trim()) {
-    return fail(res, 503, 'PLAYBACK_RESOLVER_NOT_CONFIGURED', 'External playback resolver is not configured');
-  }
-
   try {
     const sources = await resolveRemotePlayback({
       type,
