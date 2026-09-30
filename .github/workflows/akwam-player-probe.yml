@@ -37,7 +37,7 @@ jobs:
           def clean(value):
               return re.sub(r"\\s+", " ", value).strip()
 
-          watch_urls = re.findall(r"""https://akwam\\.ss/watch/[^\\s"<>]+""", html, re.I)
+          watch_urls = re.findall(r"""https://akwam\.ss/watch/[^\s"<>]+""", html, re.I)
           watch_urls = list(dict.fromkeys(watch_urls))
           print("WATCH_URLS:", len(watch_urls))
           for value in watch_urls[:10]:
