@@ -15,6 +15,7 @@ import { Movie, Series, Episode, PlaybackSource } from '../types';
 import { ErrorState } from '../components/ui/FeedbackStates';
 import { HeroSkeleton } from '../components/ui/Skeletons';
 // Native playback intentionally uses direct external media URLs; the provider is resolved upstream by Movyz API.
+// Keep the stable startup recovery path; avoid browser-side range warm-up requests.
 
 interface WatchPageProps {
   mediaType: 'movie' | 'series';
