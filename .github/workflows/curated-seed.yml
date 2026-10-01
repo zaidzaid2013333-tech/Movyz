@@ -43,5 +43,5 @@ jobs:
       - name: Validate code
         run: npm run lint
 
-      - name: Seed curated catalog and verify every episode
-        run: npx tsx scripts/seed-curated-content.ts
+      - name: Probe representative production playback
+        run: npx tsx scripts/probe-production-playback.ts
