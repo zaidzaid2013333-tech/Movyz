@@ -520,8 +520,8 @@ async function seriesDto(row: any, includePlaybackSources = false) {
   if (includePlaybackSources && episodeIds.length) {
     const { data: playbackRows, error: playbackError } = await adminSupabase
       .from('playback_sources')
-      .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name)')
-      .in('content_type', ['episode'])
+      .select('id,content_id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name)')
+      .eq('content_type', 'episode')
       .in('content_id', episodeIds)
       .eq('is_working', true)
       .eq('providers.key', 'omegatech-akwam')
