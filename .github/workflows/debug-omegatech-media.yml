@@ -1,0 +1,124 @@
+name: Debug OmegaTech media source
+
+on:
+  push:
+    branches:
+      - debug/chrome-media-source
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect a live OmegaTech source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const base = 'https://movyz-api.sameranede.workers.dev';
+          const json = async (url) => {
+            const r = await fetch(url, {
+              headers: { Accept: 'application/json' },
+              redirect: 'follow',
+              signal: AbortSignal.timeout(30000),
+            });
+            const body = await r.text();
+            if (!r.ok) throw new Error(url + ' -> HTTP ' + r.status + ' ' + body.slice(0, 600));
+            return JSON.parse(body);
+          };
+
+          const catalog = await json(base + '/api/v1/movies?page=1&limit=10');
+          const items = Array.isArray(catalog?.data) ? catalog.data : catalog?.data?.items ?? catalog?.data?.movies ?? [];
+          if (!items.length) throw new Error('No movies returned');
+
+          let selected = null;
+          for (const movie of items) {
+            const id = String(movie?.id || '');
+            if (!id) continue;
+            try {
+              const playback = await json(base + '/api/v1/playback/sources?contentType=movie&contentId=' + encodeURIComponent(id));
+              const sources = Array.isArray(playback?.data) ? playback.data : [];
+              const mp4 = sources.find((s) => s?.type === 'mp4' && /^https:\/\//i.test(String(s?.url || '')));
+              if (mp4) {
+                selected = { movie, source: mp4 };
+                break;
+              }
+            } catch (error) {
+              console.log('PLAYBACK_LOOKUP_ERROR', id, String(error));
+            }
+          }
+
+          if (!selected) throw new Error('No live MP4 source found');
+
+          const url = String(selected.source.url);
+          console.log('MOVIE', JSON.stringify({
+            id: selected.movie.id,
+            tmdbId: selected.movie.tmdbId || selected.movie.tmdb_id,
+            title: selected.movie.titleEn || selected.movie.title_en || selected.movie.titleAr || selected.movie.title_ar,
+          }));
+          console.log('SOURCE', JSON.stringify({
+            type: selected.source.type,
+            quality: selected.source.quality,
+            provider: selected.source.provider,
+            host: new URL(url).host,
+          }));
+
+          const printHeaders = (prefix, response) => {
+            const wanted = [
+              'accept-ranges',
+              'content-length',
+              'content-range',
+              'content-type',
+              'etag',
+              'last-modified',
+              'cache-control',
+              'content-encoding',
+              'location',
+            ];
+            const data = Object.fromEntries(wanted.map((k) => [k, response.headers.get(k)]).filter(([,v]) => v !== null));
+            console.log(prefix, JSON.stringify({ status: response.status, url: response.url, headers: data }));
+          };
+
+          let head;
+          try {
+            head = await fetch(url, {
+              method: 'HEAD',
+              redirect: 'follow',
+              signal: AbortSignal.timeout(20000),
+            });
+            printHeaders('HEAD', head);
+          } catch (error) {
+            console.log('HEAD_ERROR', String(error));
+          }
+
+          const first = await fetch(url, {
+            headers: { Range: 'bytes=0-1048575' },
+            redirect: 'follow',
+            signal: AbortSignal.timeout(30000),
+          });
+          printHeaders('RANGE_FIRST_MB', first);
+          const firstBytes = new Uint8Array(await first.arrayBuffer());
+          console.log('FIRST_BYTES', firstBytes.length, Buffer.from(firstBytes.slice(0, 16)).toString('hex'));
+          console.log('FIRST_HAS_MOOV', Buffer.from(firstBytes).includes(Buffer.from('moov')));
+          console.log('FIRST_HAS_MDAT', Buffer.from(firstBytes).includes(Buffer.from('mdat')));
+
+          const cr = first.headers.get('content-range') || '';
+          const match = cr.match(/bytes\s+\d+-\d+\/(\d+)/i);
+          if (match) {
+            const total = Number(match[1]);
+            if (Number.isFinite(total) && total > firstBytes.length) {
+              const start = Math.max(0, total - 1048576);
+              const last = await fetch(url, {
+                headers: { Range: 'bytes=' + start + '-' + (total - 1) },
+                redirect: 'follow',
+                signal: AbortSignal.timeout(30000),
+              });
+              printHeaders('RANGE_LAST_MB', last);
+              const lastBytes = new Uint8Array(await last.arrayBuffer());
+              console.log('LAST_BYTES', lastBytes.length, 'LAST_HAS_MOOV', Buffer.from(lastBytes).includes(Buffer.from('moov')));
+            }
+          }
+          NODE
+
+          echo '--- ffprobe ---'
+          command -v ffprobe || true
