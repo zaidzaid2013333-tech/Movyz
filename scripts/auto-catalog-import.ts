@@ -264,7 +264,21 @@ async function main() {
             counts.movies++;
             movieBudget--;
             existing.add(tmdbId);
-            console.log('AUTO_IMPORTED_MOVIE', JSON.stringify({ tmdbId, title: enMovie.title || arMovie.title }));
+            try {
+              const linkedSources = await linkMoviePlayback(movieId, tmdbId);
+              moviesPlaybackLinked++;
+              console.log('AUTO_IMPORTED_MOVIE', JSON.stringify({
+                tmdbId,
+                title: enMovie.title || arMovie.title,
+                playbackSources: linkedSources,
+              }));
+            } catch (sourceError) {
+              moviesPlaybackFailed++;
+              console.warn('AUTO_MOVIE_PLAYBACK_LINK_FAILED', JSON.stringify({
+                tmdbId,
+                error: sourceError instanceof Error ? sourceError.message : String(sourceError),
+              }));
+            }
           }
         }
       }
