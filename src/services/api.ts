@@ -104,7 +104,13 @@ export const MovyzaApi = {
     episodeTmdbId?: number;
   }) => request<{
     sources: import('../types').PlaybackSource[];
-  }>(`/playback/resolve${query(params)}`),
+  }>(`/playback/resolve${query(params)}`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      'X-Movyz-Player-Intent': 'user-gesture',
+    },
+  }),
 
   getGenres: () => request<Genre[]>('/genres'),
 
