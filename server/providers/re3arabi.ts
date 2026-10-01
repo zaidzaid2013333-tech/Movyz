@@ -155,7 +155,7 @@ function parseQualitySources(html: string, pageUrl: string, provider: string): C
     const type = inferPlaybackType(url, undefined);
     if (!type) return;
 
-    const quality = inferQuality(qualityHint, url);
+    const quality = inferQuality(qualityHint || undefined, url);
     seen.add(url);
     candidates.push({
       provider,
