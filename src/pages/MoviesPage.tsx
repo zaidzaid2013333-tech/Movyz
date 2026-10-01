@@ -89,7 +89,7 @@ export const MoviesPage: React.FC<MoviesPageProps> = ({
   const years = [2026, 2025, 2024, 2023, 2022, 2020];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 animate-in fade-in duration-300">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-7 movyza-enter">
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-1">
@@ -123,7 +123,7 @@ export const MoviesPage: React.FC<MoviesPageProps> = ({
       </div>
 
       {/* Filter Bar */}
-      <div className="p-4 rounded-xl bg-[#090b10] border border-white/10 space-y-3">
+      <div className="p-3.5 sm:p-4 rounded-2xl bg-white/[0.025] border border-white/[0.07] space-y-3">
         <div className="flex items-center justify-between text-xs border-b border-white/[0.06] pb-2.5">
           <div className="flex items-center gap-2 font-semibold text-slate-300">
             <Filter className="w-3.5 h-3.5 text-amber-400" />
@@ -142,7 +142,7 @@ export const MoviesPage: React.FC<MoviesPageProps> = ({
         </div>
 
         {/* Genre Badges */}
-        <div className="flex flex-wrap gap-2">
+        <div className="touch-scroll-x flex items-center gap-2 pb-1">
           <button
             onClick={() => {
               setSelectedGenre(undefined);
@@ -150,8 +150,8 @@ export const MoviesPage: React.FC<MoviesPageProps> = ({
             }}
             className={`min-h-[36px] px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
               selectedGenre === undefined
-                ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/25'
-                : 'bg-[#11141e] text-slate-300 hover:text-white border border-amber-500/10'
+                ? 'bg-amber-400 text-slate-950 font-bold'
+                : 'bg-white/[0.035] text-slate-300 hover:text-white border border-white/[0.07]'
             }`}
           >
             {t('allGenres')}
@@ -178,10 +178,10 @@ export const MoviesPage: React.FC<MoviesPageProps> = ({
         </div>
 
         {/* Year & Rating Strip */}
-        <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-amber-500/10 text-xs">
+        <div className="flex items-center gap-4 pt-3 border-t border-white/[0.06] text-xs overflow-x-auto no-scrollbar">
           <div className="flex items-center gap-2">
             <span className="text-slate-400 font-mono">{t('year')}:</span>
-            <div className="flex gap-1.5">
+            <div className="flex gap-1.5 shrink-0">
               {years.map((y) => (
                 <button
                   key={y}

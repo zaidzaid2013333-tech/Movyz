@@ -64,7 +64,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
   const [resolverLoading, setResolverLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const startupSeekVideosRef = useRef<WeakSet<HTMLVideoElement>>(new WeakSet());
+  const startupPrimedUrlsRef = useRef<Set<string>>(new Set());
+  const startupRestoreTimersRef = useRef<WeakMap<HTMLVideoElement, number>>(new WeakMap());
+  const failedSourceIdsRef = useRef<Set<string>>(new Set());
+  const [videoReady, setVideoReady] = useState(false);
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
 
@@ -143,26 +146,43 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const jumpToTwoMinutesAndBack = () => {
     const video = videoRef.current;
-    if (!video || startupSeekVideosRef.current.has(video)) return;
-    if (!Number.isFinite(video.duration) || video.duration < 120) return;
+    if (!video || !playbackUrl || startupPrimedUrlsRef.current.has(playbackUrl)) return;
 
-    startupSeekVideosRef.current.add(video);
-    const originalTime = Math.max(0, video.currentTime);
-    const targetTime = Math.min(120, Math.max(0, video.duration - 1));
+    const duration = video.duration;
+    if (!Number.isFinite(duration) || duration < 120) return;
+
+    startupPrimedUrlsRef.current.add(playbackUrl);
+
+    const originalTime = Math.max(0, Math.min(video.currentTime || 0, duration));
+    const targetTime = Math.min(120, Math.max(0, duration - 0.5));
+    let restored = false;
+
+    const restore = () => {
+      if (restored) return;
+      restored = true;
+      video.removeEventListener('seeked', restore);
+      video.removeEventListener('error', restore);
+
+      const timer = startupRestoreTimersRef.current.get(video);
+      if (timer) window.clearTimeout(timer);
+      startupRestoreTimersRef.current.delete(video);
+
+      try {
+        video.currentTime = originalTime;
+      } catch {
+        // Ignore sources that reject a startup seek.
+      }
+    };
+
+    video.addEventListener('seeked', restore, { once: true });
+    video.addEventListener('error', restore, { once: true });
 
     try {
       video.currentTime = targetTime;
-      window.setTimeout(() => {
-        if (videoRef.current === video) {
-          try {
-            video.currentTime = originalTime;
-          } catch {
-            // Ignore a source that changed while restoring the start position.
-          }
-        }
-      }, 0);
+      const timer = window.setTimeout(restore, 900);
+      startupRestoreTimersRef.current.set(video, timer);
     } catch {
-      // Ignore sources that do not allow an immediate seek.
+      restore();
     }
   };
 
@@ -246,6 +266,30 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
   const availableSources = storedPlaybackSources.length > 0 ? storedPlaybackSources : remotePlaybackSources;
+
+  useEffect(() => {
+    setVideoReady(false);
+    if (!playbackUrl) return;
+
+    const timeout = window.setTimeout(() => {
+      if (videoReady) return;
+
+      const currentIndex = availableSources.findIndex((source) => source.id === playbackSource?.id);
+      const fallback = availableSources.find(
+        (source, index) => index > currentIndex && !failedSourceIdsRef.current.has(source.id),
+      );
+
+      if (playbackSource?.id) failedSourceIdsRef.current.add(playbackSource.id);
+      if (fallback) setRemotePlaybackSource(fallback);
+    }, 15000);
+
+    return () => window.clearTimeout(timeout);
+  }, [playbackUrl, playbackSource?.id, availableSources, videoReady]);
+
+  useEffect(() => {
+    if (!playbackUrl || !playbackSource?.id) return;
+    failedSourceIdsRef.current.delete(playbackSource.id);
+  }, [playbackUrl, playbackSource?.id]);
 
   useEffect(() => {
     if (!playbackUrl || typeof document === 'undefined') return;
@@ -438,45 +482,67 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
-            <video
-              ref={videoRef}
-              key={playbackUrl}
-              poster={content.backdropUrl || content.posterUrl}
-              className="block h-full w-full bg-black object-contain"
-              controls
-              playsInline
-              preload="auto"
-              controlsList="nodownload noplaybackrate"
-              disablePictureInPicture={false}
-              onLoadedMetadata={() => {
-                jumpToTwoMinutesAndBack();
-              }}
-              onError={() => {
-                const currentIndex = availableSources.findIndex(
-                  (source) => source.id === playbackSource?.id,
-                );
-                const fallback = availableSources.find(
-                  (source, index) => index > currentIndex,
-                );
-                if (fallback) setRemotePlaybackSource(fallback);
-              }}
-            >
-              <source
-                src={playbackUrl}
-                type={
-                  playbackSource?.type === 'mp4'
-                    ? 'video/mp4'
-                    : playbackSource?.type === 'hls'
-                      ? 'application/vnd.apple.mpegurl'
-                      : playbackSource?.type === 'dash'
-                        ? 'application/dash+xml'
-                        : undefined
-                }
-              />
-              {language === 'ar'
-                ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
-                : 'Your browser does not support this playback source.'}
-            </video>
+            <div className="relative h-full w-full bg-black">
+              {!videoReady && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/35 pointer-events-none">
+                  <div className="flex items-center gap-2 rounded-full bg-black/65 border border-white/10 px-3 py-2 text-[11px] text-white/70 backdrop-blur-md">
+                    <span className="w-3.5 h-3.5 rounded-full border-2 border-white/20 border-t-amber-400 animate-spin" />
+                    <span>{language === 'ar' ? 'جاري تجهيز الفيديو…' : 'Preparing video…'}</span>
+                  </div>
+                </div>
+              )}
+              <video
+                ref={videoRef}
+                key={playbackUrl}
+                poster={content.backdropUrl || content.posterUrl}
+                className="block h-full w-full bg-black object-contain"
+                controls
+                playsInline
+                preload="auto"
+                controlsList="nodownload noplaybackrate"
+                disablePictureInPicture={false}
+                onLoadStart={() => setVideoReady(false)}
+                onLoadedMetadata={() => jumpToTwoMinutesAndBack()}
+                onDurationChange={() => jumpToTwoMinutesAndBack()}
+                onLoadedData={() => {
+                  setVideoReady(true);
+                  jumpToTwoMinutesAndBack();
+                }}
+                onCanPlay={() => {
+                  setVideoReady(true);
+                  jumpToTwoMinutesAndBack();
+                }}
+                onWaiting={() => setVideoReady(false)}
+                onPlaying={() => setVideoReady(true)}
+                onError={() => {
+                  setVideoReady(false);
+                  if (playbackSource?.id) failedSourceIdsRef.current.add(playbackSource.id);
+                  const currentIndex = availableSources.findIndex(
+                    (source) => source.id === playbackSource?.id,
+                  );
+                  const fallback = availableSources.find(
+                    (source, index) => index > currentIndex && !failedSourceIdsRef.current.has(source.id),
+                  );
+                  if (fallback) setRemotePlaybackSource(fallback);
+                }}
+              >
+                <source
+                  src={playbackUrl}
+                  type={
+                    playbackSource?.type === 'mp4'
+                      ? 'video/mp4'
+                      : playbackSource?.type === 'hls'
+                        ? 'application/vnd.apple.mpegurl'
+                        : playbackSource?.type === 'dash'
+                          ? 'application/dash+xml'
+                          : undefined
+                  }
+                />
+                {language === 'ar'
+                  ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
+                  : 'Your browser does not support this playback source.'}
+              </video>
+            </div>
           </div>
         </div>
       </div>

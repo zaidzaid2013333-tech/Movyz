@@ -31,24 +31,22 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-[#07090e]/95 backdrop-blur-md border-b border-white/[0.08] transition-all">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4 min-w-0">
-        {/* Brand Logo & Navigation */}
-        <div className="flex items-center gap-3 lg:gap-8 min-w-0 shrink">
+    <header className="sticky top-0 z-50 w-full bg-[#05070a]/90 backdrop-blur-2xl border-b border-white/[0.06]">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3 lg:gap-8 min-w-0">
           <button
             onClick={() => handleNav('/')}
-            className="flex items-center gap-2 group text-start cursor-pointer focus:outline-none"
+            className="flex items-center gap-2 group text-start cursor-pointer shrink-0"
             aria-label="Movyza Home"
           >
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 to-amber-400 flex items-center justify-center shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform">
-              <Film className="w-4 h-4 text-slate-950 stroke-[2.5]" />
+            <div className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-400/15 group-hover:scale-105 transition-transform">
+              <Film className="w-4 h-4 stroke-[2.5]" />
             </div>
-            <span className="text-lg sm:text-xl font-bold tracking-wider text-white font-cinzel leading-none uppercase">
+            <span className="text-lg sm:text-xl font-bold tracking-[0.14em] text-white font-cinzel leading-none uppercase">
               MOVYZA
             </span>
           </button>
 
-          {/* Primary Navigation */}
           <nav className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => {
               const isActive = currentPath === link.path;
@@ -56,11 +54,12 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
                 <button
                   key={link.path}
                   onClick={() => handleNav(link.path)}
-                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                    isActive
-                      ? 'text-amber-400 font-bold'
-                      : 'text-slate-300 hover:text-white'
-                  }`}
+                  className={
+                    'text-xs font-semibold px-3 py-2 rounded-xl transition-all cursor-pointer ' +
+                    (isActive
+                      ? 'text-white bg-white/[0.06]'
+                      : 'text-slate-400 hover:text-white hover:bg-white/[0.035]')
+                  }
                 >
                   {link.label}
                 </button>
@@ -69,110 +68,91 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
           </nav>
         </div>
 
-        {/* Right Actions Cluster */}
-        <div className="flex items-center gap-0.5 sm:gap-2 shrink-0">
-          {/* Surprise Me Random Title */}
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
           <button
             onClick={openSurprise}
-            className="hidden sm:block p-2 rounded-xl text-slate-300 hover:text-amber-400 hover:bg-white/[0.06] transition-colors cursor-pointer"
-            title={language === 'ar' ? 'اختر لي فيلماً عشوائياً' : 'Surprise Me'}
+            className="hidden sm:flex p-2.5 rounded-xl text-slate-400 hover:text-amber-300 hover:bg-white/[0.05] transition-all cursor-pointer"
+            title={language === 'ar' ? 'اختر لي عملاً' : 'Surprise Me'}
             aria-label="Surprise Me"
           >
             <Dices className="w-4 h-4" />
           </button>
 
-          {/* Search Trigger */}
           <button
             onClick={() => handleNav('/search')}
-            className={`p-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer ${
-              currentPath === '/search' ? 'text-amber-400 bg-white/[0.06]' : ''
-            }`}
+            className={
+              'p-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.05] transition-all cursor-pointer ' +
+              (currentPath === '/search' ? 'text-amber-300 bg-white/[0.05]' : '')
+            }
             title={t('search')}
             aria-label={t('search')}
           >
             <Search className="w-4 h-4" />
           </button>
 
-          {/* Watchlist Quick Button */}
           <button
             onClick={() => handleNav('/watchlist')}
-            className={`p-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors relative cursor-pointer ${
-              currentPath === '/watchlist' ? 'text-amber-400 bg-white/[0.06]' : ''
-            }`}
+            className={
+              'hidden sm:flex p-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.05] transition-all relative cursor-pointer ' +
+              (currentPath === '/watchlist' ? 'text-amber-300 bg-white/[0.05]' : '')
+            }
             title={t('watchlist')}
             aria-label={t('watchlist')}
           >
             <Bookmark className="w-4 h-4" />
             {watchlistCount > 0 && (
-              <span className="absolute 0 top-1 right-1 w-4 h-4 bg-amber-500 text-slate-950 font-bold text-[10px] rounded-full flex items-center justify-center tabular-nums shadow-sm">
+              <span className="absolute top-1 right-1 min-w-4 h-4 px-1 bg-amber-400 text-slate-950 font-bold text-[9px] rounded-full flex items-center justify-center tabular-nums">
                 {watchlistCount}
               </span>
             )}
           </button>
 
-          {/* Language Switcher */}
           <button
             onClick={toggleLanguage}
-            className="flex items-center gap-1 px-1.5 sm:px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/[0.05] transition-all cursor-pointer"
             title={language === 'ar' ? 'Switch to English' : 'التحويل للعربية'}
           >
-            <Globe className="w-3.5 h-3.5 text-amber-400" />
+            <Globe className="w-3.5 h-3.5 text-amber-300" />
             <span className="font-mono text-[11px] font-bold">{language === 'ar' ? 'EN' : 'عربي'}</span>
           </button>
 
-          {/* User Profile / Auth */}
           {user ? (
-            <div className="relative shrink-0 flex items-center">
+            <div className="relative shrink-0">
               <button
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                className="w-8 h-8 min-w-[32px] min-h-[32px] max-w-[32px] max-h-[32px] aspect-square rounded-full overflow-hidden shrink-0 border border-white/20 hover:border-amber-400 focus:outline-none transition-all cursor-pointer block p-0"
+                className="w-9 h-9 rounded-full overflow-hidden border border-white/10 hover:border-amber-400/60 transition-all cursor-pointer block p-0"
                 aria-label="User Menu"
               >
                 <img
                   src={user.avatarUrl}
                   alt={user.name}
                   referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover block aspect-square rounded-full"
+                  className="w-full h-full object-cover"
                 />
               </button>
 
               {profileDropdownOpen && (
-                <div
-                  className="absolute top-full mt-2 rtl:left-0 ltr:right-0 w-52 bg-[#0c0e14] border border-white/10 rounded-2xl shadow-2xl py-2 z-50 text-xs animate-in fade-in zoom-in-95 duration-150 backdrop-blur-xl"
-                  onClick={() => setProfileDropdownOpen(false)}
-                >
-                  <div className="px-4 py-2 border-b border-white/[0.06]">
+                <div className="absolute top-full mt-2 rtl:left-0 ltr:right-0 w-52 bg-[#0b0e14]/95 border border-white/10 rounded-2xl shadow-2xl p-2 z-50 text-xs backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150">
+                  <div className="px-3 py-2 border-b border-white/[0.06]">
                     <p className="font-bold text-white truncate">{user.name}</p>
-                    <p className="text-[11px] text-slate-400 truncate font-mono">{user.email}</p>
+                    <p className="text-[11px] text-slate-500 truncate font-mono">{user.email}</p>
                   </div>
-                  <button
-                    onClick={() => handleNav('/profile')}
-                    className="w-full text-start px-4 py-2 text-slate-200 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer"
-                  >
+                  <button onClick={() => handleNav('/profile')} className="w-full text-start px-3 py-2.5 rounded-xl text-slate-200 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer">
                     <User className="w-3.5 h-3.5 text-slate-400" />
                     <span>{t('profile')}</span>
                   </button>
-                  <button
-                    onClick={() => handleNav('/history')}
-                    className="w-full text-start px-4 py-2 text-slate-200 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer"
-                  >
+                  <button onClick={() => handleNav('/history')} className="w-full text-start px-3 py-2.5 rounded-xl text-slate-200 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer">
                     <Play className="w-3.5 h-3.5 text-slate-400" />
                     <span>{t('history')}</span>
                   </button>
                   {isAdmin && (
-                    <button
-                      onClick={() => handleNav('/admin')}
-                      className="w-full text-start px-4 py-2 text-amber-400 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer font-semibold"
-                    >
+                    <button onClick={() => handleNav('/admin')} className="w-full text-start px-3 py-2.5 rounded-xl text-amber-300 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer font-semibold">
                       <Shield className="w-3.5 h-3.5" />
                       <span>{t('adminDashboard')}</span>
                     </button>
                   )}
                   <div className="border-t border-white/[0.06] my-1" />
-                  <button
-                    onClick={logout}
-                    className="w-full text-start px-4 py-2 text-rose-400 hover:bg-rose-500/10 flex items-center gap-2 cursor-pointer"
-                  >
+                  <button onClick={logout} className="w-full text-start px-3 py-2.5 rounded-xl text-rose-400 hover:bg-rose-500/10 flex items-center gap-2 cursor-pointer">
                     <LogOut className="w-3.5 h-3.5" />
                     <span>{t('logout')}</span>
                   </button>
@@ -182,16 +162,15 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
           ) : (
             <button
               onClick={() => handleNav('/login')}
-              className="px-2 sm:px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors cursor-pointer whitespace-nowrap"
+              className="hidden sm:block px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs transition-all cursor-pointer whitespace-nowrap"
             >
               {t('login')}
             </button>
           )}
 
-          {/* Mobile Menu Button */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors"
+            className="md:hidden p-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.05] transition-all cursor-pointer"
             aria-label="Toggle menu"
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -199,31 +178,43 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
         </div>
       </div>
 
-      {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-white/[0.08] bg-[#07090e] px-4 py-3 space-y-1 animate-in slide-in-from-top-2 duration-150">
-          {navLinks.map((link) => (
+        <div className="md:hidden border-t border-white/[0.06] bg-[#05070a]/95 px-3 py-3 backdrop-blur-2xl animate-in slide-in-from-top-2 duration-150">
+          <div className="grid grid-cols-2 gap-1.5">
+            {navLinks.map((link) => (
+              <button
+                key={link.path}
+                onClick={() => handleNav(link.path)}
+                className={
+                  'w-full text-start px-3 py-3 rounded-xl text-xs font-semibold transition-all ' +
+                  (currentPath === link.path
+                    ? 'text-white bg-white/[0.07]'
+                    : 'text-slate-300 hover:text-white hover:bg-white/[0.045]')
+                }
+              >
+                {link.label}
+              </button>
+            ))}
             <button
-              key={link.path}
-              onClick={() => handleNav(link.path)}
-              className={`w-full text-start px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
-                currentPath === link.path
-                  ? 'text-amber-400 font-bold bg-white/[0.04]'
-                  : 'text-slate-300 hover:text-white'
-              }`}
+              onClick={() => toggleLanguage()}
+              className="px-3 py-3 rounded-xl text-xs font-semibold text-slate-300 bg-white/[0.03] flex items-center gap-2"
             >
-              {link.label}
+              <Globe className="w-4 h-4 text-amber-300" />
+              <span>{language === 'ar' ? 'English' : 'العربية'}</span>
             </button>
-          ))}
-          {isAdmin && (
             <button
-              onClick={() => handleNav('/admin')}
-              className="w-full text-start px-3 py-2 rounded-lg text-xs font-semibold text-amber-400 hover:bg-white/[0.04] flex items-center gap-2"
+              onClick={() => handleNav('/watchlist')}
+              className="px-3 py-3 rounded-xl text-xs font-semibold text-slate-300 bg-white/[0.03] flex items-center gap-2"
             >
-              <Shield className="w-4 h-4" />
-              <span>{t('adminDashboard')}</span>
+              <Bookmark className="w-4 h-4 text-amber-300" />
+              <span>{t('watchlist')}</span>
             </button>
-          )}
+            {!user && (
+              <button onClick={() => handleNav('/login')} className="col-span-2 px-3 py-3 rounded-xl bg-amber-400 text-slate-950 font-bold text-xs">
+                {t('login')}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </header>
