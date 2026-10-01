@@ -348,7 +348,7 @@ app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   const allow = (process.env.CORS_ORIGINS || '').split(',').map((x) => x.trim()).filter(Boolean);
   if (origin && (allow.length === 0 || allow.includes(origin))) res.setHeader('access-control-allow-origin', origin);
   res.setHeader('access-control-allow-credentials', 'true');
-  res.setHeader('access-control-allow-headers', 'Authorization, Content-Type, X-Movyz-Player-Intent');
+  res.setHeader('access-control-allow-headers', 'Authorization, Content-Type');
   res.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader('x-content-type-options', 'nosniff');
   res.setHeader('referrer-policy', 'strict-origin-when-cross-origin');
@@ -546,23 +546,7 @@ async function seriesDto(row: any) {
   } as any;
 }
 
-app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
-  const playerIntent = req.headers.get('x-movyz-player-intent');
-  const userAgent = (req.headers.get('user-agent') || '').toLowerCase();
-  const fetchSite = (req.headers.get('sec-fetch-site') || '').toLowerCase();
-  const looksAutomated = /bot|crawler|spider|scraper|slurp|bingpreview|bytespider|headless|phantom|playwright|puppeteer|selenium|curl|wget|python-requests|go-http-client|axios/i.test(userAgent);
-
-  // Playback is intentionally interaction-gated. A normal browser sends this header
-  // only after the user explicitly opens the player.
-  if (playerIntent !== 'user-gesture' || looksAutomated) {
-    return fail(res, 403, 'PLAYBACK_INTERACTION_REQUIRED', 'Playback requires an interactive browser session');
-  }
-
-  // Do not serve playback sources to cross-site fetches.
-  if (fetchSite && !['same-origin', 'same-site', 'none'].includes(fetchSite)) {
-    return fail(res, 403, 'PLAYBACK_ORIGIN_REJECTED', 'Playback request origin rejected');
-  }
-
+app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   const type = req.query.type === 'movie' || req.query.type === 'series'
     ? req.query.type
     : null;
