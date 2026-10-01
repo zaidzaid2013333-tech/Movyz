@@ -201,15 +201,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   useEffect(() => {
     if (loading || !content) return;
 
-    // Playback URLs are intentionally not resolved during page load. The browser
-    // must receive an explicit user interaction before any remote source exists.
-    if (!playerUnlocked) {
-      setRemotePlaybackSources([]);
-      setRemotePlaybackSource(null);
-      setResolverLoading(false);
-      return;
-    }
-
     if (storedPlaybackSource) {
       setRemotePlaybackSources(storedPlaybackSources);
       setRemotePlaybackSource((current) => current ?? storedPlaybackSource);
@@ -270,7 +261,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return () => {
       mounted = false;
     };
-  }, [loading, content, currentEpisode, storedPlaybackSource, storedPlaybackSources, activeSeason, activeEpisode, playerUnlocked]);
+  }, [loading, content, currentEpisode, storedPlaybackSource, storedPlaybackSources, activeSeason, activeEpisode]);
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
@@ -426,7 +417,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     );
   }
 
-  if (!playbackUrl) {
+  if (!playerUnlocked || !playbackUrl) {
     return (
       <div className="min-h-screen bg-[#030406] text-slate-100 flex items-center justify-center p-4">
         <div className="w-full max-w-3xl rounded-3xl overflow-hidden border border-amber-500/20 bg-black shadow-2xl">
@@ -454,8 +445,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   </button>
                   <p className="mt-4 max-w-md text-[11px] leading-relaxed text-slate-400">
                     {language === 'ar'
-                      ? 'لن يتم طلب مصدر الفيديو حتى تبدأ التشغيل.'
-                      : 'The video source is not requested until you start playback.'}
+                      ? 'سيتم فتح مصدر المشاهدة عند تشغيل المشغل.'
+                      : 'The playback source stays outside the player until you open it.'}
                   </p>
                 </>
               ) : resolverLoading ? (
@@ -470,7 +461,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   message={language === 'ar' ? 'لا يوجد مصدر تشغيل متاح حاليًا.' : 'No playback source is currently available.'}
                   onRetry={() => {
                     setPlayerUnlocked(false);
-                    setTimeout(() => setPlayerUnlocked(true), 0);
+                    setResolverLoading(true);
+                    window.setTimeout(() => setResolverLoading(false), 0);
                   }}
                   onGoHome={() => onNavigate('/')}
                 />
