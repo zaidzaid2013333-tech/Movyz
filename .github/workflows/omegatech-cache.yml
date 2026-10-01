@@ -1,0 +1,46 @@
+name: Movyz OmegaTech cache refresh
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/sync-omegatech-cache.ts"
+      - ".github/workflows/omegatech-cache.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-omegatech-cache
+  cancel-in-progress: false
+
+jobs:
+  cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      MOVYZA_PROVIDER_TIMEOUT_MS: "15000"
+      MOVIE_LIMIT: "120"
+      EPISODE_LIMIT: "500"
+      CACHE_CONCURRENCY: "3"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Validate code
+        run: npm run lint
+
+      - name: Refresh OmegaTech source cache
+        run: npx tsx scripts/sync-omegatech-cache.ts
