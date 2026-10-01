@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyz-rolling-catalog
+  group: movyz-tmdb-sync
   cancel-in-progress: false
 
 jobs:
@@ -58,6 +58,19 @@ jobs:
 
       - name: Repair and complete episode metadata for all published series
         run: npx tsx scripts/run-tmdb-sync.ts episodes 10000
+
+      - name: Warm OmegaTech playback cache for newly added/popular catalog
+        env:
+          MOVIE_LIMIT: "48"
+          EPISODE_LIMIT: "72"
+          CACHE_CONCURRENCY: "1"
+        run: |
+          for attempt in 1 2; do
+            echo "OmegaTech cache attempt $attempt/2"
+            npx tsx scripts/sync-omegatech-cache.ts && exit 0
+            test "$attempt" -lt 2 && sleep 30
+          done
+          exit 1
 
       - name: Verify catalog integrity
         run: npx tsx scripts/verify-tmdb-sync.ts
