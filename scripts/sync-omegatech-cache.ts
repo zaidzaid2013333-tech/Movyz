@@ -101,8 +101,8 @@ async function loadCandidates(): Promise<{ movies: MovieCandidate[]; episodes: E
   );
 
   const movies: MovieCandidate[] = (moviesRaw.data || [])
-    .map((row: any) => ({ contentType: 'movie', contentId: row.id, tmdbId: Number(row.tmdb_id) }))
-    .filter((row: MovieCandidate) => Number.isInteger(row.tmdbId) && row.tmdbId > 0);
+    .map((row: any): MovieCandidate => ({ contentType: 'movie', contentId: row.id, tmdbId: Number(row.tmdb_id) }))
+    .filter((row) => Number.isInteger(row.tmdbId) && row.tmdbId > 0);
 
   const episodes: EpisodeCandidate[] = [];
   for (const row of episodesRaw) {
