@@ -66,6 +66,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
   const [resolverLoading, setResolverLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const startupSeekVideosRef = useRef<WeakSet<HTMLVideoElement>>(new WeakSet());
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
 
@@ -144,8 +145,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const jumpToTwoMinutesAndBack = () => {
     const video = videoRef.current;
-    if (!video || !Number.isFinite(video.duration) || video.duration < 120) return;
+    if (!video || startupSeekVideosRef.current.has(video)) return;
+    if (!Number.isFinite(video.duration) || video.duration < 120) return;
 
+    startupSeekVideosRef.current.add(video);
     const originalTime = Math.max(0, video.currentTime);
     const targetTime = Math.min(120, Math.max(0, video.duration - 1));
 
