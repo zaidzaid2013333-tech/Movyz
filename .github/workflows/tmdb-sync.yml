@@ -14,9 +14,9 @@ on:
       pages:
         description: "TMDB catalog pages to sync (1-3)"
         required: true
-        default: "1"
+        default: "6"
         type: choice
-        options: ["1","2","3"]
+        options: ["1","2","3","4","5","6"]
       sync_episodes:
         description: "Sync complete seasons/episodes after catalog"
         required: true
@@ -74,7 +74,7 @@ jobs:
 
       - name: Sync popular TMDB catalog
         env:
-          TMDB_PAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.pages || '1' }}
+          TMDB_PAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.pages || '6' }}
         run: |
           for attempt in 1 2 3; do
             echo "Catalog sync attempt $attempt/3"
