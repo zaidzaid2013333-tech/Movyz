@@ -9,6 +9,8 @@ on:
     paths-ignore:
       - "supabase/**"
       - ".github/workflows/tmdb-sync.yml"
+      - ".github/workflows/omegatech-cache.yml"
+      - "scripts/sync-omegatech-cache.ts"
   workflow_dispatch:
 
 permissions:
