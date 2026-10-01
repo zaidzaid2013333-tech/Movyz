@@ -467,7 +467,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               preload="metadata"
               controlsList="nodownload noplaybackrate"
               disablePictureInPicture={false}
-              referrerPolicy="no-referrer"
               onLoadedMetadata={() => {
                 const video = videoRef.current;
                 if (
