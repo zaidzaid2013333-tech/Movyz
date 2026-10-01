@@ -12,6 +12,7 @@ export interface HttpRequest {
   role?: 'USER'|'ADMIN'|'OWNER';
   supabase?: any;
   env?: WorkerEnvironment;
+  waitUntil?: (promise: Promise<unknown>) => void;
   header(name: string): string | undefined;
 }
 
@@ -75,12 +76,13 @@ export class MiniApp {
   patch(pattern:string,...handlers:RequestHandler[]){this.routes.push({method:'PATCH',pattern,handlers});return this;}
   delete(pattern:string,...handlers:RequestHandler[]){this.routes.push({method:'DELETE',pattern,handlers});return this;}
 
-  async handle(request:Request, env?: WorkerEnvironment):Promise<Response>{
+  async handle(request:Request, env?: WorkerEnvironment, executionContext?: { waitUntil(promise: Promise<unknown>): void }):Promise<Response>{
     const url=new URL(request.url);
     const req:HttpRequest={
       method:request.method,url:request.url,headers:request.headers,body:{},params:{},
       query:Object.fromEntries(url.searchParams.entries()),
       env,
+      waitUntil: executionContext ? (promise) => executionContext.waitUntil(promise) : undefined,
       header:(name:string)=>request.headers.get(name)||undefined,
     };
     if(['POST','PUT','PATCH','DELETE'].includes(request.method)){
