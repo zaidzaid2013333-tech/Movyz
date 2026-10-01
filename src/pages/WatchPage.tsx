@@ -66,6 +66,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
   const [resolverLoading, setResolverLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const startupRecoveryStage = useRef<'idle' | 'recovering' | 'done'>('idle');
+  const startupRecoveryTimer = useRef<number | null>(null);
 
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
@@ -142,6 +144,65 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   useEffect(() => {
     setTheaterLighting(true);
   }, [contentId, activeSeason, activeEpisode]);
+
+  const recoverStartupBuffer = () => {
+    const video = videoRef.current;
+    if (
+      !video ||
+      startupRecoveryStage.current !== 'idle' ||
+      !Number.isFinite(video.duration) ||
+      video.duration < 45 ||
+      video.currentTime >= 20
+    ) {
+      return;
+    }
+
+    startupRecoveryStage.current = 'recovering';
+    const originalTime = Math.max(0, video.currentTime);
+    const targetTime = Math.min(
+      Math.max(originalTime + 120, 120),
+      Math.max(video.duration - 15, 1),
+    );
+
+    const finish = () => {
+      if (startupRecoveryTimer.current !== null) {
+        window.clearTimeout(startupRecoveryTimer.current);
+        startupRecoveryTimer.current = null;
+      }
+      if (startupRecoveryStage.current !== 'recovering') return;
+
+      video.removeEventListener('canplay', finish);
+      try {
+        video.currentTime = originalTime;
+      } catch {
+        // Ignore a provider that rejects seeking.
+      }
+      startupRecoveryStage.current = 'done';
+      void video.play().catch(() => {
+        // The browser may still require the user's play gesture.
+      });
+    };
+
+    video.addEventListener('canplay', finish, { once: true });
+    startupRecoveryTimer.current = window.setTimeout(() => {
+      video.removeEventListener('canplay', finish);
+      startupRecoveryTimer.current = null;
+      if (startupRecoveryStage.current === 'recovering') {
+        startupRecoveryStage.current = 'idle';
+      }
+    }, 12000);
+
+    try {
+      video.currentTime = targetTime;
+    } catch {
+      video.removeEventListener('canplay', finish);
+      if (startupRecoveryTimer.current !== null) {
+        window.clearTimeout(startupRecoveryTimer.current);
+        startupRecoveryTimer.current = null;
+      }
+      startupRecoveryStage.current = 'idle';
+    }
+  };
 
   const storedPlaybackSource = useMemo(
     () => (content ? pickPlaybackSource(content, currentEpisode) : null),
@@ -227,6 +288,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const availableSources = storedPlaybackSource ? [storedPlaybackSource] : remotePlaybackSources;
 
   useEffect(() => {
+    startupRecoveryStage.current = 'idle';
+    if (startupRecoveryTimer.current !== null) {
+      window.clearTimeout(startupRecoveryTimer.current);
+      startupRecoveryTimer.current = null;
+    }
     if (!playbackUrl || typeof document === 'undefined') return;
     let origin: string;
     try { origin = new URL(playbackUrl).origin; } catch { return; }
@@ -423,6 +489,22 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 playsInline
                 preload="auto"
                 controlsList="nodownload noplaybackrate"
+                onLoadedMetadata={() => {
+                  const video = videoRef.current;
+                  if (
+                    video &&
+                    video.currentTime < 1 &&
+                    video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
+                  ) {
+                    window.setTimeout(() => recoverStartupBuffer(), 250);
+                  }
+                }}
+                onWaiting={() => {
+                  const video = videoRef.current;
+                  if (video && video.currentTime < 20) {
+                    recoverStartupBuffer();
+                  }
+                }}
                 onError={() => {
                   const currentIndex = availableSources.findIndex(
                     (source) => source.id === playbackSource?.id,
