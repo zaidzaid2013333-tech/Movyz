@@ -24,11 +24,11 @@ const noCacheHeaders = (response: Response) => {
 };
 
 export default {
-  async fetch(request: Request, env: MovyzEnvironment): Promise<Response> {
+  async fetch(request: Request, env: MovyzEnvironment, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === '/health' || url.pathname.startsWith('/api/')) {
-      return app.handle(request, env);
+      return app.handle(request, env, ctx);
     }
 
     const assetResponse = await env.ASSETS.fetch(request);
