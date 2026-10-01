@@ -69,32 +69,32 @@ export const MovyzaApi = {
     genreId?: number; year?: number; minRating?: number;
     sortBy?: 'popular' | 'rating' | 'newest'; search?: string;
     page?: number; limit?: number;
-  }) => request<Movie[]>(`/movies${query(params || {})}`),
+  }) => request<Movie[]>(`/movies${query(params || {})}`, {}, { skipAuth: true }),
 
   getMovieById: (id: string) =>
-    request<{ movie: Movie; similar: Movie[] }>(`/movies/${encodeURIComponent(id)}`),
+    request<{ movie: Movie; similar: Movie[] }>(`/movies/${encodeURIComponent(id)}`, {}, { skipAuth: true }),
 
   getMovieByTmdbId: (tmdbId: number) =>
-    request<{ movie: Movie; similar: Movie[] }>(`/movies/tmdb/${encodeURIComponent(String(tmdbId))}`),
+    request<{ movie: Movie; similar: Movie[] }>(`/movies/tmdb/${encodeURIComponent(String(tmdbId))}`, {}, { skipAuth: true }),
 
   getSeries: (params?: {
     genreId?: number; year?: number;
     sortBy?: 'popular' | 'rating' | 'newest'; search?: string;
     page?: number; limit?: number;
-  }) => request<Series[]>(`/series${query(params || {})}`),
+  }) => request<Series[]>(`/series${query(params || {})}`, {}, { skipAuth: true }),
 
   getSeriesById: (id: string) =>
-    request<{ series: Series; similar: Series[] }>(`/series/${encodeURIComponent(id)}`),
+    request<{ series: Series; similar: Series[] }>(`/series/${encodeURIComponent(id)}`, {}, { skipAuth: true }),
 
   getSeriesByTmdbId: (tmdbId: number) =>
-    request<{ series: Series; similar: Series[] }>(`/series/tmdb/${encodeURIComponent(String(tmdbId))}`),
+    request<{ series: Series; similar: Series[] }>(`/series/tmdb/${encodeURIComponent(String(tmdbId))}`, {}, { skipAuth: true }),
 
   searchCatalog: (search: string) =>
     request<{
       movies: Movie[];
       series: Series[];
       cast: { name: string; nameEn: string; worksCount: number; avatarUrl: string }[];
-    }>(`/search?q=${encodeURIComponent(search)}`),
+    }>(`/search?q=${encodeURIComponent(search)}`, {}, { skipAuth: true }),
 
   resolvePlaybackSource: (params: {
     type: 'movie' | 'series';
@@ -104,7 +104,7 @@ export const MovyzaApi = {
     episodeTmdbId?: number;
   }) => request<{
     sources: import('../types').PlaybackSource[];
-  }>(`/playback/resolve${query(params)}`),
+  }>(`/playback/resolve${query(params)}`, {}, { skipAuth: true }),
 
   getGenres: () => request<Genre[]>('/genres'),
 
