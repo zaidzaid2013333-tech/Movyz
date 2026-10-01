@@ -23,7 +23,7 @@ on:
         required: true
         default: "10"
         type: choice
-        options: ["5","10","15","20","25"]
+        options: ["5","10","15","20","25","30"]
 
 permissions:
   contents: read
@@ -82,7 +82,7 @@ jobs:
       - name: Sync TMDB episodes
         if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.sync_episodes }}
         env:
-          SERIES_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.series_limit || '10' }}
+          SERIES_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.series_limit || '30' }}
         run: |
           for attempt in 1 2 3; do
             echo "Episode sync attempt $attempt/3"
@@ -91,19 +91,44 @@ jobs:
           done
           exit 1
 
-      - name: Refresh playable movie coverage
+      - name: Verify OmegaTech playback coverage
+        continue-on-error: true
         env:
-          COVERAGE_PAGES: "3"
-          COVERAGE_LIMIT: "60"
-          COVERAGE_CONCURRENCY: "5"
-          MOVYZA_PROVIDER_TIMEOUT_MS: "6000"
+          PLAYBACK_BASE_URL: "https://movyz-api.sameranede.workers.dev"
         run: |
-          for attempt in 1 2; do
-            echo "Playback coverage attempt $attempt/2"
-            npx tsx scripts/discover-playback.ts && exit 0
-            test "$attempt" -lt 2 && sleep 15
-          done
-          exit 1
+          node <<'NODE'
+          const base = process.env.PLAYBACK_BASE_URL;
+          const checks = [
+            ["movie", 27205],
+            ["movie", 550],
+            ["movie", 155],
+            ["series", 1396, 1, 1],
+            ["series", 1396, 2, 1],
+            ["series", 1396, 5, 1],
+            ["series", 60059, 1, 1],
+            ["series", 60059, 3, 1],
+            ["series", 70523, 1, 1],
+            ["series", 2316, 1, 1],
+            ["series", 5920, 1, 1],
+          ];
 
+          for (const [type, tmdbId, season, episode] of checks) {
+            const params = new URLSearchParams({ type, tmdbId: String(tmdbId) });
+            if (season != null) params.set("season", String(season));
+            if (episode != null) params.set("episode", String(episode));
+            const response = await fetch(base + "/api/v1/playback/resolve?" + params, {
+              headers: { Accept: "application/json", "User-Agent": "Movyz-AutoSync/1.0" },
+              signal: AbortSignal.timeout(45000),
+            });
+            const body = await response.text();
+            if (!response.ok) throw new Error(type + " " + tmdbId + " S" + season + "E" + episode + " -> HTTP " + response.status + " " + body.slice(0, 600));
+            const payload = JSON.parse(body);
+            const sources = payload?.data?.sources;
+            if (!Array.isArray(sources) || !sources.length) throw new Error(type + " " + tmdbId + " returned no OmegaTech sources");
+            const external = sources.filter((source) => /^https?:\/\//i.test(String(source?.url || "")));
+            if (!external.length || external.some((source) => String(source.url).includes("movyz-api.sameranede.workers.dev"))) throw new Error(type + " " + tmdbId + " returned an invalid/non-external playback URL");
+            console.log("PLAYBACK_OK", type, tmdbId, season ?? "", episode ?? "", "sources=" + external.length);
+          }
+          NODE
       - name: Verify synchronized catalog
         run: npx tsx scripts/verify-tmdb-sync.ts
