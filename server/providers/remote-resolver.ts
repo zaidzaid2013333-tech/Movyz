@@ -1,6 +1,5 @@
 import { extractPlaybackCandidates, fetchJsonOrText, inferPlaybackType, inferQuality } from './http';
 import type { WorkerEnvironment } from '../mini-http';
-import { launch as launchBrowser } from '@cloudflare/playwright';
 
 export type RemotePlaybackRequest = {
   type: 'movie' | 'series';
@@ -278,230 +277,6 @@ async function omegaRequest(
   return fetchJsonOrText(url.toString(), timeoutMs);
 }
 
-function isBlockedEmbedHost(hostname: string) {
-  return /(?:doubleclick|googlesyndication|google-analytics|googletagmanager|facebook|pubmatic|securedvisit|viglink|popads|adsterra|exoclick)/i.test(hostname)
-    || /(?:^|\\.)youtube(?:-nocookie)?\\.com$/i.test(hostname)
-    || /(?:^|\\.)youtu\\.be$/i.test(hostname);
-}
-
-function scoreEmbedUrl(url: string, tagName = 'iframe') {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'https:' || isBlockedEmbedHost(parsed.hostname)) return -Infinity;
-    const path = (parsed.pathname + parsed.search).toLowerCase();
-    let score = tagName === 'iframe' ? 100 : 80;
-    if (/(?:embed|player|watch|stream|video|play)/i.test(path)) score += 30;
-    if (/(?:ads?|advert|banner|popup)/i.test(path)) score -= 80;
-    if (/^akwam\\.ss$/i.test(parsed.hostname) && !/(?:embed|player|watch|stream|play)/i.test(path)) score -= 60;
-    return score;
-  } catch {
-    return -Infinity;
-  }
-}
-
-function extractEmbedUrlsFromHtml(html: string, baseUrl: string) {
-  const candidates: Array<{ url: string; score: number }> = [];
-  const add = (raw: string, tagName: string) => {
-    const cleaned = raw.trim().replace(/&amp;/g, '&');
-    if (!cleaned) return;
-    try {
-      const absolute = new URL(cleaned, baseUrl).toString();
-      const score = scoreEmbedUrl(absolute, tagName);
-      if (Number.isFinite(score)) candidates.push({ url: absolute, score });
-    } catch {
-      // Ignore malformed embed URLs.
-    }
-  };
-
-  const iframeRe = /<(iframe|frame|embed)\\b[^>]*?(?:src|data-src|data-url|data-embed|data-player)=["']([^"']+)["'][^>]*>/gi;
-  let match: RegExpExecArray | null;
-  while ((match = iframeRe.exec(html)) !== null) add(match[2], match[1]);
-
-  return [...new Map(
-    candidates.sort((a, b) => b.score - a.score).map((item) => [item.url, item]),
-  ).values()].map((item) => item.url).slice(0, 4);
-}
-
-async function resolveAkwamInteractiveEmbedUrls(
-  env: WorkerEnvironment,
-  pageUrl: string,
-  timeoutMs: number,
-): Promise<string[]> {
-  const browserBinding = env.BROWSER;
-  if (!browserBinding) return [];
-
-  let browser: any;
-  let context: any;
-  try {
-    browser = await launchBrowser(browserBinding as any);
-    context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36 Movyza/1.0',
-    });
-    const page = await context.newPage();
-
-    await page.goto(pageUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: Math.min(Math.max(timeoutMs, 5_000), 12_000),
-    });
-
-    try {
-      await page.waitForLoadState('networkidle', { timeout: 5_000 });
-    } catch {
-      // Dynamic players may keep background connections open.
-    }
-
-    const filterEmbedCandidates = (urls: string[]) => [...new Set(urls)]
-      .filter((url) => /^https?:\/\//i.test(url))
-      .filter((url) => {
-        try {
-          const parsed = new URL(url);
-          const path = (parsed.pathname + parsed.search).toLowerCase();
-          return parsed.hostname !== new URL(page.url()).hostname
-            || /(?:embed|player|watch|stream|video|play)/i.test(path);
-        } catch {
-          return false;
-        }
-      })
-      .slice(0, 8);
-
-    const collectEmbedUrls = async () => {
-      const iframeUrls = await page.locator('iframe,embed,frame').evaluateAll((elements: Element[]) =>
-        elements.map((element) =>
-          element.getAttribute('src') ||
-          element.getAttribute('data-src') ||
-          element.getAttribute('data-url') ||
-          element.getAttribute('data-embed') ||
-          element.getAttribute('data-player') ||
-          ''
-        ).filter(Boolean)
-      );
-
-      return filterEmbedCandidates(iframeUrls);
-    };
-
-    let embeds = await collectEmbedUrls();
-    if (embeds.length) return embeds;
-
-    const candidates = await page.locator('a,button,[role="button"]').evaluateAll((elements: Element[]) =>
-      elements.map((element, index) => ({
-        index,
-        text: (element.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 180),
-        aria: element.getAttribute('aria-label') || '',
-        title: element.getAttribute('title') || '',
-        href: element.getAttribute('href') || '',
-        className: element.getAttribute('class') || '',
-      }))
-      .filter((item) => /(?:مشاهدة|مشاهده|شاهد|تشغيل|المشاهدة|watch|play|watch now|play now)/i.test(
-        [item.text, item.aria, item.title, item.href, item.className].join(' ')
-      ))
-      .slice(0, 12)
-    );
-
-    const allInteractive = page.locator('a,button,[role="button"]');
-    for (const candidate of candidates) {
-      try {
-        const count = await allInteractive.count();
-        if (candidate.index >= count) continue;
-
-        const popupPromise = page.waitForEvent('popup', { timeout: 2_500 }).catch(() => null);
-        await allInteractive.nth(candidate.index).click({ timeout: 2_500 });
-        const popup = await popupPromise;
-
-        if (popup) {
-          try {
-            await popup.waitForLoadState('domcontentloaded', { timeout: 5_000 });
-          } catch {
-            // Keep inspecting the popup.
-          }
-          try {
-            embeds = await popup.locator('iframe,embed,frame').evaluateAll((elements: Element[]) =>
-              elements.map((element) =>
-                element.getAttribute('src') ||
-                element.getAttribute('data-src') ||
-                element.getAttribute('data-url') ||
-                element.getAttribute('data-embed') ||
-                element.getAttribute('data-player') ||
-                ''
-              ).filter(Boolean)
-            );
-          } catch {
-            embeds = [];
-          }
-          if (!embeds.length) embeds = popup.frames().map((frame: any) => frame.url()).filter(Boolean);
-          if (embeds.length) return [...new Set(embeds)].filter((url) => /^https?:\/\//i.test(url));
-          try { await popup.close(); } catch {}
-        }
-
-        await page.waitForTimeout(1_200);
-        embeds = await collectEmbedUrls();
-        if (embeds.length) return embeds;
-
-        const navigatedUrl = page.url();
-        if (/(?:\/watch\/|\/player\/|\/embed\/|\/play(?:\/|$))/i.test(navigatedUrl)) {
-          try {
-            const navigationEmbeds = await page.locator('iframe,embed,frame').evaluateAll((elements: Element[]) =>
-              elements.map((element) =>
-                element.getAttribute('src') ||
-                element.getAttribute('data-src') ||
-                element.getAttribute('data-url') ||
-                element.getAttribute('data-embed') ||
-                element.getAttribute('data-player') ||
-                ''
-              ).filter(Boolean)
-            );
-            if (navigationEmbeds.length) return navigationEmbeds;
-          } catch {}
-        }
-
-        if (page.url() !== pageUrl) {
-          await page.goto(pageUrl, {
-            waitUntil: 'domcontentloaded',
-            timeout: Math.min(Math.max(timeoutMs, 5_000), 12_000),
-          }).catch(() => {});
-          await page.waitForTimeout(600);
-        }
-      } catch {
-        // Try the next plausible watch control.
-      }
-    }
-
-    embeds = await collectEmbedUrls();
-    return embeds;
-  } catch {
-    return [];
-  } finally {
-    try { await context?.close(); } catch {}
-    try { await browser?.close(); } catch {}
-  }
-}
-
-async function resolveAkwamEmbedUrls(
-  pageUrl: string,
-  timeoutMs: number,
-  env?: WorkerEnvironment,
-): Promise<string[]> {
-  try {
-    const page = await fetchJsonOrText(
-      pageUrl,
-      timeoutMs,
-      {
-        Accept: 'text/html,application/xhtml+xml',
-        Referer: 'https://akwam.ss/',
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36 Movyza/1.0',
-      },
-    );
-    if (typeof page === 'string') {
-      const direct = extractEmbedUrlsFromHtml(page, pageUrl);
-      if (direct.length) return direct;
-    }
-  } catch {
-    // Continue to interactive browser.
-  }
-
-  if (!env) return [];
-  return resolveAkwamInteractiveEmbedUrls(env, pageUrl, timeoutMs);
-}
-
 async function resolveOmegaDownloadUrls(
   base: string,
   payload: unknown,
@@ -533,7 +308,6 @@ async function resolveOmegaDownloadUrls(
 async function resolveOmegaTechAkwamPlayback(
   request: RemotePlaybackRequest,
   timeoutMs: number,
-  env?: WorkerEnvironment,
 ) {
   const titles = new Set<string>();
   const primaryTitle = await resolveTmdbTitle(request.type, request.tmdbId, timeoutMs);
@@ -594,19 +368,6 @@ async function resolveOmegaTechAkwamPlayback(
         targetPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
       }
 
-      const embedUrls: string[] = await resolveAkwamEmbedUrls(playerPageUrl, timeoutMs, env);
-      if (embedUrls.length) {
-        return embedUrls.map((url: string, index: number) => ({
-          url,
-          type: 'embed' as const,
-          embedUrl: url,
-          quality: 'auto',
-          language: 'ar',
-          label: `OmegaTech Akwam Player ${index + 1}`,
-          providerReference: playerPageUrl,
-        }));
-      }
-
       let urls = await resolveOmegaDownloadUrls(base, targetPayload, timeoutMs);
       if (!urls.length) {
         urls = await resolveOmegaDownloadUrls(base, selected.raw, timeoutMs);
@@ -649,7 +410,7 @@ export async function resolveRemotePlayback(
 
 async function resolveRemotePlaybackUncached(
   request: RemotePlaybackRequest,
-  env?: WorkerEnvironment,
+  _env?: WorkerEnvironment,
 ): Promise<RemotePlaybackSource[]> {
   const timeoutMs = Math.max(2_000, Number(process.env.PLAYBACK_RESOLVER_TIMEOUT_MS || 9_000));
   const errors: string[] = [];
@@ -660,11 +421,10 @@ async function resolveRemotePlaybackUncached(
     language?: string;
     label?: string;
     providerReference?: string;
-    embedUrl?: string;
   }> = [];
 
   try {
-    candidates.push(...await resolveOmegaTechAkwamPlayback(request, timeoutMs, env));
+    candidates.push(...await resolveOmegaTechAkwamPlayback(request, timeoutMs));
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
   }
@@ -691,6 +451,6 @@ async function resolveRemotePlaybackUncached(
     provider: 'OmegaTech',
     providerKey: 'omegatech-akwam',
     ...(candidate.providerReference ? { providerReference: candidate.providerReference } : {}),
-    ...(candidate.embedUrl ? { embedUrl: candidate.embedUrl } : {}),
+
   }));
 }
