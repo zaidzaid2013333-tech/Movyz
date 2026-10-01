@@ -77,37 +77,50 @@ function genreSlug(id: number, name: string) {
   return 'tmdb-' + id + '-' + (clean || 'genre');
 }
 
+let databaseReadyPromise: Promise<void> | null = null;
+
 async function assertDatabaseReady() {
-  const required = [
-    'profiles',
-    'movies',
-    'series',
-    'genres',
-    'movie_genres',
-    'series_genres',
-    'people',
-    'movie_cast',
-    'series_cast',
-    'seasons',
-    'episodes',
-    'providers',
-    'provider_mappings',
-    'playback_sources',
-    'sync_jobs',
-  ];
+  if (databaseReadyPromise) return databaseReadyPromise;
 
-  const failures: string[] = [];
-  for (const table of required) {
-    const { error } = await adminSupabase.from(table).select('*', { head: true, count: 'exact' });
-    if (error) failures.push(`${table}: ${error.message}`);
+  databaseReadyPromise = (async () => {
+    const required = [
+      'profiles',
+      'movies',
+      'series',
+      'genres',
+      'movie_genres',
+      'series_genres',
+      'people',
+      'movie_cast',
+      'series_cast',
+      'seasons',
+      'episodes',
+      'providers',
+      'provider_mappings',
+      'playback_sources',
+      'sync_jobs',
+    ];
+
+    const failures: string[] = [];
+    for (const table of required) {
+      const { error } = await adminSupabase.from(table).select('*', { head: true, count: 'exact' });
+      if (error) failures.push(`${table}: ${error.message}`);
+    }
+
+    if (failures.length) {
+      throw new Error('Database preflight failed: ' + failures.join(' | '));
+    }
+
+    const { error: providersError } = await adminSupabase.from('providers').select('id,key,enabled').limit(1);
+    if (providersError) throw new Error('Provider table is not readable: ' + providersError.message);
+  })();
+
+  try {
+    await databaseReadyPromise;
+  } catch (error) {
+    databaseReadyPromise = null;
+    throw error;
   }
-
-  if (failures.length) {
-    throw new Error('Database preflight failed: ' + failures.join(' | '));
-  }
-
-  const { error: providersError } = await adminSupabase.from('providers').select('id,key,enabled').limit(1);
-  if (providersError) throw new Error('Provider table is not readable: ' + providersError.message);
 }
 
 async function startJob(jobType: string, pages: number) {
@@ -621,6 +634,11 @@ export async function runTmdbSync(options: { pages?: number } = {}) {
 export async function syncMovieCandidate(arMovie: any, enMovie: any) {
   await assertDatabaseReady();
   return syncMovie(arMovie, enMovie);
+}
+
+export async function syncSeriesCandidate(arSeries: any, enSeries: any) {
+  await assertDatabaseReady();
+  return syncSeries(arSeries, enSeries);
 }
 
 export async function syncMovieByTmdbId(tmdbId: number) {

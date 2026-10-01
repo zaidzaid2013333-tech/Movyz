@@ -1,0 +1,63 @@
+name: Movyz rolling TMDB catalog import
+
+on:
+  schedule:
+    - cron: "30 3,15 * * *"
+  workflow_dispatch:
+    inputs:
+      pages:
+        description: "TMDB pages to scan this run (1-6)"
+        required: true
+        default: "3"
+        type: choice
+        options: ["1","2","3","4","5","6"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-rolling-catalog
+  cancel-in-progress: false
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      CATALOG_PAGES_PER_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.pages || '3' }}
+      MOVIE_DAILY_CAP: "240"
+      SERIES_DAILY_CAP: "20"
+      TMDB_REQUEST_TIMEOUT_MS: "15000"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configure npm resilience
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set audit false
+          npm config set fund false
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Validate code
+        run: npm run lint
+
+      - name: Import new TMDB catalog items within daily caps
+        run: npx tsx scripts/auto-catalog-import.ts
+
+      - name: Repair and complete episode metadata for all published series
+        run: npx tsx scripts/run-tmdb-sync.ts episodes 10000
+
+      - name: Verify catalog integrity
+        run: npx tsx scripts/verify-tmdb-sync.ts
