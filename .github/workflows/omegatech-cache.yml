@@ -2,16 +2,12 @@ name: Movyz OmegaTech cache refresh (manual)
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["main"]
-    paths:
-      - "scripts/sync-omegatech-cache.ts"
 
 permissions:
   contents: read
 
 concurrency:
-  group: movyz-omega-backfill-once
+  group: movyz-tmdb-sync
   cancel-in-progress: false
 
 jobs:
