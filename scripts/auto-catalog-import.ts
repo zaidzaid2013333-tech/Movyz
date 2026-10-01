@@ -317,6 +317,7 @@ async function main() {
     await finishJob(jobId, 'succeeded', counts);
     console.log(JSON.stringify({
       imported: counts,
+      playback: { moviesLinked: moviesPlaybackLinked, moviesFailed: moviesPlaybackFailed },
       remainingToday: { movies: movieBudget, series: seriesBudget },
       pages,
       caps: { movies: MOVIE_DAILY_CAP, series: SERIES_DAILY_CAP },
