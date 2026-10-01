@@ -281,9 +281,10 @@ async function main() {
     ...remainingEpisodes,
   ].filter((item) => !complete.has('episode:' + item.contentId));
 
+  const selectedEpisodes = orderedEpisodes.slice(0, EPISODE_LIMIT);
   const candidates: Candidate[] = [
     ...orderedMovies,
-    ...orderedEpisodes.slice(0, EPISODE_LIMIT),
+    ...selectedEpisodes,
   ];
 
   const summary = { candidates: candidates.length, playable: 0, sources: 0, failed: 0 };
