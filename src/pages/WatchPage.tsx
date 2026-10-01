@@ -465,7 +465,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         )}
 
         {availableSources.length > 0 && (
-          <div className="flex items-center gap-2 px-1 pb-2 overflow-x-auto scrollbar-none">
+          <div dir={direction} className="touch-chip-scroll px-1 pb-2">
             <span className="shrink-0 text-[11px] text-slate-500 font-mono">
               {language === 'ar' ? 'مصدر التشغيل:' : 'Playback:'}
             </span>
