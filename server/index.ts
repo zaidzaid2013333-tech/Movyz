@@ -4,7 +4,7 @@ import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } from './auth';
 import { getProvider } from './providers/registry';
-import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
+import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolveRemotePlayback } from './providers/remote-resolver';
 import { resolvePlaybackSources } from './providers/resolver';
@@ -610,12 +610,30 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
   const tmdbId = Number(req.params.tmdbId);
   if (!Number.isInteger(tmdbId) || tmdbId <= 0) return fail(res, 400, 'INVALID_TMDB_ID', 'Invalid TMDB id');
 
-  const { data, error } = await adminSupabase
+  let { data, error } = await adminSupabase
     .from('movies')
     .select('*')
     .eq('tmdb_id', tmdbId)
     .eq('status', 'published')
     .maybeSingle();
+
+  if (error) return fail(res, 500, 'MOVIE_QUERY_FAILED', 'Unable to load movie');
+
+  if (!data) {
+    try {
+      await syncMovieByTmdbId(tmdbId);
+      const refreshed = await adminSupabase
+        .from('movies')
+        .select('*')
+        .eq('tmdb_id', tmdbId)
+        .eq('status', 'published')
+        .maybeSingle();
+      data = refreshed.data;
+      error = refreshed.error;
+    } catch (syncError) {
+      console.warn('[auto-import-movie]', syncError instanceof Error ? syncError.message : String(syncError));
+    }
+  }
 
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
   const movie = await movieDto(data);
@@ -658,12 +676,30 @@ app.get(`${api}/series/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
   const tmdbId = Number(req.params.tmdbId);
   if (!Number.isInteger(tmdbId) || tmdbId <= 0) return fail(res, 400, 'INVALID_TMDB_ID', 'Invalid TMDB id');
 
-  const { data, error } = await adminSupabase
+  let { data, error } = await adminSupabase
     .from('series')
     .select('*')
     .eq('tmdb_id', tmdbId)
     .eq('status', 'published')
     .maybeSingle();
+
+  if (error) return fail(res, 500, 'SERIES_QUERY_FAILED', 'Unable to load series');
+
+  if (!data) {
+    try {
+      await syncSeriesByTmdbId(tmdbId);
+      const refreshed = await adminSupabase
+        .from('series')
+        .select('*')
+        .eq('tmdb_id', tmdbId)
+        .eq('status', 'published')
+        .maybeSingle();
+      data = refreshed.data;
+      error = refreshed.error;
+    } catch (syncError) {
+      console.warn('[auto-import-series]', syncError instanceof Error ? syncError.message : String(syncError));
+    }
+  }
 
   if (error || !data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
   const series = await seriesDto(data);
