@@ -463,10 +463,18 @@ async function batchSeriesGenres(ids: string[]) {
   return map;
 }
 
-async function movieDto(row: any) {
-  const [genres, cast] = await Promise.all([
+async function movieDto(row: any, includePlaybackSources = false) {
+  const playbackPromise = includePlaybackSources
+    ? getFreshOmegaSourcesForContent('movie', row.id).catch((error) => {
+        console.warn('[movie-playback-cache]', error instanceof Error ? error.message : String(error));
+        return [];
+      })
+    : Promise.resolve([]);
+
+  const [genres, cast, playbackSources] = await Promise.all([
     adminSupabase.from('movie_genres').select('genres(id,name_ar,name_en,slug)').eq('movie_id', row.id),
     adminSupabase.from('movie_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('movie_id', row.id).order('cast_order'),
+    playbackPromise,
   ]);
   return {
     id: row.id, tmdbId: Number(row.tmdb_id || 0), type: 'movie',
@@ -486,13 +494,13 @@ async function movieDto(row: any) {
       character: x.character_ar || '', characterEn: x.character_en || '',
       avatarUrl: x.people.avatar_url || '',
     })),
-    sources: [],
+    sources: playbackSources,
     isFeatured: !!row.featured, isTrending: !!row.trending, isPopular: !!row.popular,
     addedAt: row.created_at, ageRating: row.age_rating || '',
   } as any;
 }
 
-async function seriesDto(row: any) {
+async function seriesDto(row: any, includePlaybackSources = false) {
   const [genres, cast, seasons] = await Promise.all([
     adminSupabase.from('series_genres').select('genres(id,name_ar,name_en,slug)').eq('series_id', row.id),
     adminSupabase.from('series_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('series_id', row.id).order('cast_order'),
@@ -504,6 +512,35 @@ async function seriesDto(row: any) {
   const episodes = ids.length
     ? await adminSupabase.from('episodes').select('*').in('season_id', ids).order('episode_number')
     : { data: [] as any[] };
+
+  const episodeRows = episodes.data || [];
+  const episodeIds = episodeRows.map((episode: any) => episode.id);
+  const playbackByEpisode = new Map<string, any[]>();
+
+  if (includePlaybackSources && episodeIds.length) {
+    const { data: playbackRows, error: playbackError } = await adminSupabase
+      .from('playback_sources')
+      .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name)')
+      .in('content_type', ['episode'])
+      .in('content_id', episodeIds)
+      .eq('is_working', true)
+      .eq('providers.key', 'omegatech-akwam')
+      .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
+      .order('quality', { ascending: true });
+
+    if (playbackError) {
+      console.warn('[series-playback-cache]', playbackError.message);
+    } else {
+      for (const source of playbackRows || []) {
+        const episodeId = String(source.content_id || '');
+        if (!episodeId) continue;
+        const list = playbackByEpisode.get(episodeId) || [];
+        const mapped = cachedOmegaSourceDto(source);
+        if (mapped.url) list.push(mapped);
+        playbackByEpisode.set(episodeId, list);
+      }
+    }
+  }
 
   const seasonDtos = seasonRows.map((s: any) => ({
     id: s.id, seriesId: row.id, seasonNumber: s.season_number,
@@ -517,7 +554,7 @@ async function seriesDto(row: any) {
       titleEn: e.name_en || e.name_ar || `Episode ${e.episode_number}`,
       overview: e.overview_ar || '', overviewEn: e.overview_en || e.overview_ar || '',
       stillUrl: e.still_url || '', duration: Number(e.runtime_minutes || 0), airDate: e.air_date || '',
-      sources: [],
+      sources: includePlaybackSources ? (playbackByEpisode.get(e.id) || []) : [],
     })),
   }));
 
@@ -750,7 +787,7 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
   }
 
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
-  const movie = await movieDto(data);
+  const movie = await movieDto(data, true);
   return ok(res, { movie, similar: [] });
 }));
 
@@ -816,7 +853,7 @@ app.get(`${api}/series/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
   }
 
   if (error || !data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
-  const series = await seriesDto(data);
+  const series = await seriesDto(data, true);
   return ok(res, { series, similar: [] });
 }));
 
@@ -909,7 +946,7 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
       contentType,
       id,
       tmdbId: Number(data.tmdb_id || 0),
-      content: await movieDto(data),
+      content: await movieDto(data, true),
     });
   }
 
