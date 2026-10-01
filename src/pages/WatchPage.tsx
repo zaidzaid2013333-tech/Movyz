@@ -261,6 +261,19 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
+  const playbackMimeType = /\.mp4(?:$|[?#])/i.test(playbackUrl)
+    ? 'video/mp4'
+    : /\.m3u8(?:$|[?#])/i.test(playbackUrl)
+      ? 'application/vnd.apple.mpegurl'
+      : /\.mpd(?:$|[?#])/i.test(playbackUrl)
+        ? 'application/dash+xml'
+        : playbackSource?.type === 'mp4'
+          ? 'video/mp4'
+          : playbackSource?.type === 'hls'
+            ? 'application/vnd.apple.mpegurl'
+            : playbackSource?.type === 'dash'
+              ? 'application/dash+xml'
+              : undefined;
   const availableSources = storedPlaybackSources.length > 0 ? storedPlaybackSources : remotePlaybackSources;
 
   useEffect(() => {
@@ -489,15 +502,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               >
                 <source
                   src={playbackUrl}
-                  type={
-                    playbackSource?.type === 'mp4'
-                      ? 'video/mp4'
-                      : playbackSource?.type === 'hls'
-                        ? 'application/vnd.apple.mpegurl'
-                        : playbackSource?.type === 'dash'
-                          ? 'application/dash+xml'
-                          : undefined
-                  }
+                  type={playbackMimeType}
                 />
                 {language === 'ar'
                   ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
