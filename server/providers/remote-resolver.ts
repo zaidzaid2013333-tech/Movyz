@@ -25,6 +25,10 @@ export type RemotePlaybackSource = {
 };
 
 async function resolveTmdbTitle(type: 'movie' | 'series', tmdbId: number, timeoutMs: number) {
+  const cacheKey = `${type}:${tmdbId}`;
+  const cached = tmdbTitleCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
   const token = process.env.TMDB_API_READ_ACCESS_TOKEN?.trim();
   if (!token) throw new Error('TMDB_API_READ_ACCESS_TOKEN is not configured');
 
@@ -41,7 +45,9 @@ async function resolveTmdbTitle(type: 'movie' | 'series', tmdbId: number, timeou
   const originalTitle = type === 'movie' ? data.original_title : data.original_name;
   const chosen = typeof title === 'string' && title.trim() ? title.trim() : originalTitle;
   if (typeof chosen !== 'string' || !chosen.trim()) throw new Error(`No title found for TMDB ${tmdbId}`);
-  return chosen.trim();
+  const value = chosen.trim();
+  tmdbTitleCache.set(cacheKey, { expiresAt: Date.now() + REMOTE_METADATA_CACHE_TTL_MS, value });
+  return value;
 }
 
 function normalizeTitle(value: string) {
@@ -330,23 +336,44 @@ async function omegaRequest(
   const url = new URL('/api/movie/Akwam', base);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
 
-  let lastError: unknown = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      return await fetchJsonOrText(url.toString(), timeoutMs, {
-        Accept: 'application/json,text/plain,*/*',
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36',
-        Referer: 'https://api.omegatech.app/',
-      });
-    } catch (error) {
-      lastError = error;
-      if (attempt < 3) {
-        await new Promise((resolve) => setTimeout(resolve, attempt * 700));
-      }
-    }
+  const action = params.action || 'unknown';
+  const cacheable = action === 'search' || action === 'content' || action === 'episode';
+  const cacheKey = cacheable ? url.toString() : '';
+
+  if (cacheKey) {
+    const cached = omegaResponseCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.promise;
   }
 
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  const task = enqueueOmegaRequest(async () => {
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await fetchJsonOrText(url.toString(), timeoutMs, {
+          Accept: 'application/json,text/plain,*/*',
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36',
+          Referer: 'https://api.omegatech.app/',
+        });
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await sleep(attempt * 700);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  });
+
+  if (cacheKey) {
+    omegaResponseCache.set(cacheKey, {
+      expiresAt: Date.now() + OMEGA_RESPONSE_CACHE_TTL_MS,
+      promise: task,
+    });
+    task.catch(() => {
+      const current = omegaResponseCache.get(cacheKey);
+      if (current?.promise === task) omegaResponseCache.delete(cacheKey);
+    });
+  }
+
+  return task;
 }
 
 async function resolveOmegaDownloadUrls(
