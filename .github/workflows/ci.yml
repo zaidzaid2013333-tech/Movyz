@@ -31,3 +31,7 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      - name: Verify OmegaTech title/year matching
+        env:
+          TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+        run: npx tsx scripts/probe-title-year.ts
