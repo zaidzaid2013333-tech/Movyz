@@ -326,20 +326,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     [storedPlaybackSources, remotePlaybackSources],
   );
 
-  useEffect(() => {
-    setVideoReady(false);
-    playbackStartedRef.current = false;
-    if (!playbackUrl) return;
-
-    const video = videoRef.current;
-    if (video) {
-      video.preload = 'auto';
-      video.load();
-    }
-
-    return () => {
-      clearStartupWatch();    };
-  }, [playbackUrl]);
 
   useEffect(() => {
     if (!playbackUrl || typeof document === 'undefined') return;
