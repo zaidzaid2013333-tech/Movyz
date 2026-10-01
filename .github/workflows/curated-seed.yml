@@ -44,4 +44,4 @@ jobs:
         run: npm run lint
 
       - name: Probe OmegaTech and production resolver
-        run: npx tsx scripts/probe-omegatech.ts
+        run: npx tsx scripts/probe-omegatech-sequence.ts
