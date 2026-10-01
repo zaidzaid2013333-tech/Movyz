@@ -572,15 +572,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !playbackUrl) return;
+    if (!video || !playerUnlocked || !playbackUrl) return;
 
     const current = video.getAttribute('src') || '';
     if (current === playbackUrl) return;
 
     video.pause();
     video.setAttribute('src', playbackUrl);
+    video.preload = 'auto';
     video.load();
-  }, [playbackUrl]);
+  }, [playbackUrl, playerUnlocked]);
 
   if (loading) {
     return (
