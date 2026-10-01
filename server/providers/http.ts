@@ -133,7 +133,11 @@ export async function fetchJsonOrText(url: string, timeoutMs = 8_000, requestHea
   });
 
   const text = await response.text();
-  if (!response.ok) throw new Error(`Provider HTTP ${response.status}`);
+  if (!response.ok) {
+    let host = url;
+    try { host = new URL(url).hostname; } catch {}
+    throw new Error(`Provider HTTP ${response.status} from ${host}`);
+  }
 
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json') || text.trim().startsWith('{') || text.trim().startsWith('[')) {
