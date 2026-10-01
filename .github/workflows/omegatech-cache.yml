@@ -2,7 +2,8 @@ name: Movyz OmegaTech cache refresh
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
+    # Daily refresh is enough because OmegaTech URLs are short-lived; less concurrency also avoids upstream throttling.
+    - cron: "30 4 * * *"
   workflow_dispatch:
   push:
     paths:
@@ -19,7 +20,7 @@ concurrency:
 jobs:
   cache:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -27,8 +28,8 @@ jobs:
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       MOVYZA_PROVIDER_TIMEOUT_MS: "15000"
       MOVIE_LIMIT: "120"
-      EPISODE_LIMIT: "500"
-      CACHE_CONCURRENCY: "3"
+      EPISODE_LIMIT: "120"
+      CACHE_CONCURRENCY: "1"
     steps:
       - uses: actions/checkout@v4
 
