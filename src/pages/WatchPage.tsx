@@ -503,11 +503,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       const video = videoRef.current;
       if (!video || playbackStartedRef.current || video.paused) return;
 
+      // Startup recovery is intentionally conservative: do not keep rotating
+      // sources while the current source is already making progress.
       const stuckNearStart = video.currentTime < 8 && video.readyState < 3;
       if (stuckNearStart) {
-        if (!tryNextStartupSource()) {
-          jumpToTwoMinutesAndBack();
-        }
+        jumpToTwoMinutesAndBack();
       }
     }, 4500);
   };
@@ -838,15 +838,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     if (!current || current !== video || current.paused || playbackStartedRef.current) return;
                     jumpToTwoMinutesAndBack();
 
-                    window.setTimeout(() => {
-                      if (
-                        current === videoRef.current &&
-                        userPlayRequestedRef.current &&
-                        current.currentTime < 15
-                      ) {
-                        tryNextStartupSource();
-                      }
-                    }, 2200);
+                    // Do not rotate sources just because the initial recovery
+                    // still reports a low currentTime. Source rotation is kept
+                    // for real media errors so a healthy source is not reloaded.
+
                   }, 1100);
                 }}
                 onPlaying={() => {
