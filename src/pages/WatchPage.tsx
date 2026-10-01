@@ -14,8 +14,6 @@ import { MovyzaApi } from '../services/api';
 import { Movie, Series, Episode, PlaybackSource } from '../types';
 import { ErrorState } from '../components/ui/FeedbackStates';
 import { HeroSkeleton } from '../components/ui/Skeletons';
-// Native playback intentionally uses direct external media URLs; the provider is resolved upstream by Movyz API.
-// Keep the stable startup recovery path; avoid browser-side range warm-up requests.
 
 interface WatchPageProps {
   mediaType: 'movie' | 'series';
@@ -36,18 +34,6 @@ const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
     ?? omegaSources.find((source) => /^https?:\/\//i.test(source.url?.trim() || ''))
     ?? null;
 };
-
-const playbackQualityRank = (source: PlaybackSource) => {
-  const match = source.quality?.match(/(\d{3,4})p/i);
-  const quality = match ? Number(match[1]) : 9999;
-  if (quality === 720) return 0;
-  if (quality === 480) return 1;
-  if (quality === 1080) return 2;
-  return 3;
-};
-
-const sortPlaybackSources = (sources: PlaybackSource[]) =>
-  [...sources].sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
 
 export const WatchPage: React.FC<WatchPageProps> = ({
   mediaType,
@@ -246,26 +232,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       .then((response) => {
         if (!mounted) return;
 
-        const sources = sortPlaybackSources(
-          response.data.sources
-            .filter(isOmegaTechSource)
-            .filter((candidate) => /^https?:\/\//i.test(candidate.url?.trim() || ''))
-            .slice(0, 4),
-        );
+        const sources = response.data.sources
+          .filter(isOmegaTechSource)
+          .filter((candidate) => /^https?:\/\//i.test(candidate.url?.trim() || ''))
+          .slice(0, 4);
 
-        const mobilePreferredQuality =
-          typeof window !== 'undefined' && window.innerWidth < 768 ? 480 : 720;
-        const source =
-          sources.find(
-            (candidate) =>
-              candidate.isWorking &&
-              (candidate.quality || candidate.labelEn || '')
-                .toLowerCase()
-                .includes(`${mobilePreferredQuality}p`),
-          ) ??
-          sources.find((candidate) => candidate.isWorking) ??
-          sources[0] ??
-          null;
+        const source = sources.find((candidate) => candidate.isWorking) ?? sources[0] ?? null;
         setRemotePlaybackSources(sources);
         setRemotePlaybackSource(source);
       })
@@ -295,8 +267,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       startupRecoveryTimer.current = null;
     }
     if (!playbackUrl || typeof document === 'undefined') return;
+
     let origin: string;
-    try { origin = new URL(playbackUrl).origin; } catch { return; }
+    try {
+      origin = new URL(playbackUrl).origin;
+    } catch {
+      return;
+    }
 
     const head = document.head;
     head.querySelector('link[data-movyz-media-preconnect]')?.remove();
@@ -320,7 +297,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       dns.remove();
     };
   }, [playbackUrl]);
-
 
   const handleSelectEpisode = (nextSeason: number, nextEpisode: number) => {
     onNavigate(`/watch/tv/${contentId}/${nextSeason}/${nextEpisode}`);
@@ -442,7 +418,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           <div className="flex items-center gap-2 text-slate-500">
             <span className="text-amber-400/90 font-bold">{playbackSource?.provider || 'MOVYZ SOURCE'}</span>
             <span>·</span>
-            <span>{language === 'ar' ? 'مشغل مباشر' : 'Direct player'}</span>
+            <span>{language === 'ar' ? 'مشغل مضمّن مباشرة' : 'Direct embedded player'}</span>
           </div>
         </div>
       </div>
@@ -481,46 +457,47 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
             <video
-                ref={videoRef}
-                key={playbackUrl}
-                src={playbackUrl}
-                poster={content.backdropUrl || content.posterUrl}
-                className="block h-full w-full bg-black object-contain"
-                controls
-                playsInline
-                preload="auto"
-                controlsList="nodownload noplaybackrate"
-                onLoadedMetadata={() => {
-                  const video = videoRef.current;
-                  if (
-                    video &&
-                    video.currentTime < 1 &&
-                    video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
-                  ) {
-                    window.setTimeout(() => recoverStartupBuffer(), 250);
-                  }
-                }}
-                onWaiting={() => {
-                  const video = videoRef.current;
-                  if (video && video.currentTime < 20) {
-                    recoverStartupBuffer();
-                  }
-                }}
-                onError={() => {
-                  const currentIndex = availableSources.findIndex(
-                    (source) => source.id === playbackSource?.id,
-                  );
-                  const fallback = availableSources.find(
-                    (source, index) => index > currentIndex,
-                  );
-                  if (fallback) setRemotePlaybackSource(fallback);
-                }}
-              >
-                {language === 'ar'
-                  ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
-                  : 'Your browser does not support this playback source.'}
-              </video>
-            )}
+              ref={videoRef}
+              key={playbackUrl}
+              src={playbackUrl}
+              poster={content.backdropUrl || content.posterUrl}
+              className="block h-full w-full bg-black object-contain"
+              controls
+              playsInline
+              preload="metadata"
+              controlsList="nodownload noplaybackrate"
+              disablePictureInPicture={false}
+              referrerPolicy="no-referrer"
+              onLoadedMetadata={() => {
+                const video = videoRef.current;
+                if (
+                  video &&
+                  video.currentTime < 1 &&
+                  video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
+                ) {
+                  window.setTimeout(() => recoverStartupBuffer(), 250);
+                }
+              }}
+              onWaiting={() => {
+                const video = videoRef.current;
+                if (video && video.currentTime < 20) {
+                  recoverStartupBuffer();
+                }
+              }}
+              onError={() => {
+                const currentIndex = availableSources.findIndex(
+                  (source) => source.id === playbackSource?.id,
+                );
+                const fallback = availableSources.find(
+                  (source, index) => index > currentIndex,
+                );
+                if (fallback) setRemotePlaybackSource(fallback);
+              }}
+            >
+              {language === 'ar'
+                ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
+                : 'Your browser does not support this playback source.'}
+            </video>
           </div>
         </div>
       </div>
