@@ -109,14 +109,26 @@
 }
 
 .touch-scroll-x {
+  width: 100%;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.75rem;
+
   overscroll-behavior-x: contain;
-  -webkit-overflow-scrolling: touch;
-  scroll-snap-type: x mandatory;
-  touch-action: pan-x pan-y;
   overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
+  touch-action: pan-x pan-y;
+
+  direction: inherit;
   scrollbar-width: none;
+  -ms-overflow-style: none;
   cursor: grab;
 }
 
@@ -127,6 +139,44 @@
 .touch-scroll-x > * {
   scroll-snap-align: start;
   scroll-snap-stop: normal;
+  flex-shrink: 0;
+}
+
+/* Dedicated chip/filter/season carousel.
+   Each item owns its intrinsic width; Arabic/English text never gets squeezed. */
+.touch-chip-scroll {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.5rem;
+
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+
+  scroll-behavior: smooth;
+  touch-action: pan-x pan-y;
+  direction: inherit;
+
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.touch-chip-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.touch-chip-scroll > * {
+  flex: 0 0 auto;
+  min-width: max-content;
+  width: max-content;
+  max-width: none;
+  white-space: nowrap;
+  word-break: keep-all;
 }
 
 .movyza-section {
