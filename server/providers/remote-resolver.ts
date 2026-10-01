@@ -25,10 +25,6 @@ export type RemotePlaybackSource = {
 };
 
 async function resolveTmdbTitle(type: 'movie' | 'series', tmdbId: number, timeoutMs: number) {
-  const cacheKey = `${type}:${tmdbId}`;
-  const cached = tmdbTitleCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
-
   const token = process.env.TMDB_API_READ_ACCESS_TOKEN?.trim();
   if (!token) throw new Error('TMDB_API_READ_ACCESS_TOKEN is not configured');
 
@@ -45,9 +41,7 @@ async function resolveTmdbTitle(type: 'movie' | 'series', tmdbId: number, timeou
   const originalTitle = type === 'movie' ? data.original_title : data.original_name;
   const chosen = typeof title === 'string' && title.trim() ? title.trim() : originalTitle;
   if (typeof chosen !== 'string' || !chosen.trim()) throw new Error(`No title found for TMDB ${tmdbId}`);
-  const value = chosen.trim();
-  tmdbTitleCache.set(cacheKey, { expiresAt: Date.now() + REMOTE_METADATA_CACHE_TTL_MS, value });
-  return value;
+  return chosen.trim();
 }
 
 function normalizeTitle(value: string) {
@@ -65,29 +59,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 const REMOTE_RESOLVE_CACHE_TTL_MS = 20_000;
-const REMOTE_METADATA_CACHE_TTL_MS = 10 * 60_000;
-const OMEGA_RESPONSE_CACHE_TTL_MS = 5 * 60_000;
-const OMEGA_REQUEST_GAP_MS = 180;
 const remoteResolveCache = new Map<string, { expiresAt: number; promise: Promise<RemotePlaybackSource[]> }>();
-const tmdbTitleCache = new Map<string, { expiresAt: number; value: string }>();
-const omegaResponseCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>();
-let omegaQueue: Promise<void> = Promise.resolve();
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function enqueueOmegaRequest<T>(work: () => Promise<T>): Promise<T> {
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  const previous = omegaQueue;
-  omegaQueue = omegaQueue.then(() => gate);
-  await previous;
-  try {
-    return await work();
-  } finally {
-    release();
-    await sleep(OMEGA_REQUEST_GAP_MS);
-  }
-}
 
 function remoteResolveCacheKey(request: RemotePlaybackRequest) {
   return JSON.stringify([
@@ -240,51 +212,6 @@ function rankSearchResults(payload: unknown, titles: string[], limit = 8): Named
     .slice(0, limit);
 }
 
-function inferSeasonFromText(value: unknown): number | undefined {
-  if (typeof value !== 'string') return undefined;
-  const text = value
-    .replace(/%20/gi, ' ')
-    .replace(/[._-]+/g, ' ')
-    .toLowerCase();
-
-  const explicit = [
-    /(?:\\b|^)s(\\d{1,3})(?:\\b|e\\d+)/i,
-    /\\bseason\\s*0*(\\d{1,3})\\b/i,
-    /\\bthe\\s+season\\s*0*(\\d{1,3})\\b/i,
-    /الموسم\\s*0*(\\d{1,3})/i,
-    /موسم\\s*0*(\\d{1,3})/i,
-  ];
-
-  for (const pattern of explicit) {
-    const match = text.match(pattern);
-    if (match) {
-      const number = Number(match[1]);
-      if (Number.isInteger(number) && number > 0) return number;
-    }
-  }
-
-  return undefined;
-}
-
-function objectSeason(obj: Record<string, unknown>, inheritedSeason?: number) {
-  const seasonValues = [
-    obj.seasonNumber, obj.season_number, obj.season, obj.seasonNo, obj.season_no,
-  ];
-  const explicitSeason = seasonValues
-    .map((raw) => Number(raw))
-    .find((number) => Number.isInteger(number) && number > 0);
-  if (explicitSeason !== undefined) return explicitSeason;
-
-  const textSeason = [
-    obj.title, obj.name, obj.slug, obj.url, obj.link, obj.href, obj.episodeUrl,
-    obj.episode_url, obj.watchUrl, obj.watch_url,
-  ]
-    .map(inferSeasonFromText)
-    .find((value) => value !== undefined);
-
-  return textSeason ?? inheritedSeason;
-}
-
 function pickEpisodeUrl(payload: unknown, episodeNumber: number, seasonNumber?: number) {
   const visit = (value: unknown, depth = 0, inheritedSeason?: number): string | null => {
     if (depth > 9 || value == null) return null;
@@ -300,16 +227,21 @@ function pickEpisodeUrl(payload: unknown, episodeNumber: number, seasonNumber?: 
     const obj = asRecord(value);
     if (!obj) return null;
 
-    const effectiveSeason = objectSeason(obj, inheritedSeason);
+    const seasonValues = [
+      obj.seasonNumber, obj.season_number, obj.season, obj.seasonNo, obj.season_no,
+    ];
+    const explicitSeason = seasonValues
+      .map((raw) => Number(raw))
+      .find((number) => Number.isInteger(number) && number > 0);
+    const effectiveSeason = explicitSeason ?? inheritedSeason;
+
     const numberValues = [
       obj.episodeNumber, obj.episode_number, obj.episode, obj.number, obj.ep, obj.no,
     ];
     const matchesNumber = numberValues.some((raw) => Number(raw) === episodeNumber);
-
-    let matchesSeason = seasonNumber === undefined;
-    if (seasonNumber !== undefined) {
-      matchesSeason = effectiveSeason === seasonNumber;
-    }
+    const matchesSeason = seasonNumber === undefined
+      || effectiveSeason === undefined
+      || effectiveSeason === seasonNumber;
 
     if (matchesNumber && matchesSeason) {
       const urls = [
@@ -357,45 +289,7 @@ async function omegaRequest(
 ) {
   const url = new URL('/api/movie/Akwam', base);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-
-  const action = params.action || 'unknown';
-  const cacheable = action === 'search' || action === 'content' || action === 'episode';
-  const cacheKey = cacheable ? url.toString() : '';
-
-  if (cacheKey) {
-    const cached = omegaResponseCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) return cached.promise;
-  }
-
-  const task = enqueueOmegaRequest(async () => {
-    let lastError: unknown = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        return await fetchJsonOrText(url.toString(), timeoutMs, {
-          Accept: 'application/json,text/plain,*/*',
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36',
-          Referer: 'https://api.omegatech.app/',
-        });
-      } catch (error) {
-        lastError = error;
-        if (attempt < 3) await sleep(attempt * 700);
-      }
-    }
-    throw lastError instanceof Error ? lastError : new Error(String(lastError));
-  });
-
-  if (cacheKey) {
-    omegaResponseCache.set(cacheKey, {
-      expiresAt: Date.now() + OMEGA_RESPONSE_CACHE_TTL_MS,
-      promise: task,
-    });
-    task.catch(() => {
-      const current = omegaResponseCache.get(cacheKey);
-      if (current?.promise === task) omegaResponseCache.delete(cacheKey);
-    });
-  }
-
-  return task;
+  return fetchJsonOrText(url.toString(), timeoutMs);
 }
 
 async function resolveOmegaDownloadUrls(
@@ -454,13 +348,13 @@ async function resolveOmegaTechAkwamPlayback(
   }
 
   let lastError = 'OmegaTech Akwam returned no playback source';
-  const baseErrors: string[] = [];
   for (const base of DEFAULT_OMEGATECH_URLS) {
     try {
       const searchResults: NamedSearchResult[] = [];
       let lastSearchError = '';
 
-      for (const title of titles) {        try {
+      for (const title of titles) {
+        try {
           const searchPayload = await omegaRequest(base, { action: 'search', query: title }, timeoutMs);
           searchResults.push(...rankSearchResults(searchPayload, [title, primaryTitle], 8));
         } catch (error) {
@@ -521,11 +415,10 @@ async function resolveOmegaTechAkwamPlayback(
       throw new Error(lastError || 'OmegaTech Akwam returned no playback source');
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
-      baseErrors.push(`${base}: ${lastError}`);
     }
   }
 
-  throw new Error(baseErrors.length ? baseErrors.join(' | ') : lastError);
+  throw new Error(lastError);
 }
 
 export async function resolveRemotePlayback(
@@ -550,7 +443,7 @@ async function resolveRemotePlaybackUncached(
   request: RemotePlaybackRequest,
   _env?: WorkerEnvironment,
 ): Promise<RemotePlaybackSource[]> {
-  const timeoutMs = Math.max(4_000, Number(process.env.PLAYBACK_RESOLVER_TIMEOUT_MS || 12_000));
+  const timeoutMs = Math.max(2_000, Number(process.env.PLAYBACK_RESOLVER_TIMEOUT_MS || 9_000));
   const errors: string[] = [];
   const candidates: Array<{
     url: string;
