@@ -1,14 +1,7 @@
-name: Movyz OmegaTech cache refresh
+name: Movyz OmegaTech cache refresh (manual)
 
 on:
-  schedule:
-    # Daily refresh is enough because OmegaTech URLs are short-lived; less concurrency also avoids upstream throttling.
-    - cron: "30 4 * * *"
   workflow_dispatch:
-  push:
-    paths:
-      - "scripts/sync-omegatech-cache.ts"
-      - ".github/workflows/omegatech-cache.yml"
 
 permissions:
   contents: read
@@ -27,8 +20,9 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       MOVYZA_PROVIDER_TIMEOUT_MS: "15000"
-      MOVIE_LIMIT: "120"
-      EPISODE_LIMIT: "120"
+      PLAYBACK_RESOLVER_TIMEOUT_MS: "15000"
+      MOVIE_LIMIT: "48"
+      EPISODE_LIMIT: "72"
       CACHE_CONCURRENCY: "1"
     steps:
       - uses: actions/checkout@v4
