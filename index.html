@@ -10,6 +10,7 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="theme-color" content="#050507" />
+    <meta name="movyz-build" content="%VITE_MOVYZ_BUILD_ID%" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=El+Messiri:wght@400;600;700&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -19,16 +20,31 @@
     <script>
       (async () => {
         try {
+          const meta = document.querySelector('meta[name="movyz-build"]');
+          const buildId = meta?.getAttribute('content') || '';
+          const isStamped = buildId && !buildId.includes('%VITE_');
+          const resetKey = isStamped ? 'movyz:frontend-reset:' + buildId : '';
+          const resetDone = resetKey ? sessionStorage.getItem(resetKey) === '1' : true;
+
           if ('serviceWorker' in navigator) {
             const registrations = await navigator.serviceWorker.getRegistrations();
             await Promise.all(registrations.map((registration) => registration.unregister()));
           }
+
           if ('caches' in window) {
             const cacheNames = await caches.keys();
             await Promise.all(cacheNames.map((name) => caches.delete(name)));
           }
+
+          if (isStamped && !resetDone) {
+            sessionStorage.setItem(resetKey, '1');
+            const next = new URL(window.location.href);
+            next.searchParams.set('__movyz_build', buildId);
+            window.location.replace(next.toString());
+            return;
+          }
         } catch {
-          // Legacy PWA cleanup must never block the application.
+          // Cache cleanup must never block the application.
         }
       })();
     </script>
