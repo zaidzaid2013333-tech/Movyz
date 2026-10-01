@@ -154,6 +154,40 @@ async function persistRemoteOmegaSources(
     console.warn('[omega-cache] source persistence failed', error instanceof Error ? error.message : String(error));
   }
 }
+function cachedOmegaSourceDto(source: any) {
+  return {
+    id: source.id,
+    type: source.source_type,
+    quality: source.quality || 'auto',
+    language: source.language || 'und',
+    label: source.label_ar || 'OmegaTech Akwam',
+    labelEn: source.label_en || source.label_ar || 'OmegaTech Akwam',
+    url: source.url || '',
+    isWorking: source.is_working === true,
+    provider: source.providers?.name || 'OmegaTech',
+    providerKey: source.providers?.key || 'omegatech-akwam',
+    providerReference: source.provider_reference || undefined,
+  };
+}
+
+async function getFreshOmegaSourcesForContent(contentType: 'movie' | 'episode', contentId: string) {
+  const { data, error } = await adminSupabase
+    .from('playback_sources')
+    .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name)')
+    .eq('content_type', contentType)
+    .eq('content_id', contentId)
+    .eq('is_working', true)
+    .eq('providers.key', 'omegatech-akwam')
+    .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
+    .order('quality', { ascending: true });
+
+  if (error) throw new Error('Unable to load cached OmegaTech playback sources: ' + error.message);
+
+  return (data || [])
+    .filter((source: any) => ['mp4', 'hls', 'dash'].includes(String(source.source_type || '').toLowerCase()))
+    .map(cachedOmegaSourceDto);
+}
+
 async function ensureTmdbPlaybackContent(
   type: 'movie' | 'series',
   tmdbId: number,
@@ -222,8 +256,7 @@ async function resolveCachedOmegaPlayback(
         .eq('status', 'published')
         .maybeSingle();
       if (!data?.id) return [];
-
-      return await resolvePlaybackSources('movie', data.id, [], 'omegatech-akwam');
+      return await getFreshOmegaSourcesForContent('movie', data.id);
     }
 
     if (!Number.isInteger(season) || !Number.isInteger(episode)) return [];
@@ -252,7 +285,7 @@ async function resolveCachedOmegaPlayback(
       .maybeSingle();
     if (!episodeRow?.id) return [];
 
-    return await resolvePlaybackSources('episode', episodeRow.id, [], 'omegatech-akwam');
+    return await getFreshOmegaSourcesForContent('episode', episodeRow.id);
   } catch (error) {
     console.warn('[cached-playback]', error instanceof Error ? error.message : String(error));
     return [];
