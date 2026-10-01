@@ -1,37 +1,19 @@
-name: Inspect OmegaTech episode resolution
+name: Debug Movyz resolver in Node
 on:
   push:
     branches: [ops/seed-curated-playback-verification]
 permissions: {contents: read}
 jobs:
-  inspect:
+  debug:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: {node-version: 22}
-      - name: Direct episode flow
+      - run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Call resolver directly
         run: |
-          node --input-type=module - <<'NODE'
-          const base='https://api.omegatech.app';
-          async function call(params){
-            const u=new URL('/api/movie/Akwam',base);
-            for(const [k,v] of Object.entries(params)) u.searchParams.set(k,v);
-            const r=await fetch(u);
-            const b=await r.text();
-            console.log('\nREQ',u.toString(),'STATUS',r.status,'BODY',b.slice(0,10000));
-            try{return JSON.parse(b)}catch{return null}
-          }
-          const c=await call({action:'content',url:'https://akwam.ss/series/59/breaking-bad-الموسم-الاول'});
-          const eps=c?.data?.episodes||c?.episodes||[];
-          const ep=eps.find(e=>Number(e?.number)===1);
-          console.log('EP_PICK',JSON.stringify(ep));
-          const e=await call({action:'episode',episode:ep?.url||''});
-          const downloads=[];
-          const visit=(v,d=0)=>{if(d>8||v==null)return;if(typeof v==='string'){if(v.startsWith('http'))downloads.push(v);return}if(Array.isArray(v)){v.forEach(x=>visit(x,d+1));return}if(typeof v==='object')Object.values(v).forEach(x=>visit(x,d+1))};
-          visit(e);
-          console.log('URLS',JSON.stringify([...new Set(downloads)].slice(0,30)));
-          for(const u of [...new Set(downloads)].filter(x=>x.includes('/download/')).slice(0,5)){
-            await call({action:'resolve',download:u});
-          }
-          NODE
+          npx tsx -e "import { resolveRemotePlayback } from './server/providers/remote-resolver.ts'; for (const x of [{type:'series',tmdbId:1396,season:1,episode:1},{type:'series',tmdbId:1396,season:5,episode:16}]) { try { const s=await resolveRemotePlayback(x); console.log(JSON.stringify({x,count:s.length,sources:s},null,2)); } catch(e) { console.error(JSON.stringify({x,error:e instanceof Error?e.stack:String(e)},null,2)); process.exitCode=1; } }"
