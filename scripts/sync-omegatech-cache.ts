@@ -12,6 +12,7 @@ type MovieCandidate = {
 type EpisodeCandidate = {
   contentType: 'episode';
   contentId: string;
+  seriesId: string;
   tmdbId: number;
   season: number;
   episode: number;
@@ -19,9 +20,9 @@ type EpisodeCandidate = {
 
 type Candidate = MovieCandidate | EpisodeCandidate;
 
-const MOVIE_LIMIT = Math.min(Math.max(Number(process.env.MOVIE_LIMIT || 120), 1), 240);
-const EPISODE_LIMIT = Math.min(Math.max(Number(process.env.EPISODE_LIMIT || 500), 1), 5000);
-const CONCURRENCY = Math.min(Math.max(Number(process.env.CACHE_CONCURRENCY || 3), 1), 6);
+const MOVIE_LIMIT = Math.min(Math.max(Number(process.env.MOVIE_LIMIT || 48), 1), 240);
+const EPISODE_LIMIT = Math.min(Math.max(Number(process.env.EPISODE_LIMIT || 72), 1), 5000);
+const CONCURRENCY = Math.min(Math.max(Number(process.env.CACHE_CONCURRENCY || 1), 1), 2);
 const CURATED_SERIES_IDS = [1396, 60059, 70523, 2316, 5920];
 const CURATED_MOVIE_IDS = [27205, 157336, 278, 550, 155];
 
@@ -59,7 +60,7 @@ function inferExpiry(url: string) {
 }
 
 function isFresh(expiresAt: string | null | undefined) {
-  if (!expiresAt) return true;
+  if (!expiresAt) return false;
   const timestamp = Date.parse(expiresAt);
   return Number.isFinite(timestamp) && timestamp > Date.now() + 5 * 60 * 1000;
 }
@@ -83,8 +84,21 @@ async function ensureProvider() {
 
 async function loadCandidates(): Promise<{ movies: MovieCandidate[]; episodes: EpisodeCandidate[] }> {
   const [moviesRaw, seriesRaw, seasonsRaw, episodesRaw] = await Promise.all([
-    adminSupabase.from('movies').select('id,tmdb_id').eq('status', 'published').not('tmdb_id', 'is', null).limit(MOVIE_LIMIT),
-    adminSupabase.from('series').select('id,tmdb_id').eq('status', 'published').not('tmdb_id', 'is', null),
+    adminSupabase
+      .from('movies')
+      .select('id,tmdb_id,vote_count,rating')
+      .eq('status', 'published')
+      .not('tmdb_id', 'is', null)
+      .order('vote_count', { ascending: false })
+      .order('rating', { ascending: false })
+      .limit(MOVIE_LIMIT),
+    adminSupabase
+      .from('series')
+      .select('id,tmdb_id,vote_count,rating')
+      .eq('status', 'published')
+      .not('tmdb_id', 'is', null)
+      .order('vote_count', { ascending: false })
+      .order('rating', { ascending: false }),
     readAll<{ id: string; series_id: string; season_number: number }>('seasons', 'id,series_id,season_number'),
     readAll<{ id: string; season_id: string; episode_number: number }>('episodes', 'id,season_id,episode_number'),
   ]);
@@ -92,37 +106,59 @@ async function loadCandidates(): Promise<{ movies: MovieCandidate[]; episodes: E
   if (moviesRaw.error) throw new Error('movies: ' + moviesRaw.error.message);
   if (seriesRaw.error) throw new Error('series: ' + seriesRaw.error.message);
 
-  const seriesById = new Map(
-    (seriesRaw.data || [])
-      .map((row: any) => [row.id, Number(row.tmdb_id)]),
-  );
-  const seasonById = new Map(
-    seasonsRaw.map((row) => [row.id, row]),
-  );
+  const seriesById = new Map<string, { tmdbId: number; votes: number; rating: number }>();
+  for (const row of seriesRaw.data || []) {
+    const tmdbId = Number((row as any).tmdb_id);
+    if (!Number.isInteger(tmdbId) || tmdbId <= 0) continue;
+    seriesById.set((row as any).id, {
+      tmdbId,
+      votes: Number((row as any).vote_count || 0),
+      rating: Number((row as any).rating || 0),
+    });
+  }
+
+  const seasonById = new Map(seasonsRaw.map((row) => [row.id, row]));
 
   const movies: MovieCandidate[] = (moviesRaw.data || [])
-    .map((row: any): MovieCandidate => ({ contentType: 'movie', contentId: row.id, tmdbId: Number(row.tmdb_id) }))
+    .map((row: any): MovieCandidate => ({
+      contentType: 'movie',
+      contentId: row.id,
+      tmdbId: Number(row.tmdb_id),
+    }))
     .filter((row) => Number.isInteger(row.tmdbId) && row.tmdbId > 0);
 
   const episodes: EpisodeCandidate[] = [];
   for (const row of episodesRaw) {
     const season = seasonById.get(row.season_id);
-    const tmdbId = season ? seriesById.get(season.series_id) : undefined;
-    if (!season || !Number.isInteger(tmdbId) || !Number.isInteger(row.episode_number) || row.episode_number < 1) continue;
+    const series = season ? seriesById.get(season.series_id) : undefined;
+
+    if (!season || !series || !Number.isInteger(row.episode_number) || row.episode_number < 1) continue;
     if (!Number.isInteger(season.season_number) || season.season_number < 1) continue;
+
     episodes.push({
       contentType: 'episode',
       contentId: row.id,
-      tmdbId: Number(tmdbId),
+      seriesId: season.series_id,
+      tmdbId: series.tmdbId,
       season: Number(season.season_number),
       episode: Number(row.episode_number),
     });
   }
 
+  episodes.sort((a, b) => {
+    const aRank = seriesById.get(a.seriesId);
+    const bRank = seriesById.get(b.seriesId);
+    return Number(bRank?.votes || 0) - Number(aRank?.votes || 0)
+      || Number(bRank?.rating || 0) - Number(aRank?.rating || 0)
+      || a.tmdbId - b.tmdbId
+      || a.season - b.season
+      || a.episode - b.episode;
+  });
+
   return { movies, episodes };
 }
 
-async function loadFreshSourceIds(providerId: string) {
+async function loadFreshSourceIds() {
   const rows = await readAll<{
     content_type: 'movie' | 'episode';
     content_id: string;
@@ -183,11 +219,10 @@ async function resolveCandidate(providerId: string, candidate: Candidate) {
             episode: candidate.episode,
           });
 
-      const count = await persistSources(providerId, candidate, sources);
-      return count;
+      return await persistSources(providerId, candidate, sources);
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
-      if (attempt < 2) await sleep(1500);
+      if (attempt < 2) await sleep(2500);
     }
   }
   throw new Error(lastError);
@@ -200,7 +235,7 @@ async function mapWithConcurrency<T>(items: T[], worker: (item: T) => Promise<vo
       const index = cursor++;
       if (index >= items.length) return;
       await worker(items[index]);
-      await sleep(350);
+      await sleep(750);
     }
   });
   await Promise.all(workers);
@@ -212,7 +247,7 @@ async function main() {
   }
 
   const providerId = await ensureProvider();
-  const fresh = await loadFreshSourceIds(providerId);
+  const fresh = await loadFreshSourceIds();
   const { movies, episodes } = await loadCandidates();
 
   const curatedMovies = movies.filter((item) => CURATED_MOVIE_IDS.includes(item.tmdbId));
