@@ -2,6 +2,10 @@ name: Movyz OmegaTech cache refresh (manual)
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "scripts/sync-omegatech-cache.ts"
 
 permissions:
   contents: read
@@ -21,9 +25,9 @@ jobs:
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       MOVYZA_PROVIDER_TIMEOUT_MS: "15000"
       PLAYBACK_RESOLVER_TIMEOUT_MS: "15000"
-      MOVIE_LIMIT: "48"
-      EPISODE_LIMIT: "72"
-      CACHE_CONCURRENCY: "1"
+      MOVIE_LIMIT: "240"
+      EPISODE_LIMIT: "0"
+      CACHE_CONCURRENCY: "2"
     steps:
       - uses: actions/checkout@v4
 

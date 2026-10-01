@@ -56,21 +56,24 @@ jobs:
       - name: Import new TMDB catalog items within daily caps
         run: npx tsx scripts/auto-catalog-import.ts
 
-      - name: Repair and complete episode metadata for all published series
-        run: npx tsx scripts/run-tmdb-sync.ts episodes 10000
+      - name: Link newly imported movies to OmegaTech immediately
+        run: |
+          echo "Newly imported movies are linked during auto-catalog-import."
 
-      - name: Warm OmegaTech playback cache for newly added/popular catalog
+      - name: Warm OmegaTech playback cache for missing/new movies
         env:
-          MOVIE_LIMIT: "48"
-          EPISODE_LIMIT: "72"
-          CACHE_CONCURRENCY: "1"
+          MOVIE_LIMIT: "240"
+          EPISODE_LIMIT: "0"
+          CACHE_CONCURRENCY: "2"
         run: |
           for attempt in 1 2; do
-            echo "OmegaTech cache attempt $attempt/2"
+            echo "OmegaTech movie cache attempt $attempt/2"
             npx tsx scripts/sync-omegatech-cache.ts && exit 0
             test "$attempt" -lt 2 && sleep 30
           done
           exit 1
 
+      - name: Repair and complete episode metadata for all published series
+        run: npx tsx scripts/run-tmdb-sync.ts episodes 10000
       - name: Verify catalog integrity
         run: npx tsx scripts/verify-tmdb-sync.ts
