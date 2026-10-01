@@ -47,6 +47,17 @@ const playbackQualityRank = (source: PlaybackSource) => {
 const sortPlaybackSources = (sources: PlaybackSource[]) =>
   [...sources].sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
 
+const getPreferredPlaybackQuality = () => {
+  if (typeof navigator === 'undefined') return 720;
+  const userAgent = navigator.userAgent || '';
+  const isChromium =
+    /Chrome|Chromium|CriOS|Edg\//i.test(userAgent) &&
+    !/Firefox|FxiOS/i.test(userAgent);
+
+  if (isChromium) return 480;
+  return typeof window !== 'undefined' && window.innerWidth < 768 ? 480 : 720;
+};
+
 export const WatchPage: React.FC<WatchPageProps> = ({
   mediaType,
   contentId,
@@ -65,7 +76,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
   const [resolverLoading, setResolverLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const startupRecoveryStage = useRef<'idle' | 'recovering' | 'done'>('idle');
+  const startupPrimeUsed = useRef(false);
+  const startupRescueUsed = useRef(false);
   const startupRecoveryTimer = useRef<number | null>(null);
 
   const activeSeason = seasonNumber || 1;
@@ -144,36 +156,67 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setTheaterLighting(true);
   }, [contentId, activeSeason, activeEpisode]);
 
-  const recoverStartupBuffer = () => {
+  const getBufferedAhead = (video: HTMLVideoElement) => {
+    const currentTime = Math.max(0, video.currentTime);
+    for (let index = video.buffered.length - 1; index >= 0; index -= 1) {
+      const start = video.buffered.start(index);
+      const end = video.buffered.end(index);
+      if (currentTime + 0.25 >= start) {
+        return Math.max(0, end - currentTime);
+      }
+    }
+    return 0;
+  };
+
+  const seekVideo = (video: HTMLVideoElement, targetTime: number) => {
+    try {
+      if (typeof video.fastSeek === 'function') {
+        video.fastSeek(targetTime);
+      } else {
+        video.currentTime = targetTime;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const primeStartupBuffer = () => {
     const video = videoRef.current;
     if (
       !video ||
-      startupRecoveryStage.current !== 'idle' ||
+      startupPrimeUsed.current ||
       !Number.isFinite(video.duration) ||
       video.duration < 45 ||
-      video.currentTime >= 20
+      video.currentTime >= 5
     ) {
       return;
     }
 
-    startupRecoveryStage.current = 'recovering';
+    const bufferedAhead = getBufferedAhead(video);
+    if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && bufferedAhead >= 3) {
+      startupPrimeUsed.current = true;
+      return;
+    }
+
+    startupPrimeUsed.current = true;
     const originalTime = Math.max(0, video.currentTime);
-    const targetTime = Math.min(120, Math.max(video.duration - 15, 1));
+    const seekableEnd = video.seekable.length
+      ? video.seekable.end(video.seekable.length - 1)
+      : video.duration;
+    const targetTime = Math.min(8, Math.max(1, seekableEnd - 2));
+
+    if (targetTime <= originalTime + 0.5) return;
 
     const restoreToStart = () => {
       if (startupRecoveryTimer.current !== null) {
         window.clearTimeout(startupRecoveryTimer.current);
         startupRecoveryTimer.current = null;
       }
-      if (startupRecoveryStage.current !== 'recovering') return;
-
       video.removeEventListener('canplay', restoreToStart);
-      try {
-        video.currentTime = originalTime;
-      } catch {
-        // Ignore a provider that rejects seeking.
+      if (video.currentTime > 1) {
+        seekVideo(video, originalTime);
       }
-      startupRecoveryStage.current = 'done';
     };
 
     video.addEventListener('canplay', restoreToStart, { once: true });
@@ -181,12 +224,51 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       video.removeEventListener('canplay', restoreToStart);
       startupRecoveryTimer.current = null;
       restoreToStart();
-    }, 1800);
+    }, 2500);
 
-    try {
-      // Prime the upstream file at 02:00, then return to the real start quickly.
-      video.currentTime = targetTime;
-    } catch {
+    if (!seekVideo(video, targetTime)) {
+      restoreToStart();
+    }
+  };
+
+  const recoverStartupBuffer = () => {
+    const video = videoRef.current;
+    if (
+      !video ||
+      startupRescueUsed.current ||
+      !Number.isFinite(video.duration) ||
+      video.duration < 45 ||
+      video.currentTime >= 20
+    ) {
+      return;
+    }
+
+    startupRescueUsed.current = true;
+    const originalTime = Math.max(0, video.currentTime);
+    const seekableEnd = video.seekable.length
+      ? video.seekable.end(video.seekable.length - 1)
+      : video.duration;
+    const targetTime = Math.min(120, Math.max(5, seekableEnd - 15));
+
+    const restoreToStart = () => {
+      if (startupRecoveryTimer.current !== null) {
+        window.clearTimeout(startupRecoveryTimer.current);
+        startupRecoveryTimer.current = null;
+      }
+      video.removeEventListener('canplay', restoreToStart);
+      if (video.currentTime > 1) {
+        seekVideo(video, originalTime);
+      }
+    };
+
+    video.addEventListener('canplay', restoreToStart, { once: true });
+    startupRecoveryTimer.current = window.setTimeout(() => {
+      video.removeEventListener('canplay', restoreToStart);
+      startupRecoveryTimer.current = null;
+      restoreToStart();
+    }, 4500);
+
+    if (!seekVideo(video, targetTime)) {
       restoreToStart();
     }
   };
@@ -239,15 +321,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             .slice(0, 4),
         );
 
-        const mobilePreferredQuality =
-          typeof window !== 'undefined' && window.innerWidth < 768 ? 480 : 720;
+        const preferredQuality = getPreferredPlaybackQuality();
         const source =
           sources.find(
             (candidate) =>
               candidate.isWorking &&
               (candidate.quality || candidate.labelEn || '')
                 .toLowerCase()
-                .includes(String(mobilePreferredQuality) + 'p'),
+                .includes(String(preferredQuality) + 'p'),
           ) ??
           sources.find((candidate) => candidate.isWorking) ??
           sources[0] ??
@@ -275,7 +356,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const availableSources = storedPlaybackSource ? [storedPlaybackSource] : remotePlaybackSources;
 
   useEffect(() => {
-    startupRecoveryStage.current = 'idle';
+    startupPrimeUsed.current = false;
+    startupRescueUsed.current = false;
     if (startupRecoveryTimer.current !== null) {
       window.clearTimeout(startupRecoveryTimer.current);
       startupRecoveryTimer.current = null;
@@ -481,16 +563,31 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               preload="auto"
               controlsList="nodownload noplaybackrate"
               disablePictureInPicture={false}
-              onLoadedMetadata={() => {
+              onLoadedData={() => {
+                window.setTimeout(() => primeStartupBuffer(), 80);
+              }}
+              onCanPlay={() => {
                 const video = videoRef.current;
-                if (video && video.currentTime < 1) {
-                  window.setTimeout(() => recoverStartupBuffer(), 120);
+                if (video && video.currentTime < 1 && getBufferedAhead(video) >= 2.5) {
+                  primeStartupBuffer();
                 }
               }}
               onWaiting={() => {
                 const video = videoRef.current;
                 if (video && video.currentTime < 20) {
                   recoverStartupBuffer();
+                }
+              }}
+              onStalled={() => {
+                const video = videoRef.current;
+                if (video && video.currentTime < 20) {
+                  recoverStartupBuffer();
+                }
+              }}
+              onTimeUpdate={() => {
+                const video = videoRef.current;
+                if (video && video.currentTime >= 20) {
+                  startupRescueUsed.current = true;
                 }
               }}
               onError={() => {
