@@ -119,6 +119,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const playbackStartedRef = useRef(false);
   const startupWatchTimerRef = useRef<number | null>(null);
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
+  const startupRecoveryAttemptedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const [videoReady, setVideoReady] = useState(false);
   const activeSeason = seasonNumber || 1;
@@ -141,6 +142,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         userPlayRequestedRef.current = false;
         playbackStartedRef.current = false;
         startupTriedUrlsRef.current.clear();
+        startupRecoveryAttemptedUrlsRef.current.clear();
         if (startupWatchTimerRef.current !== null) {
           window.clearTimeout(startupWatchTimerRef.current);
           startupWatchTimerRef.current = null;
@@ -328,7 +330,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           if (!current) return source;
           // Once playback has started, keep the active URL stable. Background
           // resolver results must never interrupt a healthy video in Chrome.
-          if (playbackStartedRef.current) return current;
+          if (userPlayRequestedRef.current || playbackStartedRef.current) return current;
           if (resolvedUrls.size === 0 || resolvedUrls.has(current.url)) return current;
           return source;
         });
@@ -506,10 +508,25 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       const video = videoRef.current;
       if (!video || playbackStartedRef.current || video.paused) return;
 
-      // Let the browser's native media pipeline handle startup buffering.
-      // Do not seek or reload merely because Chrome reports a temporary
-      // low readyState; Safari and Chrome can expose different buffering
-      // timing through the same HTMLMediaElement events.
+      const activeUrl = playbackUrl;
+      const stalledNearStart = video.currentTime < 8 && video.readyState < 3;
+      if (!stalledNearStart || !activeUrl) return;
+
+      // Give each URL exactly one startup recovery attempt. This preserves
+      // the proven 2:00 -> 0:00 priming trick without repeated reloads.
+      if (!startupRecoveryAttemptedUrlsRef.current.has(activeUrl)) {
+        startupRecoveryAttemptedUrlsRef.current.add(activeUrl);
+        const duration = video.duration;
+        if (Number.isFinite(duration) && duration >= 120) {
+          jumpToTwoMinutesAndBack();
+        }
+        armStartupWatchdog();
+        return;
+      }
+
+      // Only after the one-shot recovery failed do we try another source.
+      // Normal waiting events remain passive, so Chrome owns buffering.
+      tryNextStartupSource();
     }, 4500);
   };
 
@@ -538,6 +555,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     resumeAfterQualitySwitchRef.current = !!video && !video.paused;
     qualitySwitchPendingRef.current = true;
     startupTriedUrlsRef.current.add(source.url);
+    startupRecoveryAttemptedUrlsRef.current.delete(source.url);
     playbackStartedRef.current = false;
 
     clearStartupWatch();
@@ -830,10 +848,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
                   armStartupWatchdog();
 
-                  // Do not seek, reload, or rotate sources on a normal
-                  // buffering event. Chrome can emit waiting while it is
-                  // still filling its media buffer; interrupting that pipeline
-                  // is what caused the repeated startup reloads.
+                  // Normal buffering is intentionally passive. The one-shot
+                  // startup watchdog above owns recovery decisions.
                 }}
                 onPlaying={() => {
                   setVideoReady(true);
