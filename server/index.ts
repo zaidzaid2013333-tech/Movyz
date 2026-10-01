@@ -17,38 +17,41 @@ registerBuiltInProviders();
 
 app.disable('x-powered-by');
 
-// Temporary production diagnostics for the OmegaTech-only playback path.
+// Production diagnostics for the re-3arabi playback path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
-let omegaProviderIdPromise: Promise<string | null> | null = null;
+let re3ArabiProviderIdPromise: Promise<string | null> | null = null;
 
-function inferOmegaExpiry(url: string) {
-  const match = url.match(/\/download\/(\d{10}|\d{13})\//i);
-  if (!match) return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  const raw = Number(match[1]);
-  const timestamp = new Date(raw > 10_000_000_000 ? raw : raw * 1000).getTime();
-  if (!Number.isFinite(timestamp) || timestamp <= Date.now()) {
-    return new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
-  }
-  return new Date(timestamp).toISOString();
+function inferRe3ArabiExpiry(url: string) {
+  try {
+    const parsed = new URL(url);
+    for (const key of ['expires', 'expires_at', 'exp']) {
+      const raw = parsed.searchParams.get(key);
+      if (!raw) continue;
+      const numeric = Number(raw);
+      const ms = numeric > 10_000_000_000 ? numeric : numeric * 1000;
+      if (Number.isFinite(ms) && ms > Date.now()) return new Date(ms).toISOString();
+    }
+  } catch {}
+  return new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
 }
 
-async function getOmegaProviderId() {
-  if (!omegaProviderIdPromise) {
-    omegaProviderIdPromise = (async () => {
+async function getRe3ArabiProviderId() {
+  if (!re3ArabiProviderIdPromise) {
+    re3ArabiProviderIdPromise = (async () => {
       const existing = await adminSupabase
         .from('providers')
         .select('id')
-        .eq('key', 'omegatech-akwam')
+        .eq('key', 're3arabi')
         .maybeSingle();
       if (existing.data?.id) return existing.data.id as string;
 
       const created = await adminSupabase
         .from('providers')
         .upsert({
-          key: 'omegatech-akwam',
-          name: 'OmegaTech Akwam',
-          adapter_name: 'omegatech-akwam',
+          key: 're3arabi',
+          name: 're-3arabi',
+          adapter_name: 're3arabi',
           enabled: true,
           status: 'healthy',
         }, { onConflict: 'key' })
@@ -60,15 +63,15 @@ async function getOmegaProviderId() {
       }
       return created.data.id as string;
     })().catch((error) => {
-      omegaProviderIdPromise = null;
+      re3ArabiProviderIdPromise = null;
       console.warn('[omega-cache] provider lookup failed', error instanceof Error ? error.message : String(error));
       return null;
     });
   }
-  return omegaProviderIdPromise;
+  return re3ArabiProviderIdPromise;
 }
 
-async function persistRemoteOmegaSources(
+async function persistRemoteRe3ArabiSources(
   type: 'movie' | 'series',
   tmdbId: number,
   season: number | undefined,
@@ -84,7 +87,7 @@ async function persistRemoteOmegaSources(
   }>,
 ) {
   try {
-    const providerId = await getOmegaProviderId();
+    const providerId = await getRe3ArabiProviderId();
     if (!providerId) return;
 
     let contentId: string | null = null;
@@ -134,9 +137,9 @@ async function persistRemoteOmegaSources(
         provider_reference: source.providerReference || null,
         quality: source.quality || 'auto',
         language: source.language || 'ar',
-        label_ar: source.label || 'OmegaTech Akwam',
-        label_en: source.labelEn || source.label || 'OmegaTech Akwam',
-        expires_at: inferOmegaExpiry(source.url),
+        label_ar: source.label || 're-3arabi',
+        label_en: source.labelEn || source.label || 're-3arabi',
+        expires_at: inferRe3ArabiExpiry(source.url),
         is_working: true,
         last_checked_at: new Date().toISOString(),
         failure_count: 0,
@@ -155,34 +158,34 @@ async function persistRemoteOmegaSources(
     console.warn('[omega-cache] source persistence failed', error instanceof Error ? error.message : String(error));
   }
 }
-function cachedOmegaSourceDto(source: any) {
+function cachedRe3ArabiSourceDto(source: any) {
   return {
     id: source.id,
     type: source.source_type,
     quality: source.quality || 'auto',
     language: source.language || 'und',
-    label: source.label_ar || 'OmegaTech Akwam',
-    labelEn: source.label_en || source.label_ar || 'OmegaTech Akwam',
+    label: source.label_ar || 're-3arabi',
+    labelEn: source.label_en || source.label_ar || 're-3arabi',
     url: source.url || '',
     isWorking: source.is_working === true,
-    provider: source.providers?.name || 'OmegaTech',
-    providerKey: source.providers?.key || 'omegatech-akwam',
+    provider: source.providers?.name || 're-3arabi',
+    providerKey: source.providers?.key || 're3arabi',
     providerReference: source.provider_reference || undefined,
   };
 }
 
-async function getFreshOmegaSourcesForContent(contentType: 'movie' | 'episode', contentId: string) {
+async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode', contentId: string) {
   const { data, error } = await adminSupabase
     .from('playback_sources')
     .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name)')
     .eq('content_type', contentType)
     .eq('content_id', contentId)
     .eq('is_working', true)
-    .eq('providers.key', 'omegatech-akwam')
+    .eq('providers.key', 're3arabi')
     .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
     .order('quality', { ascending: true });
 
-  if (error) throw new Error('Unable to load cached OmegaTech playback sources: ' + error.message);
+  if (error) throw new Error('Unable to load cached re-3arabi playback sources: ' + error.message);
 
   return (data || [])
     .filter((source: any) => ['mp4', 'hls', 'dash'].includes(String(source.source_type || '').toLowerCase()))
@@ -195,7 +198,7 @@ async function getFreshOmegaSourcesForContent(contentType: 'movie' | 'episode', 
       if (type === 'dash') return /\.mpd(?:$|[?#])/i.test(url);
       return false;
     })
-    .map(cachedOmegaSourceDto);
+    .map(cachedRe3ArabiSourceDto);
 }
 
 async function probeCachedPlaybackSources<T extends { url: string; type: string }>(
@@ -295,7 +298,7 @@ async function ensureTmdbPlaybackContent(
   if (!episodeExists) await syncSeriesByTmdbId(tmdbId);
 }
 
-async function resolveCachedOmegaPlayback(
+async function resolveCachedRe3ArabiPlayback(
   type: 'movie' | 'series',
   tmdbId: number,
   season?: number,
@@ -310,7 +313,7 @@ async function resolveCachedOmegaPlayback(
         .eq('status', 'published')
         .maybeSingle();
       if (!data?.id) return [];
-      return await getFreshOmegaSourcesForContent('movie', data.id);
+      return await getFreshRe3ArabiSourcesForContent('movie', data.id);
     }
 
     if (!Number.isInteger(season) || !Number.isInteger(episode)) return [];
@@ -339,7 +342,7 @@ async function resolveCachedOmegaPlayback(
       .maybeSingle();
     if (!episodeRow?.id) return [];
 
-    return await getFreshOmegaSourcesForContent('episode', episodeRow.id);
+    return await getFreshRe3ArabiSourcesForContent('episode', episodeRow.id);
   } catch (error) {
     console.warn('[cached-playback]', error instanceof Error ? error.message : String(error));
     return [];
@@ -358,7 +361,7 @@ app.get('/api/v1/diagnostics/playback', async (_req, res) => {
     return ok(res, {
       success: sources.length > 0 && externalOnly,
       buildId: MOVYZ_BUILD_ID,
-      resolver: 'omegatech-akwam',
+      resolver: 're3arabi',
       test: {
         type: 'movie',
         tmdbId: 27205,
@@ -373,7 +376,7 @@ app.get('/api/v1/diagnostics/playback', async (_req, res) => {
     return ok(res, {
       success: false,
       buildId: MOVYZ_BUILD_ID,
-      resolver: 'omegatech-akwam',
+      resolver: 're3arabi',
       test: {
         type: 'movie',
         tmdbId: 27205,
@@ -510,7 +513,7 @@ async function batchSeriesGenres(ids: string[]) {
 
 async function movieDto(row: any, includePlaybackSources = false) {
   const playbackPromise = includePlaybackSources
-    ? getFreshOmegaSourcesForContent('movie', row.id).catch((error) => {
+    ? getFreshRe3ArabiSourcesForContent('movie', row.id).catch((error) => {
         console.warn('[movie-playback-cache]', error instanceof Error ? error.message : String(error));
         return [];
       })
@@ -569,7 +572,7 @@ async function seriesDto(row: any, includePlaybackSources = false) {
       .eq('content_type', 'episode')
       .in('content_id', episodeIds)
       .eq('is_working', true)
-      .eq('providers.key', 'omegatech-akwam')
+      .eq('providers.key', 're3arabi')
       .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
       .order('quality', { ascending: true });
 
@@ -580,7 +583,7 @@ async function seriesDto(row: any, includePlaybackSources = false) {
         const episodeId = String(source.content_id || '');
         if (!episodeId) continue;
         const list = playbackByEpisode.get(episodeId) || [];
-        const mapped = cachedOmegaSourceDto(source);
+        const mapped = cachedRe3ArabiSourceDto(source);
         if (mapped.url) list.push(mapped);
         playbackByEpisode.set(episodeId, list);
       }
@@ -655,9 +658,9 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   }
 
   try {
-    // Fast path: serve a previously resolved, still-valid OmegaTech URL before
+    // Fast path: serve a previously resolved, still-valid re-3arabi URL before
     // doing any TMDB bootstrap work. This is the common path after the first play.
-    const cachedSources = await resolveCachedOmegaPlayback(type, tmdbId, season, episode);
+    const cachedSources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
     const healthyCachedSources = await probeCachedPlaybackSources(cachedSources);
     if (healthyCachedSources.length) {
       res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=20');
@@ -669,7 +672,7 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
     await ensureTmdbPlaybackContent(type, tmdbId, season, episode);
 
     // A background sync/import may have populated playback_sources as a side effect.
-    const syncedCachedSources = await resolveCachedOmegaPlayback(type, tmdbId, season, episode);
+    const syncedCachedSources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
     const healthySyncedSources = await probeCachedPlaybackSources(syncedCachedSources);
     if (healthySyncedSources.length) {
       res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=20');
@@ -689,9 +692,9 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       return fail(res, 404, 'PLAYBACK_SOURCE_NOT_FOUND', 'No playback source was returned by the resolver');
     }
 
-    // Persist successful external OmegaTech URLs without holding the player request
+    // Persist successful external re-3arabi URLs without holding the player request
     // open. Cloudflare's waitUntil keeps the write alive after the response is sent.
-    const persistPromise = persistRemoteOmegaSources(type, tmdbId, season, episode, sources);
+    const persistPromise = persistRemoteRe3ArabiSources(type, tmdbId, season, episode, sources);
     if (req.waitUntil) {
       req.waitUntil(persistPromise);
     } else {
