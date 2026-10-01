@@ -109,9 +109,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [resolverLoading, setResolverLoading] = useState(false);
   const [playerUnlocked, setPlayerUnlocked] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const startupPrimedUrlsRef = useRef<Set<string>>(new Set());
-  const startupRestoreTimersRef = useRef<WeakMap<HTMLVideoElement, number>>(new WeakMap());
-  const startupPrimeDelayRef = useRef<number | null>(null);
   const qualityResumeTimeRef = useRef<number | null>(null);
   const resumeAfterQualitySwitchRef = useRef(false);
   const qualitySwitchPendingRef = useRef(false);
@@ -141,7 +138,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         userPlayRequestedRef.current = false;
         playbackStartedRef.current = false;
         startupTriedUrlsRef.current.clear();
-        startupRecoveryAttemptedUrlsRef.current.clear();
         if (startupWatchTimerRef.current !== null) {
           window.clearTimeout(startupWatchTimerRef.current);
           startupWatchTimerRef.current = null;
@@ -205,48 +201,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   useEffect(() => {
     setTheaterLighting(true);
   }, [contentId, activeSeason, activeEpisode]);
-
-  const jumpToTwoMinutesAndBack = () => {
-    const video = videoRef.current;
-    if (!video || !playbackUrl || startupPrimedUrlsRef.current.has(playbackUrl)) return;
-
-    const duration = video.duration;
-    if (!Number.isFinite(duration) || duration < 120) return;
-
-    startupPrimedUrlsRef.current.add(playbackUrl);
-
-    const originalTime = Math.max(0, Math.min(video.currentTime || 0, duration));
-    const targetTime = Math.min(120, Math.max(0, duration - 0.5));
-    let restored = false;
-
-    const restore = () => {
-      if (restored) return;
-      restored = true;
-      video.removeEventListener('seeked', restore);
-      video.removeEventListener('error', restore);
-
-      const timer = startupRestoreTimersRef.current.get(video);
-      if (timer) window.clearTimeout(timer);
-      startupRestoreTimersRef.current.delete(video);
-
-      try {
-        video.currentTime = originalTime;
-      } catch {
-        // Ignore sources that reject a startup seek.
-      }
-    };
-
-    video.addEventListener('seeked', restore, { once: true });
-    video.addEventListener('error', restore, { once: true });
-
-    try {
-      video.currentTime = targetTime;
-      const timer = window.setTimeout(restore, 900);
-      startupRestoreTimersRef.current.set(video, timer);
-    } catch {
-      restore();
-    }
-  };
 
   const storedPlaybackSources = useMemo(
     () => (content ? pickPlaybackSources(content, currentEpisode) : []),
@@ -375,11 +329,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   useEffect(() => {
     setVideoReady(false);
     playbackStartedRef.current = false;
-    if (startupPrimeDelayRef.current !== null) {
-      window.clearTimeout(startupPrimeDelayRef.current);
-      startupPrimeDelayRef.current = null;
-    }
-
     if (!playbackUrl) return;
 
     const video = videoRef.current;
@@ -389,12 +338,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     }
 
     return () => {
-      clearStartupWatch();
-      if (startupPrimeDelayRef.current !== null) {
-        window.clearTimeout(startupPrimeDelayRef.current);
-        startupPrimeDelayRef.current = null;
-      }
-    };
+      clearStartupWatch();    };
   }, [playbackUrl]);
 
   useEffect(() => {
@@ -498,37 +442,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return true;
   };
 
-  const armStartupWatchdog = () => {
-    clearStartupWatch();
-    if (!userPlayRequestedRef.current || playbackStartedRef.current) return;
-
-    startupWatchTimerRef.current = window.setTimeout(() => {
-      startupWatchTimerRef.current = null;
-      const video = videoRef.current;
-      if (!video || playbackStartedRef.current || video.paused) return;
-
-      const activeUrl = playbackUrl;
-      const stalledNearStart = video.currentTime < 8 && video.readyState < 3;
-      if (!stalledNearStart || !activeUrl) return;
-
-      // Give each URL exactly one startup recovery attempt. This preserves
-      // the proven 2:00 -> 0:00 priming trick without repeated reloads.
-      if (!startupRecoveryAttemptedUrlsRef.current.has(activeUrl)) {
-        startupRecoveryAttemptedUrlsRef.current.add(activeUrl);
-        const duration = video.duration;
-        if (Number.isFinite(duration) && duration >= 120) {
-          jumpToTwoMinutesAndBack();
-        }
-        armStartupWatchdog();
-        return;
-      }
-
-      // Only after the one-shot recovery failed do we try another source.
-      // Normal waiting events remain passive, so Chrome owns buffering.
-      tryNextStartupSource();
-    }, 4500);
-  };
-
   useEffect(() => {
     clearStartupWatch();
     if (!playbackUrl || !playerUnlocked || !userPlayRequestedRef.current || !qualitySwitchPendingRef.current) return;
@@ -554,15 +467,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     resumeAfterQualitySwitchRef.current = !!video && !video.paused;
     qualitySwitchPendingRef.current = true;
     startupTriedUrlsRef.current.add(source.url);
-    startupRecoveryAttemptedUrlsRef.current.delete(source.url);
     playbackStartedRef.current = false;
 
     clearStartupWatch();
-    if (startupPrimeDelayRef.current !== null) {
-      window.clearTimeout(startupPrimeDelayRef.current);
-      startupPrimeDelayRef.current = null;
-    }
-
     setRemotePlaybackSource(source);
   };
 
@@ -802,7 +709,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onPlay={() => {
                   userPlayRequestedRef.current = true;
                   playbackStartedRef.current = false;
-                  armStartupWatchdog();
                 }}
                 onLoadedMetadata={() => {
                   const video = videoRef.current;
@@ -830,25 +736,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       if (video) void video.play().catch(() => undefined);
                     }
                   }
-                  armStartupWatchdog();
                 }}
                 onWaiting={() => {
+                  // Native buffering is browser-owned. Never seek, reload, or
+                  // rotate sources just because a waiting event fires.
                   setVideoReady(false);
-
-                  const video = videoRef.current;
-                  if (
-                    !video ||
-                    !userPlayRequestedRef.current ||
-                    qualitySwitchPendingRef.current ||
-                    video.currentTime > 15
-                  ) {
-                    return;
-                  }
-
-                  armStartupWatchdog();
-
-                  // Normal buffering is intentionally passive. The one-shot
-                  // startup watchdog above owns recovery decisions.
                 }}
                 onPlaying={() => {
                   setVideoReady(true);
@@ -875,7 +767,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     if (videoRef.current !== video) return;
                     video.preload = 'auto';
                     video.load();
-                    armStartupWatchdog();
                   }, 350);
                 }}
               >
