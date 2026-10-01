@@ -573,15 +573,24 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   }
 
   try {
-    // Automatically import missing TMDB content/seasons/episodes before resolving
-    // playback, so opening a direct title/episode can bootstrap the catalog.
-    await ensureTmdbPlaybackContent(type, tmdbId, season, episode);
-
+    // Fast path: serve a previously resolved, still-valid OmegaTech URL before
+    // doing any TMDB bootstrap work. This is the common path after the first play.
     const cachedSources = await resolveCachedOmegaPlayback(type, tmdbId, season, episode);
     if (cachedSources.length) {
-      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=20');
       res.setHeader('Referrer-Policy', 'no-referrer');
       return ok(res, { sources: cachedSources });
+    }
+
+    // Bootstrap missing catalog records only when the playback cache is empty.
+    await ensureTmdbPlaybackContent(type, tmdbId, season, episode);
+
+    // A background sync/import may have populated playback_sources as a side effect.
+    const syncedCachedSources = await resolveCachedOmegaPlayback(type, tmdbId, season, episode);
+    if (syncedCachedSources.length) {
+      res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=20');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      return ok(res, { sources: syncedCachedSources });
     }
 
     const sources = await resolveRemotePlayback({
@@ -596,11 +605,16 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       return fail(res, 404, 'PLAYBACK_SOURCE_NOT_FOUND', 'No playback source was returned by the resolver');
     }
 
-    // Persist successful external OmegaTech URLs so subsequent plays do not hit the
-    // upstream resolver again until the URL naturally expires.
-    await persistRemoteOmegaSources(type, tmdbId, season, episode, sources);
+    // Persist successful external OmegaTech URLs without holding the player request
+    // open. Cloudflare's waitUntil keeps the write alive after the response is sent.
+    const persistPromise = persistRemoteOmegaSources(type, tmdbId, season, episode, sources);
+    if (req.waitUntil) {
+      req.waitUntil(persistPromise);
+    } else {
+      await persistPromise;
+    }
 
-    res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300');
+    res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=60');
     return ok(res, { sources });
   } catch (error) {
     console.error('[remote-playback]', error instanceof Error ? error.message : error);
