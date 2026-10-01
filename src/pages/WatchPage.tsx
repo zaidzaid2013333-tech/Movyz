@@ -480,7 +480,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 className="block h-full w-full bg-black object-contain"
                 controls
                 playsInline
-                preload="auto"
+                preload="metadata"
                 controlsList="nodownload noplaybackrate"
                 disablePictureInPicture={false}
                 onLoadStart={() => setVideoReady(false)}
@@ -488,13 +488,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onDurationChange={() => undefined}
                 onLoadedData={() => {
                   setVideoReady(true);
-                  jumpToTwoMinutesAndBack();
                 }}
                 onCanPlay={() => {
                   setVideoReady(true);
                 }}
                 onWaiting={() => setVideoReady(false)}
-                onPlaying={() => setVideoReady(true)}
+                onPlaying={() => {
+                  setVideoReady(true);
+                  jumpToTwoMinutesAndBack();
+                }}
                  onError={() => {
                    setVideoReady(false);
                  }}
