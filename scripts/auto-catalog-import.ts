@@ -145,7 +145,7 @@ async function finishJob(jobId: string, status: 'succeeded' | 'failed', counts: 
 }
 
 function inferOmegaExpiry(url: string) {
-  const match = url.match(/\\/download\\/(\\d{10}|\\d{13})\\//i);
+  const match = url.match(/\/download\/(\d{10}|\d{13})\//i);
   if (!match) return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const raw = Number(match[1]);
   const timestamp = new Date(raw > 10_000_000_000 ? raw : raw * 1000).getTime();
@@ -173,7 +173,7 @@ async function linkMoviePlayback(movieId: string, tmdbId: number) {
 
   const sources = await resolveRemotePlayback({ type: 'movie', tmdbId });
   const rows = sources
-    .filter((source) => /^https:\\/\\//i.test(source.url) && ['mp4', 'hls', 'dash'].includes(source.type))
+    .filter((source) => /^https:\/\//i.test(source.url) && ['mp4', 'hls', 'dash'].includes(source.type))
     .slice(0, 6)
     .map((source) => ({
       provider_id: provider.id,
