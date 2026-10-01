@@ -162,7 +162,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             // Ignore a source that changed while restoring the start position.
           }
         }
-      }, 120);
+      }, 0);
     } catch {
       // Ignore sources that do not allow an immediate seek.
     }
@@ -452,9 +452,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               controlsList="nodownload noplaybackrate"
               disablePictureInPicture={false}
               onLoadedMetadata={() => {
-                jumpToTwoMinutesAndBack();
-              }}
-              onLoadedData={() => {
                 jumpToTwoMinutesAndBack();
               }}
               onError={() => {
