@@ -306,11 +306,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             : playbackSource?.type === 'dash'
               ? 'application/dash+xml'
               : undefined;
-  const availableSources = sortPlaybackSources(
-    [...storedPlaybackSources, ...remotePlaybackSources].filter(
-      (source, index, all) =>
-        index === all.findIndex((candidate) => candidate.url === source.url),
-    ),
+  const availableSources = useMemo(
+    () =>
+      sortPlaybackSources(
+        [...storedPlaybackSources, ...remotePlaybackSources].filter(
+          (source, index, all) =>
+            index === all.findIndex((candidate) => candidate.url === source.url),
+        ),
+      ),
+    [storedPlaybackSources, remotePlaybackSources],
   );
 
   useEffect(() => {
