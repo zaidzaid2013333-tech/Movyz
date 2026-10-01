@@ -3,7 +3,7 @@ import { adminSupabase } from './supabase';
 const BASE = 'https://api.themoviedb.org/3';
 const IMAGE = 'https://image.tmdb.org/t/p/w500';
 const BACKDROP = 'https://image.tmdb.org/t/p/w1280';
-const MAX_PAGES = 3;
+const MAX_PAGES = 6;
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const THROTTLE_MS = 180;
 
@@ -582,7 +582,7 @@ export async function syncEpisodesForSeries(seriesLimit?: number) {
 }
 
 export async function runTmdbSync(options: { pages?: number } = {}) {
-  const pages = Math.min(Math.max(options.pages || 1, 1), MAX_PAGES);
+  const pages = Math.min(Math.max(options.pages || 6, 1), MAX_PAGES);
   const job = await startJob('catalog', pages);
   const counts: Counts = { movies: 0, series: 0, seasons: 0, episodes: 0, pages };
 
