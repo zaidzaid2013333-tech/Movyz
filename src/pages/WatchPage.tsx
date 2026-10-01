@@ -36,7 +36,7 @@ const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
 };
 
 const playbackQualityRank = (source: PlaybackSource) => {
-  const match = source.quality?.match(/(\\d{3,4})p/i);
+  const match = source.quality?.match(/(\d{3,4})p/i);
   const quality = match ? Number(match[1]) : 9999;
   if (quality === 720) return 0;
   if (quality === 480) return 1;
@@ -232,12 +232,26 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       .then((response) => {
         if (!mounted) return;
 
-        const sources = response.data.sources
-          .filter(isOmegaTechSource)
-          .filter((candidate) => /^https?:\/\//i.test(candidate.url?.trim() || ''))
-          .slice(0, 4);
+        const sources = sortPlaybackSources(
+          response.data.sources
+            .filter(isOmegaTechSource)
+            .filter((candidate) => /^https?:\/\//i.test(candidate.url?.trim() || ''))
+            .slice(0, 4),
+        );
 
-        const source = sources.find((candidate) => candidate.isWorking) ?? sources[0] ?? null;
+        const mobilePreferredQuality =
+          typeof window !== 'undefined' && window.innerWidth < 768 ? 480 : 720;
+        const source =
+          sources.find(
+            (candidate) =>
+              candidate.isWorking &&
+              (candidate.quality || candidate.labelEn || '')
+                .toLowerCase()
+                .includes(String(mobilePreferredQuality) + 'p'),
+          ) ??
+          sources.find((candidate) => candidate.isWorking) ??
+          sources[0] ??
+          null;
         setRemotePlaybackSources(sources);
         setRemotePlaybackSource(source);
       })
