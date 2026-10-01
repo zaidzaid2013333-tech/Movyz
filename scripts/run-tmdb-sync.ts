@@ -9,7 +9,7 @@ if (mode === 'catalog') {
   const result = await runTmdbSync({ pages });
   console.log(JSON.stringify(result, null, 2));
 } else if (mode === 'episodes') {
-  const seriesLimit = Math.min(Math.max(value, 1), 25);
+  const seriesLimit = Math.min(Math.max(value, 1), 10_000);
   const result = await syncEpisodesForSeries(seriesLimit);
   console.log(JSON.stringify(result, null, 2));
 } else {
