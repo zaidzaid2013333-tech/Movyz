@@ -117,7 +117,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const startupWatchTimerRef = useRef<number | null>(null);
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
-  const [videoReady, setVideoReady] = useState(false);
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
 
@@ -688,7 +687,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 controlsList="nodownload noplaybackrate"
                 disablePictureInPicture={false}
                 onLoadStart={() => {
-                  setVideoReady(false);
                   playbackStartedRef.current = false;
                   if (playbackUrl) startupTriedUrlsRef.current.add(playbackUrl);
                 }}
@@ -710,10 +708,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 }}
                 onDurationChange={() => undefined}
                 onLoadedData={() => {
-                  setVideoReady(true);
                 }}
                 onCanPlay={() => {
-                  setVideoReady(true);
                   if (qualitySwitchPendingRef.current) {
                     qualitySwitchPendingRef.current = false;
                     if (resumeAfterQualitySwitchRef.current) {
@@ -726,16 +722,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onWaiting={() => {
                   // Native buffering is browser-owned. Never seek, reload, or
                   // rotate sources just because a waiting event fires.
-                  setVideoReady(false);
                 }}
                 onPlaying={() => {
-                  setVideoReady(true);
                   playbackStartedRef.current = true;
                   clearStartupWatch();
                   rememberPlaybackHost(playbackSource, true);
                 }}
                 onError={() => {
-                  setVideoReady(false);
                   playbackStartedRef.current = false;
                   if (!playbackUrl) return;
 
@@ -743,6 +736,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
                   const video = videoRef.current;
                   if (!video) return;
+
+                  if (playbackStartedRef.current) {
+                    if (retriedPlaybackUrlsRef.current.has(playbackUrl)) return;
+                    retriedPlaybackUrlsRef.current.add(playbackUrl);
+                    window.setTimeout(() => {
+                      if (videoRef.current !== video) return;
+                      video.preload = 'auto';
+                      video.load();
+                    }, 500);
+                    return;
+                  }
 
                   if (userPlayRequestedRef.current && tryNextStartupSource()) return;
 
