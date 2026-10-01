@@ -7,6 +7,7 @@ import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolveRemotePlayback } from './providers/remote-resolver';
+import { resolvePlaybackSources } from './providers/resolver';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -17,9 +18,67 @@ app.disable('x-powered-by');
 
 // Temporary production diagnostics for the OmegaTech-only playback path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
+async function resolveCachedOmegaPlayback(
+  type: 'movie' | 'series',
+  tmdbId: number,
+  season?: number,
+  episode?: number,
+) {
+  try {
+    if (type === 'movie') {
+      const { data } = await adminSupabase
+        .from('movies')
+        .select('id')
+        .eq('tmdb_id', tmdbId)
+        .eq('status', 'published')
+        .maybeSingle();
+      if (!data?.id) return [];
+
+      return await resolvePlaybackSources('movie', data.id, [], 'omegatech-akwam');
+    }
+
+    if (!Number.isInteger(season) || !Number.isInteger(episode)) return [];
+
+    const { data: series } = await adminSupabase
+      .from('series')
+      .select('id')
+      .eq('tmdb_id', tmdbId)
+      .eq('status', 'published')
+      .maybeSingle();
+    if (!series?.id) return [];
+
+    const { data: seasonRow } = await adminSupabase
+      .from('seasons')
+      .select('id')
+      .eq('series_id', series.id)
+      .eq('season_number', season)
+      .maybeSingle();
+    if (!seasonRow?.id) return [];
+
+    const { data: episodeRow } = await adminSupabase
+      .from('episodes')
+      .select('id')
+      .eq('season_id', seasonRow.id)
+      .eq('episode_number', episode)
+      .maybeSingle();
+    if (!episodeRow?.id) return [];
+
+    return await resolvePlaybackSources('episode', episodeRow.id, [], 'omegatech-akwam');
+  } catch (error) {
+    console.warn('[cached-playback]', error instanceof Error ? error.message : String(error));
+    return [];
+  }
+}
+
 app.get('/api/v1/diagnostics/playback', async (_req, res) => {
   const started = Date.now();
   try {
+    const cachedSources = await resolveCachedOmegaPlayback(type, tmdbId, season, episode);
+    if (cachedSources.length) {
+      res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300');
+      return ok(res, { sources: cachedSources });
+    }
+
     const sources = await resolveRemotePlayback({ type: 'movie', tmdbId: 27205 }, _req.env);
     const externalOnly = sources.every((source) => {
       try { return new URL(source.url).hostname !== 'movyz-api.sameranede.workers.dev'; }
