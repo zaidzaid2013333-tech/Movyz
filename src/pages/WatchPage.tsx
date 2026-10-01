@@ -68,6 +68,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const startupPrimedUrlsRef = useRef<Set<string>>(new Set());
   const startupRestoreTimersRef = useRef<WeakMap<HTMLVideoElement, number>>(new WeakMap());
   const startupPrimeDelayRef = useRef<number | null>(null);
+  const qualityResumeTimeRef = useRef<number | null>(null);
+  const resumeAfterQualitySwitchRef = useRef(false);
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const [videoReady, setVideoReady] = useState(false);
   const activeSeason = seasonNumber || 1;
@@ -197,10 +199,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     ?? storedPlaybackSources.find((source) => source.isWorking)
     ?? storedPlaybackSources[0]
     ?? null;
+  const routeTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
+  const resolveTmdbId = content?.tmdbId ?? routeTmdbId;
 
   useEffect(() => {
-    if (loading || !content) return;
-
     if (storedPlaybackSource) {
       setRemotePlaybackSources(storedPlaybackSources);
       setRemotePlaybackSource((current) => current ?? storedPlaybackSource);
@@ -208,21 +210,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       return;
     }
 
-    if (content.type === 'series' && !currentEpisode) {
-      setRemotePlaybackSources([]);
-      setRemotePlaybackSource(null);
-      setResolverLoading(false);
-      return;
-    }
+    if (!resolveTmdbId) return;
 
     let mounted = true;
     setRemotePlaybackSources([]);
     setResolverLoading(true);
 
     void MovyzaApi.resolvePlaybackSource({
-      type: content.type,
-      tmdbId: content.tmdbId,
-      ...(content.type === 'series'
+      type: mediaType,
+      tmdbId: resolveTmdbId,
+      ...(mediaType === 'series'
         ? {
             season: currentEpisode?.seasonNumber ?? activeSeason,
             episode: currentEpisode?.episodeNumber ?? activeEpisode,
@@ -261,7 +258,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return () => {
       mounted = false;
     };
-  }, [loading, content, currentEpisode, storedPlaybackSource, storedPlaybackSources, activeSeason, activeEpisode]);
+  }, [resolveTmdbId, mediaType, activeSeason, activeEpisode, storedPlaybackSource?.url]);
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
@@ -304,7 +301,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }, [playbackUrl]);
 
   useEffect(() => {
-    if (!playerUnlocked || !playbackUrl || typeof document === 'undefined') return;
+    if (!playbackUrl || typeof document === 'undefined') return;
 
     let origin: string;
     try {
@@ -371,6 +368,24 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const handleUnlockPlayer = () => {
     setPlayerUnlocked(true);
+  };
+
+  const handleSelectPlaybackSource = (source: PlaybackSource) => {
+    if (source.url === playbackUrl) return;
+
+    const video = videoRef.current;
+    qualityResumeTimeRef.current =
+      video && Number.isFinite(video.currentTime) && video.currentTime > 0.5
+        ? video.currentTime
+        : null;
+    resumeAfterQualitySwitchRef.current = !!video && !video.paused;
+
+    if (startupPrimeDelayRef.current !== null) {
+      window.clearTimeout(startupPrimeDelayRef.current);
+      startupPrimeDelayRef.current = null;
+    }
+
+    setRemotePlaybackSource(source);
   };
 
   const handleSelectEpisode = (nextSeason: number, nextEpisode: number) => {
@@ -560,7 +575,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 <button
                   key={source.id}
                   type="button"
-                  onClick={() => setRemotePlaybackSource(source)}
+                  onClick={() => handleSelectPlaybackSource(source)}
                   className={
                     'shrink-0 px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition-all ' +
                     (active
@@ -590,29 +605,58 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 controlsList="nodownload noplaybackrate"
                 disablePictureInPicture={false}
                 onLoadStart={() => setVideoReady(false)}
-                onLoadedMetadata={() => undefined}
+                onLoadedMetadata={() => {
+                  const video = videoRef.current;
+                  const resumeTime = qualityResumeTimeRef.current;
+                  if (!video || resumeTime === null || !Number.isFinite(video.duration)) return;
+
+                  qualityResumeTimeRef.current = null;
+                  try {
+                    video.currentTime = Math.min(resumeTime, Math.max(0, video.duration - 0.5));
+                  } catch {
+                    // Ignore sources that reject a resume seek.
+                  }
+                }}
                 onDurationChange={() => undefined}
                 onLoadedData={() => {
                   setVideoReady(true);
                 }}
                 onCanPlay={() => {
                   setVideoReady(true);
+                  if (resumeAfterQualitySwitchRef.current) {
+                    resumeAfterQualitySwitchRef.current = false;
+                    const video = videoRef.current;
+                    if (video) void video.play().catch(() => undefined);
+                  }
                 }}
-                onWaiting={() => setVideoReady(false)}
-                onPlaying={() => {
-                  setVideoReady(true);
+                onWaiting={() => {
+                  setVideoReady(false);
+
+                  const video = videoRef.current;
+                  if (
+                    !video ||
+                    video.currentTime > 15 ||
+                    startupPrimedUrlsRef.current.has(playbackUrl) ||
+                    qualityResumeTimeRef.current !== null
+                  ) {
+                    return;
+                  }
 
                   if (startupPrimeDelayRef.current !== null) {
                     window.clearTimeout(startupPrimeDelayRef.current);
                   }
 
-                  // Apply the same startup prime to every direct MP4 quality.
+                  // Recovery only: a good stream starts normally at 0:00. We use the
+                  // 2:00 seek trick only when the stream actually stalls near startup.
                   startupPrimeDelayRef.current = window.setTimeout(() => {
                     startupPrimeDelayRef.current = null;
-                    const video = videoRef.current;
-                    if (!video || video.paused || video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
+                    const current = videoRef.current;
+                    if (!current || current !== video || current.paused) return;
                     jumpToTwoMinutesAndBack();
-                  }, 1200);
+                  }, 500);
+                }}
+                onPlaying={() => {
+                  setVideoReady(true);
                 }}
                  onError={() => {
                    setVideoReady(false);
