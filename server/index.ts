@@ -185,6 +185,15 @@ async function getFreshOmegaSourcesForContent(contentType: 'movie' | 'episode', 
 
   return (data || [])
     .filter((source: any) => ['mp4', 'hls', 'dash'].includes(String(source.source_type || '').toLowerCase()))
+    .filter((source: any) => {
+      const url = typeof source.url === 'string' ? source.url.trim() : '';
+      const type = String(source.source_type || '').toLowerCase();
+      if (!/^https:\/\//i.test(url)) return false;
+      if (type === 'mp4') return /\.mp4(?:$|[?#])/i.test(url);
+      if (type === 'hls') return /\.m3u8(?:$|[?#])/i.test(url);
+      if (type === 'dash') return /\.mpd(?:$|[?#])/i.test(url);
+      return false;
+    })
     .map(cachedOmegaSourceDto);
 }
 
