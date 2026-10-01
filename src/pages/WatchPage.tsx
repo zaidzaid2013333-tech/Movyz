@@ -26,14 +26,12 @@ interface WatchPageProps {
 const isOmegaTechSource = (source: PlaybackSource) =>
   source.providerKey === 'omegatech-akwam' || source.provider === 'OmegaTech';
 
-const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
+const pickPlaybackSources = (content: Movie | Series, episode?: Episode) => {
   const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
-  const omegaSources = candidates.filter(isOmegaTechSource);
-  const usable = omegaSources.filter((source) => /^https?:\/\//i.test(source.url?.trim() || ''));
-
-  return usable.find((source) => source.isWorking)
-    ?? usable[0]
-    ?? null;
+  return candidates
+    .filter(isOmegaTechSource)
+    .filter((source) => /^https?:\/\//i.test(source.url?.trim() || ''))
+    .sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
 };
 
 const playbackQualityRank = (source: PlaybackSource) => {
@@ -168,17 +166,23 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     }
   };
 
-  const storedPlaybackSource = useMemo(
-    () => (content ? pickPlaybackSource(content, currentEpisode) : null),
+  const storedPlaybackSources = useMemo(
+    () => (content ? pickPlaybackSources(content, currentEpisode) : []),
     [content, currentEpisode],
   );
+  const storedPlaybackSource = storedPlaybackSources.find((source) => source.isWorking && /720p/i.test(source.quality || source.labelEn || ''))
+    ?? storedPlaybackSources.find((source) => source.isWorking)
+    ?? storedPlaybackSources[0]
+    ?? null;
 
   useEffect(() => {
     if (loading || !content) return;
 
     if (storedPlaybackSource) {
-      setRemotePlaybackSources([storedPlaybackSource]);
-      setRemotePlaybackSource(storedPlaybackSource);
+      setRemotePlaybackSources(storedPlaybackSources);
+      setRemotePlaybackSource((current) => storedPlaybackSources.some((source) => source.id === current?.id)
+        ? current
+        : storedPlaybackSource);
       setResolverLoading(false);
       return;
     }
@@ -216,15 +220,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             .slice(0, 4),
         );
 
-        const preferredQuality = getPreferredPlaybackQuality();
         const source =
-          sources.find(
-            (candidate) =>
-              candidate.isWorking &&
-              (candidate.quality || candidate.labelEn || '')
-                .toLowerCase()
-                .includes(String(preferredQuality) + 'p'),
-          ) ??
+          sources.find((candidate) => candidate.isWorking && /720p/i.test(candidate.quality || candidate.labelEn || '')) ??
           sources.find((candidate) => candidate.isWorking) ??
           sources[0] ??
           null;
@@ -244,11 +241,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return () => {
       mounted = false;
     };
-  }, [loading, content, currentEpisode, storedPlaybackSource, activeSeason, activeEpisode]);
+  }, [loading, content, currentEpisode, storedPlaybackSource, storedPlaybackSources, activeSeason, activeEpisode]);
 
-  const playbackSource = storedPlaybackSource ?? remotePlaybackSource;
+  const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
-  const availableSources = storedPlaybackSource ? [storedPlaybackSource] : remotePlaybackSources;
+  const availableSources = storedPlaybackSources.length > 0 ? storedPlaybackSources : remotePlaybackSources;
 
   useEffect(() => {
     if (!playbackUrl || typeof document === 'undefined') return;
