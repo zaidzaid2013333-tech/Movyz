@@ -21,7 +21,7 @@ type EpisodeCandidate = {
 type Candidate = MovieCandidate | EpisodeCandidate;
 
 const MOVIE_LIMIT = Math.min(Math.max(Number(process.env.MOVIE_LIMIT || 48), 1), 240);
-const EPISODE_LIMIT = Math.min(Math.max(Number(process.env.EPISODE_LIMIT || 72), 1), 5000);
+const EPISODE_LIMIT = Math.min(Math.max(Number(process.env.EPISODE_LIMIT ?? 72), 0), 5000);
 const CONCURRENCY = Math.min(Math.max(Number(process.env.CACHE_CONCURRENCY || 1), 1), 2);
 const CURATED_SERIES_IDS = [1396, 60059, 70523, 2316, 5920];
 const CURATED_MOVIE_IDS = [27205, 157336, 278, 550, 155];
