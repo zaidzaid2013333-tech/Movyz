@@ -177,8 +177,9 @@ function collectUrlsFromKeys(value: unknown, keys: readonly string[]) {
 }
 
 function isLikelyPlaybackUrl(url: string) {
-  return /\.(?:m3u8|mp4|mpd)(?:$|[?#])/i.test(url)
-    || /(?:stream|video|play|embed)/i.test(url);
+  // Only accept direct browser-playable media URLs here. Generic page/player URLs
+  // are intentionally rejected so they can never be persisted as MP4 sources.
+  return inferPlaybackType(url) !== null;
 }
 
 function isLikelyPageUrl(url: string) {
@@ -368,7 +369,7 @@ async function resolveOmegaDownloadUrls(
   const candidates = extractPlaybackCandidates(payload);
   const allUrls = collectDownloadOrPlaybackUrls(payload);
   const resolved = [
-    ...candidates.map((candidate) => candidate.url),
+    ...candidates.map((candidate) => candidate.url).filter(isLikelyPlaybackUrl),
     ...allUrls.filter(isLikelyPlaybackUrl),
   ];
   const downloadUrls = allUrls.filter((url) => !isLikelyPlaybackUrl(url));
@@ -456,9 +457,11 @@ async function resolveOmegaTechAkwamPlayback(
           }
           if (!urls.length) throw new Error('OmegaTech Akwam returned no direct playback URL');
 
-          return urls.map((url, index) => ({
+          return urls
+    .filter((url) => inferPlaybackType(url) !== null)
+    .map((url, index) => ({
             url,
-            type: inferPlaybackType(url, 'mp4') || 'web',
+            type: inferPlaybackType(url)!,
             quality: inferQuality(url, url),
             language: 'ar',
             label: `OmegaTech Akwam ${inferQuality(url, url) || index + 1}`,
