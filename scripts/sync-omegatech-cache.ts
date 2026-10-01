@@ -156,21 +156,38 @@ async function loadCandidates(): Promise<{ movies: MovieCandidate[]; episodes: E
   return { movies, episodes };
 }
 
-async function loadFreshSourceIds() {
+async function loadCompleteSourceIds() {
   const rows = await readAll<{
     content_type: 'movie' | 'episode';
     content_id: string;
+    source_type: string;
+    quality: string | null;
     expires_at: string | null;
     is_working: boolean;
-  }>('playback_sources', 'content_type,content_id,expires_at,is_working');
+  }>('playback_sources', 'content_type,content_id,source_type,quality,expires_at,is_working');
 
-  const fresh = new Set<string>();
+  const stats = new Map<string, { urls: number; qualities: Set<string> }>();
   for (const row of rows) {
-    if (row.is_working && isFresh(row.expires_at)) {
-      fresh.add(row.content_type + ':' + row.content_id);
-    }
+    if (
+      !row.is_working ||
+      !isFresh(row.expires_at) ||
+      !['mp4', 'hls', 'dash'].includes(String(row.source_type || '').toLowerCase())
+    ) continue;
+
+    const key = row.content_type + ':' + row.content_id;
+    const current = stats.get(key) || { urls: 0, qualities: new Set<string>() };
+    current.urls += 1;
+    if (row.quality?.trim()) current.qualities.add(row.quality.trim().toLowerCase());
+    stats.set(key, current);
   }
-  return fresh;
+
+  // One fresh source is not considered complete: the resolver may still expose
+  // another quality. Require at least two distinct usable sources/qualities.
+  const complete = new Set<string>();
+  for (const [key, value] of stats) {
+    if (value.urls >= 2 && value.qualities.size >= 2) complete.add(key);
+  }
+  return complete;
 }
 
 async function persistSources(providerId: string, candidate: Candidate, sources: any[]) {
@@ -245,7 +262,7 @@ async function main() {
   }
 
   const providerId = await ensureProvider();
-  const fresh = await loadFreshSourceIds();
+  const complete = await loadCompleteSourceIds();
   const { movies, episodes } = await loadCandidates();
 
   const curatedMovies = movies.filter((item) => CURATED_MOVIE_IDS.includes(item.tmdbId));
@@ -254,7 +271,7 @@ async function main() {
     ...curatedMovies,
     ...remainingMovies,
   ]
-    .filter((item) => !fresh.has('movie:' + item.contentId))
+    .filter((item) => !complete.has('movie:' + item.contentId))
     .slice(0, MOVIE_LIMIT);
 
   const curatedEpisodes = episodes.filter((item) => CURATED_SERIES_IDS.includes(item.tmdbId));
@@ -262,11 +279,11 @@ async function main() {
   const orderedEpisodes = [
     ...curatedEpisodes,
     ...remainingEpisodes,
-  ].filter((item) => !fresh.has('episode:' + item.contentId));
+  ].filter((item) => !complete.has('episode:' + item.contentId));
 
   const candidates: Candidate[] = [
     ...orderedMovies,
-    ...orderedEpisodes.slice(0, EPISODE_LIMIT),
+    ...orderedEpisodes(EPISODE_LIMIT === 0 ? orderedEpisodes : orderedEpisodes.slice(0, EPISODE_LIMIT)),
   ];
 
   const summary = { candidates: candidates.length, playable: 0, sources: 0, failed: 0 };
