@@ -153,7 +153,7 @@ async function verifyDbSeries(plan: SeriesPlan) {
   };
 }
 
-async function resolvePlayback(input: Record<string, number>) {
+async function resolvePlayback(input: Record<string, string | number>) {
   const url = new URL(PLAYBACK_BASE + '/api/v1/playback/resolve');
   for (const [key, value] of Object.entries(input)) url.searchParams.set(key, String(value));
 
@@ -235,7 +235,7 @@ for (const movie of seededMovies) {
   moviePlayback.push({
     tmdbId: movie.tmdbId,
     title: movie.title,
-    ...(await resolvePlayback({ type: 0, tmdbId: movie.tmdbId })),
+    ...(await resolvePlayback({ type: 'movie', tmdbId: movie.tmdbId })),
   });
 }
 
@@ -256,7 +256,7 @@ for (const plan of seriesPlans) {
 const episodeResults = await mapConcurrent(episodeCases, 6, async (item) => {
   try {
     const result = await resolvePlayback({
-      type: 1,
+      type: 'series',
       tmdbId: item.tmdbId,
       season: item.season,
       episode: item.episode,
