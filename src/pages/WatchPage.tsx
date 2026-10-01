@@ -483,14 +483,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
             <div className="relative h-full w-full bg-black">
-              {!videoReady && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/35 pointer-events-none">
-                  <div className="flex items-center gap-2 rounded-full bg-black/65 border border-white/10 px-3 py-2 text-[11px] text-white/70 backdrop-blur-md">
-                    <span className="w-3.5 h-3.5 rounded-full border-2 border-white/20 border-t-amber-400 animate-spin" />
-                    <span>{language === 'ar' ? 'جاري تجهيز الفيديو…' : 'Preparing video…'}</span>
-                  </div>
-                </div>
-              )}
               <video
                 ref={videoRef}
                 key={playbackUrl}
