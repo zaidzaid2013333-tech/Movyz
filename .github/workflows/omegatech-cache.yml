@@ -2,10 +2,6 @@ name: Movyz OmegaTech cache refresh (manual)
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["main"]
-    paths:
-      - "scripts/sync-omegatech-cache.ts"
 
 permissions:
   contents: read
