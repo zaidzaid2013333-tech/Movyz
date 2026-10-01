@@ -3,6 +3,12 @@ name: Movyz TMDB Sync — Automatic Popular Catalog
 on:
   schedule:
     - cron: "0 3,15 * * *"
+  push:
+    paths:
+      - ".github/workflows/tmdb-sync.yml"
+      - "server/tmdb.ts"
+      - "scripts/run-tmdb-sync.ts"
+      - "scripts/sync-omegatech-cache.ts"
   workflow_dispatch:
     inputs:
       pages:
