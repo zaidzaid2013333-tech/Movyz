@@ -65,7 +65,29 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 const REMOTE_RESOLVE_CACHE_TTL_MS = 20_000;
+const REMOTE_METADATA_CACHE_TTL_MS = 10 * 60_000;
+const OMEGA_RESPONSE_CACHE_TTL_MS = 5 * 60_000;
+const OMEGA_REQUEST_GAP_MS = 180;
 const remoteResolveCache = new Map<string, { expiresAt: number; promise: Promise<RemotePlaybackSource[]> }>();
+const tmdbTitleCache = new Map<string, { expiresAt: number; value: string }>();
+const omegaResponseCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>();
+let omegaQueue: Promise<void> = Promise.resolve();
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function enqueueOmegaRequest<T>(work: () => Promise<T>): Promise<T> {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const previous = omegaQueue;
+  omegaQueue = omegaQueue.then(() => gate);
+  await previous;
+  try {
+    return await work();
+  } finally {
+    release();
+    await sleep(OMEGA_REQUEST_GAP_MS);
+  }
+}
 
 function remoteResolveCacheKey(request: RemotePlaybackRequest) {
   return JSON.stringify([
