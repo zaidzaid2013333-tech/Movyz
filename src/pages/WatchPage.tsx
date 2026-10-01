@@ -66,6 +66,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const startupPrimedUrlsRef = useRef<Set<string>>(new Set());
   const startupRestoreTimersRef = useRef<WeakMap<HTMLVideoElement, number>>(new WeakMap());
+  const startupPrimeDelayRef = useRef<number | null>(null);
   const [videoReady, setVideoReady] = useState(false);
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
@@ -278,6 +279,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   useEffect(() => {
     setVideoReady(false);
+    if (startupPrimeDelayRef.current !== null) {
+      window.clearTimeout(startupPrimeDelayRef.current);
+      startupPrimeDelayRef.current = null;
+    }
+
+    return () => {
+      if (startupPrimeDelayRef.current !== null) {
+        window.clearTimeout(startupPrimeDelayRef.current);
+        startupPrimeDelayRef.current = null;
+      }
+    };
   }, [playbackUrl]);
 
   useEffect(() => {
@@ -495,7 +507,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onWaiting={() => setVideoReady(false)}
                 onPlaying={() => {
                   setVideoReady(true);
-                  jumpToTwoMinutesAndBack();
+
+                  if (startupPrimeDelayRef.current !== null) {
+                    window.clearTimeout(startupPrimeDelayRef.current);
+                  }
+
+                  // Apply the same startup prime to every direct MP4 quality.
+                  startupPrimeDelayRef.current = window.setTimeout(() => {
+                    startupPrimeDelayRef.current = null;
+                    const video = videoRef.current;
+                    if (!video || video.paused || video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
+                    jumpToTwoMinutesAndBack();
+                  }, 1200);
                 }}
                  onError={() => {
                    setVideoReady(false);
