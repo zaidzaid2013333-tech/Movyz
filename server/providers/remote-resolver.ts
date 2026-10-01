@@ -405,6 +405,7 @@ async function resolveOmegaTechAkwamPlayback(
   }
 
   let lastError = 'OmegaTech Akwam returned no playback source';
+  const baseErrors: string[] = [];
   for (const base of DEFAULT_OMEGATECH_URLS) {
     try {
       const searchResults: NamedSearchResult[] = [];
@@ -495,10 +496,11 @@ async function resolveOmegaTechAkwamPlayback(
       throw new Error(lastError || 'OmegaTech Akwam returned no playback source');
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
+      baseErrors.push(`${base}: ${lastError}`);
     }
   }
 
-  throw new Error(lastError);
+  throw new Error(baseErrors.length ? baseErrors.join(' | ') : lastError);
 }
 
 export async function resolveRemotePlayback(
