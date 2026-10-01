@@ -154,6 +154,59 @@ async function persistRemoteOmegaSources(
     console.warn('[omega-cache] source persistence failed', error instanceof Error ? error.message : String(error));
   }
 }
+async function ensureTmdbPlaybackContent(
+  type: 'movie' | 'series',
+  tmdbId: number,
+  season?: number,
+  episode?: number,
+) {
+  if (type === 'movie') {
+    const { data } = await adminSupabase
+      .from('movies')
+      .select('id')
+      .eq('tmdb_id', tmdbId)
+      .eq('status', 'published')
+      .maybeSingle();
+
+    if (!data?.id) await syncMovieByTmdbId(tmdbId);
+    return;
+  }
+
+  const { data: series } = await adminSupabase
+    .from('series')
+    .select('id')
+    .eq('tmdb_id', tmdbId)
+    .eq('status', 'published')
+    .maybeSingle();
+
+  if (!series?.id) {
+    await syncSeriesByTmdbId(tmdbId);
+    return;
+  }
+
+  if (!Number.isInteger(season) || !Number.isInteger(episode)) return;
+
+  const { data: seasonRow } = await adminSupabase
+    .from('seasons')
+    .select('id')
+    .eq('series_id', series.id)
+    .eq('season_number', season)
+    .maybeSingle();
+
+  let episodeExists = false;
+  if (seasonRow?.id) {
+    const { data: episodeRow } = await adminSupabase
+      .from('episodes')
+      .select('id')
+      .eq('season_id', seasonRow.id)
+      .eq('episode_number', episode)
+      .maybeSingle();
+    episodeExists = !!episodeRow?.id;
+  }
+
+  if (!episodeExists) await syncSeriesByTmdbId(tmdbId);
+}
+
 async function resolveCachedOmegaPlayback(
   type: 'movie' | 'series',
   tmdbId: number,
@@ -478,6 +531,10 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   }
 
   try {
+    // Automatically import missing TMDB content/seasons/episodes before resolving
+    // playback, so opening a direct title/episode can bootstrap the catalog.
+    await ensureTmdbPlaybackContent(type, tmdbId, season, episode);
+
     const cachedSources = await resolveCachedOmegaPlayback(type, tmdbId, season, episode);
     if (cachedSources.length) {
       res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300');

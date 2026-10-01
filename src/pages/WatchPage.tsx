@@ -464,7 +464,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               className="block h-full w-full bg-black object-contain"
               controls
               playsInline
-              preload="metadata"
+              preload="auto"
               controlsList="nodownload noplaybackrate"
               disablePictureInPicture={false}
               onLoadedMetadata={() => {
