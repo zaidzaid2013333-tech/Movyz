@@ -55,6 +55,8 @@ jobs:
           npm test
 
       - name: Build frontend
+        env:
+          MOVYZ_BUILD_ID: ${{ github.sha }}
         run: npm run build
 
       - name: Validate Cloudflare configuration
