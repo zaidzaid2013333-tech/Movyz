@@ -67,6 +67,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const startupPrimedUrlsRef = useRef<Set<string>>(new Set());
   const startupRestoreTimersRef = useRef<WeakMap<HTMLVideoElement, number>>(new WeakMap());
   const startupPrimeDelayRef = useRef<number | null>(null);
+  const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const [videoReady, setVideoReady] = useState(false);
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
@@ -284,6 +285,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       startupPrimeDelayRef.current = null;
     }
 
+    if (!playbackUrl) return;
+
+    const video = videoRef.current;
+    if (video) {
+      video.preload = 'auto';
+      video.load();
+    }
+
     return () => {
       if (startupPrimeDelayRef.current !== null) {
         window.clearTimeout(startupPrimeDelayRef.current);
@@ -492,7 +501,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 className="block h-full w-full bg-black object-contain"
                 controls
                 playsInline
-                preload="metadata"
+                preload="auto"
                 controlsList="nodownload noplaybackrate"
                 disablePictureInPicture={false}
                 onLoadStart={() => setVideoReady(false)}
@@ -522,6 +531,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 }}
                  onError={() => {
                    setVideoReady(false);
+
+                   if (!playbackUrl || retriedPlaybackUrlsRef.current.has(playbackUrl)) return;
+                   retriedPlaybackUrlsRef.current.add(playbackUrl);
+
+                   const video = videoRef.current;
+                   if (!video) return;
+
+                   window.setTimeout(() => {
+                     if (videoRef.current !== video) return;
+                     video.preload = 'auto';
+                     video.load();
+                   }, 350);
                  }}
               >
                 <source
