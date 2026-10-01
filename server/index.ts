@@ -173,7 +173,7 @@ function cachedOmegaSourceDto(source: any) {
 async function getFreshOmegaSourcesForContent(contentType: 'movie' | 'episode', contentId: string) {
   const { data, error } = await adminSupabase
     .from('playback_sources')
-    .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers(key,name)')
+    .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name)')
     .eq('content_type', contentType)
     .eq('content_id', contentId)
     .eq('is_working', true)
