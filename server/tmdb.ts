@@ -636,6 +636,11 @@ export async function syncMovieCandidate(arMovie: any, enMovie: any) {
   return syncMovie(arMovie, enMovie);
 }
 
+export async function syncSeriesCandidate(arSeries: any, enSeries: any) {
+  await assertDatabaseReady();
+  return syncSeries(arSeries, enSeries);
+}
+
 export async function syncMovieByTmdbId(tmdbId: number) {
   await assertDatabaseReady();
   if (!Number.isInteger(tmdbId) || tmdbId <= 0) throw new Error('Invalid TMDB movie id');
