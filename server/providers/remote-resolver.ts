@@ -333,7 +333,11 @@ async function omegaRequest(
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      return await fetchJsonOrText(url.toString(), timeoutMs);
+      return await fetchJsonOrText(url.toString(), timeoutMs, {
+        Accept: 'application/json,text/plain,*/*',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36',
+        Referer: 'https://api.omegatech.app/',
+      });
     } catch (error) {
       lastError = error;
       if (attempt < 3) {
