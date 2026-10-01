@@ -17,8 +17,8 @@ jobs:
       - run: npm run lint
       - name: Test resolver
         run: |
-          cat > /tmp/probe.ts <<'TS'
-          import { resolveRemotePlayback } from './server/providers/remote-resolver.ts';
+          cat > scripts/probe-omega-fix.ts <<'TS'
+          import { resolveRemotePlayback } from '../server/providers/remote-resolver.ts';
           const cases = [
             {type:'movie' as const,tmdbId:27205},
             {type:'series' as const,tmdbId:1396,season:1,episode:1},
@@ -37,4 +37,4 @@ jobs:
           }
           if (failed) process.exit(1);
           TS
-          npx tsx /tmp/probe.ts
+          npx tsx scripts/probe-omega-fix.ts
