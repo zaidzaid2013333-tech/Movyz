@@ -283,7 +283,7 @@ async function main() {
 
   const candidates: Candidate[] = [
     ...orderedMovies,
-    ...orderedEpisodes(EPISODE_LIMIT === 0 ? orderedEpisodes : orderedEpisodes.slice(0, EPISODE_LIMIT)),
+    ...orderedEpisodes.slice(0, EPISODE_LIMIT),
   ];
 
   const summary = { candidates: candidates.length, playable: 0, sources: 0, failed: 0 };
