@@ -27,10 +27,6 @@ interface WatchPageProps {
 const isOmegaTechSource = (source: PlaybackSource) =>
   source.providerKey === 'omegatech-akwam' || source.provider === 'OmegaTech';
 
-const isAkwamEmbedSource = (source: PlaybackSource) =>
-  isOmegaTechSource(source) &&
-  (source.type === 'embed' || Boolean(source.embedUrl));
-
 const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
   const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
   const omegaSources = candidates.filter(isOmegaTechSource);
@@ -41,7 +37,6 @@ const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
 };
 
 const playbackQualityRank = (source: PlaybackSource) => {
-  if (isAkwamEmbedSource(source)) return -1;
   const match = source.quality?.match(/(\d{3,4})p/i);
   const quality = match ? Number(match[1]) : 9999;
   if (quality === 720) return 0;
@@ -71,8 +66,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
   const [resolverLoading, setResolverLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const startupRecoveryStage = useRef<'idle' | 'recovering' | 'done'>('idle');
-  const startupRecoveryTimer = useRef<number | null>(null);
 
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
@@ -150,64 +143,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setTheaterLighting(true);
   }, [contentId, activeSeason, activeEpisode]);
 
-  const recoverStartupBuffer = () => {
-    const video = videoRef.current;
-    if (
-      !video ||
-      startupRecoveryStage.current !== 'idle' ||
-      !Number.isFinite(video.duration) ||
-      video.duration < 45
-    ) {
-      return;
-    }
-
-    startupRecoveryStage.current = 'recovering';
-    const originalTime = Math.max(0, video.currentTime);
-    const targetTime = Math.min(
-      Math.max(originalTime + 120, 120),
-      Math.max(video.duration - 15, 1),
-    );
-
-    const finish = () => {
-      if (startupRecoveryTimer.current !== null) {
-        window.clearTimeout(startupRecoveryTimer.current);
-        startupRecoveryTimer.current = null;
-      }
-      if (startupRecoveryStage.current !== 'recovering') return;
-
-      video.removeEventListener('canplay', finish);
-      try {
-        video.currentTime = originalTime;
-      } catch {
-        // Ignore a provider that rejects seeking.
-      }
-      startupRecoveryStage.current = 'done';
-      void video.play().catch(() => {
-        // The browser may still require the user's play gesture.
-      });
-    };
-
-    video.addEventListener('canplay', finish, { once: true });
-    startupRecoveryTimer.current = window.setTimeout(() => {
-      video.removeEventListener('canplay', finish);
-      startupRecoveryTimer.current = null;
-      if (startupRecoveryStage.current === 'recovering') {
-        startupRecoveryStage.current = 'idle';
-      }
-    }, 12000);
-
-    try {
-      video.currentTime = targetTime;
-    } catch {
-      video.removeEventListener('canplay', finish);
-      if (startupRecoveryTimer.current !== null) {
-        window.clearTimeout(startupRecoveryTimer.current);
-        startupRecoveryTimer.current = null;
-      }
-      startupRecoveryStage.current = 'idle';
-    }
-  };
-
   const storedPlaybackSource = useMemo(
     () => (content ? pickPlaybackSource(content, currentEpisode) : null),
     [content, currentEpisode],
@@ -259,7 +194,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         const mobilePreferredQuality =
           typeof window !== 'undefined' && window.innerWidth < 768 ? 480 : 720;
         const source =
-          sources.find((candidate) => candidate.isWorking && isAkwamEmbedSource(candidate)) ??
           sources.find(
             (candidate) =>
               candidate.isWorking &&
@@ -290,16 +224,34 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const playbackSource = storedPlaybackSource ?? remotePlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
-  const embedUrl = playbackSource?.embedUrl?.trim()
-    || (playbackSource?.type === 'embed' ? playbackUrl : '');
   const availableSources = storedPlaybackSource ? [storedPlaybackSource] : remotePlaybackSources;
 
   useEffect(() => {
-    startupRecoveryStage.current = 'idle';
-    if (startupRecoveryTimer.current !== null) {
-      window.clearTimeout(startupRecoveryTimer.current);
-      startupRecoveryTimer.current = null;
-    }
+    if (!playbackUrl || typeof document === 'undefined') return;
+    let origin: string;
+    try { origin = new URL(playbackUrl).origin; } catch { return; }
+
+    const head = document.head;
+    head.querySelector('link[data-movyz-media-preconnect]')?.remove();
+    head.querySelector('link[data-movyz-media-dns]')?.remove();
+
+    const preconnect = document.createElement('link');
+    preconnect.rel = 'preconnect';
+    preconnect.href = origin;
+    preconnect.crossOrigin = 'anonymous';
+    preconnect.dataset.movyzMediaPreconnect = 'true';
+    head.appendChild(preconnect);
+
+    const dns = document.createElement('link');
+    dns.rel = 'dns-prefetch';
+    dns.href = origin;
+    dns.dataset.movyzMediaDns = 'true';
+    head.appendChild(dns);
+
+    return () => {
+      preconnect.remove();
+      dns.remove();
+    };
   }, [playbackUrl]);
 
 
@@ -423,7 +375,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           <div className="flex items-center gap-2 text-slate-500">
             <span className="text-amber-400/90 font-bold">{playbackSource?.provider || 'MOVYZ SOURCE'}</span>
             <span>·</span>
-            <span>{language === 'ar' ? 'مشغل مضمّن مباشرة' : 'Direct embedded player'}</span>
+            <span>{language === 'ar' ? 'مشغل مباشر' : 'Direct player'}</span>
           </div>
         </div>
       </div>
@@ -461,27 +413,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
-            {embedUrl ? (
-              <iframe
-                key={embedUrl}
-                src={embedUrl}
-                title={displayTitle || 'Akwam Player'}
-                className="block h-full w-full border-0 bg-black"
-                allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-                allowFullScreen
-                referrerPolicy="origin"
-                onError={() => {
-                  const currentIndex = availableSources.findIndex(
-                    (source) => source.id === playbackSource?.id,
-                  );
-                  const fallback = availableSources.find(
-                    (source, index) => index > currentIndex,
-                  );
-                  if (fallback) setRemotePlaybackSource(fallback);
-                }}
-              />
-            ) : (
-              <video
+            <video
                 ref={videoRef}
                 key={playbackUrl}
                 src={playbackUrl}
@@ -491,22 +423,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 playsInline
                 preload="auto"
                 controlsList="nodownload noplaybackrate"
-                onLoadedMetadata={() => {
-                  const video = videoRef.current;
-                  if (
-                    video &&
-                    video.currentTime < 1 &&
-                    video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
-                  ) {
-                    window.setTimeout(() => recoverStartupBuffer(), 250);
-                  }
-                }}
-                onWaiting={() => {
-                  const video = videoRef.current;
-                  if (video && video.currentTime < 20) {
-                    recoverStartupBuffer();
-                  }
-                }}
                 onError={() => {
                   const currentIndex = availableSources.findIndex(
                     (source) => source.id === playbackSource?.id,
