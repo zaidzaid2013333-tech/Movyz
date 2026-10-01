@@ -18,6 +18,142 @@ app.disable('x-powered-by');
 
 // Temporary production diagnostics for the OmegaTech-only playback path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
+
+let omegaProviderIdPromise: Promise<string | null> | null = null;
+
+function inferOmegaExpiry(url: string) {
+  const match = url.match(/\/download\/(\d{10}|\d{13})\//i);
+  if (!match) return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const raw = Number(match[1]);
+  const timestamp = new Date(raw > 10_000_000_000 ? raw : raw * 1000).getTime();
+  if (!Number.isFinite(timestamp) || timestamp <= Date.now()) {
+    return new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
+  }
+  return new Date(timestamp).toISOString();
+}
+
+async function getOmegaProviderId() {
+  if (!omegaProviderIdPromise) {
+    omegaProviderIdPromise = (async () => {
+      const existing = await adminSupabase
+        .from('providers')
+        .select('id')
+        .eq('key', 'omegatech-akwam')
+        .maybeSingle();
+      if (existing.data?.id) return existing.data.id as string;
+
+      const created = await adminSupabase
+        .from('providers')
+        .upsert({
+          key: 'omegatech-akwam',
+          name: 'OmegaTech Akwam',
+          adapter_name: 'omegatech-akwam',
+          enabled: true,
+          status: 'healthy',
+        }, { onConflict: 'key' })
+        .select('id')
+        .single();
+      if (created.error || !created.data?.id) {
+        console.warn('[omega-cache] unable to ensure provider', created.error?.message || 'unknown error');
+        return null;
+      }
+      return created.data.id as string;
+    })().catch((error) => {
+      omegaProviderIdPromise = null;
+      console.warn('[omega-cache] provider lookup failed', error instanceof Error ? error.message : String(error));
+      return null;
+    });
+  }
+  return omegaProviderIdPromise;
+}
+
+async function persistRemoteOmegaSources(
+  type: 'movie' | 'series',
+  tmdbId: number,
+  season: number | undefined,
+  episode: number | undefined,
+  sources: Array<{
+    url: string;
+    type: 'hls' | 'mp4' | 'dash' | 'web' | 'embed';
+    quality: string;
+    language: string;
+    label: string;
+    labelEn: string;
+    providerReference?: string;
+  }>,
+) {
+  try {
+    const providerId = await getOmegaProviderId();
+    if (!providerId) return;
+
+    let contentId: string | null = null;
+    if (type === 'movie') {
+      const { data } = await adminSupabase
+        .from('movies')
+        .select('id')
+        .eq('tmdb_id', tmdbId)
+        .maybeSingle();
+      contentId = data?.id ?? null;
+    } else if (Number.isInteger(season) && Number.isInteger(episode)) {
+      const { data: series } = await adminSupabase
+        .from('series')
+        .select('id')
+        .eq('tmdb_id', tmdbId)
+        .maybeSingle();
+      if (series?.id) {
+        const { data: seasonRow } = await adminSupabase
+          .from('seasons')
+          .select('id')
+          .eq('series_id', series.id)
+          .eq('season_number', season)
+          .maybeSingle();
+        if (seasonRow?.id) {
+          const { data: episodeRow } = await adminSupabase
+            .from('episodes')
+            .select('id')
+            .eq('season_id', seasonRow.id)
+            .eq('episode_number', episode)
+            .maybeSingle();
+          contentId = episodeRow?.id ?? null;
+        }
+      }
+    }
+
+    if (!contentId) return;
+
+    const rows = sources
+      .filter((source) => /^https:\/\//i.test(source.url) && ['hls', 'mp4', 'dash'].includes(source.type))
+      .slice(0, 6)
+      .map((source) => ({
+        provider_id: providerId,
+        content_type: type === 'movie' ? 'movie' : 'episode',
+        content_id: contentId,
+        source_type: source.type,
+        url: source.url,
+        provider_reference: source.providerReference || null,
+        quality: source.quality || 'auto',
+        language: source.language || 'ar',
+        label_ar: source.label || 'OmegaTech Akwam',
+        label_en: source.labelEn || source.label || 'OmegaTech Akwam',
+        expires_at: inferOmegaExpiry(source.url),
+        is_working: true,
+        last_checked_at: new Date().toISOString(),
+        failure_count: 0,
+      }));
+
+    if (!rows.length) return;
+
+    const { error } = await adminSupabase
+      .from('playback_sources')
+      .upsert(rows, { onConflict: 'provider_id,content_type,content_id,url' });
+
+    if (error) {
+      console.warn('[omega-cache] source persistence failed', error.message);
+    }
+  } catch (error) {
+    console.warn('[omega-cache] source persistence failed', error instanceof Error ? error.message : String(error));
+  }
+}
 async function resolveCachedOmegaPlayback(
   type: 'movie' | 'series',
   tmdbId: number,
@@ -360,7 +496,11 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       return fail(res, 404, 'PLAYBACK_SOURCE_NOT_FOUND', 'No playback source was returned by the resolver');
     }
 
-    res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=30');
+    // Persist successful external OmegaTech URLs so subsequent plays do not hit the
+    // upstream resolver again until the URL naturally expires.
+    await persistRemoteOmegaSources(type, tmdbId, season, episode, sources);
+
+    res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300');
     return ok(res, { sources });
   } catch (error) {
     console.error('[remote-playback]', error instanceof Error ? error.message : error);
