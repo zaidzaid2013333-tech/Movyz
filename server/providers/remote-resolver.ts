@@ -391,6 +391,49 @@ async function resolveOmegaDownloadUrls(
   return [...new Set(resolved)].slice(0, 6);
 }
 
+async function resolveOmegaCandidate(
+  base: string,
+  selected: NamedSearchResult,
+  request: RemotePlaybackRequest,
+  timeoutMs: number,
+) {
+  const contentUrl = pickContentUrl(selected.raw, selected.urls);
+  if (!contentUrl) throw new Error('OmegaTech Akwam candidate has no content URL');
+
+  let targetPayload: unknown;
+  if (request.type === 'series') {
+    const episodeNumber = request.episode;
+    if (typeof episodeNumber !== 'number' || !Number.isInteger(episodeNumber) || episodeNumber < 1) {
+      throw new Error('OmegaTech Akwam series playback requires episode');
+    }
+
+    const contentPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
+    const episodeUrl = pickEpisodeUrl(contentPayload, episodeNumber, request.season);
+    if (!episodeUrl) throw new Error('OmegaTech Akwam episode not found');
+
+    targetPayload = await omegaRequest(base, { action: 'episode', episode: episodeUrl }, timeoutMs);
+  } else {
+    targetPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
+  }
+
+  let urls = await resolveOmegaDownloadUrls(base, targetPayload, timeoutMs);
+  if (!urls.length) {
+    urls = await resolveOmegaDownloadUrls(base, selected.raw, timeoutMs);
+  }
+  if (!urls.length) throw new Error('OmegaTech Akwam returned no direct playback URL');
+
+  return urls
+    .filter((url) => inferPlaybackType(url) !== null)
+    .map((url, index) => ({
+      url,
+      type: inferPlaybackType(url)!,
+      quality: inferQuality(url, url),
+      language: 'ar',
+      label: `OmegaTech Akwam ${inferQuality(url, url) || index + 1}`,
+      providerReference: contentUrl,
+    }));
+}
+
 async function resolveOmegaTechAkwamPlayback(
   request: RemotePlaybackRequest,
   timeoutMs: number,
@@ -398,87 +441,124 @@ async function resolveOmegaTechAkwamPlayback(
   const tmdbDetails = await resolveTmdbTitle(request.type, request.tmdbId, timeoutMs);
   const primaryTitle = tmdbDetails.title;
   const targetYear = tmdbDetails.year;
-  const titles = new Set<string>([tmdbDetails.title, tmdbDetails.originalTitle]);
-  if (targetYear) {
-    titles.add(`${primaryTitle} ${targetYear}`);
-    if (tmdbDetails.originalTitle !== primaryTitle) titles.add(`${tmdbDetails.originalTitle} ${targetYear}`);
-  }
+  const titles = [...new Set(
+    [tmdbDetails.title, tmdbDetails.originalTitle]
+      .filter((value): value is string => typeof value === 'string' && !!value.trim())
+      .map((value) => value.trim()),
+  )];
 
-  let lastError = 'OmegaTech Akwam returned no playback source';
-  for (const base of DEFAULT_OMEGATECH_URLS) {
-    try {
-      const searchResults: NamedSearchResult[] = [];
-      let lastSearchError = '';
+  const errors: string[] = [];
 
-      for (const title of titles) {
-        try {
-          const searchPayload = await omegaRequest(base, { action: 'search', query: title }, timeoutMs);
-          searchResults.push(...rankSearchResults(searchPayload, [title, primaryTitle], 8, targetYear));
-        } catch (error) {
-          lastSearchError = error instanceof Error ? error.message : String(error);
-        }
-      }
-
-      if (!searchResults.length) {
-        throw new Error(lastSearchError || 'OmegaTech Akwam search returned no candidates');
-      }
-
-      const rankedResults = rankSearchResults(
-        searchResults.map((item) => item.raw),
-        [...titles, primaryTitle],
-        8,
-        targetYear,
-      );
-
-      for (const selected of rankedResults) {
-        try {
-          const contentUrl = pickContentUrl(selected.raw, selected.urls);
-          if (!contentUrl) continue;
-
-          let targetPayload: unknown;
-          if (request.type === 'series') {
-            const episodeNumber = request.episode;
-            if (typeof episodeNumber !== 'number' || !Number.isInteger(episodeNumber) || episodeNumber < 1) {
-              throw new Error('OmegaTech Akwam series playback requires episode');
+  // Probe both known OmegaTech endpoints concurrently. A slow/dead endpoint must
+  // no longer block the working endpoint.
+  const attempts = await Promise.all(
+    DEFAULT_OMEGATECH_URLS.map(async (base) => {
+      try {
+        // Search the primary and original titles in parallel. Year variants are only
+        // needed as a fallback and are no longer part of the critical path.
+        const searched = await Promise.all(
+          titles.slice(0, 2).map(async (title) => {
+            try {
+              const payload = await omegaRequest(base, { action: 'search', query: title }, timeoutMs);
+              return rankSearchResults(payload, [title, primaryTitle], 8, targetYear);
+            } catch (error) {
+              errors.push(error instanceof Error ? error.message : String(error));
+              return [];
             }
+          }),
+        );
 
-            const contentPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
-            const episodeUrl = pickEpisodeUrl(contentPayload, episodeNumber, request.season);
-            if (!episodeUrl) throw new Error('OmegaTech Akwam episode not found');
-
-            targetPayload = await omegaRequest(base, { action: 'episode', episode: episodeUrl }, timeoutMs);
-          } else {
-            targetPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
-          }
-
-          let urls = await resolveOmegaDownloadUrls(base, targetPayload, timeoutMs);
-          if (!urls.length) {
-            urls = await resolveOmegaDownloadUrls(base, selected.raw, timeoutMs);
-          }
-          if (!urls.length) throw new Error('OmegaTech Akwam returned no direct playback URL');
-
-          return urls
-    .filter((url) => inferPlaybackType(url) !== null)
-    .map((url, index) => ({
-            url,
-            type: inferPlaybackType(url)!,
-            quality: inferQuality(url, url),
-            language: 'ar',
-            label: `OmegaTech Akwam ${inferQuality(url, url) || index + 1}`,
-            providerReference: contentUrl,
-          }));
-        } catch (error) {
-          lastError = error instanceof Error ? error.message : String(error);
+        const searchResults = searched.flat();
+        if (!searchResults.length) {
+          throw new Error('OmegaTech Akwam search returned no candidates');
         }
-      }
 
-      throw new Error(lastError || 'OmegaTech Akwam returned no playback source');
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
+        const rankedResults = rankSearchResults(
+          searchResults.map((item) => item.raw),
+          [...titles, primaryTitle],
+          6,
+          targetYear,
+        );
+
+        // Resolve several best candidates concurrently; return whichever produces
+        // direct media first instead of waiting through a long serial fallback chain.
+        const candidateResults = await Promise.all(
+          rankedResults.slice(0, 4).map(async (selected) => {
+            try {
+              return await resolveOmegaCandidate(base, selected, request, timeoutMs);
+            } catch (error) {
+              errors.push(error instanceof Error ? error.message : String(error));
+              return [];
+            }
+          }),
+        );
+
+        const sources = candidateResults.find((items) => items.length > 0);
+        if (!sources?.length) {
+          throw new Error('OmegaTech Akwam returned no playable candidate');
+        }
+
+        return sources;
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
+        return [];
+      }
+    }),
+  );
+
+  const resolved = attempts.find((items) => items.length > 0);
+  if (resolved?.length) return resolved;
+
+  // One compact fallback search with year-qualified terms helps ambiguous titles
+  // without putting those extra network requests on every playback.
+  if (targetYear) {
+    const yearTerms = [...new Set(
+      [primaryTitle, tmdbDetails.originalTitle]
+        .filter((value): value is string => typeof value === 'string' && !!value.trim())
+        .map((value) => `${value.trim()} ${targetYear}`),
+    )];
+
+    const fallbackResults = await Promise.all(
+      DEFAULT_OMEGATECH_URLS.map(async (base) => {
+        try {
+          const searched = await Promise.all(
+            yearTerms.slice(0, 2).map(async (title) => {
+              try {
+                const payload = await omegaRequest(base, { action: 'search', query: title }, timeoutMs);
+                return rankSearchResults(payload, [title, primaryTitle], 6, targetYear);
+              } catch {
+                return [];
+              }
+            }),
+          );
+          const rankedResults = rankSearchResults(
+            searched.flat().map((item) => item.raw),
+            [...yearTerms, primaryTitle],
+            4,
+            targetYear,
+          );
+
+          const candidateResults = await Promise.all(
+            rankedResults.map(async (selected) => {
+              try {
+                return await resolveOmegaCandidate(base, selected, request, timeoutMs);
+              } catch {
+                return [];
+              }
+            }),
+          );
+          return candidateResults.find((items) => items.length > 0) || [];
+        } catch {
+          return [];
+        }
+      }),
+    );
+
+    const fallback = fallbackResults.find((items) => items.length > 0);
+    if (fallback?.length) return fallback;
   }
 
-  throw new Error(lastError);
+  throw new Error(errors.filter(Boolean).slice(0, 6).join(' | ') || 'OmegaTech Akwam returned no playback source');
 }
 
 export async function resolveRemotePlayback(
