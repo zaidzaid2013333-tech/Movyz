@@ -287,8 +287,64 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const playbackUrl = playbackSource?.url?.trim() || '';
   const availableSources = storedPlaybackSource ? [storedPlaybackSource] : remotePlaybackSources;
 
+  const warmupPlaybackMetadata = (url: string) => {
+    // Ask the media origin for the two small byte ranges most likely to be
+    // needed before an MP4 can expose duration/metadata. This is best-effort:
+    // the media origin may reject browser CORS, in which case native playback
+    // continues normally.
+    const warmupRanges = ['bytes=0-131071', 'bytes=-262144'];
+
+    for (const range of warmupRanges) {
+      void fetch(url, {
+        method: 'GET',
+        headers: { Range: range },
+        cache: 'force-cache',
+        mode: 'cors',
+        credentials: 'omit',
+      }).catch(() => {
+        // Native <video> remains the source of truth if warm-up is blocked.
+      });
+    }
+  };
+
   useEffect(() => {
     startupRecoveryStage.current = 'idle';
+    if (startupRecoveryTimer.current !== null) {
+      window.clearTimeout(startupRecoveryTimer.current);
+      startupRecoveryTimer.current = null;
+    }
+    if (!playbackUrl || typeof document === 'undefined') return;
+
+    let origin: string;
+    try { origin = new URL(playbackUrl).origin; } catch { return; }
+
+    const head = document.head;
+    head.querySelector('link[data-movyz-media-preconnect]')?.remove();
+    head.querySelector('link[data-movyz-media-dns]')?.remove();
+
+    const preconnect = document.createElement('link');
+    preconnect.rel = 'preconnect';
+    preconnect.href = origin;
+    preconnect.crossOrigin = 'anonymous';
+    preconnect.dataset.movyzMediaPreconnect = 'true';
+    head.appendChild(preconnect);
+
+    const dns = document.createElement('link');
+    dns.rel = 'dns-prefetch';
+    dns.href = origin;
+    dns.dataset.movyzMediaDns = 'true';
+    head.appendChild(dns);
+
+    // Start connection + lightweight MP4 metadata warm-up as soon as the
+    // resolver gives us the real external media URL, before the user presses
+    // Play. This targets the slow "spinner before duration/controls" phase.
+    warmupPlaybackMetadata(playbackUrl);
+
+    return () => {
+      preconnect.remove();
+      dns.remove();
+    };
+  }, [playbackUrl]);
     if (startupRecoveryTimer.current !== null) {
       window.clearTimeout(startupRecoveryTimer.current);
       startupRecoveryTimer.current = null;
@@ -484,6 +540,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 key={playbackUrl}
                 src={playbackUrl}
                 poster={content.backdropUrl || content.posterUrl}
+                // Tell the browser the media container is MP4 even when the
+                // external file server responds with application/octet-stream.
+                type="video/mp4"
                 className="block h-full w-full bg-black object-contain"
                 controls
                 playsInline
