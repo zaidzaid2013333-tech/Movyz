@@ -142,7 +142,7 @@ export const MoviesPage: React.FC<MoviesPageProps> = ({
         </div>
 
         {/* Genre Badges */}
-        <div className="touch-scroll-x flex items-center gap-2 pb-1">
+        <div dir={direction} className="touch-chip-scroll pb-1">
           <button
             onClick={() => {
               setSelectedGenre(undefined);
@@ -178,7 +178,7 @@ export const MoviesPage: React.FC<MoviesPageProps> = ({
         </div>
 
         {/* Year & Rating Strip */}
-        <div className="flex items-center gap-4 pt-3 border-t border-white/[0.06] text-xs overflow-x-auto no-scrollbar">
+        <div dir={direction} className="touch-chip-scroll pt-3 border-t border-white/[0.06] text-xs">
           <div className="flex items-center gap-2">
             <span className="text-slate-400 font-mono">{t('year')}:</span>
             <div className="flex gap-1.5 shrink-0">
