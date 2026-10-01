@@ -17,7 +17,7 @@ interface HomePageProps {
 }
 
 export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onToggleWatchlist }) => {
-  const { language, t } = useLanguage();
+  const { language, t, direction } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hero, setHero] = useState<Movie | Series | null>(null);
@@ -133,7 +133,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
               {language === 'ar' ? 'استكشف حسب النوع' : 'Browse by genre'}
             </h3>
           </div>
-          <div className="touch-scroll-x flex items-center gap-2 pb-1">
+          <div dir={direction} className="touch-chip-scroll pb-1">
             {genres.map((genre) => (
               <button
                 key={genre.id}
