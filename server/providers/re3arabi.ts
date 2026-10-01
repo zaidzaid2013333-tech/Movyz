@@ -237,8 +237,8 @@ async function resolveAkwam(
     let episodeLinks = collectEpisodes(contentHtml, hit.url);
 
     // Port the Cloudstream provider's season-by-season behavior: choose the
-    // season page first, then resolve the requested episode from that page.
-    if (!episodeLinks.length) {
+    // requested season page first whenever the site exposes one.
+    {
       const seasonLinks: Array<{ url: string; number?: number; text: string }> = [];
       const seasonRe = /<a[^>]+href=["']([^"']*\/series\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
       let sm: RegExpExecArray | null;
@@ -301,7 +301,11 @@ async function resolveAflaam(
   context: ProviderContext,
   timeoutMs: number,
 ): Promise<Candidate[]> {
-  const titleTerms = [...new Set([context.title, context.originalTitle].filter((x): x is string => !!x?.trim()).map((x) => x.trim()))];
+  const titleTerms = [...new Set([
+    context.title,
+    context.originalTitle,
+    ...(context.alternateTitles || []),
+  ].filter((x): x is string => !!x?.trim()).map((x) => x.trim()))];
   if (!titleTerms.length) return [];
 
   const searches = await Promise.all(titleTerms.slice(0, 2).map(async (term) => {
