@@ -622,3 +622,8 @@ export async function syncMovieCandidate(arMovie: any, enMovie: any) {
   await assertDatabaseReady();
   return syncMovie(arMovie, enMovie);
 }
+
+export async function syncSeriesCandidate(arSeries: any, enSeries: any) {
+  await assertDatabaseReady();
+  return syncSeries(arSeries, enSeries);
+}
