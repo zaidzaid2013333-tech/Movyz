@@ -283,24 +283,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       };
     }
 
-    const qualityKeys = new Set(
-      storedPlaybackSources
-        .map((source) => (source.quality || source.labelEn || source.label || '').trim().toLowerCase())
-        .filter(Boolean),
-    );
-    const cacheLooksComplete = storedPlaybackSources.length >= 2 && qualityKeys.size >= 2;
-
-    // Complete cached sets never pay the resolver latency.
-    if (cacheLooksComplete) {
-      setResolverLoading(false);
-      return () => {
-        mounted = false;
-      };
-    }
-
-    // Incomplete cached sets are supplemented in the background. The current
-    // cached source remains playable immediately; resolver results are merged in
-    // without replacing an already-selected source.
+    // Cached URLs remain the instant startup path, but every watch page also
+    // validates the cache in the background so stale/broken URLs can be replaced.
     setResolverLoading(true);
 
     void MovyzaApi.resolvePlaybackSource({
@@ -331,13 +315,20 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         );
 
         const source =
+          resolvedSources.find((candidate) => candidate.isWorking && /720p/i.test(candidate.quality || candidate.labelEn || '')) ??
+          resolvedSources.find((candidate) => candidate.isWorking) ??
           merged.find((candidate) => candidate.isWorking && /720p/i.test(candidate.quality || candidate.labelEn || '')) ??
           merged.find((candidate) => candidate.isWorking) ??
           merged[0] ??
           null;
+        const resolvedUrls = new Set(resolvedSources.map((candidate) => candidate.url));
 
         setRemotePlaybackSources(merged);
-        setRemotePlaybackSource((current) => current ?? source);
+        setRemotePlaybackSource((current) => {
+          if (!current) return source;
+          if (resolvedUrls.size === 0 || resolvedUrls.has(current.url)) return current;
+          return source;
+        });
       })
       .catch(() => {
         // Keep the already-playable cached source(s) when supplementation fails.
