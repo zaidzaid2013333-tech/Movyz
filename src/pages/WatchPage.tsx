@@ -203,17 +203,43 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const resolveTmdbId = content?.tmdbId ?? routeTmdbId;
 
   useEffect(() => {
-    if (storedPlaybackSource) {
+    let mounted = true;
+
+    // Cached playback is the fast path: start from it immediately, even while
+    // the resolver checks whether additional qualities are available.
+    if (storedPlaybackSources.length) {
       setRemotePlaybackSources(storedPlaybackSources);
       setRemotePlaybackSource((current) => current ?? storedPlaybackSource);
-      setResolverLoading(false);
-      return;
+    } else {
+      setRemotePlaybackSources([]);
+      setRemotePlaybackSource(null);
     }
 
-    if (!resolveTmdbId) return;
+    if (!resolveTmdbId) {
+      setResolverLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
 
-    let mounted = true;
-    setRemotePlaybackSources([]);
+    const qualityKeys = new Set(
+      storedPlaybackSources
+        .map((source) => (source.quality || source.labelEn || source.label || '').trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const cacheLooksComplete = storedPlaybackSources.length >= 2 && qualityKeys.size >= 2;
+
+    // Complete cached sets never pay the resolver latency.
+    if (cacheLooksComplete) {
+      setResolverLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
+
+    // Incomplete cached sets are supplemented in the background. The current
+    // cached source remains playable immediately; resolver results are merged in
+    // without replacing an already-selected source.
     setResolverLoading(true);
 
     void MovyzaApi.resolvePlaybackSource({
@@ -230,26 +256,31 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       .then((response) => {
         if (!mounted) return;
 
-        const sources = sortPlaybackSources(
+        const resolvedSources = sortPlaybackSources(
           response.data.sources
             .filter(isOmegaTechSource)
             .filter((candidate) => /^https?:\/\//i.test(candidate.url?.trim() || ''))
-            .slice(0, 4),
+            .slice(0, 6),
+        );
+
+        const merged = sortPlaybackSources(
+          [...storedPlaybackSources, ...resolvedSources].filter(
+            (source, index, all) =>
+              index === all.findIndex((candidate) => candidate.url === source.url),
+          ),
         );
 
         const source =
-          sources.find((candidate) => candidate.isWorking && /720p/i.test(candidate.quality || candidate.labelEn || '')) ??
-          sources.find((candidate) => candidate.isWorking) ??
-          sources[0] ??
+          merged.find((candidate) => candidate.isWorking && /720p/i.test(candidate.quality || candidate.labelEn || '')) ??
+          merged.find((candidate) => candidate.isWorking) ??
+          merged[0] ??
           null;
-        setRemotePlaybackSources(sources);
+
+        setRemotePlaybackSources(merged);
         setRemotePlaybackSource((current) => current ?? source);
       })
       .catch(() => {
-        if (mounted) {
-          setRemotePlaybackSources([]);
-          setRemotePlaybackSource(null);
-        }
+        // Keep the already-playable cached source(s) when supplementation fails.
       })
       .finally(() => {
         if (mounted) setResolverLoading(false);
@@ -258,7 +289,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return () => {
       mounted = false;
     };
-  }, [resolveTmdbId, mediaType, activeSeason, activeEpisode, storedPlaybackSource?.url]);
+  }, [resolveTmdbId, mediaType, activeSeason, activeEpisode, storedPlaybackSources.length, storedPlaybackSource?.url]);
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
@@ -275,7 +306,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             : playbackSource?.type === 'dash'
               ? 'application/dash+xml'
               : undefined;
-  const availableSources = storedPlaybackSources.length > 0 ? storedPlaybackSources : remotePlaybackSources;
+  const availableSources = sortPlaybackSources(
+    [...storedPlaybackSources, ...remotePlaybackSources].filter(
+      (source, index, all) =>
+        index === all.findIndex((candidate) => candidate.url === source.url),
+    ),
+  );
 
   useEffect(() => {
     setVideoReady(false);
