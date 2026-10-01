@@ -8,19 +8,11 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: movyz-curated-probe
-  cancel-in-progress: false
-
 jobs:
-  seed-and-verify:
+  diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       PLAYBACK_BASE_URL: https://movyz-api.sameranede.workers.dev
     steps:
       - uses: actions/checkout@v4
@@ -28,47 +20,32 @@ jobs:
         with:
           node-version: 22
 
-      - name: Probe live gateways
+      - name: Inspect Breaking Bad OmegaTech payload
         run: |
           node --input-type=module - <<'NODE'
-          const bases = ['https://api.omegatech.app','https://omegatech-api.dixonomega.tech'];
-          for (const base of bases) {
-            for (const params of [
-              {action:'search',query:'Inception'},
-              {action:'search',query:'Breaking Bad'},
-              {action:'content',url:'https://akwam.ss/movie/562/inception-1'}
-            ]) {
-              const u = new URL('/api/movie/Akwam', base);
-              for (const [k,v] of Object.entries(params)) u.searchParams.set(k,v);
-              try {
-                const r = await fetch(u);
-                const b = await r.text();
-                console.log(JSON.stringify({base,status:r.status,url:u.toString(),body:b.slice(0,6000)}));
-              } catch (e) {
-                console.log(JSON.stringify({base,url:u.toString(),error:String(e)}));
-              }
-            }
+          const base='https://api.omegatech.app';
+          const searchUrl=new URL('/api/movie/Akwam',base);
+          searchUrl.searchParams.set('action','search');
+          searchUrl.searchParams.set('query','Breaking Bad');
+          const search=await fetch(searchUrl);
+          const searchBody=await search.text();
+          console.log('SEARCH', search.status, searchBody.slice(0,12000));
+          const parsed=JSON.parse(searchBody);
+          const results=parsed?.data?.results || [];
+          for (const item of results.slice(0,5)) {
+            const u=new URL('/api/movie/Akwam',base);
+            u.searchParams.set('action','content');
+            u.searchParams.set('url',item.url);
+            const r=await fetch(u);
+            const b=await r.text();
+            console.log('CONTENT', item.title, item.url, r.status, b.slice(0,16000));
           }
-          const production = [
-            'https://movyz-api.sameranede.workers.dev/api/v1/diagnostics/playback',
-            'https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve?type=movie&tmdbId=27205',
-            'https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve?type=series&tmdbId=1396&season=1&episode=1'
+          const prod=[
+            'https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve?type=series&tmdbId=1396&season=1&episode=1',
+            'https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve?type=series&tmdbId=1396&season=5&episode=16'
           ];
-          for (const url of production) {
-            try {
-              const r = await fetch(url);
-              console.log(JSON.stringify({url,status:r.status,body:(await r.text()).slice(0,4000)}));
-            } catch (e) {
-              console.log(JSON.stringify({url,error:String(e)}));
-            }
+          for(const url of prod){
+            const r=await fetch(url);
+            console.log('PROD', url, r.status, (await r.text()).slice(0,5000));
           }
           NODE
-
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund
-
-      - name: Validate code
-        run: npm run lint
-
-      - name: Seed and verify
-        run: npx tsx scripts/seed-curated-content.ts
