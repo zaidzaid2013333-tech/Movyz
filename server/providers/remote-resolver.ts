@@ -460,17 +460,7 @@ async function resolveOmegaTechAkwamPlayback(
       const searchResults: NamedSearchResult[] = [];
       let lastSearchError = '';
 
-      const searchQueries = new Set<string>(titles);
-      if (request.type === 'series' && request.season !== undefined) {
-        for (const title of titles) {
-          searchQueries.add(`${title} Season ${request.season}`);
-          searchQueries.add(`${title} S${String(request.season).padStart(2, '0')}`);
-          searchQueries.add(`${title} الموسم ${request.season}`);
-        }
-      }
-
-      for (const title of searchQueries) {
-        try {
+      for (const title of titles) {        try {
           const searchPayload = await omegaRequest(base, { action: 'search', query: title }, timeoutMs);
           searchResults.push(...rankSearchResults(searchPayload, [title, primaryTitle], 8));
         } catch (error) {
@@ -492,20 +482,6 @@ async function resolveOmegaTechAkwamPlayback(
         try {
           const contentUrl = pickContentUrl(selected.raw, selected.urls);
           if (!contentUrl) continue;
-
-          if (request.type === 'series' && request.season !== undefined) {
-            const declaredSeason = [
-              selected.title,
-              ...selected.urls,
-              ...collectUrlsFromKeys(selected.raw, CONTENT_URL_KEYS),
-            ]
-              .map(inferSeasonFromText)
-              .find((value) => value !== undefined);
-
-            if (declaredSeason !== undefined && declaredSeason !== request.season) {
-              continue;
-            }
-          }
 
           let targetPayload: unknown;
           if (request.type === 'series') {
