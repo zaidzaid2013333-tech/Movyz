@@ -15,26 +15,4 @@ jobs:
         with: {node-version: 22}
       - run: npm install --legacy-peer-deps --no-audit --no-fund
       - run: npm run lint
-      - name: Test resolver
-        run: |
-          cat > scripts/probe-omega-fix.ts <<'TS'
-          import { resolveRemotePlayback } from '../server/providers/remote-resolver.ts';
-          const cases = [
-            {type:'movie' as const,tmdbId:27205},
-            {type:'series' as const,tmdbId:1396,season:1,episode:1},
-            {type:'series' as const,tmdbId:1396,season:5,episode:16},
-          ];
-          let failed = false;
-          for (const x of cases) {
-            try {
-              const sources = await resolveRemotePlayback(x);
-              console.log(JSON.stringify({x,count:sources.length,sources},null,2));
-              if (!sources.length) failed = true;
-            } catch (e) {
-              failed = true;
-              console.error(JSON.stringify({x,error:e instanceof Error?e.stack:String(e)},null,2));
-            }
-          }
-          if (failed) process.exit(1);
-          TS
-          npx tsx scripts/probe-omega-fix.ts
+      - run: npx tsx scripts/probe-omega-fix.ts
