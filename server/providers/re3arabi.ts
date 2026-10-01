@@ -161,7 +161,7 @@ function parseQualitySources(html: string, pageUrl: string, provider: string): C
     seen.add(url);
     candidates.push({
       provider,
-      providerKey: provider.toLowerCase(),
+      providerKey: 're3arabi',
       type,
       url,
       sourceUrl: reference,
