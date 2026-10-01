@@ -73,12 +73,6 @@ async function resolveCachedOmegaPlayback(
 app.get('/api/v1/diagnostics/playback', async (_req, res) => {
   const started = Date.now();
   try {
-    const cachedSources = await resolveCachedOmegaPlayback(type, tmdbId, season, episode);
-    if (cachedSources.length) {
-      res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300');
-      return ok(res, { sources: cachedSources });
-    }
-
     const sources = await resolveRemotePlayback({ type: 'movie', tmdbId: 27205 }, _req.env);
     const externalOnly = sources.every((source) => {
       try { return new URL(source.url).hostname !== 'movyz-api.sameranede.workers.dev'; }
@@ -348,6 +342,12 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   }
 
   try {
+    const cachedSources = await resolveCachedOmegaPlayback(type, tmdbId, season, episode);
+    if (cachedSources.length) {
+      res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300');
+      return ok(res, { sources: cachedSources });
+    }
+
     const sources = await resolveRemotePlayback({
       type,
       tmdbId,
