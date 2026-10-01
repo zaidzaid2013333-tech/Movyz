@@ -538,11 +538,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             <video
                 ref={videoRef}
                 key={playbackUrl}
-                src={playbackUrl}
                 poster={content.backdropUrl || content.posterUrl}
-                // Tell the browser the media container is MP4 even when the
-                // external file server responds with application/octet-stream.
-                type="video/mp4"
                 className="block h-full w-full bg-black object-contain"
                 controls
                 playsInline
@@ -574,6 +570,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   if (fallback) setRemotePlaybackSource(fallback);
                 }}
               >
+                <source src={playbackUrl} type="video/mp4" />
                 {language === 'ar'
                   ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
                   : 'Your browser does not support this playback source.'}
