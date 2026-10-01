@@ -484,15 +484,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 controlsList="nodownload noplaybackrate"
                 disablePictureInPicture={false}
                 onLoadStart={() => setVideoReady(false)}
-                onLoadedMetadata={() => jumpToTwoMinutesAndBack()}
-                onDurationChange={() => jumpToTwoMinutesAndBack()}
+                onLoadedMetadata={() => undefined}
+                onDurationChange={() => undefined}
                 onLoadedData={() => {
                   setVideoReady(true);
                   jumpToTwoMinutesAndBack();
                 }}
                 onCanPlay={() => {
                   setVideoReady(true);
-                  jumpToTwoMinutesAndBack();
                 }}
                 onWaiting={() => setVideoReady(false)}
                 onPlaying={() => setVideoReady(true)}
