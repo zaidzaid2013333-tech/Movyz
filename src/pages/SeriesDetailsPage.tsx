@@ -37,7 +37,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
   watchlist,
   onToggleWatchlist,
 }) => {
-  const { language, t } = useLanguage();
+  const { language, t, direction } = useLanguage();
   const [series, setSeries] = useState<Series | null>(null);
   const [similar, setSimilar] = useState<Series[]>([]);
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState(1);
