@@ -24,7 +24,13 @@ export type RemotePlaybackSource = {
   providerReference?: string;
 };
 
-async function resolveTmdbTitle(type: 'movie' | 'series', tmdbId: number, timeoutMs: number) {
+type TmdbTitleDetails = {
+  title: string;
+  originalTitle: string;
+  year?: number;
+};
+
+async function resolveTmdbTitle(type: 'movie' | 'series', tmdbId: number, timeoutMs: number): Promise<TmdbTitleDetails> {
   const token = process.env.TMDB_API_READ_ACCESS_TOKEN?.trim();
   if (!token) throw new Error('TMDB_API_READ_ACCESS_TOKEN is not configured');
 
@@ -41,7 +47,19 @@ async function resolveTmdbTitle(type: 'movie' | 'series', tmdbId: number, timeou
   const originalTitle = type === 'movie' ? data.original_title : data.original_name;
   const chosen = typeof title === 'string' && title.trim() ? title.trim() : originalTitle;
   if (typeof chosen !== 'string' || !chosen.trim()) throw new Error(`No title found for TMDB ${tmdbId}`);
-  return chosen.trim();
+
+  const dateValue = type === 'movie' ? data.release_date : data.first_air_date;
+  const year = typeof dateValue === 'string' && /^\d{4}/.test(dateValue)
+    ? Number(dateValue.slice(0, 4))
+    : undefined;
+
+  return {
+    title: chosen.trim(),
+    originalTitle: typeof originalTitle === 'string' && originalTitle.trim()
+      ? originalTitle.trim()
+      : chosen.trim(),
+    year: Number.isInteger(year) ? year : undefined,
+  };
 }
 
 function normalizeTitle(value: string) {
@@ -204,7 +222,12 @@ type NamedSearchResult = {
   raw: Record<string, unknown>;
 };
 
-function rankSearchResults(payload: unknown, titles: string[], limit = 8): NamedSearchResult[] {
+function rankSearchResults(
+  payload: unknown,
+  titles: string[],
+  limit = 8,
+  targetYear?: number,
+): NamedSearchResult[] {
   const wanted = titles.map(normalizeTitle).filter(Boolean);
   const results = collectNamedResults(payload);
 
@@ -212,8 +235,30 @@ function rankSearchResults(payload: unknown, titles: string[], limit = 8): Named
     const normalized = normalizeTitle(item.title);
     const exact = wanted.some((title) => normalized === title);
     const partial = wanted.some((title) => normalized.includes(title) || title.includes(normalized));
+    const raw = item.raw;
+    const rawYearCandidates = [
+      raw.year,
+      raw.releaseYear,
+      raw.release_year,
+      raw.first_air_year,
+      raw.first_air_date,
+      raw.release_date,
+    ];
+    const resultYear = rawYearCandidates
+      .map((value) => {
+        if (typeof value === 'number') return value;
+        if (typeof value === 'string') {
+          const match = value.match(/\b(\d{4})\b/);
+          return match ? Number(match[1]) : Number(value);
+        }
+        return Number.NaN;
+      })
+      .find((value) => Number.isInteger(value) && value >= 1900 && value <= 2100);
+    const yearMatch = targetYear !== undefined && resultYear === targetYear;
     const contentUrl = pickContentUrl(item.raw, item.urls);
-    return (exact ? 100 : partial ? 50 : 0) + (contentUrl ? 10 : 0);
+    return (exact ? 100 : partial ? 50 : 0)
+      + (yearMatch ? 70 : 0)
+      + (contentUrl ? 10 : 0);
   };
 
   const seenContentUrls = new Set<string>();
@@ -349,27 +394,13 @@ async function resolveOmegaTechAkwamPlayback(
   request: RemotePlaybackRequest,
   timeoutMs: number,
 ) {
-  const titles = new Set<string>();
-  const primaryTitle = await resolveTmdbTitle(request.type, request.tmdbId, timeoutMs);
-  titles.add(primaryTitle);
-
-  try {
-    const token = process.env.TMDB_API_READ_ACCESS_TOKEN?.trim();
-    if (token) {
-      const path = request.type === 'movie' ? `/movie/${request.tmdbId}` : `/tv/${request.tmdbId}`;
-      const payload = await fetchJsonOrText(
-        `https://api.themoviedb.org/3${path}`,
-        timeoutMs,
-        { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-      );
-      const data = asRecord(payload);
-      if (data) {
-        const original = request.type === 'movie' ? data.original_title : data.original_name;
-        if (typeof original === 'string' && original.trim()) titles.add(original.trim());
-      }
-    }
-  } catch {
-    // Primary TMDB title is enough to continue.
+  const tmdbDetails = await resolveTmdbTitle(request.type, request.tmdbId, timeoutMs);
+  const primaryTitle = tmdbDetails.title;
+  const targetYear = tmdbDetails.year;
+  const titles = new Set<string>([tmdbDetails.title, tmdbDetails.originalTitle]);
+  if (targetYear) {
+    titles.add(`${primaryTitle} ${targetYear}`);
+    if (tmdbDetails.originalTitle !== primaryTitle) titles.add(`${tmdbDetails.originalTitle} ${targetYear}`);
   }
 
   let lastError = 'OmegaTech Akwam returned no playback source';
@@ -381,7 +412,7 @@ async function resolveOmegaTechAkwamPlayback(
       for (const title of titles) {
         try {
           const searchPayload = await omegaRequest(base, { action: 'search', query: title }, timeoutMs);
-          searchResults.push(...rankSearchResults(searchPayload, [title, primaryTitle], 8));
+          searchResults.push(...rankSearchResults(searchPayload, [title, primaryTitle], 8, targetYear));
         } catch (error) {
           lastSearchError = error instanceof Error ? error.message : String(error);
         }
@@ -395,6 +426,7 @@ async function resolveOmegaTechAkwamPlayback(
         searchResults.map((item) => item.raw),
         [...titles, primaryTitle],
         8,
+        targetYear,
       );
 
       for (const selected of rankedResults) {
