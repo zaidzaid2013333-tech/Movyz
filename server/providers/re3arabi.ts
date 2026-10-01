@@ -215,7 +215,7 @@ async function resolveAkwam(
       const text = stripTags(m[2]);
       const numberMatch = (
         text.match(/(?:episode|الحلقة|ep)[^0-9]*(\d+)/i)
-        || url.match(/(?:episode|ep)[^0-9]*(\d+)/i)
+        || (url ? url.match(/(?:episode|ep)[^0-9]*(\d+)/i) : null)
       );
       if (url) episodeLinks.push({ url, number: numberMatch ? Number(numberMatch[1]) : undefined, text });
     }
