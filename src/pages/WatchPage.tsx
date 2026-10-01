@@ -119,7 +119,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const playbackStartedRef = useRef(false);
   const startupWatchTimerRef = useRef<number | null>(null);
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
-  const startupRecoveryAttemptedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const [videoReady, setVideoReady] = useState(false);
   const activeSeason = seasonNumber || 1;
