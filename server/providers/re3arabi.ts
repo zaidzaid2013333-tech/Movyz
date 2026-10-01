@@ -155,7 +155,9 @@ function parseQualitySources(html: string, pageUrl: string, provider: string): C
     const type = inferPlaybackType(url, undefined);
     if (!type) return;
 
-    const quality = inferQuality(qualityHint || undefined, url);
+    const qualityMatch = (qualityHint || '').match(/(?:^|[^0-9])(2160|1440|1080|720|576|480|360|240)(?:p)?(?:\\b|[^0-9]|$)/i)
+      || url.match(/(?:^|[^0-9])(2160|1440|1080|720|576|480|360|240)p(?:\\b|[^0-9]|$)/i);
+    const quality = qualityMatch ? `${qualityMatch[1]}p` : 'auto';
     seen.add(url);
     candidates.push({
       provider,
@@ -192,7 +194,11 @@ async function resolveAkwam(
   context: ProviderContext,
   timeoutMs: number,
 ): Promise<Candidate[]> {
-  const titleTerms = [...new Set([context.title, context.originalTitle].filter((x): x is string => !!x?.trim()).map((x) => x.trim()))];
+  const titleTerms = [...new Set([
+    context.title,
+    context.originalTitle,
+    ...(context.alternateTitles || []),
+  ].filter((x): x is string => !!x?.trim()).map((x) => x.trim()))];
   if (!titleTerms.length) return [];
 
   const searches = await Promise.all(titleTerms.slice(0, 2).map(async (term) => {
@@ -207,22 +213,76 @@ async function resolveAkwam(
   let targetUrl = hit.url;
 
   if (context.seasonNumber !== undefined && context.episodeNumber !== undefined) {
-    const episodeLinks: Array<{ url: string; number?: number; text: string }> = [];
-    const re = /<a[^>]+href=["']([^"']*\/episode\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(contentHtml))) {
-      const url = absolute(hit.url, decodeHtml(m[1]));
-      const text = stripTags(m[2]);
-      const numberMatch = (
-        text.match(/(?:episode|الحلقة|ep)[^0-9]*(\d+)/i)
-        || (url ? url.match(/(?:episode|ep)[^0-9]*(\d+)/i) : null)
-      );
-      if (url) episodeLinks.push({ url, number: numberMatch ? Number(numberMatch[1]) : undefined, text });
+    const collectEpisodes = (html: string, baseUrl: string) => {
+      const episodeLinks: Array<{ url: string; number?: number; text: string }> = [];
+      const re = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(html))) {
+        const rawHref = decodeHtml(m[1]);
+        const text = stripTags(m[2]);
+        if (!/episode|الحلقة|ep/i.test(rawHref) && !/episode|الحلقة|ep/i.test(text)) continue;
+        const url = absolute(baseUrl, rawHref);
+        if (!url) continue;
+        const tagEnd = html.slice(Math.max(0, m.index), Math.min(html.length, m.index + m[0].length + 350));
+        const numberMatch =
+          text.match(/(?:episode|الحلقة|ep)[^0-9]*(\d+)/i)
+          || rawHref.match(/(?:episode|ep)[^0-9]*(\d+)/i)
+          || tagEnd.match(/data-(?:episode|ep)[^0-9]*=["']?(\d+)/i)
+          || rawHref.match(/s\d+e(\d+)/i);
+        episodeLinks.push({ url, number: numberMatch ? Number(numberMatch[1]) : undefined, text });
+      }
+      return episodeLinks;
+    };
+
+    let episodeLinks = collectEpisodes(contentHtml, hit.url);
+
+    // Port the Cloudstream provider's season-by-season behavior: choose the
+    // season page first, then resolve the requested episode from that page.
+    if (!episodeLinks.length) {
+      const seasonLinks: Array<{ url: string; number?: number; text: string }> = [];
+      const seasonRe = /<a[^>]+href=["']([^"']*\/series\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+      let sm: RegExpExecArray | null;
+      while ((sm = seasonRe.exec(contentHtml))) {
+        const url = absolute(hit.url, decodeHtml(sm[1]));
+        const text = stripTags(sm[2]);
+        const numberMatch = text.match(/(?:season|الموسم)[^0-9]*(\d+)/i)
+          || sm[1].match(/(?:season|series)[^0-9]*(\d+)/i);
+        if (url) seasonLinks.push({ url, number: numberMatch ? Number(numberMatch[1]) : undefined, text });
+      }
+      const seasonHit = seasonLinks.find((item) => item.number === context.seasonNumber)
+        || seasonLinks.find((item) => normalize(item.text).includes(normalize(`الموسم ${context.seasonNumber}`)));
+      if (seasonHit) {
+        try {
+          const seasonHtml = await getText(seasonHit.url, timeoutMs, hit.url);
+          episodeLinks = collectEpisodes(seasonHtml, seasonHit.url);
+        } catch {}
+      }
     }
 
     const exact = episodeLinks.find((item) => item.number === context.episodeNumber);
-    const fallback = episodeLinks.find((item) => normalize(item.text).includes(normalize(`الحلقة ${context.episodeNumber}`)));
+    const fallback = episodeLinks.find((item) =>
+      normalize(item.text).includes(normalize(`الحلقة ${context.episodeNumber}`))
+      || item.url.match(new RegExp(`(?:episode|ep)[^0-9]*${context.episodeNumber}(?:\\D|$)`, 'i')),
+    );
     targetUrl = (exact || fallback)?.url || '';
+
+    // Last fallback: search the episode number with each known title.
+    if (!targetUrl) {
+      for (const term of titleTerms.slice(0, 3)) {
+        try {
+          const html = await getText(
+            `https://ak.sv/search?q=${encodeURIComponent(`${term} ${context.episodeNumber}`)}`,
+            timeoutMs,
+          );
+          const candidates = collectEpisodes(html, 'https://ak.sv');
+          const match = candidates.find((item) => item.number === context.episodeNumber);
+          if (match) {
+            targetUrl = match.url;
+            break;
+          }
+        } catch {}
+      }
+    }
 
     if (!targetUrl) return [];
   } else {
@@ -322,20 +382,22 @@ async function resolveContext(request: Re3ArabiPlaybackRequest): Promise<Provide
   if (!token) throw new Error('TMDB_API_READ_ACCESS_TOKEN is not configured');
 
   const path = request.type === 'movie' ? `/movie/${request.tmdbId}` : `/tv/${request.tmdbId}`;
-  const payload = await fetchJsonOrText(
-    `https://api.themoviedb.org/3${path}`,
-    8_000,
-    { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-  ) as Record<string, unknown>;
+  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+  const [payload, arabicPayload] = await Promise.all([
+    fetchJsonOrText(`https://api.themoviedb.org/3${path}`, 8_000, headers) as Promise<Record<string, unknown>>,
+    fetchJsonOrText(`https://api.themoviedb.org/3${path}?language=ar`, 8_000, headers) as Promise<Record<string, unknown>>,
+  ]);
 
   const title = request.type === 'movie' ? payload.title : payload.name;
   const originalTitle = request.type === 'movie' ? payload.original_title : payload.original_name;
+  const arabicTitle = request.type === 'movie' ? arabicPayload.title : arabicPayload.name;
   const date = request.type === 'movie' ? payload.release_date : payload.first_air_date;
 
   return {
     tmdbId: request.tmdbId,
     title: typeof title === 'string' ? title : undefined,
     originalTitle: typeof originalTitle === 'string' ? originalTitle : undefined,
+    alternateTitles: typeof arabicTitle === 'string' ? [arabicTitle] : [],
     releaseYear: typeof date === 'string' && /^\d{4}/.test(date) ? Number(date.slice(0, 4)) : undefined,
     seasonNumber: request.season,
     episodeNumber: request.episode,
