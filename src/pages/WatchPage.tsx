@@ -35,6 +35,18 @@ const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
     ?? null;
 };
 
+const playbackQualityRank = (source: PlaybackSource) => {
+  const match = source.quality?.match(/(\\d{3,4})p/i);
+  const quality = match ? Number(match[1]) : 9999;
+  if (quality === 720) return 0;
+  if (quality === 480) return 1;
+  if (quality === 1080) return 2;
+  return 3;
+};
+
+const sortPlaybackSources = (sources: PlaybackSource[]) =>
+  [...sources].sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
+
 export const WatchPage: React.FC<WatchPageProps> = ({
   mediaType,
   contentId,
@@ -146,48 +158,36 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     startupRecoveryStage.current = 'recovering';
     const originalTime = Math.max(0, video.currentTime);
-    const targetTime = Math.min(
-      Math.max(originalTime + 120, 120),
-      Math.max(video.duration - 15, 1),
-    );
+    const targetTime = Math.min(120, Math.max(video.duration - 15, 1));
 
-    const finish = () => {
+    const restoreToStart = () => {
       if (startupRecoveryTimer.current !== null) {
         window.clearTimeout(startupRecoveryTimer.current);
         startupRecoveryTimer.current = null;
       }
       if (startupRecoveryStage.current !== 'recovering') return;
 
-      video.removeEventListener('canplay', finish);
+      video.removeEventListener('canplay', restoreToStart);
       try {
         video.currentTime = originalTime;
       } catch {
         // Ignore a provider that rejects seeking.
       }
       startupRecoveryStage.current = 'done';
-      void video.play().catch(() => {
-        // The browser may still require the user's play gesture.
-      });
     };
 
-    video.addEventListener('canplay', finish, { once: true });
+    video.addEventListener('canplay', restoreToStart, { once: true });
     startupRecoveryTimer.current = window.setTimeout(() => {
-      video.removeEventListener('canplay', finish);
+      video.removeEventListener('canplay', restoreToStart);
       startupRecoveryTimer.current = null;
-      if (startupRecoveryStage.current === 'recovering') {
-        startupRecoveryStage.current = 'idle';
-      }
-    }, 12000);
+      restoreToStart();
+    }, 1800);
 
     try {
+      // Prime the upstream file at 02:00, then return to the real start quickly.
       video.currentTime = targetTime;
     } catch {
-      video.removeEventListener('canplay', finish);
-      if (startupRecoveryTimer.current !== null) {
-        window.clearTimeout(startupRecoveryTimer.current);
-        startupRecoveryTimer.current = null;
-      }
-      startupRecoveryStage.current = 'idle';
+      restoreToStart();
     }
   };
 
@@ -469,12 +469,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               disablePictureInPicture={false}
               onLoadedMetadata={() => {
                 const video = videoRef.current;
-                if (
-                  video &&
-                  video.currentTime < 1 &&
-                  video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
-                ) {
-                  window.setTimeout(() => recoverStartupBuffer(), 250);
+                if (video && video.currentTime < 1) {
+                  window.setTimeout(() => recoverStartupBuffer(), 120);
                 }
               }}
               onWaiting={() => {
