@@ -180,11 +180,17 @@ function collectNamedResults(payload: unknown, depth = 0): Array<{ title: string
   return [...current, ...nested];
 }
 
-function pickBestResult(payload: unknown, titles: string[]) {
+type NamedSearchResult = {
+  title: string;
+  urls: string[];
+  raw: Record<string, unknown>;
+};
+
+function rankSearchResults(payload: unknown, titles: string[], limit = 8): NamedSearchResult[] {
   const wanted = titles.map(normalizeTitle).filter(Boolean);
   const results = collectNamedResults(payload);
 
-  const score = (item: { title: string; urls: string[]; raw: Record<string, unknown> }) => {
+  const score = (item: NamedSearchResult) => {
     const normalized = normalizeTitle(item.title);
     const exact = wanted.some((title) => normalized === title);
     const partial = wanted.some((title) => normalized.includes(title) || title.includes(normalized));
@@ -192,9 +198,18 @@ function pickBestResult(payload: unknown, titles: string[]) {
     return (exact ? 100 : partial ? 50 : 0) + (contentUrl ? 10 : 0);
   };
 
+  const seenContentUrls = new Set<string>();
   return results
     .map((item, index) => ({ item, index, score: score(item) }))
-    .sort((a, b) => b.score - a.score || a.index - b.index)[0]?.item || null;
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ item }) => item)
+    .filter((item) => {
+      const contentUrl = pickContentUrl(item.raw, item.urls);
+      if (!contentUrl || seenContentUrls.has(contentUrl)) return false;
+      seenContentUrls.add(contentUrl);
+      return true;
+    })
+    .slice(0, limit);
 }
 
 function pickEpisodeUrl(payload: unknown, episodeNumber: number, seasonNumber?: number) {
@@ -288,20 +303,20 @@ async function resolveOmegaDownloadUrls(
   const allUrls = collectDownloadOrPlaybackUrls(payload);
   const downloadUrls = allUrls.filter((url) => !isLikelyPlaybackUrl(url));
 
-  for (const download of [...new Set(downloadUrls)].slice(0, 6)) {
+  const downloads = [...new Set(downloadUrls)].slice(0, 6);
+  const resolvedBatches = await Promise.all(downloads.map(async (download) => {
     try {
       const resolvePayload = await omegaRequest(base, { action: 'resolve', download }, timeoutMs);
-      const resolvedCandidates = [
+      return [
         ...extractPlaybackCandidates(resolvePayload).map((candidate) => candidate.url),
         ...collectDownloadOrPlaybackUrls(resolvePayload),
       ].filter(isLikelyPlaybackUrl);
-      resolved.push(...resolvedCandidates);
     } catch {
-      // Keep trying other candidates.
+      return [];
     }
-    if (resolved.length >= 6) break;
-  }
+  }));
 
+  resolved.push(...resolvedBatches.flat());
   return [...new Set(resolved)].slice(0, 6);
 }
 
@@ -335,53 +350,69 @@ async function resolveOmegaTechAkwamPlayback(
   let lastError = 'OmegaTech Akwam returned no playback source';
   for (const base of DEFAULT_OMEGATECH_URLS) {
     try {
-      let selected: { title: string; urls: string[]; raw: Record<string, unknown> } | null = null;
+      const searchResults: NamedSearchResult[] = [];
+      let lastSearchError = '';
 
       for (const title of titles) {
-        const searchPayload = await omegaRequest(base, { action: 'search', query: title }, timeoutMs);
-        selected = pickBestResult(searchPayload, [title, primaryTitle]);
-        if (selected) break;
-      }
-
-      if (!selected) {
-        throw new Error(`OmegaTech Akwam search found no match for "${primaryTitle}"`);
-      }
-
-      const contentUrl = pickContentUrl(selected.raw, selected.urls);
-      if (!contentUrl) throw new Error('OmegaTech Akwam search returned no content URL');
-
-      let targetPayload: unknown;
-      let playerPageUrl = contentUrl;
-      if (request.type === 'series') {
-        const episodeNumber = request.episode;
-        if (typeof episodeNumber !== 'number' || !Number.isInteger(episodeNumber) || episodeNumber < 1) {
-          throw new Error('OmegaTech Akwam series playback requires episode');
+        try {
+          const searchPayload = await omegaRequest(base, { action: 'search', query: title }, timeoutMs);
+          searchResults.push(...rankSearchResults(searchPayload, [title, primaryTitle], 8));
+        } catch (error) {
+          lastSearchError = error instanceof Error ? error.message : String(error);
         }
-
-        const contentPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
-        const episodeUrl = pickEpisodeUrl(contentPayload, episodeNumber, request.season);
-        if (!episodeUrl) throw new Error(`OmegaTech Akwam episode ${request.episode} was not found`);
-        playerPageUrl = episodeUrl;
-
-        targetPayload = await omegaRequest(base, { action: 'episode', episode: episodeUrl }, timeoutMs);
-      } else {
-        targetPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
       }
 
-      let urls = await resolveOmegaDownloadUrls(base, targetPayload, timeoutMs);
-      if (!urls.length) {
-        urls = await resolveOmegaDownloadUrls(base, selected.raw, timeoutMs);
+      if (!searchResults.length) {
+        throw new Error(lastSearchError || 'OmegaTech Akwam search returned no candidates');
       }
-      if (!urls.length) throw new Error('OmegaTech Akwam returned no direct playback URL');
 
-      return urls.map((url, index) => ({
-        url,
-        type: inferPlaybackType(url, 'mp4') || 'web',
-        quality: inferQuality(url, url),
-        language: 'ar',
-        label: `OmegaTech Akwam ${inferQuality(url, url) || index + 1}`,
-        providerReference: contentUrl,
-      }));
+      const rankedResults = rankSearchResults(
+        searchResults.map((item) => item.raw),
+        [...titles, primaryTitle],
+        8,
+      );
+
+      for (const selected of rankedResults) {
+        try {
+          const contentUrl = pickContentUrl(selected.raw, selected.urls);
+          if (!contentUrl) continue;
+
+          let targetPayload: unknown;
+          if (request.type === 'series') {
+            const episodeNumber = request.episode;
+            if (typeof episodeNumber !== 'number' || !Number.isInteger(episodeNumber) || episodeNumber < 1) {
+              throw new Error('OmegaTech Akwam series playback requires episode');
+            }
+
+            const contentPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
+            const episodeUrl = pickEpisodeUrl(contentPayload, episodeNumber, request.season);
+            if (!episodeUrl) throw new Error('OmegaTech Akwam episode not found');
+
+            targetPayload = await omegaRequest(base, { action: 'episode', episode: episodeUrl }, timeoutMs);
+          } else {
+            targetPayload = await omegaRequest(base, { action: 'content', url: contentUrl }, timeoutMs);
+          }
+
+          let urls = await resolveOmegaDownloadUrls(base, targetPayload, timeoutMs);
+          if (!urls.length) {
+            urls = await resolveOmegaDownloadUrls(base, selected.raw, timeoutMs);
+          }
+          if (!urls.length) throw new Error('OmegaTech Akwam returned no direct playback URL');
+
+          return urls.map((url, index) => ({
+            url,
+            type: inferPlaybackType(url, 'mp4') || 'web',
+            quality: inferQuality(url, url),
+            language: 'ar',
+            label: `OmegaTech Akwam ${inferQuality(url, url) || index + 1}`,
+            providerReference: contentUrl,
+          }));
+        } catch (error) {
+          lastError = error instanceof Error ? error.message : String(error);
+        }
+      }
+
+      throw new Error(lastError || 'OmegaTech Akwam returned no playback source');
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
