@@ -18,6 +18,7 @@ test('infers only supported playback formats', () => {
   assert.equal(inferPlaybackType('https://cdn.example.com/manifest.mpd'), 'dash');
   assert.equal(inferPlaybackType('https://cdn.example.com/player'), null);
   assert.equal(inferPlaybackType('https://cdn.example.com/player', 'hls'), 'hls');
+  assert.equal(inferPlaybackType('https://akwam.ss/movie/11428/lion-fist'), null);
 });
 
 test('extracts nested source arrays used by provider APIs', () => {

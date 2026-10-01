@@ -29,9 +29,17 @@ const isOmegaTechSource = (source: PlaybackSource) =>
 const pickPlaybackSource = (content: Movie | Series, episode?: Episode) => {
   const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
   const omegaSources = candidates.filter(isOmegaTechSource);
+  const usable = omegaSources.filter((source) => /^https?:\/\//i.test(source.url?.trim() || ''));
 
-  return omegaSources.find((source) => source.isWorking && /^https?:\/\//i.test(source.url?.trim() || ''))
-    ?? omegaSources.find((source) => /^https?:\/\//i.test(source.url?.trim() || ''))
+  const preferredQuality = getPreferredPlaybackQuality();
+  const qualityMatch = (source: PlaybackSource, quality: number) =>
+    (source.quality || source.labelEn || source.label || '')
+      .toLowerCase()
+      .includes(quality + 'p');
+
+  return usable.find((source) => source.isWorking && qualityMatch(source, preferredQuality))
+    ?? usable.find((source) => source.isWorking)
+    ?? usable[0]
     ?? null;
 };
 
@@ -555,7 +563,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             <video
               ref={videoRef}
               key={playbackUrl}
-              src={playbackUrl}
               poster={content.backdropUrl || content.posterUrl}
               className="block h-full w-full bg-black object-contain"
               controls
@@ -600,6 +607,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 if (fallback) setRemotePlaybackSource(fallback);
               }}
             >
+              <source
+                src={playbackUrl}
+                type={
+                  playbackSource?.type === 'mp4'
+                    ? 'video/mp4'
+                    : playbackSource?.type === 'hls'
+                      ? 'application/vnd.apple.mpegurl'
+                      : playbackSource?.type === 'dash'
+                        ? 'application/dash+xml'
+                        : undefined
+                }
+              />
               {language === 'ar'
                 ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
                 : 'Your browser does not support this playback source.'}
