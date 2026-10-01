@@ -8,6 +8,7 @@ import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdb
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolveRemotePlayback } from './providers/remote-resolver';
 import { resolvePlaybackSources } from './providers/resolver';
+import { fetchWithTimeout } from './providers/http';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -195,6 +196,50 @@ async function getFreshOmegaSourcesForContent(contentType: 'movie' | 'episode', 
       return false;
     })
     .map(cachedOmegaSourceDto);
+}
+
+async function probeCachedPlaybackSources<T extends { url: string; type: string }>(
+  sources: T[],
+) {
+  if (!sources.length) return [];
+
+  const results = await Promise.all(
+    sources.map(async (source) => {
+      const started = Date.now();
+      try {
+        const response = await fetchWithTimeout(source.url, {
+          method: 'GET',
+          timeoutMs: 2200,
+          redirect: 'follow',
+          headers: {
+            Accept: source.type === 'mp4'
+              ? 'video/mp4,application/octet-stream;q=0.9,*/*;q=0.5'
+              : '*/*',
+            Range: 'bytes=0-1023',
+            'User-Agent': 'Movyza/1.0',
+          },
+        });
+        try { await response.body?.cancel(); } catch {}
+
+        return {
+          source,
+          ok: response.status === 200 || response.status === 206,
+          latencyMs: Date.now() - started,
+        };
+      } catch {
+        return {
+          source,
+          ok: false,
+          latencyMs: Number.POSITIVE_INFINITY,
+        };
+      }
+    }),
+  );
+
+  return results
+    .filter((item) => item.ok)
+    .sort((a, b) => a.latencyMs - b.latencyMs)
+    .map((item) => item.source);
 }
 
 async function ensureTmdbPlaybackContent(
@@ -613,10 +658,11 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
     // Fast path: serve a previously resolved, still-valid OmegaTech URL before
     // doing any TMDB bootstrap work. This is the common path after the first play.
     const cachedSources = await resolveCachedOmegaPlayback(type, tmdbId, season, episode);
-    if (cachedSources.length) {
+    const healthyCachedSources = await probeCachedPlaybackSources(cachedSources);
+    if (healthyCachedSources.length) {
       res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=20');
       res.setHeader('Referrer-Policy', 'no-referrer');
-      return ok(res, { sources: cachedSources });
+      return ok(res, { sources: healthyCachedSources });
     }
 
     // Bootstrap missing catalog records only when the playback cache is empty.
@@ -624,10 +670,11 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 
     // A background sync/import may have populated playback_sources as a side effect.
     const syncedCachedSources = await resolveCachedOmegaPlayback(type, tmdbId, season, episode);
-    if (syncedCachedSources.length) {
+    const healthySyncedSources = await probeCachedPlaybackSources(syncedCachedSources);
+    if (healthySyncedSources.length) {
       res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=20');
       res.setHeader('Referrer-Policy', 'no-referrer');
-      return ok(res, { sources: syncedCachedSources });
+      return ok(res, { sources: healthySyncedSources });
     }
 
     const sources = await resolveRemotePlayback({

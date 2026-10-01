@@ -521,6 +521,20 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     }, 4500);
   };
 
+  useEffect(() => {
+    clearStartupWatch();
+    if (!playbackUrl || !playerUnlocked || !userPlayRequestedRef.current || !qualitySwitchPendingRef.current) return;
+
+    startupWatchTimerRef.current = window.setTimeout(() => {
+      startupWatchTimerRef.current = null;
+      const video = videoRef.current;
+      if (!video || !qualitySwitchPendingRef.current || video.paused || video.readyState >= 3) return;
+      tryNextStartupSource();
+    }, 4500);
+
+    return clearStartupWatch;
+  }, [playbackUrl, playerUnlocked]);
+
   const handleSelectPlaybackSource = (source: PlaybackSource) => {
     if (source.url === playbackUrl) return;
 
@@ -836,8 +850,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       if (
                         current === videoRef.current &&
                         userPlayRequestedRef.current &&
-                        !playbackStartedRef.current &&
-                        current.currentTime < 8
+                        current.currentTime < 15
                       ) {
                         tryNextStartupSource();
                       }
