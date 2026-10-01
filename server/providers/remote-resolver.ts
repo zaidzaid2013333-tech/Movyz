@@ -434,6 +434,34 @@ async function resolveOmegaCandidate(
     }));
 }
 
+function mergeCandidatePlaybackGroups(
+  groups: Array<Array<{
+    url: string;
+    type: 'hls' | 'mp4' | 'dash' | 'web' | 'embed';
+    quality: string;
+    language: string;
+    label: string;
+    providerReference?: string;
+  }>>,
+  limit = 12,
+) {
+  const merged: typeof groups[number][number][] = [];
+  const seen = new Set<string>();
+  const depth = Math.max(0, ...groups.map((group) => group.length));
+
+  for (let index = 0; index < depth && merged.length < limit; index += 1) {
+    for (const group of groups) {
+      const candidate = group[index];
+      if (!candidate || seen.has(candidate.url)) continue;
+      seen.add(candidate.url);
+      merged.push(candidate);
+      if (merged.length >= limit) break;
+    }
+  }
+
+  return merged;
+}
+
 async function resolveOmegaTechAkwamPlayback(
   request: RemotePlaybackRequest,
   timeoutMs: number,
@@ -493,8 +521,8 @@ async function resolveOmegaTechAkwamPlayback(
           }),
         );
 
-        const sources = candidateResults.find((items) => items.length > 0);
-        if (!sources?.length) {
+        const sources = mergeCandidatePlaybackGroups(candidateResults);
+        if (!sources.length) {
           throw new Error('OmegaTech Akwam returned no playable candidate');
         }
 
@@ -547,7 +575,7 @@ async function resolveOmegaTechAkwamPlayback(
               }
             }),
           );
-          return candidateResults.find((items) => items.length > 0) || [];
+          return mergeCandidatePlaybackGroups(candidateResults);
         } catch {
           return [];
         }
@@ -607,7 +635,7 @@ async function resolveRemotePlaybackUncached(
   const unique = new Map<string, (typeof candidates)[number]>();
   for (const candidate of candidates) {
     if (!unique.has(candidate.url)) unique.set(candidate.url, candidate);
-    if (unique.size >= 6) break;
+    if (unique.size >= 12) break;
   }
 
   return [...unique.values()].map((candidate, index) => ({

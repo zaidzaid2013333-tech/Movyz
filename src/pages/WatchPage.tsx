@@ -45,6 +45,51 @@ const playbackQualityRank = (source: PlaybackSource) => {
 const sortPlaybackSources = (sources: PlaybackSource[]) =>
   [...sources].sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
 
+const PLAYBACK_HOST_HEALTH_KEY = 'movyz:playback-host-health:v1';
+
+function playbackHost(source: PlaybackSource | null | undefined) {
+  if (!source?.url) return '';
+  try { return new URL(source.url).hostname.toLowerCase(); } catch { return ''; }
+}
+
+function playbackHostScores() {
+  try {
+    const raw = window.localStorage.getItem(PLAYBACK_HOST_HEALTH_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, { success: number; failure: number }> : {};
+  } catch {
+    return {};
+  }
+}
+
+function playbackHostScore(source: PlaybackSource | null | undefined) {
+  const host = playbackHost(source);
+  if (!host) return 0;
+  const entry = playbackHostScores()[host];
+  if (!entry) return 0;
+  return (Number(entry.success) || 0) * 3 - (Number(entry.failure) || 0) * 2;
+}
+
+function rememberPlaybackHost(source: PlaybackSource | null | undefined, success: boolean) {
+  const host = playbackHost(source);
+  if (!host) return;
+  try {
+    const scores = playbackHostScores();
+    const current = scores[host] || { success: 0, failure: 0 };
+    scores[host] = {
+      success: Math.min(20, Math.max(0, current.success + (success ? 1 : 0))),
+      failure: Math.min(20, Math.max(0, current.failure + (success ? 0 : 1))),
+    };
+    window.localStorage.setItem(PLAYBACK_HOST_HEALTH_KEY, JSON.stringify(scores));
+  } catch {
+    // Ignore storage restrictions.
+  }
+}
+
+function startupSourceRank(source: PlaybackSource) {
+  return playbackHostScore(source) * 100 + (10 - playbackQualityRank(source));
+}
+
 export const WatchPage: React.FC<WatchPageProps> = ({
   mediaType,
   contentId,
@@ -70,6 +115,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const qualityResumeTimeRef = useRef<number | null>(null);
   const resumeAfterQualitySwitchRef = useRef(false);
   const qualitySwitchPendingRef = useRef(false);
+  const userPlayRequestedRef = useRef(false);
+  const playbackStartedRef = useRef(false);
+  const startupWatchTimerRef = useRef<number | null>(null);
+  const startupTriedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const [videoReady, setVideoReady] = useState(false);
   const activeSeason = seasonNumber || 1;
@@ -89,6 +138,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setRemotePlaybackSource(null);
         setResolverLoading(false);
         setPlayerUnlocked(false);
+        userPlayRequestedRef.current = false;
+        playbackStartedRef.current = false;
+        startupTriedUrlsRef.current.clear();
+        if (startupWatchTimerRef.current !== null) {
+          window.clearTimeout(startupWatchTimerRef.current);
+          startupWatchTimerRef.current = null;
+        }
 
         const legacyTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
         const response = mediaType === 'movie'
@@ -195,8 +251,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     () => (content ? pickPlaybackSources(content, currentEpisode) : []),
     [content, currentEpisode],
   );
-  const storedPlaybackSource = storedPlaybackSources.find((source) => source.isWorking && /720p/i.test(source.quality || source.labelEn || ''))
-    ?? storedPlaybackSources.find((source) => source.isWorking)
+  const storedPlaybackSource = [...storedPlaybackSources]
+    .filter((source) => source.isWorking)
+    .sort((a, b) => startupSourceRank(b) - startupSourceRank(a))
+    .find((source) => /720p/i.test(source.quality || source.labelEn || ''))
+    ?? [...storedPlaybackSources]
+      .filter((source) => source.isWorking)
+      .sort((a, b) => startupSourceRank(b) - startupSourceRank(a))[0]
     ?? storedPlaybackSources[0]
     ?? null;
   const routeTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
@@ -318,6 +379,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   useEffect(() => {
     setVideoReady(false);
+    playbackStartedRef.current = false;
     if (startupPrimeDelayRef.current !== null) {
       window.clearTimeout(startupPrimeDelayRef.current);
       startupPrimeDelayRef.current = null;
@@ -332,6 +394,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     }
 
     return () => {
+      clearStartupWatch();
       if (startupPrimeDelayRef.current !== null) {
         window.clearTimeout(startupPrimeDelayRef.current);
         startupPrimeDelayRef.current = null;
@@ -409,6 +472,55 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlayerUnlocked(true);
   };
 
+  const clearStartupWatch = () => {
+    if (startupWatchTimerRef.current !== null) {
+      window.clearTimeout(startupWatchTimerRef.current);
+      startupWatchTimerRef.current = null;
+    }
+  };
+
+  const tryNextStartupSource = () => {
+    const video = videoRef.current;
+    if (!video || availableSources.length < 2) return false;
+
+    const candidates = availableSources
+      .filter((candidate) => candidate.url !== playbackUrl && /^https?:\/\//i.test(candidate.url))
+      .filter((candidate) => !startupTriedUrlsRef.current.has(candidate.url))
+      .sort((a, b) => startupSourceRank(b) - startupSourceRank(a));
+
+    const next = candidates[0];
+    if (!next) return false;
+
+    startupTriedUrlsRef.current.add(next.url);
+    qualityResumeTimeRef.current =
+      Number.isFinite(video.currentTime) && video.currentTime > 0.5
+        ? video.currentTime
+        : 0;
+    resumeAfterQualitySwitchRef.current = userPlayRequestedRef.current || !video.paused;
+    qualitySwitchPendingRef.current = true;
+    rememberPlaybackHost(playbackSource, false);
+    setRemotePlaybackSource(next);
+    return true;
+  };
+
+  const armStartupWatchdog = () => {
+    clearStartupWatch();
+    if (!userPlayRequestedRef.current || playbackStartedRef.current) return;
+
+    startupWatchTimerRef.current = window.setTimeout(() => {
+      startupWatchTimerRef.current = null;
+      const video = videoRef.current;
+      if (!video || playbackStartedRef.current || video.paused) return;
+
+      const stuckNearStart = video.currentTime < 8 && video.readyState < 3;
+      if (stuckNearStart) {
+        if (!tryNextStartupSource()) {
+          jumpToTwoMinutesAndBack();
+        }
+      }
+    }, 4500);
+  };
+
   const handleSelectPlaybackSource = (source: PlaybackSource) => {
     if (source.url === playbackUrl) return;
 
@@ -419,7 +531,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         : 0;
     resumeAfterQualitySwitchRef.current = !!video && !video.paused;
     qualitySwitchPendingRef.current = true;
+    startupTriedUrlsRef.current.add(source.url);
+    playbackStartedRef.current = false;
 
+    clearStartupWatch();
     if (startupPrimeDelayRef.current !== null) {
       window.clearTimeout(startupPrimeDelayRef.current);
       startupPrimeDelayRef.current = null;
@@ -655,7 +770,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 preload="auto"
                 controlsList="nodownload noplaybackrate"
                 disablePictureInPicture={false}
-                onLoadStart={() => setVideoReady(false)}
+                onLoadStart={() => {
+                  setVideoReady(false);
+                  playbackStartedRef.current = false;
+                  if (playbackUrl) startupTriedUrlsRef.current.add(playbackUrl);
+                }}
+                onPlay={() => {
+                  userPlayRequestedRef.current = true;
+                  playbackStartedRef.current = false;
+                  armStartupWatchdog();
+                }}
                 onLoadedMetadata={() => {
                   const video = videoRef.current;
                   const resumeTime = qualityResumeTimeRef.current;
@@ -682,6 +806,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       if (video) void video.play().catch(() => undefined);
                     }
                   }
+                  armStartupWatchdog();
                 }}
                 onWaiting={() => {
                   setVideoReady(false);
@@ -689,45 +814,64 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   const video = videoRef.current;
                   if (
                     !video ||
-                    video.currentTime > 15 ||
-                    startupPrimedUrlsRef.current.has(playbackUrl) ||
-                    qualityResumeTimeRef.current !== null ||
-                    qualitySwitchPendingRef.current
+                    !userPlayRequestedRef.current ||
+                    qualitySwitchPendingRef.current ||
+                    video.currentTime > 15
                   ) {
                     return;
                   }
 
-                  if (startupPrimeDelayRef.current !== null) {
-                    window.clearTimeout(startupPrimeDelayRef.current);
-                  }
+                  armStartupWatchdog();
 
-                  // Recovery only: a good stream starts normally at 0:00. We use the
-                  // 2:00 seek trick only when the stream actually stalls near startup.
+                  if (startupPrimeDelayRef.current !== null || startupPrimedUrlsRef.current.has(playbackUrl)) return;
+
+                  // Give a source a real chance to buffer before using the 2:00 recovery.
                   startupPrimeDelayRef.current = window.setTimeout(() => {
                     startupPrimeDelayRef.current = null;
                     const current = videoRef.current;
-                    if (!current || current !== video || current.paused) return;
+                    if (!current || current !== video || current.paused || playbackStartedRef.current) return;
                     jumpToTwoMinutesAndBack();
-                  }, 500);
+
+                    window.setTimeout(() => {
+                      if (
+                        current === videoRef.current &&
+                        userPlayRequestedRef.current &&
+                        !playbackStartedRef.current &&
+                        current.currentTime < 8
+                      ) {
+                        tryNextStartupSource();
+                      }
+                    }, 2200);
+                  }, 1100);
                 }}
                 onPlaying={() => {
                   setVideoReady(true);
+                  playbackStartedRef.current = true;
+                  clearStartupWatch();
+                  rememberPlaybackHost(playbackSource, true);
                 }}
-                 onError={() => {
-                   setVideoReady(false);
+                onError={() => {
+                  setVideoReady(false);
+                  playbackStartedRef.current = false;
+                  if (!playbackUrl) return;
 
-                   if (!playbackUrl || retriedPlaybackUrlsRef.current.has(playbackUrl)) return;
-                   retriedPlaybackUrlsRef.current.add(playbackUrl);
+                  rememberPlaybackHost(playbackSource, false);
 
-                   const video = videoRef.current;
-                   if (!video) return;
+                  const video = videoRef.current;
+                  if (!video) return;
 
-                   window.setTimeout(() => {
-                     if (videoRef.current !== video) return;
-                     video.preload = 'auto';
-                     video.load();
-                   }, 350);
-                 }}
+                  if (userPlayRequestedRef.current && tryNextStartupSource()) return;
+
+                  if (retriedPlaybackUrlsRef.current.has(playbackUrl)) return;
+                  retriedPlaybackUrlsRef.current.add(playbackUrl);
+
+                  window.setTimeout(() => {
+                    if (videoRef.current !== video) return;
+                    video.preload = 'auto';
+                    video.load();
+                    armStartupWatchdog();
+                  }, 350);
+                }}
               >
                 {playbackUrl ? null : null}
                 {language === 'ar'
