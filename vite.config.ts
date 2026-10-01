@@ -5,7 +5,12 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
+  const buildId = process.env.MOVYZ_BUILD_ID || 'dev';
+
   return {
+    define: {
+      'import.meta.env.VITE_MOVYZ_BUILD_ID': JSON.stringify(buildId),
+    },
     plugins: [
       react(),
       tailwindcss(),
