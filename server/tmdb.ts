@@ -622,3 +622,27 @@ export async function syncMovieCandidate(arMovie: any, enMovie: any) {
   await assertDatabaseReady();
   return syncMovie(arMovie, enMovie);
 }
+
+export async function syncMovieByTmdbId(tmdbId: number) {
+  await assertDatabaseReady();
+  if (!Number.isInteger(tmdbId) || tmdbId <= 0) throw new Error('Invalid TMDB movie id');
+
+  const [ar, en] = await Promise.all([
+    tmdbGet<any>(`/movie/${tmdbId}`, { language: 'ar-SA' }),
+    tmdbGet<any>(`/movie/${tmdbId}`, { language: 'en-US' }),
+  ]);
+
+  return syncMovie(ar, en);
+}
+
+export async function syncSeriesByTmdbId(tmdbId: number) {
+  await assertDatabaseReady();
+  if (!Number.isInteger(tmdbId) || tmdbId <= 0) throw new Error('Invalid TMDB series id');
+
+  const [ar, en] = await Promise.all([
+    tmdbGet<any>(`/tv/${tmdbId}`, { language: 'ar-SA' }),
+    tmdbGet<any>(`/tv/${tmdbId}`, { language: 'en-US' }),
+  ]);
+
+  return syncSeries(ar, en);
+}
