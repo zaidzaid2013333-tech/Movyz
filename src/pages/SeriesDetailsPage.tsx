@@ -256,7 +256,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
           </div>
 
           {/* Season Selector Tabs */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+          <div dir={direction} className="touch-chip-scroll pb-1 sm:pb-0">
             {series.seasons.map((season) => {
               const isSelected = season.seasonNumber === selectedSeasonNumber;
               return (
