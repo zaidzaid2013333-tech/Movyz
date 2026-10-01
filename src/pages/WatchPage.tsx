@@ -66,7 +66,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const startupPrimedUrlsRef = useRef<Set<string>>(new Set());
   const startupRestoreTimersRef = useRef<WeakMap<HTMLVideoElement, number>>(new WeakMap());
-  const failedSourceIdsRef = useRef<Set<string>>(new Set());
   const [videoReady, setVideoReady] = useState(false);
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
@@ -269,27 +268,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   useEffect(() => {
     setVideoReady(false);
-    if (!playbackUrl) return;
-
-    const timeout = window.setTimeout(() => {
-      if (videoReady) return;
-
-      const currentIndex = availableSources.findIndex((source) => source.id === playbackSource?.id);
-      const fallback = availableSources.find(
-        (source, index) => index > currentIndex && !failedSourceIdsRef.current.has(source.id),
-      );
-
-      if (playbackSource?.id) failedSourceIdsRef.current.add(playbackSource.id);
-      if (fallback) setRemotePlaybackSource(fallback);
-    }, 15000);
-
-    return () => window.clearTimeout(timeout);
-  }, [playbackUrl, playbackSource?.id, availableSources, videoReady]);
-
-  useEffect(() => {
-    if (!playbackUrl || !playbackSource?.id) return;
-    failedSourceIdsRef.current.delete(playbackSource.id);
-  }, [playbackUrl, playbackSource?.id]);
+  }, [playbackUrl]);
 
   useEffect(() => {
     if (!playbackUrl || typeof document === 'undefined') return;
@@ -507,17 +486,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 }}
                 onWaiting={() => setVideoReady(false)}
                 onPlaying={() => setVideoReady(true)}
-                onError={() => {
-                  setVideoReady(false);
-                  if (playbackSource?.id) failedSourceIdsRef.current.add(playbackSource.id);
-                  const currentIndex = availableSources.findIndex(
-                    (source) => source.id === playbackSource?.id,
-                  );
-                  const fallback = availableSources.find(
-                    (source, index) => index > currentIndex && !failedSourceIdsRef.current.has(source.id),
-                  );
-                  if (fallback) setRemotePlaybackSource(fallback);
-                }}
+                 onError={() => {
+                   setVideoReady(false);
+                 }}
               >
                 <source
                   src={playbackUrl}
