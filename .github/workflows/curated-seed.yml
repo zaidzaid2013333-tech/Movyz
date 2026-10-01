@@ -43,5 +43,20 @@ jobs:
       - name: Validate code
         run: npm run lint
 
-      - name: Probe OmegaTech and production resolver
+      - name: Probe OmegaTech gateways
         run: npx tsx scripts/probe-omegatech-sequence.ts
+
+      - name: Probe production resolver
+        run: |
+          node - <<'NODE'
+          const base='https://movyz-api.sameranede.workers.dev';
+          for (const u of [
+            `${base}/api/v1/diagnostics/playback`,
+            `${base}/api/v1/playback/resolve?type=movie&tmdbId=27205`,
+            `${base}/api/v1/playback/resolve?type=series&tmdbId=1396&season=1&episode=1`,
+          ]) {
+            const r=await fetch(u);
+            const b=await r.text();
+            console.log(JSON.stringify({url:u,status:r.status,body:b.slice(0,4000)}));
+          }
+          NODE
