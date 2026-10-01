@@ -483,6 +483,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
             <div className="relative h-full w-full bg-black">
+              {/* Playback starts visibly with the native player; no preparation overlay is rendered. */}
               <video
                 ref={videoRef}
                 key={playbackUrl}
