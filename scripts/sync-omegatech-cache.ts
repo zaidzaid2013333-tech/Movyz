@@ -86,12 +86,10 @@ async function loadCandidates(): Promise<{ movies: MovieCandidate[]; episodes: E
   const [moviesRaw, seriesRaw, seasonsRaw, episodesRaw] = await Promise.all([
     adminSupabase
       .from('movies')
-      .select('id,tmdb_id,vote_count,rating')
+      .select('id,tmdb_id,vote_count,rating,created_at')
       .eq('status', 'published')
       .not('tmdb_id', 'is', null)
-      .order('vote_count', { ascending: false })
-      .order('rating', { ascending: false })
-      .limit(MOVIE_LIMIT),
+      .order('created_at', { ascending: false }),
     adminSupabase
       .from('series')
       .select('id,tmdb_id,vote_count,rating')
@@ -255,7 +253,9 @@ async function main() {
   const orderedMovies = [
     ...curatedMovies,
     ...remainingMovies,
-  ].filter((item) => !fresh.has('movie:' + item.contentId));
+  ]
+    .filter((item) => !fresh.has('movie:' + item.contentId))
+    .slice(0, MOVIE_LIMIT);
 
   const curatedEpisodes = episodes.filter((item) => CURATED_SERIES_IDS.includes(item.tmdbId));
   const remainingEpisodes = episodes.filter((item) => !CURATED_SERIES_IDS.includes(item.tmdbId));

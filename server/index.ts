@@ -910,19 +910,27 @@ app.get(`${api}/search`, asyncRoute(async (req, res) => {
   return ok(res, { movies: movieResults, series: seriesResults, cast: castResults }, { total: movieResults.length + seriesResults.length + castResults.length });
 }));
 app.get(`${api}/home`, asyncRoute(async (_req, res) => {
-  const [movies, series, genres] = await Promise.all([
+  const [movies, series, recentMovies, recentSeries, genres] = await Promise.all([
     adminSupabase.from('movies').select('*').eq('status', 'published').order('vote_count', { ascending: false }).limit(12),
     adminSupabase.from('series').select('*').eq('status', 'published').order('vote_count', { ascending: false }).limit(12),
+    adminSupabase.from('movies').select('*').eq('status', 'published').order('created_at', { ascending: false }).limit(12),
+    adminSupabase.from('series').select('*').eq('status', 'published').order('created_at', { ascending: false }).limit(12),
     adminSupabase.from('genres').select('id,name_ar,name_en,slug').order('id'),
   ]);
   const movieRows = movies.data || [];
   const seriesRows = series.data || [];
+  const recentMovieRows = recentMovies.data || [];
+  const recentSeriesRows = recentSeries.data || [];
+  const allMovieRows = [...new Map([...movieRows, ...recentMovieRows].map((row: any) => [row.id, row])).values()];
+  const allSeriesRows = [...new Map([...seriesRows, ...recentSeriesRows].map((row: any) => [row.id, row])).values()];
   const [movieGenres, seriesGenres] = await Promise.all([
-    batchMovieGenres(movieRows.map((row: any) => row.id)),
-    batchSeriesGenres(seriesRows.map((row: any) => row.id)),
+    batchMovieGenres(allMovieRows.map((row: any) => row.id)),
+    batchSeriesGenres(allSeriesRows.map((row: any) => row.id)),
   ]);
   const movieDtos = movieRows.map((row: any) => movieCardDto(row, movieGenres.get(row.id) || []));
   const seriesDtos = seriesRows.map((row: any) => seriesCardDto(row, seriesGenres.get(row.id) || []));
+  const recentMovieDtos = recentMovieRows.map((row: any) => movieCardDto(row, movieGenres.get(row.id) || []));
+  const recentSeriesDtos = recentSeriesRows.map((row: any) => seriesCardDto(row, seriesGenres.get(row.id) || []));
   const combined = [...movieDtos, ...seriesDtos].sort((a: any, b: any) => b.rating - a.rating);
   return ok(res, {
     hero: combined.find((x: any) => x.isFeatured) || combined[0],
@@ -930,7 +938,9 @@ app.get(`${api}/home`, asyncRoute(async (_req, res) => {
     trending: combined.filter((x: any) => x.isTrending),
     popularMovies: movieDtos.filter((x: any) => x.isPopular),
     featuredSeries: seriesDtos.filter((x: any) => x.isFeatured),
-    recentAdded: [...movieDtos, ...seriesDtos].sort((a: any, b: any) => String(b.addedAt).localeCompare(String(a.addedAt))),
+    recentAdded: [...recentMovieDtos, ...recentSeriesDtos]
+      .sort((a: any, b: any) => String(b.addedAt).localeCompare(String(a.addedAt)))
+      .slice(0, 24),
     genres: (genres.data || []).map(genreDto),
   });
 }));

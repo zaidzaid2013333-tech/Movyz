@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyz-omegatech-cache
+  group: movyz-tmdb-sync
   cancel-in-progress: false
 
 jobs:
