@@ -140,15 +140,6 @@ async function loadFreshSourceIds(providerId: string) {
 }
 
 async function persistSources(providerId: string, candidate: Candidate, sources: any[]) {
-  const { error: deleteError } = await adminSupabase
-    .from('playback_sources')
-    .delete()
-    .eq('provider_id', providerId)
-    .eq('content_type', candidate.contentType)
-    .eq('content_id', candidate.contentId);
-
-  if (deleteError) throw new Error('clear cache failed: ' + deleteError.message);
-
   const rows = sources
     .filter((source) => typeof source?.url === 'string' && /^https:\/\//i.test(source.url))
     .slice(0, 6)
@@ -173,9 +164,9 @@ async function persistSources(providerId: string, candidate: Candidate, sources:
 
   const { error } = await adminSupabase
     .from('playback_sources')
-    .insert(rows);
+    .upsert(rows, { onConflict: 'provider_id,content_type,content_id,url' });
 
-  if (error) throw new Error('cache insert failed: ' + error.message);
+  if (error) throw new Error('cache upsert failed: ' + error.message);
   return rows.length;
 }
 
@@ -209,6 +200,7 @@ async function mapWithConcurrency<T>(items: T[], worker: (item: T) => Promise<vo
       const index = cursor++;
       if (index >= items.length) return;
       await worker(items[index]);
+      await sleep(350);
     }
   });
   await Promise.all(workers);
