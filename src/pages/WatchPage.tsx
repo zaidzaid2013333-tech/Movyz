@@ -326,6 +326,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setRemotePlaybackSources(merged);
         setRemotePlaybackSource((current) => {
           if (!current) return source;
+          // Once playback has started, keep the active URL stable. Background
+          // resolver results must never interrupt a healthy video in Chrome.
+          if (playbackStartedRef.current) return current;
           if (resolvedUrls.size === 0 || resolvedUrls.has(current.url)) return current;
           return source;
         });
@@ -503,12 +506,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       const video = videoRef.current;
       if (!video || playbackStartedRef.current || video.paused) return;
 
-      // Startup recovery is intentionally conservative: do not keep rotating
-      // sources while the current source is already making progress.
-      const stuckNearStart = video.currentTime < 8 && video.readyState < 3;
-      if (stuckNearStart) {
-        jumpToTwoMinutesAndBack();
-      }
+      // Let the browser's native media pipeline handle startup buffering.
+      // Do not seek or reload merely because Chrome reports a temporary
+      // low readyState; Safari and Chrome can expose different buffering
+      // timing through the same HTMLMediaElement events.
     }, 4500);
   };
 
@@ -829,20 +830,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
                   armStartupWatchdog();
 
-                  if (startupPrimeDelayRef.current !== null || startupPrimedUrlsRef.current.has(playbackUrl)) return;
-
-                  // Give a source a real chance to buffer before using the 2:00 recovery.
-                  startupPrimeDelayRef.current = window.setTimeout(() => {
-                    startupPrimeDelayRef.current = null;
-                    const current = videoRef.current;
-                    if (!current || current !== video || current.paused || playbackStartedRef.current) return;
-                    jumpToTwoMinutesAndBack();
-
-                    // Do not rotate sources just because the initial recovery
-                    // still reports a low currentTime. Source rotation is kept
-                    // for real media errors so a healthy source is not reloaded.
-
-                  }, 1100);
+                  // Do not seek, reload, or rotate sources on a normal
+                  // buffering event. Chrome can emit waiting while it is
+                  // still filling its media buffer; interrupting that pipeline
+                  // is what caused the repeated startup reloads.
                 }}
                 onPlaying={() => {
                   setVideoReady(true);
