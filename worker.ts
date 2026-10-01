@@ -5,6 +5,10 @@ type ServiceBinding = {
   fetch(request: Request, init?: RequestInit): Promise<Response>;
 };
 
+type ExecutionContextLike = {
+  waitUntil(promise: Promise<unknown>): void;
+};
+
 type MovyzEnvironment = WorkerEnvironment & {
   ASSETS: { fetch(request: Request): Promise<Response> };
   BROWSER?: unknown;
@@ -24,7 +28,7 @@ const noCacheHeaders = (response: Response) => {
 };
 
 export default {
-  async fetch(request: Request, env: MovyzEnvironment, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: MovyzEnvironment, ctx: ExecutionContextLike): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === '/health' || url.pathname.startsWith('/api/')) {
