@@ -67,36 +67,36 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
   const moods = [
     {
       id: 'arab_cinema' as const,
-      label: language === 'ar' ? 'موسم السينما العربية والخليجية' : 'Arab & Gulf Masterpieces',
-      desc: language === 'ar' ? 'أقوى الإنتاجات السينمائية من مهرجانات البحر الأحمر والقاهرة وقرطاج' : 'Award winners from Red Sea, Cairo & Carthage',
+      label: language === 'ar' ? 'سينما عربية وخليجية' : 'Arab & Gulf',
+      desc: language === 'ar' ? 'اختيارات من أفلام عربية وخليجية' : 'Selected Arab and Gulf titles',
       icon: Award,
       badge: 'RED CARPET',
     },
     {
       id: 'critics' as const,
-      label: language === 'ar' ? 'السعفة الذهبية واختيارات النقاد' : 'Palme d’Or & Critics’ Choice',
-      desc: language === 'ar' ? 'تحف فنية وتقييمات استثنائية تفوق 8.8/10' : 'Auteur cinema rating 8.8+ on master scales',
+      label: language === 'ar' ? 'اختيارات النقاد' : 'Critics',
+      desc: language === 'ar' ? 'أعمال بتقييمات مرتفعة' : 'Highly rated titles',
       icon: Film,
       badge: 'GRAND PRIX',
     },
     {
       id: 'trending' as const,
-      label: language === 'ar' ? 'أكثر صالات العرض إقبالاً' : 'Box Office Sensation',
-      desc: language === 'ar' ? 'الأعمال الأكثر مشاهدة خلال الأسبوع الجاري' : 'Most watched in theaters this week',
+      label: language === 'ar' ? 'الأكثر تداولًا' : 'Trending now',
+      desc: language === 'ar' ? 'أعمال يكثر البحث والمشاهدة عنها' : 'Titles people are watching now',
       icon: Flame,
       badge: 'HOT REEL',
     },
     {
       id: 'recent' as const,
-      label: language === 'ar' ? 'أحدث بكرات العرض الأصلية' : 'Fresh Master Prints',
-      desc: language === 'ar' ? 'إصدارات جديدة تمت معالجتها بتقنية 4K UHD' : 'Freshly remastered 4K UHD prints',
+      label: language === 'ar' ? 'أضيف حديثًا' : 'Recently added',
+      desc: language === 'ar' ? 'أحدث الأعمال المضافة للمكتبة' : 'Newest additions to the library',
       icon: Sparkles,
       badge: 'NEW PRINTS',
     },
   ];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8 animate-in fade-in duration-300">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-7 movyza-enter">
       {/* Editorial Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-1">
@@ -130,10 +130,10 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
             <button
               key={m.id}
               onClick={() => setActiveMood(m.id)}
-              className={`p-5 rounded-2xl border text-start transition-all duration-300 relative overflow-hidden group cursor-pointer flex flex-col justify-between min-h-[140px] ${
+              className={`p-5 rounded-2xl border text-start transition-all duration-300 relative overflow-hidden group cursor-pointer flex flex-col justify-between min-h-[124px] ${
                 isActive
-                  ? 'bg-[#121624] border-amber-500 shadow-xl shadow-amber-500/15'
-                  : 'bg-[#090b10] border-amber-500/15 hover:border-amber-500/40 hover:bg-[#0d1018]'
+                  ? 'bg-[#121624] border-white/[0.12] bg-white/[0.06]'
+                  : 'bg-white/[0.025] border-white/[0.07] hover:border-white/[0.13] hover:bg-white/[0.045]'
               }`}
             >
               <div className="flex items-center justify-between w-full">
@@ -167,13 +167,13 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
       </div>
 
       {/* Genre Filter Tags */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+      <div className="touch-scroll-x flex items-center gap-2 pb-1">
         <button
           onClick={() => setSelectedGenreId(null)}
           className={`min-h-[36px] px-4 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all cursor-pointer ${
             selectedGenreId === null
-              ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/25'
-              : 'bg-[#0f1118] text-slate-300 hover:text-white border border-amber-500/15'
+              ? 'bg-amber-400 text-slate-950 font-bold'
+              : 'bg-white/[0.035] text-slate-300 hover:text-white border border-white/[0.07]'
           }`}
         >
           {t('allGenres')}
