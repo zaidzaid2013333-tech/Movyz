@@ -63,6 +63,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [remotePlaybackSources, setRemotePlaybackSources] = useState<PlaybackSource[]>([]);
   const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
   const [resolverLoading, setResolverLoading] = useState(false);
+  const [playerUnlocked, setPlayerUnlocked] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const startupPrimedUrlsRef = useRef<Set<string>>(new Set());
   const startupRestoreTimersRef = useRef<WeakMap<HTMLVideoElement, number>>(new WeakMap());
@@ -85,6 +86,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setRemotePlaybackSources([]);
         setRemotePlaybackSource(null);
         setResolverLoading(false);
+        setPlayerUnlocked(false);
 
         const legacyTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
         const response = mediaType === 'movie'
@@ -199,6 +201,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   useEffect(() => {
     if (loading || !content) return;
 
+    // Playback URLs are intentionally not resolved during page load. The browser
+    // must receive an explicit user interaction before any remote source exists.
+    if (!playerUnlocked) {
+      setRemotePlaybackSources([]);
+      setRemotePlaybackSource(null);
+      setResolverLoading(false);
+      return;
+    }
+
     if (storedPlaybackSource) {
       setRemotePlaybackSources(storedPlaybackSources);
       setRemotePlaybackSource((current) => current ?? storedPlaybackSource);
@@ -259,7 +270,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return () => {
       mounted = false;
     };
-  }, [loading, content, currentEpisode, storedPlaybackSource, storedPlaybackSources, activeSeason, activeEpisode]);
+  }, [loading, content, currentEpisode, storedPlaybackSource, storedPlaybackSources, activeSeason, activeEpisode, playerUnlocked]);
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
@@ -302,7 +313,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }, [playbackUrl]);
 
   useEffect(() => {
-    if (!playbackUrl || typeof document === 'undefined') return;
+    if (!playerUnlocked || !playbackUrl || typeof document === 'undefined') return;
 
     let origin: string;
     try {
@@ -333,6 +344,43 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       dns.remove();
     };
   }, [playbackUrl]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const previousRobots = document.head.querySelector('meta[data-movyz-watch-robots]');
+    const previousReferrer = document.head.querySelector('meta[data-movyz-watch-referrer]');
+
+    const robots = document.createElement('meta');
+    robots.name = 'robots';
+    robots.content = 'noindex, nofollow, noimageindex';
+    robots.dataset.movyzWatchRobots = 'true';
+    document.head.appendChild(robots);
+
+    const googlebot = document.createElement('meta');
+    googlebot.name = 'googlebot';
+    googlebot.content = 'noindex, nofollow, noimageindex';
+    googlebot.dataset.movyzWatchRobots = 'true';
+    document.head.appendChild(googlebot);
+
+    const referrer = document.createElement('meta');
+    referrer.name = 'referrer';
+    referrer.content = 'no-referrer';
+    referrer.dataset.movyzWatchReferrer = 'true';
+    document.head.appendChild(referrer);
+
+    return () => {
+      robots.remove();
+      googlebot.remove();
+      referrer.remove();
+      previousRobots?.removeAttribute('data-movyz-watch-robots');
+      previousReferrer?.removeAttribute('data-movyz-watch-referrer');
+    };
+  }, []);
+
+  const handleUnlockPlayer = () => {
+    setPlayerUnlocked(true);
+  };
 
   const handleSelectEpisode = (nextSeason: number, nextEpisode: number) => {
     onNavigate(`/watch/tv/${contentId}/${nextSeason}/${nextEpisode}`);
@@ -380,20 +428,65 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   if (!playbackUrl) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center text-slate-300">
-        {resolverLoading ? (
-          <div className="text-center px-6">
-            <div className="mx-auto mb-4 h-10 w-10 rounded-full border-2 border-amber-400/25 border-t-amber-400 animate-spin" />
-            <p className="text-sm font-medium text-slate-200">
-              {language === 'ar' ? 'جاري تجهيز مصدر التشغيل…' : 'Preparing playback source…'}
-            </p>
+      <div className="min-h-screen bg-[#030406] text-slate-100 flex items-center justify-center p-4">
+        <div className="w-full max-w-3xl rounded-3xl overflow-hidden border border-amber-500/20 bg-black shadow-2xl">
+          <div className="relative aspect-video bg-[#07090e]">
+            {content.backdropUrl || content.posterUrl ? (
+              <img
+                src={content.backdropUrl || content.posterUrl}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover opacity-45"
+                loading="eager"
+                decoding="async"
+              />
+            ) : null}
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-black/20" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
+              {!playerUnlocked ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleUnlockPlayer}
+                    className="group inline-flex items-center gap-3 rounded-2xl bg-amber-500 px-6 py-3 text-sm font-bold text-slate-950 shadow-xl shadow-amber-500/20 transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <span className="grid h-8 w-8 place-items-center rounded-full bg-black/15 text-lg">▶</span>
+                    <span>{language === 'ar' ? 'تشغيل المشغل' : 'Open player'}</span>
+                  </button>
+                  <p className="mt-4 max-w-md text-[11px] leading-relaxed text-slate-400">
+                    {language === 'ar'
+                      ? 'لن يتم طلب مصدر الفيديو حتى تبدأ التشغيل.'
+                      : 'The video source is not requested until you start playback.'}
+                  </p>
+                </>
+              ) : resolverLoading ? (
+                <>
+                  <div className="mb-4 h-10 w-10 rounded-full border-2 border-amber-400/25 border-t-amber-400 animate-spin" />
+                  <p className="text-sm font-medium text-slate-200">
+                    {language === 'ar' ? 'جاري تجهيز المشغل…' : 'Preparing player…'}
+                  </p>
+                </>
+              ) : (
+                <ErrorState
+                  message={language === 'ar' ? 'لا يوجد مصدر تشغيل متاح حاليًا.' : 'No playback source is currently available.'}
+                  onRetry={() => {
+                    setPlayerUnlocked(false);
+                    setTimeout(() => setPlayerUnlocked(true), 0);
+                  }}
+                  onGoHome={() => onNavigate('/')}
+                />
+              )}
+            </div>
           </div>
-        ) : (
-          <ErrorState
-            message={language === 'ar' ? 'لا يوجد مصدر تشغيل متاح حاليًا.' : 'No playback source is currently available.'}
-            onGoHome={() => onNavigate('/')}
-          />
-        )}
+          <div className="p-5 border-t border-amber-500/15">
+            <button
+              type="button"
+              onClick={() => onNavigate('/')}
+              className="text-xs text-amber-400 hover:text-amber-300"
+            >
+              {language === 'ar' ? 'العودة للرئيسية' : 'Back to home'}
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
