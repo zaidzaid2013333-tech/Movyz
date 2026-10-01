@@ -24,18 +24,45 @@ jobs:
       PLAYBACK_BASE_URL: https://movyz-api.sameranede.workers.dev
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Configure npm resilience
+      - name: Probe live gateways
         run: |
-          npm config set fetch-retries 5
-          npm config set fetch-retry-mintimeout 20000
-          npm config set fetch-retry-maxtimeout 120000
-          npm config set audit false
-          npm config set fund false
+          node --input-type=module - <<'NODE'
+          const bases = ['https://api.omegatech.app','https://omegatech-api.dixonomega.tech'];
+          for (const base of bases) {
+            for (const params of [
+              {action:'search',query:'Inception'},
+              {action:'search',query:'Breaking Bad'},
+              {action:'content',url:'https://akwam.ss/movie/562/inception-1'}
+            ]) {
+              const u = new URL('/api/movie/Akwam', base);
+              for (const [k,v] of Object.entries(params)) u.searchParams.set(k,v);
+              try {
+                const r = await fetch(u);
+                const b = await r.text();
+                console.log(JSON.stringify({base,status:r.status,url:u.toString(),body:b.slice(0,6000)}));
+              } catch (e) {
+                console.log(JSON.stringify({base,url:u.toString(),error:String(e)}));
+              }
+            }
+          }
+          const production = [
+            'https://movyz-api.sameranede.workers.dev/api/v1/diagnostics/playback',
+            'https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve?type=movie&tmdbId=27205',
+            'https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve?type=series&tmdbId=1396&season=1&episode=1'
+          ];
+          for (const url of production) {
+            try {
+              const r = await fetch(url);
+              console.log(JSON.stringify({url,status:r.status,body:(await r.text()).slice(0,4000)}));
+            } catch (e) {
+              console.log(JSON.stringify({url,error:String(e)}));
+            }
+          }
+          NODE
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
@@ -43,20 +70,5 @@ jobs:
       - name: Validate code
         run: npm run lint
 
-      - name: Probe OmegaTech gateways
-        run: npx tsx scripts/probe-omegatech-sequence.ts
-
-      - name: Probe production resolver
-        run: |
-          node - <<'NODE'
-          const base='https://movyz-api.sameranede.workers.dev';
-          for (const u of [
-            `${base}/api/v1/diagnostics/playback`,
-            `${base}/api/v1/playback/resolve?type=movie&tmdbId=27205`,
-            `${base}/api/v1/playback/resolve?type=series&tmdbId=1396&season=1&episode=1`,
-          ]) {
-            const r=await fetch(u);
-            const b=await r.text();
-            console.log(JSON.stringify({url:u,status:r.status,body:b.slice(0,4000)}));
-          }
-          NODE
+      - name: Seed and verify
+        run: npx tsx scripts/seed-curated-content.ts
