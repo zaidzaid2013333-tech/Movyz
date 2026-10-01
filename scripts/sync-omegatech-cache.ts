@@ -2,7 +2,6 @@ import 'dotenv/config';
 
 import { adminSupabase } from '../server/supabase';
 import { resolveRemotePlayback } from '../server/providers/remote-resolver';
-// One-shot backfill trigger marker.
 
 type MovieCandidate = {
   contentType: 'movie';
