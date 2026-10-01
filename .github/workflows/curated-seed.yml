@@ -1,0 +1,47 @@
+name: Movyz Curated Content Seed + Playback Verification
+
+on:
+  push:
+    branches:
+      - ops/seed-curated-playback-verification
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-curated-seed
+  cancel-in-progress: false
+
+jobs:
+  seed-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      PLAYBACK_BASE_URL: https://movyz-api.sameranede.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configure npm resilience
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set audit false
+          npm config set fund false
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Validate code
+        run: npm run lint
+
+      - name: Seed curated catalog and verify every episode
+        run: npx tsx scripts/seed-curated-content.ts
