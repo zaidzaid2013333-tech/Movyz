@@ -135,7 +135,7 @@ export const SeriesPage: React.FC<SeriesPageProps> = ({
         </div>
 
         {/* Genre Badges */}
-        <div className="touch-scroll-x flex items-center gap-2 pb-1">
+        <div dir={direction} className="touch-chip-scroll pb-1">
           <button
             onClick={() => {
               setSelectedGenre(undefined);
@@ -171,7 +171,7 @@ export const SeriesPage: React.FC<SeriesPageProps> = ({
         </div>
 
         {/* Year Filter Strip */}
-        <div className="flex items-center gap-3 pt-3 border-t border-white/[0.06] text-xs overflow-x-auto no-scrollbar">
+        <div dir={direction} className="touch-chip-scroll pt-3 border-t border-white/[0.06] text-xs">
           <span className="text-slate-400 font-mono">{t('year')}:</span>
           <div className="flex gap-1.5 shrink-0">
             {years.map((y) => (
