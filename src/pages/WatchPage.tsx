@@ -23,14 +23,13 @@ interface WatchPageProps {
   onNavigate: (path: string) => void;
 }
 
-const isOmegaTechSource = (source: PlaybackSource) =>
-  source.providerKey === 'omegatech-akwam' || source.provider === 'OmegaTech';
+const isPlayableHttpSource = (source: PlaybackSource) =>
+  /^https?:\/\//i.test(source.url?.trim() || '');
 
 const pickPlaybackSources = (content: Movie | Series, episode?: Episode) => {
   const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
   return candidates
-    .filter(isOmegaTechSource)
-    .filter((source) => /^https?:\/\//i.test(source.url?.trim() || ''))
+    .filter(isPlayableHttpSource)
     .sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
 };
 
@@ -259,8 +258,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
         const resolvedSources = sortPlaybackSources(
           response.data.sources
-            .filter(isOmegaTechSource)
-            .filter((candidate) => /^https?:\/\//i.test(candidate.url?.trim() || ''))
+            .filter(isPlayableHttpSource)
             .slice(0, 6),
         );
 
@@ -644,7 +642,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </div>
         )}
 
-        {playbackUrl ? null : null}
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
             <div className="relative h-full w-full bg-black">
@@ -806,8 +803,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 <p className="text-[11px] leading-relaxed">
                   {playbackSource
                     ? (language === 'ar'
-                      ? `المصدر الحالي: OmegaTech Akwam — ${playbackSource.quality || playbackSource.label}.`
-                      : `Current source: OmegaTech Akwam — ${playbackSource.quality || playbackSource.labelEn}.`)
+                      ? `المصدر الحالي: ${playbackSource.provider || playbackSource.providerKey || 'MOVYZ'} — ${playbackSource.quality || playbackSource.label}.`
+                      : `Current source: ${playbackSource.provider || playbackSource.providerKey || 'MOVYZ'} — ${playbackSource.quality || playbackSource.labelEn}.`)
                     : (language === 'ar'
                       ? 'لا يوجد مصدر تشغيل متاح لهذا العمل حاليًا.'
                       : 'No playback source is currently available for this title.')}
