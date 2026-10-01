@@ -67,6 +67,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const startupPrimedUrlsRef = useRef<Set<string>>(new Set());
   const startupRestoreTimersRef = useRef<WeakMap<HTMLVideoElement, number>>(new WeakMap());
   const [videoReady, setVideoReady] = useState(false);
+  const playbackSelectionKeyRef = useRef<string | null>(null);
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
 
@@ -83,6 +84,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setRemotePlaybackSources([]);
         setRemotePlaybackSource(null);
         setResolverLoading(false);
+        playbackSelectionKeyRef.current = null;
 
         const legacyTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
         const response = mediaType === 'movie'
@@ -197,11 +199,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   useEffect(() => {
     if (loading || !content) return;
 
+    const selectionKey =
+      String(content.id) +
+      ':' +
+      content.type +
+      ':' +
+      (content.type === 'series' ? activeSeason + ':' + activeEpisode : 'movie');
+
     if (storedPlaybackSource) {
       setRemotePlaybackSources(storedPlaybackSources);
-      setRemotePlaybackSource((current) => storedPlaybackSources.some((source) => source.id === current?.id)
-        ? current
-        : storedPlaybackSource);
+      setRemotePlaybackSource((current) => current ?? storedPlaybackSource);
+      playbackSelectionKeyRef.current = selectionKey;
       setResolverLoading(false);
       return;
     }
@@ -215,7 +223,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     let mounted = true;
     setRemotePlaybackSources([]);
-    setRemotePlaybackSource(null);
     setResolverLoading(true);
 
     void MovyzaApi.resolvePlaybackSource({
@@ -245,7 +252,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           sources[0] ??
           null;
         setRemotePlaybackSources(sources);
-        setRemotePlaybackSource(source);
+        setRemotePlaybackSource((current) => current ?? source);
+        playbackSelectionKeyRef.current = selectionKey;
       })
       .catch(() => {
         if (mounted) {
