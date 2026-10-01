@@ -230,7 +230,9 @@ async function loadPopularPage(type: 'movie' | 'tv', page: number) {
 
 async function main() {
   const jobId = await startJob();
-  const counts: Counts = { movies: 0, series: 0, seasons: 0, episodes: 0 };\n  let moviesPlaybackLinked = 0;\n  let moviesPlaybackFailed = 0;
+  const counts: Counts = { movies: 0, series: 0, seasons: 0, episodes: 0 };
+  let moviesPlaybackLinked = 0;
+  let moviesPlaybackFailed = 0;
 
   try {
     const usage = await readDailyUsage();
