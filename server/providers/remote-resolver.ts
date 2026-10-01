@@ -96,6 +96,24 @@ const EPISODE_URL_KEYS = [
   'playerUrl', 'player_url', 'player', 'url', 'link', 'href', 'pageUrl', 'page_url',
 ] as const;
 
+const SEASON_ORDINALS: Array<[string, number]> = [
+  ['العاشر', 10], ['التاسع', 9], ['الثامن', 8], ['السابع', 7], ['السادس', 6],
+  ['الخامس', 5], ['الرابع', 4], ['الثالث', 3], ['الثاني', 2], ['الأول', 1], ['الاول', 1],
+];
+
+function inferSeasonNumber(value: unknown): number | undefined {
+  if (typeof value !== 'string') return undefined;
+  const numeric = value.match(/(?:season|saison|الموسم)[^0-9]{0,6}(\d{1,2})/i);
+  if (numeric) {
+    const number = Number(numeric[1]);
+    if (Number.isInteger(number) && number > 0) return number;
+  }
+  for (const [ordinal, number] of SEASON_ORDINALS) {
+    if (value.includes(ordinal)) return number;
+  }
+  return undefined;
+}
+
 function extractUrlsFromText(value: string) {
   const matches = value.match(/https?:\/\/[^\s"'<>\\]+/gi) || [];
   return matches
@@ -233,7 +251,12 @@ function pickEpisodeUrl(payload: unknown, episodeNumber: number, seasonNumber?: 
     const explicitSeason = seasonValues
       .map((raw) => Number(raw))
       .find((number) => Number.isInteger(number) && number > 0);
-    const effectiveSeason = explicitSeason ?? inheritedSeason;
+    const inferredSeason =
+      inferSeasonNumber(obj.title) ??
+      inferSeasonNumber(obj.name) ??
+      inferSeasonNumber(obj.slug) ??
+      inferSeasonNumber(obj.url);
+    const effectiveSeason = explicitSeason ?? inferredSeason ?? inheritedSeason;
 
     const numberValues = [
       obj.episodeNumber, obj.episode_number, obj.episode, obj.number, obj.ep, obj.no,
@@ -298,9 +321,11 @@ async function resolveOmegaDownloadUrls(
   timeoutMs: number,
 ) {
   const candidates = extractPlaybackCandidates(payload);
-  const resolved = candidates.map((candidate) => candidate.url).filter(isLikelyPlaybackUrl);
-
   const allUrls = collectDownloadOrPlaybackUrls(payload);
+  const resolved = [
+    ...candidates.map((candidate) => candidate.url),
+    ...allUrls.filter(isLikelyPlaybackUrl),
+  ];
   const downloadUrls = allUrls.filter((url) => !isLikelyPlaybackUrl(url));
 
   const downloads = [...new Set(downloadUrls)].slice(0, 6);
