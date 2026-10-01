@@ -70,6 +70,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const startupPrimeDelayRef = useRef<number | null>(null);
   const qualityResumeTimeRef = useRef<number | null>(null);
   const resumeAfterQualitySwitchRef = useRef(false);
+  const qualitySwitchPendingRef = useRef(false);
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const [videoReady, setVideoReady] = useState(false);
   const activeSeason = seasonNumber || 1;
@@ -417,8 +418,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     qualityResumeTimeRef.current =
       video && Number.isFinite(video.currentTime) && video.currentTime > 0.5
         ? video.currentTime
-        : null;
+        : 0;
     resumeAfterQualitySwitchRef.current = !!video && !video.paused;
+    qualitySwitchPendingRef.current = true;
 
     if (startupPrimeDelayRef.current !== null) {
       window.clearTimeout(startupPrimeDelayRef.current);
@@ -449,6 +451,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       // User cancelled share; do nothing.
     }
   };
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !playbackUrl) return;
+
+    const current = video.getAttribute('src') || '';
+    if (current === playbackUrl) return;
+
+    video.pause();
+    video.setAttribute('src', playbackUrl);
+    video.load();
+  }, [playbackUrl]);
 
   if (loading) {
     return (
@@ -630,13 +644,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </div>
         )}
 
+        {playbackUrl ? null : null}
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
             <div className="relative h-full w-full bg-black">
               {/* Playback starts visibly with the native player; no preparation overlay is rendered. */}
               <video
                 ref={videoRef}
-                key={playbackUrl}
                 poster={content.backdropUrl || content.posterUrl}
                 className="block h-full w-full bg-black object-contain"
                 controls
@@ -663,10 +677,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 }}
                 onCanPlay={() => {
                   setVideoReady(true);
-                  if (resumeAfterQualitySwitchRef.current) {
-                    resumeAfterQualitySwitchRef.current = false;
-                    const video = videoRef.current;
-                    if (video) void video.play().catch(() => undefined);
+                  if (qualitySwitchPendingRef.current) {
+                    qualitySwitchPendingRef.current = false;
+                    if (resumeAfterQualitySwitchRef.current) {
+                      resumeAfterQualitySwitchRef.current = false;
+                      const video = videoRef.current;
+                      if (video) void video.play().catch(() => undefined);
+                    }
                   }
                 }}
                 onWaiting={() => {
@@ -677,7 +694,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     !video ||
                     video.currentTime > 15 ||
                     startupPrimedUrlsRef.current.has(playbackUrl) ||
-                    qualityResumeTimeRef.current !== null
+                    qualityResumeTimeRef.current !== null ||
+                    qualitySwitchPendingRef.current
                   ) {
                     return;
                   }
@@ -714,10 +732,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                    }, 350);
                  }}
               >
-                <source
-                  src={playbackUrl}
-                  type={playbackMimeType}
-                />
+                {playbackUrl ? null : null}
                 {language === 'ar'
                   ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
                   : 'Your browser does not support this playback source.'}
