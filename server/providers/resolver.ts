@@ -7,6 +7,7 @@ const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'webm']);
 const DISABLED_PROVIDERS = new Set(['fasel', 'faselhd']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
+  re3arabi: 10,
   streamprovider: 20,
   tmdbembed: 30,
 };
