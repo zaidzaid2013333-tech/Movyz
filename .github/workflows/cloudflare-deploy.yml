@@ -280,6 +280,54 @@ jobs:
           print(f"Diagnostic OK: build={diagnostic.get('data', {}).get('buildId')}")
           PY
 
+      # Warm a small sequential set of OmegaTech sources after every production deploy.
+      # Successful responses are persisted by the API, so the next user request reuses the external URL.
+      - name: Warm OmegaTech playback cache
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.parse
+          import urllib.request
+          import time
+
+          base = "https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve"
+          checks = [
+              ("movie", 27205, None, None),
+              ("movie", 157336, None, None),
+              ("movie", 278, None, None),
+              ("movie", 550, None, None),
+              ("movie", 155, None, None),
+              ("series", 1396, 1, 1),
+              ("series", 1396, 2, 1),
+              ("series", 1396, 5, 1),
+              ("series", 60059, 1, 1),
+              ("series", 60059, 3, 1),
+              ("series", 70523, 1, 1),
+              ("series", 2316, 1, 1),
+              ("series", 5920, 1, 1),
+          ]
+
+          for media_type, tmdb_id, season, episode in checks:
+              params = {"type": media_type, "tmdbId": str(tmdb_id)}
+              if season is not None:
+                  params["season"] = str(season)
+              if episode is not None:
+                  params["episode"] = str(episode)
+              url = base + "?" + urllib.parse.urlencode(params)
+              request = urllib.request.Request(url, headers={"User-Agent": "Movyz-Warmup/1.0", "Accept": "application/json"})
+              try:
+                  with urllib.request.urlopen(request, timeout=60) as response:
+                      body = response.read().decode("utf-8", "replace")
+                      payload = json.loads(body)
+                      sources = payload.get("data", {}).get("sources") if isinstance(payload, dict) else None
+                      ok = response.status == 200 and isinstance(sources, list) and len(sources) > 0
+                      print("WARMUP", media_type, tmdb_id, season or "", episode or "", "OK" if ok else "NO_SOURCE")
+              except Exception as error:
+                  print("WARMUP", media_type, tmdb_id, season or "", episode or "", "ERROR", error)
+              time.sleep(0.35)
+          PY
+
       - name: Remove temporary secrets file
         if: always()
         run: rm -f .env.production
