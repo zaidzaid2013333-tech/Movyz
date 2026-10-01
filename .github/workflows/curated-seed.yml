@@ -43,5 +43,5 @@ jobs:
       - name: Validate code
         run: npm run lint
 
-      - name: Probe representative production playback
-        run: npx tsx scripts/probe-production-playback.ts
+      - name: Probe OmegaTech and production resolver
+        run: npx tsx scripts/probe-omegatech.ts
