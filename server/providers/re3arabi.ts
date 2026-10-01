@@ -26,7 +26,7 @@ const PROVIDERS = [
   {
     key: 'akwam',
     name: 'Akwam',
-    base: 'https://ak.sv',
+    base: 'https://akwam.it',
     kind: 'akwam' as const,
   },
   {
@@ -203,13 +203,13 @@ async function resolveAkwam(
 
   const searches = await Promise.all(titleTerms.slice(0, 2).map(async (term) => {
     const query = encodeURIComponent(term);
-    const html = await getText(`https://ak.sv/search?q=${query}`, timeoutMs);
-    return parseAkwamSearch(html, 'https://ak.sv');
+    const html = await getText(`https://akwam.it/search?q=${query}`, timeoutMs);
+    return parseAkwamSearch(html, 'https://akwam.it');
   }));
   const hit = rankHits(searches.flat(), titleTerms, context.releaseYear)[0];
   if (!hit) return [];
 
-  const contentHtml = await getText(hit.url, timeoutMs, 'https://ak.sv/');
+  const contentHtml = await getText(hit.url, timeoutMs, 'https://akwam.it/');
   let targetUrl = hit.url;
 
   if (context.seasonNumber !== undefined && context.episodeNumber !== undefined) {
@@ -271,10 +271,10 @@ async function resolveAkwam(
       for (const term of titleTerms.slice(0, 3)) {
         try {
           const html = await getText(
-            `https://ak.sv/search?q=${encodeURIComponent(`${term} ${context.episodeNumber}`)}`,
+            `https://akwam.it/search?q=${encodeURIComponent(`${term} ${context.episodeNumber}`)}`,
             timeoutMs,
           );
-          const candidates = collectEpisodes(html, 'https://ak.sv');
+          const candidates = collectEpisodes(html, 'https://akwam.it');
           const match = candidates.find((item) => item.number === context.episodeNumber);
           if (match) {
             targetUrl = match.url;
@@ -447,7 +447,7 @@ export function createRe3ArabiAdapter() {
     async health() {
       const started = Date.now();
       try {
-        await getText('https://ak.sv/', 3_000);
+        await getText('https://akwam.it/', 3_000);
         return { status: 'healthy' as const, latencyMs: Date.now() - started };
       } catch (error) {
         return {
