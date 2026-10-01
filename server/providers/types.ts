@@ -4,6 +4,7 @@ export interface ProviderContext {
   tmdbId?: number;
   title?: string;
   originalTitle?: string;
+  alternateTitles?: string[];
   releaseYear?: number;
   providerId?: string;
   seasonNumber?: number;
