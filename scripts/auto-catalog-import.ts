@@ -72,6 +72,7 @@ async function readDailyUsage(): Promise<Counts> {
     .from('sync_jobs')
     .select('movies_synced,series_synced,seasons_synced,episodes_synced')
     .eq('provider', 'tmdb')
+    .eq('job_type', 'catalog-auto')
     .gte('created_at', utcStartOfDay());
 
   if (error) throw new Error('Daily catalog usage lookup failed: ' + error.message);
