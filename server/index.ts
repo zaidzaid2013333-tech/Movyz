@@ -189,6 +189,7 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
 
   return (data || [])
     .filter((source: any) => ['mp4', 'hls', 'dash'].includes(String(source.source_type || '').toLowerCase()))
+    .filter((source: any) => String(source.quality || '').toLowerCase() !== 'auto')
     .filter((source: any) => {
       const url = typeof source.url === 'string' ? source.url.trim() : '';
       const type = String(source.source_type || '').toLowerCase();
