@@ -1673,24 +1673,25 @@ export async function resolveRe3ArabiProviderWithContext(
   episode: number,
   providerKey: string,
 ): Promise<Candidate[]> {
-  const provider = PROVIDERS.find((item) =>
-    item.key === providerKey &&
-    item.kind === (context.__isAnime ? 'anime' : 'general'),
-  );
-
-  if (!provider) return [];
-
   const resolvedContext: ResolverContext = {
     ...context,
     seasonNumber: season,
     episodeNumber: episode,
   };
 
+  // Use the same combined resolver path that is proven to return exact
+  // episode sources, then keep only the requested provider group. This avoids
+  // maintaining a second provider-specific discovery path that previously
+  // returned zero sources for every episode.
   const timeoutMs = Math.max(8_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
-  return withTimeout(
-    resolveProvider(provider, resolvedContext, timeoutMs),
-    Math.min(timeoutMs + 3_000, 12_000),
+  const sources = await withTimeout(
+    resolveUncached(resolvedContext, timeoutMs),
+    Math.min(timeoutMs + 3_000, 18_000),
     `Provider ${providerKey} exceeded resolver budget`,
+  );
+
+  return sources.filter((source) =>
+    String(source.providerKey || source.providerReference || '').trim().toLowerCase() === providerKey.toLowerCase(),
   );
 }
 
