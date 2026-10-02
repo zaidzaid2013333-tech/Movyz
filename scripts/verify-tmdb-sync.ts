@@ -25,13 +25,20 @@ const { data: publishedSeries, error: publishedSeriesError } = await adminSupaba
 
 if (publishedSeriesError) throw new Error('series: ' + publishedSeriesError.message);
 
-const { data: seasonRows, error: seasonRowsError } = await adminSupabase
-  .from('seasons')
-  .select('id,series_id,season_number')
-  .order('series_id')
-  .order('season_number');
+const seasonRows: Array<{ id: string; series_id: string; season_number: number }> = [];
 
-if (seasonRowsError) throw new Error('seasons: ' + seasonRowsError.message);
+for (let offset = 0; ; offset += 1000) {
+  const { data, error } = await adminSupabase
+    .from('seasons')
+    .select('id,series_id,season_number')
+    .order('series_id')
+    .order('season_number')
+    .range(offset, offset + 999);
+
+  if (error) throw new Error('seasons: ' + error.message);
+  seasonRows.push(...(data || []));
+  if (!data || data.length < 1000) break;
+}
 
 const episodeRows: Array<{ season_id: string; episode_number: number }> = [];
 
