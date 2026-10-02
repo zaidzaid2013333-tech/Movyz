@@ -47,6 +47,40 @@ const playbackQualityRank = (source: PlaybackSource) => {
 const sortPlaybackSources = (sources: PlaybackSource[]) =>
   [...sources].sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
 
+const providerDisplayName = (key: string, fallback: string, language: 'ar' | 'en') => {
+  const normalized = key.trim().toLowerCase();
+  const names: Record<string, [string, string]> = {
+    aflaam: ['أفلام', 'Aflam'],
+    cimaclub: ['سيما كلوب', 'CimaClub'],
+    anime3rb: ['أنمي عرب', 'Anime3rb'],
+    anime4up: ['أنمي فور أب', 'Anime4Up'],
+  };
+  return names[normalized]?.[language === 'ar' ? 0 : 1] || fallback;
+};
+
+const groupPlaybackSources = (sources: PlaybackSource[], language: 'ar' | 'en') => {
+  const groups = new Map<string, { key: string; label: string; sources: PlaybackSource[] }>();
+
+  for (const source of sortPlaybackSources(sources)) {
+    const key = String(source.providerKey || source.providerReference || source.provider || 'selected-site')
+      .trim()
+      .toLowerCase();
+    const existing = groups.get(key);
+    if (existing) {
+      existing.sources.push(source);
+      continue;
+    }
+
+    groups.set(key, {
+      key,
+      label: providerDisplayName(key, source.provider || source.labelEn || 'Source', language),
+      sources: [source],
+    });
+  }
+
+  return [...groups.values()];
+};
+
 const PLAYBACK_HOST_HEALTH_KEY = 'movyz:playback-host-health:v1';
 
 function playbackHost(source: PlaybackSource | null | undefined) {
@@ -260,7 +294,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         const resolvedSources = sortPlaybackSources(
           response.data.sources
             .filter(isPlayableHttpSource)
-            .slice(0, 6),
+            .slice(0, 12),
         );
 
         const merged = sortPlaybackSources(
@@ -325,6 +359,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         ),
       ),
     [storedPlaybackSources, remotePlaybackSources],
+  );
+  const availableSourceGroups = useMemo(
+    () => groupPlaybackSources(availableSources, language),
+    [availableSources, language],
   );
 
 
@@ -651,29 +689,49 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           <div className="absolute -inset-1 bg-gradient-to-r from-amber-600/15 via-orange-500/10 to-amber-700/15 blur-2xl -z-10 rounded-3xl opacity-75" />
         )}
 
-        {availableSources.length > 0 && (
-          <div dir={direction} className="touch-chip-scroll px-1 pb-2">
-            <span className="shrink-0 text-[11px] text-slate-500 font-mono">
-              {language === 'ar' ? 'مصدر التشغيل:' : 'Playback:'}
-            </span>
-            {availableSources.map((source) => {
-              const active = source.id === playbackSource?.id;
-              return (
-                <button
-                  key={source.id}
-                  type="button"
-                  onClick={() => handleSelectPlaybackSource(source)}
-                  className={
-                    'shrink-0 px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition-all ' +
-                    (active
-                      ? 'bg-amber-500 text-slate-950 border-amber-400'
-                      : 'bg-[#0b0d13] text-slate-300 border-amber-500/15 hover:border-amber-500/35 hover:text-white')
-                  }
+        {availableSourceGroups.length > 0 && (
+          <div dir={direction} className="space-y-2 px-1 pb-2">
+            <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono">
+              <span>{language === 'ar' ? 'مصادر التشغيل:' : 'Playback sources:'}</span>
+              <span className="text-amber-400/70">{availableSourceGroups.length}/2</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {availableSourceGroups.map((group) => (
+                <div
+                  key={group.key}
+                  className="rounded-xl border border-amber-500/15 bg-[#0a0d13] p-2.5"
                 >
-                  {source.quality || source.labelEn || 'Auto'}
-                </button>
-              );
-            })}
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-[11px] font-bold text-white">{group.label}</span>
+                    <span className="text-[9px] text-slate-500 font-mono">
+                      {group.sources.length} {language === 'ar' ? 'جودة' : 'qualities'}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {group.sources.map((source) => {
+                      const active = source.url === playbackSource?.url;
+                      return (
+                        <button
+                          key={source.id || source.url}
+                          type="button"
+                          onClick={() => handleSelectPlaybackSource(source)}
+                          className={
+                            'px-2.5 py-1.5 rounded-lg border text-[10px] font-semibold transition-all ' +
+                            (active
+                              ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm shadow-amber-500/20'
+                              : 'bg-[#11151d] text-slate-300 border-white/5 hover:border-amber-500/30 hover:text-white')
+                          }
+                        >
+                          {source.quality || source.labelEn || 'Auto'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
