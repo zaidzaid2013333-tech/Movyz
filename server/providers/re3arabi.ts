@@ -1621,6 +1621,19 @@ export async function resolveRe3ArabiSeriesContext(tmdbId: number): Promise<Reso
   return resolveContext({ type: 'series', tmdbId });
 }
 
+export async function resolveRe3ArabiProvider(
+  request: Re3ArabiPlaybackRequest,
+  providerKey: string,
+): Promise<Candidate[]> {
+  const context = await resolveContext(request);
+  return resolveRe3ArabiProviderWithContext(
+    context,
+    request.season || 1,
+    request.episode || 1,
+    providerKey,
+  );
+}
+
 export async function resolveRe3ArabiProviderWithContext(
   context: ResolverContext,
   season: number,
