@@ -758,6 +758,7 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
         tmdbId: Number(data.tmdb_id),
         title: data.title_en || data.title_ar || data.original_title || undefined,
         originalTitle: data.original_title || data.title_en || data.title_ar || undefined,
+        alternateTitles: [data.title_ar, data.title_en, data.original_title].filter(Boolean).filter((value, index, list) => list.indexOf(value) === index),
       });
     } catch (error) {
       console.warn('[arprov-movie]', error instanceof Error ? error.message : String(error));
@@ -829,6 +830,7 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
         tmdbId: Number(series.tmdb_id),
         title: series.title_en || series.title_ar || series.original_title || undefined,
         originalTitle: series.original_title || series.title_en || series.title_ar || undefined,
+        alternateTitles: [series.title_ar, series.title_en, series.original_title].filter(Boolean).filter((value, index, list) => list.indexOf(value) === index),
         seasonNumber: Number(season.season_number),
         episodeNumber: Number(episode.episode_number),
       });
