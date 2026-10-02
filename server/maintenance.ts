@@ -3,7 +3,6 @@ import {
   resolveRe3ArabiProvider,
   resolveRe3ArabiProviderWithContext,
   resolveRe3ArabiSeriesContext,
-  resolveRe3ArabiMovieContext,
 } from './providers/re3arabi';
 
 type MaintenanceJob = 'primary_sources' | 'secondary_sources' | 'repair_sources';
@@ -418,8 +417,7 @@ async function fillMovies(role: ProviderRole, limit: number, jobKey: Maintenance
 
   await runWithConcurrency(candidates, 4, async (movie: any) => {
     try {
-      const context = await resolveRe3ArabiMovieContext(Number(movie.tmdb_id));
-      const providerKey = providerKeyFor(role, context.__isAnime);
+      const providerKey = providerKeyFor(role, false);
       if (!providerKey) return;
 
       const selected = await resolveRe3ArabiProvider({
