@@ -618,6 +618,11 @@ async function resolveProvider(
 
   if (!titles.length) return [];
 
+  if (provider.key === 'anime3rb' && context.episodeNumber !== undefined) {
+    const canonicalSources = await resolveCanonicalAnime3rbEpisode(titles, context, provider, timeoutMs);
+    if (canonicalSources.length) return canonicalSources;
+  }
+
   const searchResults: SearchHit[] = [];
 
   // Anime3rb has stable canonical title pages; prefer them before generic search.
