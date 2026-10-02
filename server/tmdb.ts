@@ -554,7 +554,13 @@ export async function syncEpisodesForSeries(seriesLimit?: number) {
   const limit = seriesLimit == null ? 10_000 : Math.min(Math.max(seriesLimit, 1), 10_000);
   const job = await startJob('episodes', 0, { skipIfActive: true });
   if (!job) {
-    return { skipped: true, reason: 'another-tmdb-sync-running' };
+    return {
+      series: 0,
+      seasons: 0,
+      episodes: 0,
+      skipped: true,
+      reason: 'another-tmdb-sync-running',
+    };
   }
 
   try {
@@ -601,6 +607,7 @@ export async function syncEpisodesForSeries(seriesLimit?: number) {
 export async function runTmdbSync(options: { pages?: number } = {}) {
   const pages = Math.min(Math.max(options.pages || 6, 1), MAX_PAGES);
   const job = await startJob('catalog', pages);
+  if (!job) throw new Error('Unable to start TMDB catalog sync');
   const counts: Counts = { movies: 0, series: 0, seasons: 0, episodes: 0, pages };
 
   try {
