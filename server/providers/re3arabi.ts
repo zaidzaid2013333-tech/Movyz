@@ -544,14 +544,24 @@ function classifyUrl(rawUrl: string, hint = '', allowGenericDirect = false): { t
   if (/\.mpd(?:[?#]|$)/i.test(value)) return { type: 'dash', quality };
   if (/\.(?:m4v|mov|mkv|avi|mpeg|mpg|ogg|ogv|ts|m2ts|flv|3gp|3g2)(?:[?#]|$)/i.test(value)) return { type: 'direct', quality };
 
-  // Cloudstream's four selected sites frequently expose their playable servers
-  // as external watch/embed URLs. Keep those URLs external rather than proxying
-  // their bytes through Movyz.
+  // Ignore static assets when a provider page contains many ordinary absolute
+  // URLs such as quality icons, logos, CSS, JS, fonts, thumbnails, etc.
+  if (/\.(?:png|jpe?g|gif|svg|webp|ico|css|js|json|xml|woff2?|ttf|eot)(?:[?#]|$)/i.test(value)) {
+    return null;
+  }
+
+  // Selected providers frequently expose playable servers through download/file
+  // paths without a conventional media extension. Only accept those patterns
+  // when generic-direct mode is explicitly enabled.
+  if (allowGenericDirect && /\/(?:download|file|stream|video|media)(?:\/|$)/i.test(value)) {
+    return { type: 'direct', quality };
+  }
+
   if (/\/embed(?:\/|$)|\/watch(?:\/|$)|\/e\/|player|stream|megabox|share4max|data-watch/i.test(value)) {
     return { type: 'embed', quality };
   }
 
-  return allowGenericDirect ? { type: 'direct', quality } : null;
+  return null;
 }
 
 function parseQualitySources(html: string, pageUrl: string, provider: SiteConfig): Candidate[] {
@@ -765,7 +775,7 @@ function parseDirectMediaSources(
     const raw = String(match[0])
       .replace(/\\\//g, '/')
       .replace(/[),.;]+$/g, '');
-    add(raw, inheritedQuality, true);
+    add(raw, inheritedQuality, false);
   }
 
   return candidates;
