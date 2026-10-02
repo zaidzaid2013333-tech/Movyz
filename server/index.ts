@@ -758,6 +758,36 @@ async function seriesWatchDto(row: any, seasonNumber: number) {
     .from('episodes').select('*').eq('season_id', season.id).order('episode_number');
   if (episodesError) throw new Error('Unable to load season episodes: ' + episodesError.message);
 
+  const episodeIds = (episodes || []).map((episode: any) => String(episode.id));
+  const playbackByEpisode = new Map<string, any[]>();
+
+  if (episodeIds.length) {
+    const { data: playbackRows, error: playbackError } = await adminSupabase
+      .from('playback_sources')
+      .select('id,content_id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name)')
+      .eq('content_type', 'episode')
+      .in('content_id', episodeIds)
+      .eq('is_working', true)
+      .eq('providers.key', 're3arabi')
+      .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
+      .order('quality', { ascending: true });
+
+    if (playbackError) {
+      console.warn('[series-watch-playback-cache]', playbackError.message);
+    } else {
+      for (const source of playbackRows || []) {
+        const providerReference = String(source.provider_reference || '').trim().toLowerCase();
+        if (!['aflaam', 'anime3rb', 'anime4up'].includes(providerReference)) continue;
+        const mapped = cachedRe3ArabiSourceDto(source);
+        if (!mapped.url || !mapped.providerKey) continue;
+        const episodeId = String(source.content_id || '');
+        const list = playbackByEpisode.get(episodeId) || [];
+        list.push(mapped);
+        playbackByEpisode.set(episodeId, list);
+      }
+    }
+  }
+
   const seasonDto = {
     id: season.id, seriesId: row.id, seasonNumber: season.season_number,
     name: season.name_ar || season.name_en || ('الموسم ' + season.season_number),
@@ -771,7 +801,8 @@ async function seriesWatchDto(row: any, seasonNumber: number) {
       titleEn: e.name_en || e.name_ar || ('Episode ' + e.episode_number),
       overview: e.overview_ar || '', overviewEn: e.overview_en || e.overview_ar || '',
       stillUrl: e.still_url || '', duration: Number(e.runtime_minutes || 0),
-      airDate: e.air_date || '', sources: [],
+      airDate: e.air_date || '',
+      sources: playbackByEpisode.get(String(e.id)) || [],
     })),
   };
 
@@ -1001,7 +1032,7 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
 app.get(`${api}/movies/:id`, asyncRoute(async (req, res) => {
   const { data, error } = await adminSupabase.from('movies').select('*').eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
-  const movie = await movieDto(data);
+  const movie = await movieDto(data, true);
   return ok(res, { movie, similar: [] });
 }));
 
