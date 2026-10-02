@@ -609,6 +609,36 @@ async function resolveAnime3rbSources(
   return output.sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality));
 }
 
+async function resolveCanonicalAnime3rbEpisode(
+  titles: string[],
+  context: ProviderContext,
+  provider: SiteConfig,
+  timeoutMs: number,
+): Promise<Candidate[]> {
+  if (provider.key !== 'anime3rb' || context.episodeNumber === undefined) return [];
+
+  // The canonical episode route is deterministic for first-season episodes.
+  // For later seasons, keep the stricter title-page episode matching below so
+  // we never guess a season from an opaque episode number.
+  if (context.seasonNumber !== undefined && context.seasonNumber !== 1) return [];
+
+  for (const term of titles.slice(0, 2)) {
+    const slug = normalize(term).replace(/\s+/g, '-');
+    if (!slug) continue;
+
+    const episodeUrl = `https://anime3rb.com/episode/${slug}/${context.episodeNumber}`;
+    try {
+      const html = await getText(episodeUrl, timeoutMs, provider.base);
+      const sources = await resolveAnime3rbSources(html, episodeUrl, provider, timeoutMs);
+      if (sources.length) return sources;
+    } catch {
+      // Fall through to the canonical title/search resolver below.
+    }
+  }
+
+  return [];
+}
+
 async function resolveProvider(
   provider: SiteConfig,
   context: ProviderContext,
