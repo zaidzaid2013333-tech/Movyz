@@ -973,27 +973,51 @@ function resolveAflamEpisodeUrl(
     const url = absolute(pageUrl, href);
     if (!url || seen.has(url)) continue;
 
-    const identity = parseSeasonEpisode([href, text].join(' '));
+    const contextWindowStart = Math.max(0, match.index - 1400);
+    const contextWindowEnd = Math.min(html.length, match.index + match[0].length + 1400);
+    const contextWindow = stripTags(html.slice(contextWindowStart, contextWindowEnd));
+
+    const identity = parseSeasonEpisode([href, text, contextWindow].join(' '));
     const classNumber = normalizeNumber(
-      /class=["'][^"']*(?:font-size-50|entry-title)[^"']*["'][^>]*>\s*([0-9٠-٩]+)/i.exec(tag)?.[1],
+      /class=["'][^"']*(?:font-size-50|entry-title|episode-number|ep-number)[^"']*["'][^>]*>\s*([0-9٠-٩]+)/i.exec(tag)?.[1],
     );
-    const dataEpisode = normalizeNumber(/data-episode=["']([0-9٠-٩]+)["']/i.exec(tag)?.[1]);
+    const dataEpisode = normalizeNumber(
+      /(?:data-episode|data-ep|data-number)=["']([0-9٠-٩]+)["']/i.exec(tag)?.[1],
+    );
     const textEpisode = normalizeNumber(
-      text.match(/(?:episode|ep|الحلقة|حلقه)[^0-9٠-٩]*([0-9٠-٩]+)/i)?.[1],
+      text.match(/(?:episode|ep|الحلقة|حلقه|حلقة)[^0-9٠-٩]*([0-9٠-٩]+)/i)?.[1],
     );
-    const number = identity.episode ?? classNumber ?? textEpisode ?? dataEpisode;
+    const numberFromHref = normalizeNumber(
+      href.match(/(?:episode|ep|الحلقة|حلقه|e)[-_./ ]*([0-9٠-٩]{1,3})(?:\D|$)/i)?.[1],
+    );
+    const bareNumber = normalizeNumber(text);
+    const hasEpisodeMarker = /(?:episode|ep|الحلقة|حلقه|حلقة|season|الموسم|s\d+e\d+)/i.test(
+      href + ' ' + tag + ' ' + text + ' ' + contextWindow,
+    );
+    const number =
+      identity.episode ??
+      dataEpisode ??
+      textEpisode ??
+      numberFromHref ??
+      classNumber ??
+      (hasEpisodeMarker ? bareNumber : undefined);
 
     if (number !== episode) continue;
 
     const explicitSeason = identity.season ?? normalizeNumber(
-      /data-season=["']([0-9٠-٩]+)["']/i.exec(tag)?.[1],
+      /(?:data-season|data-season-number)=["']([0-9٠-٩]+)["']/i.exec(tag)?.[1],
+    ) ?? normalizeNumber(
+      contextWindow.match(/(?:season|الموسم|الموسم رقم)[^0-9٠-٩]*([0-9٠-٩]{1,3})/i)?.[1],
     );
     if (season !== undefined && explicitSeason !== undefined && explicitSeason !== season) continue;
 
     let score = 100;
-    if (/font-size-50|entry-title|data-episode/i.test(tag)) score += 80;
-    if (/(?:episode|ep|الحلقة|حلقه)/i.test(href + ' ' + text)) score += 40;
-    if (season !== undefined && explicitSeason === season) score += 60;
+    if (/font-size-50|entry-title|episode-number|ep-number|data-episode|data-ep/i.test(tag)) score += 80;
+    if (/(?:episode|ep|الحلقة|حلقه|حلقة)/i.test(href + ' ' + text)) score += 40;
+    if (numberFromHref === episode) score += 35;
+    if (bareNumber === episode) score += 15;
+    if (season !== undefined && explicitSeason === season) score += 90;
+    if (season !== undefined && explicitSeason !== undefined && explicitSeason !== season) score -= 500;
     if (season === 1 && explicitSeason === undefined) score += 20;
 
     candidates.push({ url, season: explicitSeason, score });
