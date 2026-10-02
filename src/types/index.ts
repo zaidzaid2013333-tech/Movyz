@@ -29,7 +29,7 @@ export interface PlaybackSubtitleTrack {
 
 export interface PlaybackSource {
   id: string;
-  type: 'hls' | 'mp4' | 'dash' | 'webm' | 'web' | 'embed';
+  type: 'hls' | 'mp4' | 'dash' | 'webm' | 'direct' | 'web' | 'embed';
   quality: string;
   language: string;
   label: string; // e.g., 'سيرفر سريع (Akamai CDN)'
