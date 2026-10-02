@@ -142,7 +142,7 @@ async function persistRemoteRe3ArabiSources(
       .eq('content_type', type === 'movie' ? 'movie' : 'episode')
       .eq('content_id', contentId);
 
-    const rows = ['aflaam', 'cimaclub', 'anime3rb', 'anime4up']
+    const rows = ['aflaam', 'anime3rb', 'anime4up']
       .flatMap((providerReference) =>
         allowed.filter((source) => String(source.providerReference || '').toLowerCase() === providerReference).slice(0, 6),
       )
@@ -178,7 +178,7 @@ async function persistRemoteRe3ArabiSources(
 }
 function cachedRe3ArabiSourceDto(source: any) {
   const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-  const allowedProviders = new Set(['aflaam', 'cimaclub', 'anime3rb', 'anime4up']);
+  const allowedProviders = new Set(['aflaam', 'anime3rb', 'anime4up']);
 
   return {
     id: source.id,
@@ -231,7 +231,7 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
 
   if (error) throw new Error('Unable to load cached selected playback sources: ' + error.message);
 
-  const allowedProviders = new Set(['aflaam', 'cimaclub', 'anime3rb', 'anime4up']);
+  const allowedProviders = new Set(['aflaam', 'anime3rb', 'anime4up']);
   const allowedTypes = new Set(['mp4', 'hls', 'dash', 'webm', 'direct', 'embed']);
 
   return (data || [])
@@ -653,7 +653,7 @@ async function seriesDto(row: any, includePlaybackSources = false) {
         if (!episodeId) continue;
         const list = playbackByEpisode.get(episodeId) || [];
         const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-        if (!['aflaam', 'cimaclub', 'anime3rb', 'anime4up'].includes(providerReference)) continue;
+        if (!['aflaam', 'anime3rb', 'anime4up'].includes(providerReference)) continue;
         const mapped = cachedRe3ArabiSourceDto(source);
         if (mapped.url && mapped.providerKey) list.push(mapped);
         playbackByEpisode.set(episodeId, list);
