@@ -17,6 +17,58 @@ type DiagnosticCase = {
   tmdbId: number;
 };
 
+async function debugAflamBreakingBad() {
+  const urls = [
+    'https://aflaam.com/search?q=Breaking%20Bad',
+    'https://aflaam.com/?s=Breaking%20Bad',
+    'https://aflaam.com/search?q=Breaking%20Bad%20S01E02',
+    'https://aflaam.com/?s=Breaking%20Bad%20S01E02',
+    'https://aflaam.com/sitemap.xml',
+    'https://aflaam.com/sitemap_index.xml',
+  ];
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'text/html,application/xml,text/plain,*/*;q=0.8',
+          'Accept-Language': 'en,ar;q=0.9',
+          'User-Agent': 'Mozilla/5.0 (compatible; Movyz-Diagnostic/1.0)',
+        },
+      });
+      const body = await response.text();
+      const anchors = [...body.matchAll(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)]
+        .map((m) => ({
+          href: m[1],
+          text: m[2].replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim(),
+        }))
+        .filter((x) => /breaking|episode|s0?1e0?[1-9]|الحلقة|الموسم/i.test(x.href + ' ' + x.text))
+        .slice(0, 80);
+
+      const sitemapMatches = [...body.matchAll(/<loc>\\s*(.*?)\\s*<\\/loc>/gis)]
+        .map((m) => String(m[1] || '').trim())
+        .filter((x) => /breaking|s0?1|episode|الحلقة/i.test(x))
+        .slice(0, 80);
+
+      console.log(JSON.stringify({
+        debugUrl: url,
+        status: response.status,
+        length: body.length,
+        title: /<title[^>]*>([\\s\\S]*?)<\\/title>/i.exec(body)?.[1]?.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim() || '',
+        anchors,
+        sitemapMatches,
+      }));
+    } catch (error) {
+      console.log(JSON.stringify({
+        debugUrl: url,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }
+}
+
+await debugAflamBreakingBad();
+
 const movieContext = await resolveRe3ArabiMovieContext(27205);
 const breakingBadContext = await resolveRe3ArabiSeriesContext(1396);
 const onePieceContext = await resolveRe3ArabiSeriesContext(37854);
