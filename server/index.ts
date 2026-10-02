@@ -683,18 +683,9 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       return ok(res, { sources: healthyCachedSources });
     }
 
-    // Bootstrap missing catalog records only when the playback cache is empty.
-    await ensureTmdbPlaybackContent(type, tmdbId, season, episode);
-
-    // A background sync/import may have populated playback_sources as a side effect.
-    const syncedCachedSources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
-    const healthySyncedSources = await probeCachedPlaybackSources(syncedCachedSources);
-    if (healthySyncedSources.length) {
-      res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=20');
-      res.setHeader('Referrer-Policy', 'no-referrer');
-      return ok(res, { sources: healthySyncedSources });
-    }
-
+    // Resolve the selected playback sites before doing catalog/bootstrap work.
+    // The external resolver already resolves by TMDB ID, so catalog sync is only a fallback
+    // when no selected-site source can be resolved.
     const sources = await resolveRemotePlayback({
       type,
       tmdbId,
@@ -703,19 +694,30 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       ...(episodeTmdbId !== undefined ? { episodeTmdbId } : {}),
     }, req.env);
 
-    if (!sources.length) {
-      return fail(res, 404, 'PLAYBACK_SOURCE_NOT_FOUND', 'No playback source was returned by the resolver');
+    if (sources.length) {
+      const persistPromise = persistRemoteRe3ArabiSources(type, tmdbId, season, episode, sources);
+      if (req.waitUntil) {
+        req.waitUntil(persistPromise);
+      } else {
+        await persistPromise;
+      }
+
+      res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=60');
+      return ok(res, { sources });
     }
 
-    // Persist successful external re-3arabi URLs without holding the player request
-    // open. Cloudflare's waitUntil keeps the write alive after the response is sent.
-    const persistPromise = persistRemoteRe3ArabiSources(type, tmdbId, season, episode, sources);
-    if (req.waitUntil) {
-      req.waitUntil(persistPromise);
-    } else {
-      await persistPromise;
+    // Fallback: bootstrap catalog records, then give the cache one more chance.
+    await ensureTmdbPlaybackContent(type, tmdbId, season, episode);
+
+    const syncedCachedSources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
+    const healthySyncedSources = await probeCachedPlaybackSources(syncedCachedSources);
+    if (healthySyncedSources.length) {
+      res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=20');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      return ok(res, { sources: healthySyncedSources });
     }
 
+    return fail(res, 404, 'PLAYBACK_SOURCE_NOT_FOUND', 'No playback source was returned by the selected playback sites resolver');
     res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=60');
     return ok(res, { sources });
   } catch (error) {
