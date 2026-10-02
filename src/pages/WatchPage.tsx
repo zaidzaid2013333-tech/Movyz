@@ -276,33 +276,60 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       return true;
     };
 
+    const resolveOnDemand = async () => {
+      setResolverLoading(true);
+      setPlayerUnlocked(false);
+      setPlaybackError(null);
+
+      try {
+        const targetId = mediaType === 'movie' ? content?.id : currentEpisode?.id;
+        if (!targetId) throw new Error('Missing playback target');
+
+        const resolved = await MovyzaApi.resolvePlaybackSources(
+          mediaType === 'movie' ? 'movie' : 'episode',
+          targetId,
+        );
+
+        if (!mounted) return;
+        if (!applyReadySources(resolved.data)) {
+          throw new Error('No playable source returned');
+        }
+      } catch (caught) {
+        if (!mounted) return;
+        setResolverLoading(false);
+        setPlayerUnlocked(false);
+        setPlaybackError(
+          language === 'ar'
+            ? 'تعذر الحصول على مصدر تشغيل حاليًا.'
+            : 'Unable to get a playable source right now.',
+        );
+      }
+    };
+
     setRemotePlaybackSources([]);
     setRemotePlaybackSource(null);
     setResolverLoading(false);
     setPlaybackError(null);
 
-    // Playback is intentionally DB-only now. The content DTO already carries
-    // preloaded sources, so opening the player never starts a resolver request.
     if (storedPlaybackSources.length && applyReadySources(storedPlaybackSources)) {
       return () => {
         mounted = false;
       };
     }
 
-    setPlayerUnlocked(false);
-    setPlaybackError(
-      language === 'ar'
-        ? 'لا يوجد مصدر تشغيل جاهز لهذا المحتوى حاليًا.'
-        : 'No preloaded playback source is ready for this title yet.',
-    );
+    if (content && (mediaType === 'movie' || currentEpisode)) {
+      void resolveOnDemand();
+    }
 
     return () => {
       mounted = false;
     };
   }, [
     mediaType,
+    content?.id,
     activeSeason,
     activeEpisode,
+    currentEpisode?.id,
     currentEpisode?.seasonNumber,
     currentEpisode?.episodeNumber,
     storedPlaybackSources.length,
