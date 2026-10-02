@@ -176,8 +176,11 @@ function parseSearchHits(html: string, base: string): SearchHit[] {
 
   while ((match = re.exec(html))) {
     const url = absolute(base, match[1]);
-    const title = stripTags(match[2]);
-    if (!url || isNavigationLink(url, title) || seen.has(url)) continue;
+    const windowHtml = html.slice(match.index, Math.min(html.length, match.index + 2600));
+    const title = stripTags(match[2]) ||
+      stripTags(/<h3\\b[^>]*class=["'][^"']*\\bentry-title\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/h3>/i.exec(windowHtml)?.[1] || '') ||
+      stripTags(/<h2\\b[^>]*>([\\s\\S]*?)<\\/h2>/i.exec(windowHtml)?.[1] || '');
+    if (!url || !title || isNavigationLink(url, title) || seen.has(url)) continue;
     if (isLikelyEpisodeLink(url, title)) continue;
     seen.add(url);
     hits.push({ title, url, year: extractYear(title) });
@@ -299,16 +302,16 @@ async function resolveAflamQualitySources(
   timeoutMs: number,
 ): Promise<Candidate[]> {
   const watchUrls: string[] = [];
-  const anchorRe = /<a\\b[^>]*>/gi;
+  const anchorRe = /<a\b[^>]*>/gi;
   for (const match of html.matchAll(anchorRe)) {
     const tag = match[0];
     const classValue =
-      /\\bclass=["']([^"']*)["']/i.exec(tag)?.[1] ||
-      /\\bclass=([^\\s>]+)/i.exec(tag)?.[1] ||
+      /\bclass=["']([^"']*)["']/i.exec(tag)?.[1] ||
+      /\bclass=([^\s>]+)/i.exec(tag)?.[1] ||
       '';
-    if (!/\\blink-show\\b/i.test(classValue)) continue;
-    const href = /\\bhref=["']([^"']+)["']/i.exec(tag)?.[1] ||
-      /\\bhref=([^\\s>]+)/i.exec(tag)?.[1] ||
+    if (!/\blink-show\b/i.test(classValue)) continue;
+    const href = /\bhref=["']([^"']+)["']/i.exec(tag)?.[1] ||
+      /\bhref=([^\s>]+)/i.exec(tag)?.[1] ||
       '';
     const url = absolute(pageUrl, href);
     if (url) watchUrls.push(url);
@@ -318,11 +321,11 @@ async function resolveAflamQualitySources(
   for (const watchUrl of watchUrls.slice(0, 8)) {
     try {
       const watchHtml = await getText(watchUrl, timeoutMs, pageUrl);
-      const sourceMatches = [...watchHtml.matchAll(/<source\\b[^>]*src=["']([^"']+)["'][^>]*>/gi)];
+      const sourceMatches = [...watchHtml.matchAll(/<source\b[^>]*src=["']([^"']+)["'][^>]*>/gi)];
       for (const match of sourceMatches) {
         const url = absolute(watchUrl, match[1]);
         if (!url) continue;
-        const hint = /\\bsize=["']([^"']+)["']/i.exec(match[0])?.[1] || '';
+        const hint = /\bsize=["']([^"']+)["']/i.exec(match[0])?.[1] || '';
         const classified = classifyUrl(url, hint, true);
         if (!classified) continue;
         results.push({
