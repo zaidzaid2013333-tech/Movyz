@@ -1410,7 +1410,17 @@ async function resolveCimaClubSources(
   provider: SiteConfig,
   timeoutMs: number,
 ): Promise<Candidate[]> {
-  const html = await postText(targetUrl, timeoutMs, targetUrl);
+  let html = '';
+  try {
+    html = await postText(targetUrl, timeoutMs, targetUrl);
+  } catch {
+    try {
+      html = await getText(targetUrl, timeoutMs, targetUrl);
+    } catch {
+      return [];
+    }
+  }
+
   const links: Array<{ url: string; quality?: string; referer?: string }> = [];
   const seen = new Set<string>();
 
@@ -1720,12 +1730,12 @@ async function resolveUncached(context: ResolverContext, timeoutMs: number) {
 
   // Resolve both eligible sites in parallel and retain each non-empty
   // provider group separately; qualities are never mixed across sites.
-  const providerBudgetMs = Math.min(Math.max(timeoutMs + 3_000, 15_000), 22_000);
+  const providerBudgetMs = Math.min(Math.max(timeoutMs + 5_000, 25_000), 32_000);
   const groups = await Promise.all(
     providers.map(async (provider) => {
       try {
         const sources = await withTimeout(
-          resolveProvider(provider, context, Math.min(timeoutMs, 18_000)),
+          resolveProvider(provider, context, Math.min(timeoutMs, 25_000)),
           providerBudgetMs,
           `Provider ${provider.key} exceeded resolver budget`,
         );
@@ -1815,7 +1825,7 @@ export async function diagnoseRe3ArabiPlayback(request: Re3ArabiPlaybackRequest)
   const context = await resolveContext(request);
   const eligibleKind: SiteKind = context.__isAnime ? 'anime' : 'general';
   const providers = PROVIDERS.filter((provider) => provider.kind === eligibleKind);
-  const timeoutMs = Math.max(5_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 15_000));
+  const timeoutMs = Math.max(5_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 22_000));
 
   const results = await Promise.all(providers.map(async (provider) => {
     try {
