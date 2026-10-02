@@ -898,60 +898,57 @@ async function resolveCimaClubEpisodeUrl(
 ): Promise<string | null> {
   if (episode === undefined) return null;
 
-  const candidates: Array<{ url: string; season?: number }> = [{ url: pageUrl, season }];
-  const seasonBlocks = [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)];
+  const seasonSection = /<section\b[^>]*class=["'][^"']*allseasonss[^"']*["'][^>]*>([\s\S]*?)<\/section>/i.exec(html)?.[1] || '';
+  const seasonCandidates: Array<{ url: string; season: number }> = [];
 
-  for (const match of seasonBlocks) {
-    const tag = match[0];
+  for (const match of seasonSection.matchAll(
+    /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+  )) {
     const url = absolute(pageUrl, match[1]);
-    if (!url || !/allseasonss|Small--Box|epnum|الموسم/i.test(tag)) continue;
+    const body = match[0];
+    if (!url) continue;
 
-    const plain = stripTags(tag);
-    const hintedSeason = /(?:season|الموسم)\s*[^0-9]*(\d{1,3})/i.exec(plain)?.[1];
-    const numericCandidates = [...plain.matchAll(/\b(\d{1,3})\b/g)]
-      .map((item) => Number(item[1]))
-      .filter((value) => value >= 1 && value <= 100);
-
+    const text = stripTags(body);
     const seasonNumber =
       normalizeNumber(
-        /class=["'][^"']*epnum[^"']*["'][^>]*>[\s\S]*?<span[^>]*>[\s\S]*?<\/span>\s*([^<]+)/i.exec(tag)?.[1],
+        /class=["'][^"']*epnum[^"']*["'][^>]*>[\s\S]*?<span[^>]*>[\s\S]*?<\/span>\s*([^<]+)/i.exec(body)?.[1],
       ) ??
-      (hintedSeason ? Number(hintedSeason) : undefined) ??
-      numericCandidates[0] ??
-      parseSeasonEpisode(match[1]).season;
+      normalizeNumber(/(?:season|الموسم)[^0-9٠-٩]*(\d+)/i.exec(text)?.[1]) ??
+      [...text.matchAll(/\b(\d{1,3})\b/g)].map((x) => Number(x[1])).find((n) => n >= 1 && n <= 100);
 
-    if (season === undefined || seasonNumber === season) {
-      candidates.push({ url, season: seasonNumber });
-    }
+    if (seasonNumber === undefined) continue;
+    if (season !== undefined && seasonNumber !== season) continue;
+    seasonCandidates.push({ url, season: seasonNumber });
   }
 
-  for (const candidate of candidates.slice(0, 4)) {
+  const candidates = seasonCandidates.length
+    ? seasonCandidates.slice(0, 2)
+    : [{ url: pageUrl, season: season ?? 1 }];
+
+  for (const candidate of candidates) {
     const pageHtml = candidate.url === pageUrl
       ? html
       : await getText(candidate.url, timeoutMs, pageUrl).catch(() => '');
 
     if (!pageHtml) continue;
 
-    const sectionMatch = /<section\b[^>]*class=["'][^"']*allepcont[^"']*["'][^>]*>([\s\S]*?)<\/section>/i.exec(pageHtml);
-    const scope = sectionMatch?.[1] || pageHtml;
+    const episodeSection =
+      /<section\b[^>]*class=["'][^"']*allepcont[^"']*["'][^>]*>([\s\S]*?)<\/section>/i.exec(pageHtml)?.[1] || '';
 
-    for (const match of scope.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
-      const tag = match[0];
+    for (const match of episodeSection.matchAll(
+      /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+    )) {
+      const body = match[0];
       const url = absolute(candidate.url, match[1]);
       if (!url) continue;
 
       const number =
         normalizeNumber(
-          /class=["'][^"']*epnum[^"']*["'][^>]*>([^<]*)/i.exec(tag)?.[1],
+          /class=["'][^"']*epnum[^"']*["'][^>]*>\s*([0-9٠-٩]+)/i.exec(body)?.[1],
         ) ??
-        parseSeasonEpisode(stripTags(tag)).episode;
+        parseSeasonEpisode(stripTags(body)).episode;
 
       if (number !== episode) continue;
-
-      const identity = parseSeasonEpisode([match[1], stripTags(tag)].join(' '));
-      const taggedSeason = identity.season ?? candidate.season;
-
-      if (season !== undefined && taggedSeason !== undefined && taggedSeason !== season) continue;
       return url;
     }
   }
@@ -967,22 +964,27 @@ function resolveAflamEpisodeUrl(
 ): string | null {
   if (episode === undefined) return null;
 
-  for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
-    const tag = match[0];
-    if (!/entry-box-3|font-size-50|entry-title/i.test(tag)) continue;
+  const episodeSection =
+    /<div\b[^>]*id=["']movie-tab-1["'][^>]*>([\s\S]*?)<\/div>\s*(?:<div|<section|$)/i.exec(html)?.[1] || html;
+
+  for (const match of episodeSection.matchAll(
+    /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+  )) {
+    const body = match[0];
+    if (!/entry-title|font-size-50/i.test(body)) continue;
 
     const url = absolute(pageUrl, match[1]);
     if (!url) continue;
 
     const number =
       normalizeNumber(
-        /class=["'][^"']*font-size-50[^"']*["'][^>]*>([^<]*)/i.exec(tag)?.[1],
+        /class=["'][^"']*font-size-50[^"']*["'][^>]*>\s*([0-9٠-٩]+)/i.exec(body)?.[1],
       ) ??
-      parseSeasonEpisode(stripTags(tag)).episode;
+      parseSeasonEpisode(stripTags(body)).episode;
 
     if (number !== episode) continue;
 
-    const identity = parseSeasonEpisode([match[1], stripTags(tag)].join(' '));
+    const identity = parseSeasonEpisode([match[1], stripTags(body)].join(' '));
     if (season !== undefined && identity.season !== undefined && identity.season !== season) continue;
     if (season !== undefined && identity.season === undefined && season !== 1) continue;
 
