@@ -195,6 +195,7 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
   }
 
   return candidates.sort((a, b) => b.score - a.score).slice(0, 6);
+}
 
 function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
   if (ctx.episodeNumber === undefined) return [];
