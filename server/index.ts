@@ -316,7 +316,9 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
       return false;
     });
 
-  const healthy = await probeRe3ArabiSources(filtered);
+  const healthy = await probeRe3ArabiSources(
+    filtered.map((source: any) => ({ ...source, type: String(source.source_type || '').toLowerCase() })),
+  );
   const healthyUrls = new Set(healthy.map((source: any) => source.url));
   const failedRows = filtered.filter((source: any) => !healthyUrls.has(source.url));
 
