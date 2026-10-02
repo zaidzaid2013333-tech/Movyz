@@ -668,6 +668,30 @@ async function seriesDto(row: any, includePlaybackSources = false) {
   } as any;
 }
 
+app.get(`${api}/playback/ready`, asyncRoute(async (req, res) => {
+  const type = req.query.type === 'movie' || req.query.type === 'series'
+    ? req.query.type
+    : null;
+  const tmdbId = Number(req.query.tmdbId || req.query.tmdb_id);
+  const season = req.query.season !== undefined ? Number(req.query.season) : undefined;
+  const episode = req.query.episode !== undefined ? Number(req.query.episode) : undefined;
+
+  if (!type || !Number.isInteger(tmdbId) || tmdbId <= 0) {
+    return fail(res, 400, 'INVALID_PLAYBACK_REQUEST', 'Invalid playback request');
+  }
+  if (type === 'series' && (
+    !Number.isInteger(season) || season < 1 ||
+    !Number.isInteger(episode) || episode < 1
+  )) {
+    return fail(res, 400, 'INVALID_EPISODE', 'Series playback requires exact season and episode');
+  }
+
+  const sources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
+  res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=60, stale-while-revalidate=120');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  return ok(res, { sources, ready: sources.length > 0 });
+}));
+
 app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   const type = req.query.type === 'movie' || req.query.type === 'series'
     ? req.query.type
