@@ -10,13 +10,6 @@
   "observability": {
     "enabled": true
   },
-  "triggers": {
-    "crons": [
-      "*/5 * * * *",
-      "2,12,22,32,42,52 * * * *",
-      "4 * * * *"
-    ]
-  },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
