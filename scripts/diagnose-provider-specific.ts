@@ -1,45 +1,93 @@
+import 'dotenv/config';
+
+import {
+  resolveRe3ArabiMovieContext,
+  resolveRe3ArabiSeriesContext,
+  resolveRe3ArabiProvider,
+  resolveRe3ArabiProviderWithContext,
+} from '../server/providers/re3arabi';
+
 const movieContext = await resolveRe3ArabiMovieContext(27205);
 const seriesContext = await resolveRe3ArabiSeriesContext(1396);
 
-for (const [provider, type, context, season, episode] of [
-  ['cimaclub', 'movie', movieContext, undefined, undefined],
-  ['aflaam', 'movie', movieContext, undefined, undefined],
-  ['cimaclub', 'episode', seriesContext, 1, 1],
-  ['aflaam', 'episode', seriesContext, 1, 1],
-] as const) {
+const cases = [
+  {
+    provider: 'cimaclub' as const,
+    type: 'movie' as const,
+    context: movieContext,
+  },
+  {
+    provider: 'aflaam' as const,
+    type: 'movie' as const,
+    context: movieContext,
+  },
+  {
+    provider: 'cimaclub' as const,
+    type: 'episode' as const,
+    context: seriesContext,
+    season: 1,
+    episode: 1,
+  },
+  {
+    provider: 'aflaam' as const,
+    type: 'episode' as const,
+    context: seriesContext,
+    season: 1,
+    episode: 1,
+  },
+];
+
+let failed = false;
+
+for (const test of cases) {
   const started = Date.now();
+
   try {
-    const sources = type === 'movie'
-      ? await resolveRe3ArabiProvider({
-          type: 'movie',
-          tmdbId: 27205,
-        }, provider)
+    const sources = test.type === 'movie'
+      ? await resolveRe3ArabiProvider(
+          { type: 'movie', tmdbId: 27205 },
+          test.provider,
+        )
       : await resolveRe3ArabiProviderWithContext(
-          context,
-          Number(season),
-          Number(episode),
-          provider,
+          test.context,
+          test.season,
+          test.episode,
+          test.provider,
         );
 
-    console.log(JSON.stringify({
-      provider,
-      type,
-      season,
-      episode,
+    const normalized = sources.filter((source) =>
+      source &&
+      typeof source.url === 'string' &&
+      /^https:\/\//i.test(source.url) &&
+      ['hls', 'mp4', 'dash', 'webm', 'direct'].includes(String(source.type).toLowerCase()),
+    );
+
+    const summary = {
+      provider: test.provider,
+      type: test.type,
+      season: test.season,
+      episode: test.episode,
       ms: Date.now() - started,
-      count: sources.length,
-      qualities: [...new Set(sources.map((x:any)=>x.quality))],
-      types: [...new Set(sources.map((x:any)=>x.type))],
-      urls: sources.slice(0, 3).map((x:any)=>x.url),
-    }));
+      count: normalized.length,
+      qualities: [...new Set(normalized.map((x: any) => x.quality))],
+      types: [...new Set(normalized.map((x: any) => x.type))],
+      sampleUrls: normalized.slice(0, 3).map((x: any) => x.url),
+    };
+
+    console.log(JSON.stringify(summary));
+
+    if (!normalized.length) failed = true;
   } catch (error) {
+    failed = true;
     console.log(JSON.stringify({
-      provider,
-      type,
-      season,
-      episode,
+      provider: test.provider,
+      type: test.type,
+      season: test.season,
+      episode: test.episode,
       ms: Date.now() - started,
       error: error instanceof Error ? error.message : String(error),
     }));
   }
 }
+
+if (failed) process.exit(1);
