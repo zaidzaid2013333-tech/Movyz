@@ -1,7 +1,6 @@
 import 'dotenv/config';
 
 import { adminSupabase } from '../server/supabase';
-import { resolvePlaybackSources } from '../server/providers/resolver';
 import {
   resolveRe3ArabiPlayback,
   resolveRe3ArabiPlaybackWithContext,
@@ -93,7 +92,10 @@ async function rebindMovies() {
 
   await mapWithConcurrency(data || [], async (movie: any) => {
     try {
-      const sources = await resolvePlaybackSources('movie', movie.id);
+      const sources = await resolveRe3ArabiPlayback({
+        type: 'movie',
+        tmdbId: Number(movie.tmdb_id),
+      });
       const groups = validateSources(sources);
 
       summary.processed++;
