@@ -6,8 +6,6 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
-import { diagnoseRe3ArabiPlayback } from './providers/re3arabi';
-import { fetchWithTimeout } from './providers/http';
 import type { PlaybackKind } from './providers/types';
 
 export const app = new MiniApp();
@@ -17,8 +15,6 @@ registerBuiltInProviders();
 
 app.disable('x-powered-by');
 
-// Production diagnostics for the selected playback-sites path.
-const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
 let re3ArabiProviderIdPromise: Promise<string | null> | null = null;
 
@@ -71,7 +67,7 @@ async function getRe3ArabiProviderId() {
   return re3ArabiProviderIdPromise;
 }
 
-async function probeRe3ArabiSources<T extends { url: string; type: string; quality?: string }>(sources: T[]) {
+>(sources: T[]) {
   if (!sources.length) return [] as T[];
 
   const results = await Promise.all(
@@ -308,7 +304,7 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
     .slice(0, 12);
 }
 
-async function probeCachedPlaybackSources<T extends { url: string; type: string; quality?: string }>(
+>(
   sources: T[],
 ) {
   if (!sources.length) return [];
@@ -462,47 +458,6 @@ async function resolveCachedRe3ArabiPlayback(
   }
 }
 
-app.get('/api/v1/diagnostics/playback', async (_req, res) => {
-  const started = Date.now();
-
-  try {
-    const type = _req.query.type === 'series' ? 'series' : 'movie';
-    const tmdbId = Number(_req.query.tmdbId || 27205);
-    const season = _req.query.season !== undefined ? Number(_req.query.season) : undefined;
-    const episode = _req.query.episode !== undefined ? Number(_req.query.episode) : undefined;
-
-    const diagnostic = await diagnoseRe3ArabiPlayback({
-      type,
-      tmdbId,
-      season: Number.isInteger(season) && season! > 0 ? season : undefined,
-      episode: Number.isInteger(episode) && episode! > 0 ? episode : undefined,
-    });
-
-    return ok(res, {
-      success: diagnostic.providers.some((provider) => provider.success),
-      buildId: MOVYZ_BUILD_ID,
-      resolver: diagnostic.resolver,
-      test: diagnostic.request,
-      providers: diagnostic.providers,
-      latencyMs: Date.now() - started,
-    });
-  } catch (error) {
-    return ok(res, {
-      success: false,
-      buildId: MOVYZ_BUILD_ID,
-      resolver: 'selected-sites',
-      test: {
-        type: _req.query.type || 'movie',
-        tmdbId: Number(_req.query.tmdbId || 27205),
-        season: _req.query.season ? Number(_req.query.season) : undefined,
-        episode: _req.query.episode ? Number(_req.query.episode) : undefined,
-      },
-      providers: [],
-      error: error instanceof Error ? error.message : String(error),
-      latencyMs: Date.now() - started,
-    });
-  }
-});
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   const origin = req.headers.get('origin');
   const allow = (process.env.CORS_ORIGINS || '').split(',').map((x) => x.trim()).filter(Boolean);
