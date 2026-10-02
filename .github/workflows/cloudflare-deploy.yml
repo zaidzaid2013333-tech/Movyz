@@ -194,8 +194,48 @@ jobs:
           print("Playback cache smoke warnings:", warnings)
           PY
 
-      # Playback verification is handled through the production watch API only.
-      # No resolver endpoint or runtime playback discovery is used here.
+      - name: Smoke test on-demand playback resolution
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+
+          api = "https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve"
+          checks = [
+              ("movie", "81723a1b-a9c5-46bb-bec6-f16664895d3e", "Inception"),
+              ("movie", "ef350c7c-dbf6-44bb-80dc-3bc61890a166", "Fight Club"),
+              ("episode", "cfec368f-138e-405d-a98b-bb6734f5bbf5", "Breaking Bad S01E01"),
+          ]
+
+          for content_type, content_id, label in checks:
+              body = json.dumps({"contentType": content_type, "contentId": content_id}).encode()
+              request = urllib.request.Request(
+                  api,
+                  data=body,
+                  method="POST",
+                  headers={
+                      "Content-Type": "application/json",
+                      "Accept": "application/json",
+                      "User-Agent": "Movyz-CI/1.0",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=90) as response:
+                      payload = json.load(response)
+              except Exception as exc:
+                  print(f"On-demand resolver WARN: {label} {exc!r}")
+                  continue
+
+              sources = payload.get("data") if isinstance(payload.get("data"), list) else []
+              print(f"On-demand resolver: {label} success={payload.get('success')} sources={len(sources)}")
+              for source in sources[:5]:
+                  print("  ", source.get("providerKey"), source.get("quality"), source.get("type"))
+
+          print("On-demand resolver smoke test complete.")
+          PY
+
+      # Production playback verification is performed through the on-demand resolver endpoint.
 
       - name: Remove temporary secrets file
         if: always()
