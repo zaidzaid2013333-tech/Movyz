@@ -212,3 +212,77 @@ test('ArProv uses alternate Arabic titles when English search does not match', a
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test('ArProv resolves an ArabSeed series episode through the watch servers', async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+
+    if (url.startsWith('https://arabseed.store/?s=')) {
+      return new Response('<a href="https://arabseed.store/series/breaking-bad">Breaking Bad</a>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+
+    if (url === 'https://arabseed.store/series/breaking-bad') {
+      return new Response('<a href="https://arabseed.store/episode/breaking-bad-s01e01">الحلقة 1</a>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+
+    if (url === 'https://arabseed.store/episode/breaking-bad-s01e01') {
+      return new Response('<a class="watch__btn" href="https://arabseed.store/watch/breaking-bad-s01e01"></a>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+
+    if (url === 'https://arabseed.store/watch/breaking-bad-s01e01') {
+      return new Response('<div class="servers__list"><ul><li data-src="https://cdn.example.test/bb/720.mp4">720p</li></ul></div><script>const csrf__token = "token123"; const post_id = "9988";</script>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+
+    if (url === 'https://arabseed.store/get__quality__servers/') {
+      return new Response('<ul><li data-src="https://cdn.example.test/bb/1080.mp4">1080p</li></ul>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+
+    if (url.includes('ak.sv') || url.includes('cfu.cam') || url.includes('ciimaclub.us')) {
+      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
+    }
+
+    return new Response('', { status: 404, headers: { 'content-type': 'text/html' } });
+  }) as typeof fetch;
+
+  try {
+    const sources = await resolveArProvPlayback({
+      tmdbId: 1396,
+      title: 'Breaking Bad',
+      originalTitle: 'Breaking Bad',
+      seasonNumber: 1,
+      episodeNumber: 1,
+    });
+
+    assert.equal(sources.some(source =>
+      source.provider === 'ArabSeed' &&
+      source.type === 'mp4' &&
+      source.url === 'https://cdn.example.test/bb/720.mp4'
+    ), true);
+
+    assert.equal(sources.some(source =>
+      source.provider === 'ArabSeed' &&
+      source.type === 'mp4' &&
+      source.url === 'https://cdn.example.test/bb/1080.mp4'
+    ), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
