@@ -41,6 +41,7 @@ function source(provider: string, url: string, pageUrl: string, quality?: string
     language: 'und',
     label: provider,
     expiresAt: undefined,
+    referer: pageUrl,
   };
 }
 
