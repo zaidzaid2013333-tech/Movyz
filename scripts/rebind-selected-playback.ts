@@ -231,6 +231,29 @@ async function rebindEpisodes() {
       : [];
   }
 
+  // A full catalog rebuild recreates every episode UUID. If the saved cursor
+  // no longer exists in the new catalog, discard the old retry/cursor state
+  // and start a fresh sweep instead of sending thousands of stale UUIDs to
+  // PostgREST (which can exceed its URL limits and return HTTP 400).
+  if (cursor) {
+    const { data: cursorRow, error: cursorError } = await adminSupabase
+      .from('episodes')
+      .select('id')
+      .eq('id', cursor)
+      .maybeSingle();
+
+    if (cursorError) throw new Error('Unable to validate episode rebind cursor: ' + cursorError.message);
+
+    if (!cursorRow) {
+      console.log('REBIND_EPISODES_RESET_STALE_CURSOR', JSON.stringify({
+        staleCursor: cursor,
+        droppedFailedEpisodeIds: previousFailedIds.length,
+      }));
+      cursor = '';
+      previousFailedIds = [];
+    }
+  }
+
   // Retry failed IDs first so transient provider failures never disappear
   // permanently just because the sweep cursor moved forward.
   let retryRows: any[] = [];
