@@ -1002,31 +1002,57 @@ async function resolveCanonicalCimaClubEpisode(
 
   const season = context.seasonNumber ?? 1;
   const episode = context.episodeNumber;
+  const paths = new Set<string>();
 
-  for (const term of titles.slice(0, 2)) {
+  for (const term of titles.slice(0, 4)) {
     const slug = normalize(term).replace(/\s+/g, '-');
     if (!slug) continue;
 
-    const paths = [
+    for (const path of [
+      `/tv-plays/${slug}/`,
+      `/tv-plays/مشاهدة-مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}/`,
+      `/tv-plays/مشاهدة-مسلسل-${slug}-الجزء-${season === 1 ? 'الاول' : season}-الحلقة-${episode}/`,
+      `/مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}/`,
       `/${slug}-الموسم-${season}-الحلقة-${episode}/`,
-      `/${slug}-الحلقة-${episode}/`,
-    ];
-
-    for (const path of paths) {
-      const episodeUrl = new URL(path, provider.base).toString();
-      try {
-        const html = await getText(episodeUrl, Math.min(timeoutMs, 4_000), provider.base);
-        if (!/(?:الحلقة|episode)/i.test(html.slice(0, 12000))) continue;
-
-        const sources = await resolveCimaClubSources(episodeUrl, provider, Math.min(timeoutMs, 4_000));
-        const usable = sources.filter((source) =>
-          PLAYABLE_TYPES.has(source.type) &&
-          source.quality !== 'auto' &&
-          source.quality !== 'source',
-        );
-        if (usable.length) return usable;
-      } catch {}
+    ]) {
+      paths.add(path);
     }
+  }
+
+  for (const path of paths) {
+    const pageUrl = new URL(path, provider.base).toString();
+
+    try {
+      const html = await getText(pageUrl, timeoutMs, provider.base);
+      let episodeUrl = '';
+
+      const pageIdentity = parseSeasonEpisode(pageUrl);
+      if (
+        pageIdentity.episode === episode &&
+        (pageIdentity.season === undefined || pageIdentity.season === season)
+      ) {
+        episodeUrl = pageUrl;
+      } else {
+        episodeUrl =
+          findEpisodeUrl(html, pageUrl, season, episode) ||
+          extractEpisodeCandidates(html, pageUrl)
+            .find((item) =>
+              item.number === episode &&
+              (item.season === undefined || item.season === season),
+            )?.url ||
+          '';
+      }
+
+      const targetUrl = episodeUrl || pageUrl;
+      const sources = await resolveCimaClubSources(targetUrl, provider, timeoutMs);
+      const usable = sources.filter((source) =>
+        PLAYABLE_TYPES.has(source.type) &&
+        source.quality !== 'auto' &&
+        source.quality !== 'source',
+      );
+
+      if (usable.length) return usable;
+    } catch {}
   }
 
   return [];
@@ -1087,6 +1113,11 @@ async function resolveProvider(
 
   if (!titles.length) return [];
 
+  if (provider.key === 'cimaclub' && context.episodeNumber !== undefined) {
+    const canonicalSources = await resolveCanonicalCimaClubEpisode(titles, context, provider, timeoutMs);
+    if (canonicalSources.length) return canonicalSources;
+  }
+
   if (provider.key === 'anime3rb' && context.episodeNumber !== undefined) {
     const canonicalSources = await resolveCanonicalAnime3rbEpisode(titles, context, provider, timeoutMs);
     if (canonicalSources.length) return canonicalSources;
@@ -1114,7 +1145,7 @@ async function resolveProvider(
   // Search each known title through the site's supported URL shapes.
   for (const term of searchTerms.slice(0, 2)) {
     const q = encodeURIComponent(term);
-    for (const searchUrl of provider.searchUrls(q).slice(0, 1)) {
+    for (const searchUrl of provider.searchUrls(q)) {
       try {
         const html = await getText(searchUrl, timeoutMs, provider.base);
         if (provider.key === 'aflaam') searchResults.push(...parseAflamSearchHits(html, provider.base));
