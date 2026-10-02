@@ -214,14 +214,10 @@ async function persistVerifiedSources(
     .map((source) => normalizeSource(source, providerKey))
     .filter((source): source is NonNullable<ReturnType<typeof normalizeSource>> => Boolean(source));
 
-  const verified: typeof normalized = [];
-  for (const source of normalized.slice(0, 12)) {
-    if (await verifyPlayableSource(source.url, source.type, providerKey)) {
-      verified.push(source);
-    }
-  }
-
-  const rows = verified
+  // Re3Arabi already returns direct playback links.
+  // Do not probe them server-side: a provider may reject HEAD/range probes
+  // while the same URL remains browser-playable.
+  const rows = normalized.slice(0, 12)
     .sort((a, b) => (qualityScore(b.quality) + typeScore(b.type)) - (qualityScore(a.quality) + typeScore(a.type)))
     .slice(0, 8)
     .map((source) => ({
@@ -235,14 +231,12 @@ async function persistVerifiedSources(
       language: source.language,
       label_ar: source.labelAr,
       label_en: source.labelEn,
-      expires_at: source.expiresAt,
+      expires_at: null,
       is_working: true,
       last_checked_at: nowIso(),
       failure_count: 0,
     }));
 
-  // Never erase the currently-working cache when a fresh resolver response
-  // contains only dead or unreachable URLs.
   if (!rows.length) return 0;
 
   const { error: deleteError } = await adminSupabase
