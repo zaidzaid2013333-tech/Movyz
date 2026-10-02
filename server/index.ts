@@ -17,7 +17,7 @@ registerBuiltInProviders();
 
 app.disable('x-powered-by');
 
-// Production diagnostics for the re-3arabi playback path.
+// Production diagnostics for the selected playback-sites path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
 let re3ArabiProviderIdPromise: Promise<string | null> | null = null;
@@ -362,7 +362,7 @@ app.get('/api/v1/diagnostics/playback', async (_req, res) => {
     return ok(res, {
       success: sources.length > 0 && externalOnly,
       buildId: MOVYZ_BUILD_ID,
-      resolver: 're3arabi',
+      resolver: 'selected-sites',
       test: {
         type: 'movie',
         tmdbId: 27205,
@@ -706,7 +706,7 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
     return ok(res, { sources });
   } catch (error) {
     console.error('[remote-playback]', error instanceof Error ? error.message : error);
-    return fail(res, 502, 'PLAYBACK_RESOLVER_FAILED', 'External playback resolver failed');
+    return fail(res, 502, 'PLAYBACK_RESOLVER_FAILED', 'Selected playback sites resolver failed');
   }
 }));
 
