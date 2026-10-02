@@ -38,26 +38,6 @@ const pageCache = new Map<string, { expiresAt: number; promise: Promise<string> 
 
 const PROVIDERS: readonly SiteConfig[] = [
   {
-    key: 'aflaam',
-    name: 'Aflam',
-    base: 'https://aflaam.com',
-    kind: 'general',
-    searchUrls: (q) => [
-      `https://aflaam.com/search?q=${q}`,
-      `https://aflaam.com/?s=${q}`,
-    ],
-  },
-  {
-    key: 'cimaclub',
-    name: 'CimaClub',
-    base: 'https://w.cimacub.com',
-    kind: 'general',
-    searchUrls: (q) => [
-      `https://w.cimacub.com/?s=${q}`,
-      `https://cimacub.com/?s=${q}`,
-    ],
-  },
-  {
     key: 'anime4up',
     name: 'Anime4Up',
     base: 'https://w1.anime4up.rest',
@@ -66,7 +46,7 @@ const PROVIDERS: readonly SiteConfig[] = [
       `https://w1.anime4up.rest/?s=${q}`,
     ],
   },
-] as const;
+] as const;;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
