@@ -207,7 +207,7 @@ async function search(site: Site, ctx: ProviderContext) {
   const candidates: Array<{url: string; score: number}> = [];
   const seen = new Set<string>();
 
-  for (const query of queries.slice(0, 2)) {
+  for (const query of queries.slice(0, 3)) {
     for (const searchUrl of site.searches(query)) {
       try {
         const page = await html(searchUrl);
@@ -223,7 +223,7 @@ async function search(site: Site, ctx: ProviderContext) {
   }
 
   candidates.sort((a, b) => b.score - a.score);
-  return candidates.slice(0, 4);
+  return candidates.slice(0, 6);
 }
 
 async function resolveAkwam(pageUrl: string, body: string, site: Site) {
@@ -285,36 +285,69 @@ function pageLinks(body: string, base: string) {
   return out.slice(0, 12);
 }
 
+function episodeLinks(body: string, base: string, ctx: ProviderContext) {
+  if (ctx.episodeNumber === undefined) return [] as Array<{ url: string; score: number }>;
+
+  const candidates: Array<{ url: string; score: number }> = [];
+  const seen = new Set<string>();
+  for (const link of anchors(body, base)) {
+    if (seen.has(link.url)) continue;
+    const id = identity(link.text + ' ' + link.url);
+    if (id.episode !== ctx.episodeNumber) continue;
+    if (ctx.seasonNumber !== undefined && id.season !== undefined && id.season !== ctx.seasonNumber) continue;
+    const s = score(link.text, link.url, ctx) + 700;
+    if (s < 700) continue;
+    seen.add(link.url);
+    candidates.push({ url: link.url, score: s });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates.slice(0, 5);
+}
+
 async function resolveSite(site: Site, ctx: ProviderContext) {
   const pages = await search(site, ctx);
   for (const p of pages) {
     try {
       const page = await html(p.url);
 
-      if (site.key === 'akwam') {
-        const sources = await resolveAkwam(page.url, page.body, site);
-        if (sources.length) return sources;
-        continue;
+      const pageCandidates: Array<{ url: string; body: string }> = [{ url: page.url, body: page.body }];
+
+      if (ctx.episodeNumber !== undefined) {
+        for (const candidate of episodeLinks(page.body, page.url, ctx)) {
+          try {
+            const ep = await html(candidate.url, page.url);
+            pageCandidates.push({ url: ep.url, body: ep.body });
+          } catch {}
+        }
       }
 
-      const output: NormalizedPlaybackSource[] = [];
-      for (const directUrl of direct(page.body, page.url).slice(0, 6)) {
-        output.push(...await resolveLink(directUrl, page.url, site.name));
-      }
+      for (const candidatePage of pageCandidates) {
+        if (site.key === 'akwam') {
+          const sources = await resolveAkwam(candidatePage.url, candidatePage.body, site);
+          if (sources.length) return sources;
+          continue;
+        }
 
-      const links = pageLinks(page.body, page.url);
-      for (const link of links) {
-        try {
-          output.push(...await resolveLink(link, page.url, site.name));
-        } catch {}
-        if (output.length >= 12) break;
-      }
+        const output: NormalizedPlaybackSource[] = [];
+        for (const directUrl of direct(candidatePage.body, candidatePage.url).slice(0, 6)) {
+          output.push(...await resolveLink(directUrl, candidatePage.url, site.name));
+        }
 
-      const unique = new Map<string, NormalizedPlaybackSource>();
-      for (const source of output) {
-        if (source.url) unique.set(source.type + '|' + source.url, source);
+        const links = pageLinks(candidatePage.body, candidatePage.url);
+        for (const link of links) {
+          try {
+            output.push(...await resolveLink(link, candidatePage.url, site.name));
+          } catch {}
+          if (output.length >= 12) break;
+        }
+
+        const unique = new Map<string, NormalizedPlaybackSource>();
+        for (const source of output) {
+          if (source.url) unique.set(source.type + '|' + source.url, source);
+        }
+        if (unique.size) return [...unique.values()];
       }
-      if (unique.size) return [...unique.values()];
     } catch {}
   }
   return [];
