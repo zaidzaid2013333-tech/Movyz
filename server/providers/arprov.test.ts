@@ -48,11 +48,9 @@ test('ArProv resolves an Akwam movie download into a direct MP4 source', async (
 
 test('ArProv resolves an Akwam series episode page before extracting media', async () => {
   const originalFetch = globalThis.fetch;
-  const calls: string[] = [];
 
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input);
-    calls.push(url);
 
     if (url.startsWith('https://ak.sv/search') || url.startsWith('https://ak.sv/?s=')) {
       return mockResponse('<div class="entry-box"><a class="box" href="https://ak.sv/series/breaking-bad">Breaking Bad</a></div>');
@@ -82,8 +80,6 @@ test('ArProv resolves an Akwam series episode page before extracting media', asy
       episodeNumber: 1,
     });
 
-    console.log('EP_TRACE_CALLS', JSON.stringify(calls));
-    console.log('EP_TRACE_SOURCES', JSON.stringify(sources));
     assert.equal(sources.some(source =>
       source.provider === 'Akwam' &&
       source.type === 'mp4' &&
