@@ -254,6 +254,28 @@ async function rebindEpisodes() {
     }
   }
 
+  // After a destructive catalog rebuild, the saved failed IDs can also
+  // become entirely stale even when the cursor field is empty. Probe a small
+  // sample before issuing the large IN query; if none exist, discard the list.
+  if (previousFailedIds.length) {
+    const probeIds = previousFailedIds.slice(0, 100);
+    const { data: existingFailedIds, error: failedProbeError } = await adminSupabase
+      .from('episodes')
+      .select('id')
+      .in('id', probeIds);
+
+    if (failedProbeError) {
+      throw new Error('Unable to validate previous failed episode IDs: ' + failedProbeError.message);
+    }
+
+    if (!existingFailedIds?.length) {
+      console.log('REBIND_EPISODES_RESET_STALE_FAILURES', JSON.stringify({
+        droppedFailedEpisodeIds: previousFailedIds.length,
+      }));
+      previousFailedIds = [];
+    }
+  }
+
   // Retry failed IDs first so transient provider failures never disappear
   // permanently just because the sweep cursor moved forward.
   let retryRows: any[] = [];
