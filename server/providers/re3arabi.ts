@@ -1694,7 +1694,7 @@ export async function resolveRe3ArabiProvider(
   const provider = PROVIDERS.find((item) => item.key === providerKey.toLowerCase());
   if (!provider) return [];
 
-  const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
+  const timeoutMs = Math.max(5_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 15_000));
   return withTimeout(
     resolveProvider(provider, context, timeoutMs),
     Math.min(timeoutMs + 12_000, 20_000),
@@ -1717,7 +1717,7 @@ export async function resolveRe3ArabiProviderWithContext(
   const provider = PROVIDERS.find((item) => item.key === providerKey.toLowerCase());
   if (!provider) return [];
 
-  const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
+  const timeoutMs = Math.max(5_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 15_000));
   return withTimeout(
     resolveProvider(provider, resolvedContext, timeoutMs),
     Math.min(timeoutMs + 12_000, 20_000),
@@ -1745,7 +1745,7 @@ export async function resolveRe3ArabiPlaybackWithContext(
   const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-  const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
+  const timeoutMs = Math.max(5_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 15_000));
   const promise = resolveUncached(resolvedContext, timeoutMs);
   cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, promise });
   promise.catch(() => {
@@ -1765,7 +1765,7 @@ export async function resolveRe3ArabiPlayback(
   const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-  const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
+  const timeoutMs = Math.max(5_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 15_000));
   const promise = resolveContext(request).then((context) => resolveUncached(context, timeoutMs));
 
   cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, promise });
