@@ -201,7 +201,10 @@ function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
 function qualityFromBlock(block: string) {
   const text = cleanText(block);
   const explicit = /(?:2160|1440|1080|720|576|480|360|240)\s*p?/i.exec(text)?.[0];
-  if (explicit) return `${explicit.replace(/\s+/g, '').replace(/(2160|1440|1080|720|576|480|360|240)$/i, '$1')}p`.toLowerCase();
+  if (explicit) {
+    const normalized = explicit.replace(/\s+/g, '').toLowerCase();
+    return normalized.endsWith('p') ? normalized : `${normalized}p`;
+  }
 
   const dataQuality = /(?:data-quality|data-resolution|quality|resolution|res)[\s:=\"']+(2160|1440|1080|720|576|480|360|240)/i.exec(block)?.[1];
   if (dataQuality) return `${dataQuality}p`;
