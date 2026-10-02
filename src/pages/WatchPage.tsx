@@ -266,15 +266,20 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       setRemotePlaybackSource(null);
     }
 
-    if (!resolveTmdbId) {
+    const hasReadyStoredSource = storedPlaybackSources.some(
+      (source) => source.isWorking && isPlayableHttpSource(source),
+    );
+
+    // DB-first architecture: once a working native source is stored for the
+    // exact movie/episode, do not call the resolver on the normal watch path.
+    // Resolver remains a fallback only for cache misses or broken/missing rows.
+    if (hasReadyStoredSource || !resolveTmdbId) {
       setResolverLoading(false);
       return () => {
         mounted = false;
       };
     }
 
-    // Cached URLs remain the instant startup path, but every watch page also
-    // validates the cache in the background so stale/broken URLs can be replaced.
     setResolverLoading(true);
 
     void MovyzaApi.resolvePlaybackSource({
