@@ -620,20 +620,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     );
   }
 
-der-t border-amber-500/15">
-            <button
-              type="button"
-              onClick={() => onNavigate('/')}
-              className="text-xs text-amber-400 hover:text-amber-300"
-            >
-              {language === 'ar' ? 'العودة للرئيسية' : 'Back to home'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const isMovie = content.type === 'movie';
   const resolvedTmdbId = content.tmdbId;
   const displayTitle = language === 'ar' ? content.title : content.titleEn;
