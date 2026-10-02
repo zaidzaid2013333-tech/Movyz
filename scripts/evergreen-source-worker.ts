@@ -118,11 +118,6 @@ async function processJob(
   seriesContextCache: Map<string, Promise<any>>,
 ) {
   try {
-    const providerKey =
-      job.content_type === 'movie'
-        ? null
-        : undefined;
-
     if (job.content_type === 'movie') {
       const movie = movies.get(job.content_id);
       if (!movie?.tmdb_id) {
