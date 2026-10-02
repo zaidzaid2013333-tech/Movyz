@@ -151,7 +151,10 @@ jobs:
                   body = exc.read().decode("utf-8", "replace")
                   print(f"Resolver HTTP {exc.code} for {url}")
                   print(body[:12000])
-                  diagnostic_url = "https://movyz-api.sameranede.workers.dev/api/v1/diagnostics/playback"
+                  diagnostic_url = base.replace(
+                      "/api/v1/playback/resolve",
+                      "/api/v1/diagnostics/playback",
+                  ) + "?" + urllib.parse.urlencode(params)
                   diagnostic_request = urllib.request.Request(
                       diagnostic_url,
                       headers={"User-Agent": "Movyz-CI/1.0", "Accept": "application/json"},
