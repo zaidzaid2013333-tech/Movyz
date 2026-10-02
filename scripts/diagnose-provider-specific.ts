@@ -7,31 +7,33 @@ import {
   resolveRe3ArabiProviderWithContext,
 } from '../server/providers/re3arabi';
 
-const movieContext = await resolveRe3ArabiMovieContext(27205);
-const seriesContext = await resolveRe3ArabiSeriesContext(1396);
+const inceptionContext = await resolveRe3ArabiMovieContext(27205);
+const threeHundredContext = await resolveRe3ArabiMovieContext(1271);
+const breakingBadContext = await resolveRe3ArabiSeriesContext(1396);
+const darkMatterContext = await resolveRe3ArabiSeriesContext(196322);
 
 const cases = [
   {
     provider: 'cimaclub' as const,
     type: 'movie' as const,
-    context: movieContext,
+    context: threeHundredContext,
   },
   {
     provider: 'aflaam' as const,
     type: 'movie' as const,
-    context: movieContext,
+    context: inceptionContext,
   },
   {
     provider: 'cimaclub' as const,
     type: 'episode' as const,
-    context: seriesContext,
-    season: 1,
-    episode: 1,
+    context: darkMatterContext,
+    season: 2,
+    episode: 3,
   },
   {
     provider: 'aflaam' as const,
     type: 'episode' as const,
-    context: seriesContext,
+    context: breakingBadContext,
     season: 1,
     episode: 1,
   },
@@ -45,7 +47,7 @@ for (const test of cases) {
   try {
     const sources = test.type === 'movie'
       ? await resolveRe3ArabiProvider(
-          { type: 'movie', tmdbId: 27205 },
+          { type: 'movie', tmdbId: test.provider === 'cimaclub' ? 1271 : 27205 },
           test.provider,
         )
       : await resolveRe3ArabiProviderWithContext(
