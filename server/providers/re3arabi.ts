@@ -1621,6 +1621,33 @@ export async function resolveRe3ArabiSeriesContext(tmdbId: number): Promise<Reso
   return resolveContext({ type: 'series', tmdbId });
 }
 
+export async function resolveRe3ArabiProviderWithContext(
+  context: ResolverContext,
+  season: number,
+  episode: number,
+  providerKey: string,
+): Promise<Candidate[]> {
+  const provider = PROVIDERS.find((item) =>
+    item.key === providerKey &&
+    item.kind === (context.__isAnime ? 'anime' : 'general'),
+  );
+
+  if (!provider) return [];
+
+  const resolvedContext: ResolverContext = {
+    ...context,
+    seasonNumber: season,
+    episodeNumber: episode,
+  };
+
+  const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
+  return withTimeout(
+    resolveProvider(provider, resolvedContext, Math.min(timeoutMs, 8_000)),
+    Math.min(timeoutMs + 2_000, 10_000),
+    `Provider ${providerKey} exceeded resolver budget`,
+  );
+}
+
 export async function resolveRe3ArabiPlaybackWithContext(
   context: ResolverContext,
   season: number,
