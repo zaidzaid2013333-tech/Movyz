@@ -8,7 +8,6 @@ on:
       - ".github/workflows/tmdb-sync.yml"
       - "server/tmdb.ts"
       - "scripts/run-tmdb-sync.ts"
-      - "scripts/sync-omegatech-cache.ts"
   workflow_dispatch:
     inputs:
       pages:
@@ -92,19 +91,6 @@ jobs:
             echo "Episode sync attempt $attempt/3"
             npx tsx scripts/run-tmdb-sync.ts episodes "$SERIES_LIMIT" && exit 0
             test "$attempt" -lt 3 && sleep 15
-          done
-          exit 1
-
-      - name: Automatically link popular playback sources
-        env:
-          MOVIE_LIMIT: "48"
-          EPISODE_LIMIT: "72"
-          CACHE_CONCURRENCY: "1"
-        run: |
-          for attempt in 1 2; do
-            echo "OmegaTech cache attempt $attempt/2"
-            npx tsx scripts/sync-omegatech-cache.ts && exit 0
-            test "$attempt" -lt 2 && sleep 30
           done
           exit 1
 
