@@ -226,7 +226,7 @@ function parseQualitySources(html: string, pageUrl: string, provider: SiteConfig
       providerKey: provider.key,
       type: classified.type,
       url,
-      providerReference: url,
+      providerReference: provider.key,
       quality: classified.quality,
       language: 'ar',
       label: `${provider.name} ${classified.quality === 'auto' ? 'Auto' : classified.quality}`,
