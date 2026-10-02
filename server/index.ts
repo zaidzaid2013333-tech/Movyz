@@ -810,48 +810,6 @@ app.get(`${api}/playback/ready`, asyncRoute(async (req, res) => {
   return ok(res, { sources, ready: sources.length > 0 });
 }));
 
-app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
-  const type = req.query.type === 'movie' || req.query.type === 'series'
-    ? req.query.type
-    : null;
-  const tmdbId = Number(req.query.tmdbId || req.query.tmdb_id);
-  const season = req.query.season !== undefined ? Number(req.query.season) : undefined;
-  const episode = req.query.episode !== undefined ? Number(req.query.episode) : undefined;
-  const episodeTmdbId = req.query.episodeTmdbId !== undefined
-    ? Number(req.query.episodeTmdbId)
-    : req.query.episode_tmdb_id !== undefined
-      ? Number(req.query.episode_tmdb_id)
-      : undefined;
-
-  if (!type || !Number.isInteger(tmdbId) || tmdbId <= 0) {
-    return fail(res, 400, 'INVALID_PLAYBACK_REQUEST', 'Invalid playback request');
-  }
-  if (season !== undefined && (!Number.isInteger(season) || season < 1)) {
-    return fail(res, 400, 'INVALID_SEASON', 'Invalid season');
-  }
-  if (episode !== undefined && (!Number.isInteger(episode) || episode < 1)) {
-    return fail(res, 400, 'INVALID_EPISODE', 'Invalid episode');
-  }
-  if (episodeTmdbId !== undefined && (!Number.isInteger(episodeTmdbId) || episodeTmdbId <= 0)) {
-    return fail(res, 400, 'INVALID_EPISODE_TMDB_ID', 'Invalid episode TMDB id');
-  }
-
-  const cachedSources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
-  if (cachedSources.length) {
-    res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=180, stale-while-revalidate=300');
-    res.setHeader('Referrer-Policy', 'no-referrer');
-    return ok(res, { sources: cachedSources });
-  }
-
-  return fail(
-    res,
-    404,
-    'PLAYBACK_SOURCE_NOT_READY',
-    'No preloaded playback source is ready for this title yet',
-  );
-
-}));
-
 app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
   const rawUrl = typeof req.query.url === 'string' ? req.query.url : '';
   let target: URL;
