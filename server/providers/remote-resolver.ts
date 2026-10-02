@@ -28,22 +28,24 @@ export async function resolveRemotePlaybackFast(
   request: RemotePlaybackRequest,
 ): Promise<RemotePlaybackSource[]> {
   const keys = ['aflaam', 'anime3rb'] as const;
-  const results = await Promise.all(
-    keys.map(async (providerKey) => {
-      try {
-        return await resolveRe3ArabiProvider({
-          type: request.type,
-          tmdbId: request.tmdbId,
-          season: request.season,
-          episode: request.episode,
-        }, providerKey);
-      } catch {
-        return [];
-      }
-    }),
+  const attempts = keys.map((providerKey) =>
+    resolveRe3ArabiProvider({
+      type: request.type,
+      tmdbId: request.tmdbId,
+      season: request.season,
+      episode: request.episode,
+    }, providerKey).then((sources) => {
+      if (!sources.length) throw new Error('no sources');
+      return sources;
+    }).catch(() => Promise.reject(new Error('provider unavailable'))),
   );
 
-  const first = results.find((sources) => sources.length) || [];
+  let first: Awaited<ReturnType<typeof resolveRe3ArabiProvider>> = [];
+  try {
+    first = await Promise.any(attempts);
+  } catch {
+    first = [];
+  }
   return first.map((source, index) => ({
     id: `fast-${index + 1}-${source.providerReference || source.sourceUrl || 'source'}`,
     type: source.type,
