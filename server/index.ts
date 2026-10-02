@@ -6,6 +6,7 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
+import { resolveRe3ArabiPlayback } from './providers/re3arabi';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -725,6 +726,85 @@ app.get(`${api}/episodes/:id`, asyncRoute(async (req, res) => {
     series: { id: series.id, title: series.title_ar, titleEn: series.title_en || series.title_ar, originalTitle: series.original_title || series.title_en || series.title_ar, posterUrl: series.poster_url || '', backdropUrl: series.backdrop_url || '' },
     season: { id: season.id, seasonNumber: season.season_number, name: season.name_ar || season.name_en || `الموسم ${season.season_number}`, nameEn: season.name_en || season.name_ar || `Season ${season.season_number}` },
   });
+}));
+
+app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
+  const body = z.object({
+    contentType: z.enum(['movie', 'episode']),
+    contentId: z.string().uuid(),
+  }).safeParse(req.body);
+
+  if (!body.success) {
+    return fail(res, 400, 'INVALID_PLAYBACK_REQUEST', 'Invalid playback request');
+  }
+
+  let sources: any[] = [];
+
+  if (body.data.contentType === 'movie') {
+    const { data, error } = await adminSupabase
+      .from('movies')
+      .select('tmdb_id,status')
+      .eq('id', body.data.contentId)
+      .maybeSingle();
+
+    if (error || !data || data.status !== 'published' || !data.tmdb_id) {
+      return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
+    }
+
+    sources = await resolveRe3ArabiPlayback({
+      type: 'movie',
+      tmdbId: Number(data.tmdb_id),
+    });
+  } else {
+    const { data: episode, error } = await adminSupabase
+      .from('episodes')
+      .select('id,episode_number,seasons!inner(season_number,series_id,series:series_id!inner(tmdb_id,status))')
+      .eq('id', body.data.contentId)
+      .maybeSingle();
+
+    const series = episode?.seasons?.series;
+    const season = episode?.seasons;
+
+    if (
+      error ||
+      !episode ||
+      !season ||
+      !series ||
+      series.status !== 'published' ||
+      !series.tmdb_id ||
+      !season.season_number ||
+      !episode.episode_number
+    ) {
+      return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
+    }
+
+    sources = await resolveRe3ArabiPlayback({
+      type: 'series',
+      tmdbId: Number(series.tmdb_id),
+      season: Number(season.season_number),
+      episode: Number(episode.episode_number),
+    });
+  }
+
+  const output = (sources || [])
+    .filter((source: any) => /^https:\/\/i.test(String(source?.url || '').trim()))
+    .map((source: any) => ({
+      id: crypto.randomUUID(),
+      type: source.type,
+      quality: source.quality || 'auto',
+      language: source.language || 'ar',
+      label: source.label || source.provider || 'Re3Arabi',
+      labelEn: source.label || source.provider || 'Re3Arabi',
+      url: String(source.url).trim(),
+      isWorking: true,
+      provider: source.provider || 'Re3Arabi',
+      providerKey: source.providerKey || undefined,
+      providerReference: source.providerReference || undefined,
+    }))
+    .slice(0, 12);
+
+  res.setHeader('Cache-Control', 'no-store');
+  return ok(res, output);
 }));
 
 app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
