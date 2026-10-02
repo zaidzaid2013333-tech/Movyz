@@ -151,8 +151,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const qualitySwitchPendingRef = useRef(false);
   const userPlayRequestedRef = useRef(false);
   const playbackStartedRef = useRef(false);
-  const startupWatchTimerRef = useRef<number | null>(null);
-  const startupStallTimerRef = useRef<number | null>(null);
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const activeSeason = seasonNumber || 1;
@@ -176,14 +174,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         userPlayRequestedRef.current = false;
         playbackStartedRef.current = false;
         startupTriedUrlsRef.current.clear();
-        if (startupWatchTimerRef.current !== null) {
-          window.clearTimeout(startupWatchTimerRef.current);
-          startupWatchTimerRef.current = null;
-        }
-        if (startupStallTimerRef.current !== null) {
-          window.clearTimeout(startupStallTimerRef.current);
-          startupStallTimerRef.current = null;
-        }
 
         const legacyTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
         const response = mediaType === 'movie'
@@ -191,8 +181,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             ? await MovyzaApi.getMovieByTmdbId(legacyTmdbId)
             : await MovyzaApi.getMovieById(contentId)
           : legacyTmdbId
-            ? await MovyzaApi.getSeriesByTmdbId(legacyTmdbId)
-            : await MovyzaApi.getSeriesById(contentId);
+            ? await MovyzaApi.getSeriesWatchByTmdbId(legacyTmdbId, activeSeason, activeEpisode)
+            : await MovyzaApi.getSeriesWatchById(contentId, activeSeason, activeEpisode);
 
         if (!mounted) return;
 
@@ -314,15 +304,30 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlaybackError(null);
 
     void MovyzaApi.getReadyPlaybackSources(params)
-      .then((response) => {
+      .then(async (response) => {
         if (!mounted) return;
-        if (!applyReadySources(response.data.sources)) {
+        if (applyReadySources(response.data.sources)) return;
+
+        try {
+          const fallback = await MovyzaApi.resolvePlaybackSource(params);
+          if (!mounted) return;
+          if (applyReadySources(fallback.data.sources)) return;
+
           setResolverLoading(false);
           setPlayerUnlocked(false);
           setPlaybackError(
             language === 'ar'
-              ? 'لا يوجد مصدر جاهز لهذه الحلقة حاليًا.'
-              : 'No prepared playback source is available for this episode yet.',
+              ? 'لم يتم العثور على مصدر تشغيل لهذه الحلقة حاليًا.'
+              : 'No playback source is available for this episode right now.',
+          );
+        } catch {
+          if (!mounted) return;
+          setResolverLoading(false);
+          setPlayerUnlocked(false);
+          setPlaybackError(
+            language === 'ar'
+              ? 'تعذر الحصول على مصدر التشغيل حاليًا.'
+              : 'Unable to obtain a playback source right now.',
           );
         }
       })
@@ -332,8 +337,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setPlayerUnlocked(false);
         setPlaybackError(
           language === 'ar'
-            ? 'تعذر الوصول إلى مصادر التشغيل الجاهزة حاليًا.'
-            : 'Unable to read the prepared playback sources right now.',
+            ? 'تعذر الوصول إلى مصدر التشغيل حاليًا.'
+            : 'Unable to reach the playback source service right now.',
         );
       });
 
@@ -453,20 +458,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlayerUnlocked(true);
   };
 
-  const clearStartupWatch = () => {
-    if (startupWatchTimerRef.current !== null) {
-      window.clearTimeout(startupWatchTimerRef.current);
-      startupWatchTimerRef.current = null;
-    }
-  };
-
-  const clearStartupStall = () => {
-    if (startupStallTimerRef.current !== null) {
-      window.clearTimeout(startupStallTimerRef.current);
-      startupStallTimerRef.current = null;
-    }
-  };
-
   const tryNextStartupSource = () => {
     const video = videoRef.current;
     if (!video || availableSources.length < 2) return false;
@@ -487,25 +478,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     resumeAfterQualitySwitchRef.current = userPlayRequestedRef.current || !video.paused;
     qualitySwitchPendingRef.current = true;
     setPlaybackError(null);
-    clearStartupStall();
     rememberPlaybackHost(playbackSource, false);
     setRemotePlaybackSource(next);
     return true;
   };
-
-  useEffect(() => {
-    clearStartupWatch();
-    if (!playbackUrl || !playerUnlocked || !userPlayRequestedRef.current || !qualitySwitchPendingRef.current) return;
-
-    startupWatchTimerRef.current = window.setTimeout(() => {
-      startupWatchTimerRef.current = null;
-      const video = videoRef.current;
-      if (!video || !qualitySwitchPendingRef.current || video.paused || video.readyState >= 3) return;
-      tryNextStartupSource();
-    }, 4500);
-
-    return clearStartupWatch;
-  }, [playbackUrl, playerUnlocked]);
 
   const handleSelectPlaybackSource = (source: PlaybackSource) => {
     if (source.url === playbackUrl) return;
@@ -521,7 +497,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     playbackStartedRef.current = false;
     setPlaybackError(null);
     clearStartupWatch();
-    clearStartupStall();
     setPlayerUnlocked(true);
     setRemotePlaybackSource(source);
   };
@@ -768,21 +743,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   playbackStartedRef.current = false;
                   setPlaybackError(null);
                   if (playbackUrl) startupTriedUrlsRef.current.add(playbackUrl);
-
-                  clearStartupStall();
-                  startupStallTimerRef.current = window.setTimeout(() => {
-                    startupStallTimerRef.current = null;
-                    const video = videoRef.current;
-                    if (!video || playbackStartedRef.current || !playbackUrl) return;
-
-                    if (!tryNextStartupSource()) {
-                      setPlaybackError(
-                        language === 'ar'
-                          ? 'المصدر لم يبدأ التشغيل. جرّب مصدرًا آخر.'
-                          : 'This source did not start. Try another source.',
-                      );
-                    }
-                  }, 8000);
                 }}
                 onPlay={() => {
                   userPlayRequestedRef.current = true;
@@ -803,7 +763,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onLoadedData={() => {
                 }}
                 onCanPlay={() => {
-                  clearStartupStall();
                   if (qualitySwitchPendingRef.current) {
                     qualitySwitchPendingRef.current = false;
                     if (resumeAfterQualitySwitchRef.current) {
@@ -814,23 +773,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   }
                 }}
                 onWaiting={() => {
-                  clearStartupStall();
-                  startupStallTimerRef.current = window.setTimeout(() => {
-                    startupStallTimerRef.current = null;
-                    if (playbackStartedRef.current) return;
-                    if (!tryNextStartupSource()) {
-                      setPlaybackError(
-                        language === 'ar'
-                          ? 'المصدر عالق أثناء البدء. جرّب مصدرًا آخر.'
-                          : 'The source is stuck while starting. Try another source.',
-                      );
-                    }
-                  }, 7000);
+                  if (!playbackStartedRef.current) setPlaybackError(null);
                 }}
                 onPlaying={() => {
                   playbackStartedRef.current = true;
-                  clearStartupWatch();
-                  clearStartupStall();
                   setPlaybackError(null);
                   rememberPlaybackHost(playbackSource, true);
                 }}
