@@ -155,13 +155,22 @@ async function processJob(
         return;
       }
 
+      if (!targetProviders.length) {
+        await adminSupabase.rpc('mark_playback_source_job_success', {
+          p_job_id: job.id,
+          p_source_count: 0,
+          p_details: { worker: WORKER_ID, lane: job.provider_lane, skipped: true },
+        });
+        return;
+      }
+
       let sources: any[] = [];
       if (job.provider_lane === 'primary') {
         sources = await resolveRe3ArabiPlayback({ type: 'movie', tmdbId: Number(movie.tmdb_id) });
       } else {
         sources = await resolveRe3ArabiProvider(
           { type: 'movie', tmdbId: Number(movie.tmdb_id) },
-          secondaryProvider,
+          secondaryProvider as string,
         );
       }
 
@@ -212,9 +221,18 @@ async function processJob(
     const isAnime = !!context.__isAnime;
     const primaryProvider = providerForLane('primary', isAnime);
     const secondaryProvider = providerForLane('secondary', isAnime);
-    const targetProviders = job.provider_lane === 'primary'
+    const targetProviders = (job.provider_lane === 'primary'
       ? [primaryProvider, secondaryProvider]
-      : [secondaryProvider];
+      : [secondaryProvider]).filter((value): value is string => Boolean(value));
+
+    if (!targetProviders.length) {
+      await adminSupabase.rpc('mark_playback_source_job_success', {
+        p_job_id: job.id,
+        p_source_count: 0,
+        p_details: { worker: WORKER_ID, lane: job.provider_lane, skipped: true },
+      });
+      return;
+    }
 
     const alreadyFresh = await hasFreshProviderSource(
       'episode',
@@ -243,7 +261,7 @@ async function processJob(
         context,
         Number(episode.seasonNumber),
         Number(episode.episode_number),
-        secondaryProvider,
+        secondaryProvider as string,
       );
     }
 
