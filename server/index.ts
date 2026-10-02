@@ -782,7 +782,7 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   } else {
     const { data: episode, error: episodeError } = await adminSupabase
       .from('episodes')
-      .select('id,episode_number,season_id')
+      .select('id,episode_number,season_id,name_ar,name_en')
       .eq('id', body.data.contentId)
       .maybeSingle();
 
@@ -823,6 +823,7 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
         alternateTitles: [series.title_ar, series.title_en, series.original_title].filter(Boolean).filter((value, index, list) => list.indexOf(value) === index),
         seasonNumber: Number(season.season_number),
         episodeNumber: Number(episode.episode_number),
+        episodeTitle: [episode.name_en, episode.name_ar].filter(Boolean).find((value) => String(value).trim()) as string | undefined,
       }, { browserBinding: req.env?.BROWSER });
     } catch (error) {
       console.warn('[arprov-episode]', error instanceof Error ? error.message : String(error));
