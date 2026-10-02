@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Hls from 'hls.js';
 import {
   ArrowLeft,
   ArrowRight,
@@ -28,6 +29,14 @@ interface WatchPageProps {
 const isPlayableHttpSource = (source: PlaybackSource) =>
   /^https?:\/\//i.test(source.url?.trim() || '');
 
+function playbackEngineFor(source: PlaybackSource | null | undefined) {
+  const type = String(source?.type || '').toLowerCase();
+  const url = String(source?.url || '').toLowerCase();
+  if (type === 'hls' || /\.m3u8(?:[?#]|$)/i.test(url)) return 'hls' as const;
+  if (type === 'dash' || /\.mpd(?:[?#]|$)/i.test(url)) return 'dash' as const;
+  return 'native' as const;
+}
+
 const pickPlaybackSources = (content: Movie | Series, episode?: Episode) => {
   const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
   return candidates
@@ -37,11 +46,9 @@ const pickPlaybackSources = (content: Movie | Series, episode?: Episode) => {
 
 const playbackQualityRank = (source: PlaybackSource) => {
   const match = source.quality?.match(/(\d{3,4})p/i);
-  const quality = match ? Number(match[1]) : 9999;
-  if (quality === 720) return 0;
-  if (quality === 480) return 1;
-  if (quality === 1080) return 2;
-  return 3;
+  const quality = match ? Number(match[1]) : 0;
+  // Lower rank = preferred. Unknown quality stays behind known resolutions.
+  return quality > 0 ? 10000 - quality : 20000;
 };
 
 const sortPlaybackSources = (sources: PlaybackSource[]) =>
@@ -51,7 +58,6 @@ const providerDisplayName = (key: string, fallback: string, language: 'ar' | 'en
   const normalized = key.trim().toLowerCase();
   const names: Record<string, [string, string]> = {
     aflaam: ['أفلام', 'Aflam'],
-    cimaclub: ['سيما كلوب', 'CimaClub'],
     anime3rb: ['أنمي عرب', 'Anime3rb'],
     anime4up: ['أنمي فور أب', 'Anime4Up'],
   };
@@ -153,6 +159,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const playbackStartedRef = useRef(false);
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
+  const startupWarmupUrlsRef = useRef<Set<string>>(new Set());
+  const playbackEngineRef = useRef<{ destroy?: () => void; reset?: () => void } | null>(null);
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
 
@@ -526,14 +534,99 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     const video = videoRef.current;
     if (!video || !playbackUrl) return;
 
-    const current = video.getAttribute('src') || '';
-    if (current === playbackUrl) return;
+    let cancelled = false;
 
-    video.pause();
-    video.setAttribute('src', playbackUrl);
-    video.preload = 'auto';
-    video.load();
-  }, [playbackUrl, playerUnlocked]);
+    const attachNative = () => {
+      playbackEngineRef.current?.destroy?.();
+      playbackEngineRef.current = null;
+      video.pause();
+      video.removeAttribute('src');
+      video.src = playbackUrl;
+      video.preload = 'auto';
+      video.load();
+    };
+
+    const attachPlayback = async () => {
+      const engine = playbackEngineFor(playbackSource);
+
+      if (engine === 'hls') {
+        if (Hls.isSupported()) {
+          const hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: false,
+            backBufferLength: 90,
+            maxBufferLength: 45,
+            maxMaxBufferLength: 90,
+            startLevel: -1,
+          });
+          playbackEngineRef.current = hls;
+          hls.on(Hls.Events.ERROR, (_event, data) => {
+            if (!data.fatal || cancelled) return;
+            setPlaybackError(
+              language === 'ar'
+                ? 'تعذر تهيئة بث HLS من المصدر الحالي.'
+                : 'The current HLS source could not be initialized.',
+            );
+            hls.destroy();
+            playbackEngineRef.current = null;
+          });
+          hls.loadSource(playbackUrl);
+          hls.attachMedia(video);
+          return;
+        }
+
+        if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          attachNative();
+          return;
+        }
+
+        setPlaybackError(
+          language === 'ar'
+            ? 'هذا المتصفح لا يدعم HLS على هذا الجهاز.'
+            : 'This browser does not support HLS on this device.',
+        );
+        return;
+      }
+
+      if (engine === 'dash') {
+        try {
+          const module = await import('dashjs');
+          if (cancelled) return;
+          const dash = (module as any).default ?? module;
+          const player = dash.MediaPlayer().create();
+          playbackEngineRef.current = player;
+          player.initialize(video, playbackUrl, false);
+          player.on?.((dash.MediaPlayer as any).events?.ERROR ?? 'error', (event: any) => {
+            if (cancelled || !event) return;
+            if (event.error) {
+              setPlaybackError(
+                language === 'ar'
+                  ? 'تعذر تهيئة بث DASH من المصدر الحالي.'
+                  : 'The current DASH source could not be initialized.',
+              );
+            }
+          });
+        } catch {
+          attachNative();
+        }
+        return;
+      }
+
+      attachNative();
+    };
+
+    void attachPlayback();
+
+    return () => {
+      cancelled = true;
+      playbackEngineRef.current?.destroy?.();
+      playbackEngineRef.current?.reset?.();
+      playbackEngineRef.current = null;
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    };
+  }, [playbackUrl, playbackSource?.type, playerUnlocked, language]);
 
   if (loading) {
     return (
