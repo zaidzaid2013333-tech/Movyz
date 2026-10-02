@@ -1069,15 +1069,22 @@ async function resolveCimaClubSources(
 
   for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
     const tag = match[0];
-    if (!/ServersList|Download|download/i.test(tag)) continue;
-    const url = absolute(targetUrl, match[1]);
+    const rawHref = match[1];
+    const text = stripTags(tag);
+    if (
+      !/ServersList|Download|download/i.test(tag) &&
+      !/مشاهدة|Watch|Play|Player/i.test(text) &&
+      !/\/(?:watch|player|embed|download)(?:\/|$)/i.test(rawHref)
+    ) continue;
+
+    const url = absolute(targetUrl, rawHref);
     if (!url) continue;
     links.push({
       url,
       quality: qualityFromText(
         /\b(?:quality|resolution|data-quality|data-resolution)=["']([^"']+)["']/i.exec(tag)?.[1],
-        stripTags(tag),
-        match[1],
+        text,
+        rawHref,
       ) || 'source',
       referer: targetUrl,
     });
