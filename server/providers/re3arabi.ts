@@ -135,6 +135,23 @@ function stripTags(value: string) {
   return decodeHtml(value.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
 
+function parseMarkdownLinks(text: string, baseUrl: string): SearchHit[] {
+  const hits: SearchHit[] = [];
+  const seen = new Set<string>();
+  const markdownRe = /\[([^\]]+)\]\((https?:\/\/[^)]+|\/[^)]+)\)/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = markdownRe.exec(text))) {
+    const title = stripTags(decodeHtml(match[1] || '')).trim();
+    const url = absolute(baseUrl, match[2]);
+    if (!url || !title || seen.has(url) || isNavigationLink(url, title)) continue;
+    seen.add(url);
+    hits.push({ title, url, year: extractYear(title) });
+  }
+
+  return hits;
+}
+
 
 
 function normalizeNumber(value: unknown): number | undefined {
@@ -812,7 +829,20 @@ async function resolveAflamQualitySources(
     });
   }
 
-  const nested = await resolveNestedPlaybackLinks(watchLinks.slice(0, 4), provider, timeoutMs);
+  if (!watchLinks.length) {
+    watchLinks.push(
+      ...parseMarkdownLinks(html, pageUrl)
+        .filter((hit) => /\/(?:watch|download)\//i.test(hit.url))
+        .map((hit) => ({
+          url: hit.url,
+          quality: qualityFromText(hit.title, hit.url) || 'source',
+          referer: pageUrl,
+        }))
+        .slice(0, 8),
+    );
+  }
+
+  const nested = await resolveNestedPlaybackLinks(watchLinks.slice(0, 8), provider, timeoutMs);
   if (nested.length) return nested;
 
   return parseDirectMediaSources(html, pageUrl, provider);
@@ -868,6 +898,19 @@ async function resolveCimaClubSources(
       ) || 'source',
       referer: targetUrl,
     });
+  }
+
+  if (!links.length) {
+    links.push(
+      ...parseMarkdownLinks(html, targetUrl)
+        .filter((hit) => /\/(?:watch|download|player|embed)\//i.test(hit.url) || /(?:m3u8|mp4|mpd|webm)(?:[?#]|$)/i.test(hit.url))
+        .map((hit) => ({
+          url: hit.url,
+          quality: qualityFromText(hit.title, hit.url) || 'source',
+          referer: targetUrl,
+        }))
+        .slice(0, 12),
+    );
   }
 
   const inline = parseDirectMediaSources(html, targetUrl, provider);
@@ -1355,6 +1398,7 @@ async function resolveProvider(
     if (provider.key === 'aflaam') searchResults.push(...parseAflamSearchHits(html, provider.base));
     if (provider.key === 'cimaclub') searchResults.push(...parseCimaClubSearchHits(html, provider.base));
     searchResults.push(...parseSearchHits(html, provider.base, context.episodeNumber !== undefined));
+    searchResults.push(...parseMarkdownLinks(html, provider.base));
   }
 
   if (!searchResults.length && provider.key === 'cimaclub') {
