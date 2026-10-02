@@ -959,36 +959,49 @@ function resolveAflamEpisodeUrl(
 ): string | null {
   if (episode === undefined) return null;
 
-  const episodeSection =
-    /<div\b[^>]*id=["']movie-tab-1["'][^>]*>([\s\S]*?)<\/div>\s*(?:<div|<section|$)/i.exec(html)?.[1] || html;
+  // Aflam has used several episode-list templates. Scan every anchor
+  // instead of relying on one wrapper div that can truncate the list.
+  const candidates: Array<{ url: string; season?: number; score: number }> = [];
+  const seen = new Set<string>();
 
-  for (const match of episodeSection.matchAll(
+  for (const match of html.matchAll(
     /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
   )) {
-    const body = match[0];
-    if (!/entry-title|font-size-50/i.test(body)) continue;
+    const tag = match[0];
+    const href = decodeHtml(match[1]);
+    const text = stripTags(match[2]);
+    const url = absolute(pageUrl, href);
+    if (!url || seen.has(url)) continue;
 
-    const url = absolute(pageUrl, match[1]);
-    if (!url) continue;
-
-    const number =
-      normalizeNumber(
-        /class=["'][^"']*font-size-50[^"']*["'][^>]*>\s*([0-9٠-٩]+)/i.exec(body)?.[1],
-      ) ??
-      parseSeasonEpisode(stripTags(body)).episode;
+    const identity = parseSeasonEpisode([href, text].join(' '));
+    const classNumber = normalizeNumber(
+      /class=["'][^"']*(?:font-size-50|entry-title)[^"']*["'][^>]*>\s*([0-9٠-٩]+)/i.exec(tag)?.[1],
+    );
+    const dataEpisode = normalizeNumber(/data-episode=["']([0-9٠-٩]+)["']/i.exec(tag)?.[1]);
+    const textEpisode = normalizeNumber(
+      text.match(/(?:episode|ep|الحلقة|حلقه)[^0-9٠-٩]*([0-9٠-٩]+)/i)?.[1],
+    );
+    const number = identity.episode ?? classNumber ?? textEpisode ?? dataEpisode;
 
     if (number !== episode) continue;
 
-    const identity = parseSeasonEpisode([match[1], stripTags(body)].join(' '));
-    if (season !== undefined && identity.season !== undefined && identity.season !== season) continue;
-    if (season !== undefined && identity.season === undefined && season !== 1) continue;
+    const explicitSeason = identity.season ?? normalizeNumber(
+      /data-season=["']([0-9٠-٩]+)["']/i.exec(tag)?.[1],
+    );
+    if (season !== undefined && explicitSeason !== undefined && explicitSeason !== season) continue;
 
-    return url;
+    let score = 100;
+    if (/font-size-50|entry-title|data-episode/i.test(tag)) score += 80;
+    if (/(?:episode|ep|الحلقة|حلقه)/i.test(href + ' ' + text)) score += 40;
+    if (season !== undefined && explicitSeason === season) score += 60;
+    if (season === 1 && explicitSeason === undefined) score += 20;
+
+    candidates.push({ url, season: explicitSeason, score });
+    seen.add(url);
   }
 
-  return null;
+  return candidates.sort((a, b) => b.score - a.score)[0]?.url || null;
 }
-
 function findEpisodeUrl(html: string, pageUrl: string, season?: number, episode?: number) {
   if (episode === undefined) return null;
 
