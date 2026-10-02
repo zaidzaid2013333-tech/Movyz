@@ -221,33 +221,85 @@ async function search(site: Site, ctx: ProviderContext) {
   return candidates.slice(0, 4);
 }
 
+function akwamQuality(value: string) {
+  const id = value.match(/(?:quality|(?:^|[^0-9]))([2-5])(?:$|[^0-9])/i)?.[1];
+  return id === '5' ? '1080p' : id === '4' ? '720p' : id === '3' ? '480p' : id === '2' ? '360p' : inferQuality('', value);
+}
+
+function akwamDownloadTarget(pageUrl: string, rawHref: string, site: Site) {
+  const href = https(rawHref, pageUrl);
+  if (!href) return null;
+
+  if (/\/download(?:\/|$)/i.test(href)) return href;
+  if (!/\/link(?:\/|$)/i.test(href)) return null;
+
+  try {
+    const source = new URL(href);
+    const match = pageUrl.match(/\/(?:movies?|series?|episode|shows|show\/episode)(\/.*)$/i);
+    const tail = match?.[1] || '';
+    const linkPart = source.pathname.split(/\/link/i)[1] || '';
+    return site.base + '/download' + linkPart + tail;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveAkwam(pageUrl: string, body: string, site: Site) {
-  const downloads = anchors(body, pageUrl)
-    .filter(x => /\/download(?:\/|$)|\/link(?:\/|$)|تحميل/i.test(x.url + ' ' + x.text))
-    .slice(0, 10);
+  const downloads: Array<{ url: string; quality: string }> = [];
+  const seen = new Set<string>();
+
+  for (const match of body.matchAll(/<div\b[^>]*class=["'][^"']*tab-content[^"']*quality[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi)) {
+    const block = match[0];
+    const quality = akwamQuality(block);
+    for (const anchor of anchors(block, pageUrl)) {
+      if (!/تحميل|download/i.test(anchor.text + ' ' + anchor.url)) continue;
+      const target = akwamDownloadTarget(pageUrl, anchor.url, site) || anchor.url;
+      if (!seen.has(target)) {
+        seen.add(target);
+        downloads.push({ url: target, quality });
+      }
+    }
+  }
+
+  for (const anchor of anchors(body, pageUrl)) {
+    if (!/\/download(?:\/|$)|\/link(?:\/|$)|تحميل/i.test(anchor.url + ' ' + anchor.text)) continue;
+    const target = akwamDownloadTarget(pageUrl, anchor.url, site) || anchor.url;
+    if (!seen.has(target)) {
+      seen.add(target);
+      downloads.push({ url: target, quality: akwamQuality(anchor.text + ' ' + anchor.url) });
+    }
+  }
 
   const out: NormalizedPlaybackSource[] = [];
-  for (const item of downloads) {
-    let target = item.url;
-    if (/\/link/i.test(target) && !/\/download/i.test(target)) {
-      try {
-        const u = new URL(target);
-        const tailMatch = pageUrl.match(/\/(?:movie|episode|shows|show\/episode)(\/.*)$/i);
-        target = site.base + '/download' + (u.pathname.split(/\/link/i)[1] || '') + (tailMatch?.[1] || '');
-      } catch { continue; }
-    }
+  const results = await Promise.allSettled(
+    downloads.slice(0, 10).map(async item => {
+      const d = await html(item.url, pageUrl);
+      const media: string[] = [];
+      const loader = d.body.match(/(?:btn-loader|download)[\s\S]{0,3000}?<a\b[^>]*href=["']([^"']+)["']/i)?.[1];
+      if (loader) media.push(loader);
 
-    try {
-      const d = await html(target, pageUrl);
-      const m = d.body.match(/btn-loader[\s\S]{0,3000}?<a\b[^>]*href=["']([^"']+)["']/i);
-      const candidates = [m?.[1], ...anchors(d.body, d.url)
-        .filter(x => /\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(x.url) || /(dood|filemoon|streamtape|mixdrop|voe|gostream)/i.test(x.url))
-        .map(x => x.url)].filter(Boolean) as string[];
-      for (const candidate of [...new Set(candidates)].slice(0, 4)) {
-        out.push(...await resolveLink(candidate, d.url, site.name));
+      for (const anchor of anchors(d.body, d.url)) {
+        if (/\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(anchor.url)) media.push(anchor.url);
       }
-    } catch {}
+
+      return [...new Set(media)].slice(0, 4).map(url => ({
+        url,
+        quality: item.quality,
+        referer: d.url,
+      }));
+    }),
+  );
+
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue;
+    for (const media of result.value) {
+      try {
+        const resolved = await resolveLink(media.url, media.referer, site.name);
+        out.push(...resolved.map(source => ({ ...source, quality: media.quality || source.quality })));
+      } catch {}
+    }
   }
+
   return out;
 }
 
