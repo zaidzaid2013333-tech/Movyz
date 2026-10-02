@@ -1365,25 +1365,10 @@ async function resolveProvider(
 
   let hits = rankHits(searchResults, searchTerms, context.releaseYear, context.seasonNumber);
 
-  // For episodes, never trust the first series/detail result as the complete
-  // catalog. Aflam episode URLs can live only in the sitemap, while the normal
-  // search page may expose a single season/episode link. Merge sitemap hits
-  // before ranking so S01E02 cannot inherit S01E01 simply because that page was
-  // the first discoverable result.
-  if (provider.key === 'aflaam' && context.episodeNumber !== undefined) {
-    const sitemapHits = await resolveAflamSitemapSearch(
-      searchTerms,
-      context,
-      provider,
-      Math.min(timeoutMs, 5_000),
-    );
-    hits = rankHits(
-      [...searchResults, ...sitemapHits],
-      searchTerms,
-      context.releaseYear,
-      context.seasonNumber,
-    );
-  } else if (!hits.length && provider.key === 'aflaam') {
+  // Match the actual Re-3Arabi Aflam flow first: search the series, open its
+  // detail page, then resolve the requested episode link from that page.
+  // The sitemap is an expensive fallback only when ordinary search finds nothing.
+  if (!hits.length && provider.key === 'aflaam') {
     const sitemapHits = await resolveAflamSitemapSearch(
       searchTerms,
       context,
