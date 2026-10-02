@@ -506,13 +506,6 @@ async function resolveProvider(
         sources = parseQualitySources(watchHtml, targetUrl, provider);
       }
 
-      // For Anime4Up, server URLs are explicit data-watch attributes; when a
-      // page exposes those servers, preserve them as embeds instead of trying
-      // to proxy the underlying stream.
-      if (!sources.length && /episode-servers|data-watch|anime-servers/i.test(watchHtml)) {
-        sources = parseQualitySources(watchHtml, targetUrl, provider);
-      }
-
       if (sources.length) {
         return sources;
       }
