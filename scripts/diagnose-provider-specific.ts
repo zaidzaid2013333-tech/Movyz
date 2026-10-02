@@ -41,9 +41,9 @@ async function debugAkwam() {
       redirect: 'follow',
     });
     const body = await response.text();
-    const links = [...body.matchAll(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)]
-      .slice(0, 40)
-      .map(match => ({ href: match[1], text: match[2].replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim() }));
+    const links = [...body.matchAll(/<a[^>]*href=["']([^"']+)["'][^>]*>/gi)]
+      .slice(0, 80)
+      .map(match => ({ href: match[1], text: match[0].replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim() }));
 
     const qualityBlocks = (body.match(/tab-content[^"'<>]*quality/gi) || []).length;
     const downloadLinks = links.filter(link => /download|link|تحميل/i.test(link.href + ' ' + link.text)).slice(0, 20);
