@@ -39,7 +39,7 @@ jobs:
       REBIND_PROVIDER: secondary
       REBIND_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.episode_limit || '500' }}
       REBIND_CONCURRENCY: "16"
-      RE3ARABI_TIMEOUT_MS: "6000"
+      RE3ARABI_TIMEOUT_MS: "12000"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
