@@ -302,6 +302,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       setPlaybackError(null);
       setRemotePlaybackSources(ready);
       setRemotePlaybackSource((current) => current ?? (
+        ready.find((source) => /1080p/i.test(source.quality || source.labelEn || '')) ||
         ready.find((source) => /720p/i.test(source.quality || source.labelEn || '')) ||
         ready[0]
       ));
