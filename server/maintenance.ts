@@ -263,7 +263,7 @@ async function resolveJob(
   if (job.content_type === 'movie') {
     const { data: movie, error } = await adminSupabase
       .from('movies')
-      .select('id,tmdb_id,status')
+      .select('id,tmdb_id,status,title_en,original_title')
       .eq('id', job.content_id)
       .maybeSingle();
 
