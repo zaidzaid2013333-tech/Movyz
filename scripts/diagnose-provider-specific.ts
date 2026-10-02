@@ -74,7 +74,7 @@ for (const test of cases) {
         );
 
     const playable = sources.filter((source) =>
-      /^https:/\//i.test(String(source.url || '')) &&
+      /^https:\/\//i.test(String(source.url || '')) &&
       ['mp4', 'hls', 'dash', 'webm', 'direct'].includes(String(source.type || '').toLowerCase()),
     );
 
