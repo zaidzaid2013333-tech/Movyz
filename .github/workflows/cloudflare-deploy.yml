@@ -122,13 +122,14 @@ jobs:
 
           base = "https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve"
           checks = [
-              ("movie", 27205, None, None),  # Inception
-              ("series", 5920, 1, 1),       # The Mentalist S01E01
-              ("series", 1396, 1, 1),       # Breaking Bad S01E01
-              ("series", 37854, 1, 1),       # One Piece S01E01 (anime)
+              ("movie", 27205, None, None, "general"),  # Inception -> Aflam/CimaClub
+              ("series", 5920, 1, 1, "general"),        # The Mentalist S01E01
+              ("series", 1396, 1, 1, "general"),        # Breaking Bad S01E01
+              ("series", 1396, 5, 1, "general"),        # Breaking Bad S05E01 season-binding guard
+              ("series", 37854, 1, 1, "anime"),         # One Piece S01E01 -> Anime3rb/Anime4Up
           ]
 
-          for media_type, tmdb_id, season, episode in checks:
+          for media_type, tmdb_id, season, episode, expected_kind in checks:
               params = {"type": media_type, "tmdbId": str(tmdb_id)}
               if season is not None:
                   params["season"] = str(season)
@@ -169,12 +170,20 @@ jobs:
                   raise SystemExit(f"{media_type} {tmdb_id}: resolver returned no sources")
 
               providers = {
-                  str(item.get("providerKey"))
+                  str(item.get("providerKey")).lower()
                   for item in sources
                   if isinstance(item, dict)
               }
-              if not providers.issubset({"aflaam", "cimaclub", "anime3rb", "anime4up"}) or not providers:
-                  raise SystemExit(f"{media_type} {tmdb_id}: unexpected providers={providers}")
+              allowed_providers = (
+                  {"aflaam", "cimaclub"}
+                  if expected_kind == "general"
+                  else {"anime3rb", "anime4up"}
+              )
+              if not providers or not providers.issubset(allowed_providers):
+                  raise SystemExit(
+                      f"{media_type} {tmdb_id} S{season or 0:02d}E{episode or 0:02d}: "
+                      f"unexpected providers={providers}, expected subset={allowed_providers}"
+                  )
 
               qualities = {
                   str(item.get("quality"))
@@ -192,6 +201,17 @@ jobs:
                   raise SystemExit(f"{media_type} {tmdb_id}: no external playback URL returned")
               if any("movyz-api.sameranede.workers.dev" in value for value in urls):
                   raise SystemExit(f"{media_type} {tmdb_id}: Movyz is proxying a playback URL")
+
+              if season is not None and episode is not None:
+                  expected_tag = f"S{season:02d}E{episode:02d}"
+                  for value in urls:
+                      import re
+                      tagged = re.search(r"S\\d{2}E\\d{2}", value, re.IGNORECASE)
+                      if tagged and tagged.group(0).upper() != expected_tag:
+                          raise SystemExit(
+                              f"{media_type} {tmdb_id}: URL identity {tagged.group(0)} "
+                              f"does not match requested {expected_tag}: {value}"
+                          )
 
               print(
                   "Playback OK:",
