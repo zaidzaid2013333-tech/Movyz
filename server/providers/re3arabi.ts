@@ -1346,9 +1346,27 @@ async function resolveProvider(
             hitIdentity.season === context.seasonNumber ||
             (context.seasonNumber === 1 && hitIdentity.season === undefined)
           );
-        targetUrl = explicitEpisode
-          ? hit.url
-          : (findEpisodeUrl(detail, hit.url, context.seasonNumber, context.episodeNumber) || '');
+
+        if (explicitEpisode) {
+          targetUrl = hit.url;
+        } else if (provider.key === 'cimaclub') {
+          targetUrl = await resolveCimaClubEpisodeUrl(
+            detail,
+            hit.url,
+            context.seasonNumber,
+            context.episodeNumber,
+            Math.min(timeoutMs, 6_000),
+          ) || '';
+        } else if (provider.key === 'aflaam') {
+          targetUrl = resolveAflamEpisodeUrl(
+            detail,
+            hit.url,
+            context.seasonNumber,
+            context.episodeNumber,
+          ) || '';
+        } else {
+          targetUrl = findEpisodeUrl(detail, hit.url, context.seasonNumber, context.episodeNumber) || '';
+        }
 
         // Anime3rb exposes a stable canonical episode route even when the
         // title page omits the episode anchors from the initial HTML.
