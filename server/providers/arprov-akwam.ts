@@ -374,6 +374,12 @@ async function resolveDownload(
   if (!finalUrl) return [];
 
   const referer = akwamBase.endsWith('/') ? akwamBase : `${akwamBase}/`;
+  const effectiveQuality =
+    quality !== 'auto'
+      ? quality
+      : inferQuality('', finalUrl) !== 'auto'
+        ? inferQuality('', finalUrl)
+        : quality;
 
   const extracted = await resolveArProvExtractor(finalUrl, {
     referer,
@@ -385,9 +391,9 @@ async function resolveDownload(
       ...source,
       provider: 'Akwam',
       providerReference: 'akwam',
-      quality: quality !== 'auto' ? quality : source.quality,
+      quality: effectiveQuality !== 'auto' ? effectiveQuality : source.quality,
       language: source.language || 'und',
-      label: source.label || `Akwam ${quality !== 'auto' ? quality : source.quality || ''}`.trim(),
+      label: source.label || `Akwam ${effectiveQuality !== 'auto' ? effectiveQuality : source.quality || ''}`.trim(),
       referer: source.referer || referer,
     }));
   }
@@ -397,9 +403,9 @@ async function resolveDownload(
     providerReference: 'akwam',
     type: inferPlaybackType(finalUrl) || 'direct',
     url: finalUrl,
-    quality: quality !== 'auto' ? quality : inferQuality('', finalUrl),
+    quality: effectiveQuality,
     language: 'und',
-    label: `Akwam ${quality !== 'auto' ? quality : ''}`.trim(),
+    label: `Akwam ${effectiveQuality !== 'auto' ? effectiveQuality : ''}`.trim(),
     referer,
   }];
 }
