@@ -9,6 +9,7 @@ import {
 
 const inceptionContext = await resolveRe3ArabiMovieContext(27205);
 const breakingBadContext = await resolveRe3ArabiSeriesContext(1396);
+const onePieceContext = await resolveRe3ArabiSeriesContext(37854);
 
 const cases = [
   {
@@ -20,6 +21,20 @@ const cases = [
     provider: 'aflaam' as const,
     type: 'episode' as const,
     context: breakingBadContext,
+    season: 1,
+    episode: 1,
+  },
+  {
+    provider: 'aflaam' as const,
+    type: 'episode' as const,
+    context: breakingBadContext,
+    season: 5,
+    episode: 1,
+  },
+  {
+    provider: 'anime3rb' as const,
+    type: 'episode' as const,
+    context: onePieceContext,
     season: 1,
     episode: 1,
   },
