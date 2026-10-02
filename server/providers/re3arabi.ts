@@ -1173,37 +1173,45 @@ async function resolveCanonicalCimaClubEpisode(
 
   const season = context.seasonNumber ?? 1;
   const episode = context.episodeNumber;
-  const bases = ['https://w.cimacub.com', 'https://cimacub.com', provider.base];
+  const bases = ['https://w.cimacub.com', 'https://cimacub.com'];
 
-  for (const term of titles.slice(0, 3)) {
+  const attempts = titles.slice(0, 2).flatMap((term) => {
     const slug = normalize(term).replace(/\s+/g, '-');
-    if (!slug) continue;
+    if (!slug) return [];
 
     const seasonWord = cimaSeasonWord(season);
     const paths = [
       `/مشاهدة-مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}-م/`,
       `/مشاهدة-مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}-م/`,
       `/مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}/`,
+      `/مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}/`,
     ];
 
-    for (const base of [...new Set(bases)]) {
-      for (const path of paths) {
-        const url = new URL(path, base).toString();
-        try {
-          const sources = await resolveCimaClubSources(url, provider, Math.min(timeoutMs, 6_000));
-          const usable = sources.filter((source) =>
-            PLAYABLE_TYPES.has(source.type) &&
-            source.quality !== 'auto' &&
-            source.quality !== 'source',
-          );
-          if (usable.length) return usable;
-        } catch {}
-      }
-    }
+    return bases.flatMap((base) => paths.map((path) => new URL(path, base).toString()));
+  });
+
+  const results = await Promise.allSettled(
+    [...new Set(attempts)].map(async (url) => {
+      const sources = await resolveCimaClubSources(
+        url,
+        provider,
+        Math.min(Math.max(timeoutMs, 3_000), 5_000),
+      );
+      return sources.filter((source) =>
+        PLAYABLE_TYPES.has(source.type) &&
+        source.quality !== 'auto' &&
+        source.quality !== 'source',
+      );
+    }),
+  );
+
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value.length) return result.value;
   }
 
   return [];
 }
+
 
 
 async function resolveCanonicalAnime3rbEpisode(
@@ -1260,6 +1268,14 @@ async function resolveProvider(
   const titles = searchTerms;
 
   if (!titles.length) return [];
+
+  // CimaClub has deterministic season/episode routes. Try those before
+  // expensive title searches so exact episode prewarming does not depend on
+  // search ranking or a slow mirror.
+  if (provider.key === 'cimaclub' && context.episodeNumber !== undefined) {
+    const canonicalSources = await resolveCanonicalCimaClubEpisode(titles, context, provider, timeoutMs);
+    if (canonicalSources.length) return canonicalSources;
+  }
 
   if (provider.key === 'anime3rb' && context.episodeNumber !== undefined) {
     const canonicalSources = await resolveCanonicalAnime3rbEpisode(titles, context, provider, timeoutMs);
