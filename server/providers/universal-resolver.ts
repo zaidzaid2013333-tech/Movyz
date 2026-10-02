@@ -1,6 +1,6 @@
 import { fetchWithTimeout, inferPlaybackType, inferQuality } from './http';
 
-export type UniversalPlaybackType = 'hls' | 'mp4' | 'dash' | 'embed';
+export type UniversalPlaybackType = 'hls' | 'mp4' | 'dash' | 'webm' | 'direct' | 'embed';
 
 export interface UniversalPlaybackResult {
   type: UniversalPlaybackType;
@@ -77,7 +77,7 @@ function candidateUrlsFromText(text: string, baseUrl: string) {
     found.push(normalized);
   };
 
-  const streamRegex = /https?:\/\/[^\s"'<>]+(?:\.m3u8|\.mpd|\.mp4)(?:[?#][^\s"'<>]*)?/gi;
+  const streamRegex = /https?:\/\/[^\s"'<>]+(?:\.(?:m3u8|mpd|mp4|webm|m4v|mov|mkv|avi|mpeg|mpg|ogg|ogv|ts|m2ts|flv|3gp|3g2))(?:[?#][^\s"'<>]*)?/gi;
   for (const match of text.match(streamRegex) || []) add(match);
 
   const attributeRegex = /(?:src|data-src|file|url|stream|source|hls|dash)\s*[:=]\s*["'\x60]([^"'\x60]+)["'\x60]/gi;
