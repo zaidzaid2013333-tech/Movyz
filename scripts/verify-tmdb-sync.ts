@@ -34,11 +34,18 @@ const { data: seasonRows, error: seasonRowsError } = await adminSupabase
 if (seasonRowsError) throw new Error('seasons: ' + seasonRowsError.message);
 
 const seasonIds = (seasonRows || []).map((row) => row.id);
-const { data: episodeRows, error: episodeRowsError } = seasonIds.length
-  ? await adminSupabase.from('episodes').select('season_id,episode_number').in('season_id', seasonIds)
-  : { data: [], error: null };
+const episodeRows: Array<{ season_id: string; episode_number: number }> = [];
 
-if (episodeRowsError) throw new Error('episodes: ' + episodeRowsError.message);
+for (let offset = 0; offset < seasonIds.length; offset += 100) {
+  const chunk = seasonIds.slice(offset, offset + 100);
+  const { data, error } = await adminSupabase
+    .from('episodes')
+    .select('season_id,episode_number')
+    .in('season_id', chunk);
+
+  if (error) throw new Error('episodes: ' + error.message);
+  episodeRows.push(...(data || []));
+}
 
 const episodeCountBySeason = new Map();
 for (const row of episodeRows || []) {
