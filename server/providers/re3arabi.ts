@@ -547,10 +547,10 @@ async function resolveAnime3rbSources(
   };
 
   for (const source of parseQualitySources(html, pageUrl, provider)) {
-    if (!seen.has(source.url)) {
-      seen.add(source.url);
-      output.push(source);
-    }
+    const sourceUrl = source.url;
+    if (!sourceUrl || seen.has(sourceUrl)) continue;
+    seen.add(sourceUrl);
+    output.push(source);
   }
 
   const downloadRe = /<a\b[^>]*href=["']([^"']*\/download\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
