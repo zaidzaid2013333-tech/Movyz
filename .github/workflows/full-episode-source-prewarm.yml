@@ -6,6 +6,8 @@ on:
     branches: ["main"]
     paths:
       - ".github/workflows/full-episode-source-prewarm.yml"
+      - "scripts/rebind-selected-playback.ts"
+      - "server/providers/re3arabi.ts"
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
@@ -19,10 +21,11 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
-  group: movyz-tmdb-and-playback-sync
-  cancel-in-progress: true
+  group: movyz-full-episode-source-prewarm
+  cancel-in-progress: false
 
 jobs:
   prewarm:
@@ -34,7 +37,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       REBIND_MODE: episodes
-      REBIND_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.episode_limit || '2000' }}
+      REBIND_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.episode_limit || '1000' }}
       REBIND_CONCURRENCY: "16"
     steps:
       - uses: actions/checkout@v4
@@ -51,3 +54,15 @@ jobs:
 
       - name: Verify catalog integrity
         run: npx tsx scripts/verify-tmdb-sync.ts
+
+      - name: Check remaining episode source work
+        id: remaining
+        run: |
+          remaining=$(npx tsx scripts/episode-rebind-status.ts)
+          echo "remaining=$remaining" >> "$GITHUB_OUTPUT"
+
+      - name: Queue the next episode batch
+        if: steps.remaining.outputs.remaining != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run full-episode-source-prewarm.yml --ref main -f episode_limit=1000
