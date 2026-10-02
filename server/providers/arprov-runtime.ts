@@ -1,6 +1,6 @@
 import { fetchWithTimeout } from './http';
 
-export type ArProvBrowserBinding = unknown;
+export type ArProvBrowserBinding = any;
 
 export interface ArProvPage {
   body: string;
