@@ -73,6 +73,63 @@ async function getRe3ArabiProviderId() {
   return re3ArabiProviderIdPromise;
 }
 
+async function probeRe3ArabiSources<T extends { url: string; type: string; quality?: string }>(sources: T[]) {
+  if (!sources.length) return [] as T[];
+
+  const results = await Promise.all(
+    sources.map(async (source, index) => {
+      const started = Date.now();
+      try {
+        const response = await fetchWithTimeout(source.url, {
+          method: 'GET',
+          timeoutMs: 2_800,
+          redirect: 'follow',
+          headers: {
+            Accept: source.type === 'mp4'
+              ? 'video/mp4,application/octet-stream;q=0.9,*/*;q=0.5'
+              : '*/*',
+            Range: 'bytes=0-1023',
+            'User-Agent': 'Movyza/1.0',
+          },
+        });
+        try { await response.body?.cancel(); } catch {}
+        return {
+          source,
+          ok: response.status === 200 || response.status === 206,
+          latencyMs: Date.now() - started,
+          index,
+        };
+      } catch {
+        return {
+          source,
+          ok: false,
+          latencyMs: Number.POSITIVE_INFINITY,
+          index,
+        };
+      }
+    }),
+  );
+
+  const healthy = results
+    .filter((item) => item.ok)
+    .sort((a, b) => {
+      const qualityDiff = playbackQualityScore(b.source.quality) - playbackQualityScore(a.source.quality);
+      if (qualityDiff) return qualityDiff;
+      return a.latencyMs - b.latencyMs || a.index - b.index;
+    });
+
+  // One verified mirror per quality keeps the player deterministic.
+  const byQuality = new Map<string, T>();
+  for (const item of healthy) {
+    const key = String(item.source.quality || 'source').trim().toLowerCase();
+    if (!byQuality.has(key)) byQuality.set(key, item.source);
+  }
+
+  return [...byQuality.values()].sort(
+    (a, b) => playbackQualityScore(b.quality) - playbackQualityScore(a.quality),
+  );
+}
+
 async function persistRemoteRe3ArabiSources(
   type: 'movie' | 'series',
   tmdbId: number,
@@ -127,11 +184,12 @@ async function persistRemoteRe3ArabiSources(
 
     if (!contentId) return;
 
-    const allowed = sources.filter((source) =>
+    const candidateSources = sources.filter((source) =>
       /^https:\/\//i.test(source.url) &&
       ['hls', 'mp4', 'dash', 'webm', 'direct'].includes(source.type) &&
       ['aflaam', 'anime3rb', 'anime4up'].includes(String(source.providerReference || '').toLowerCase()),
     );
+    const allowed = await probeRe3ArabiSources(candidateSources);
 
     // Replace the selected-site cache for this exact content item. This prevents
     // an old S05E01 URL from surviving when the resolver now resolves S01E01.
@@ -234,7 +292,7 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
   const allowedProviders = new Set(['aflaam', 'anime3rb', 'anime4up']);
   const allowedTypes = new Set(['mp4', 'hls', 'dash', 'webm', 'direct', 'embed']);
 
-  return (data || [])
+  const filtered = (data || [])
     .filter((source: any) => {
       const providerReference = String(source.provider_reference || '').trim().toLowerCase();
       return allowedProviders.has(providerReference);
@@ -256,13 +314,28 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
       if (type === 'dash') return /\.mpd(?:$|[?#])/i.test(url);
       if (type === 'direct') return /\.(?:mov|mkv|avi|mpeg|mpg|ogg|ogv|ts|m2ts|flv|3gp|3g2)(?:$|[?#])/i.test(url);
       return false;
-    })
-    .sort((a: any, b: any) => {
-      const qualityDiff = playbackQualityScore(b.quality) - playbackQualityScore(a.quality);
-      if (qualityDiff) return qualityDiff;
-      return playbackTypeScore(b.source_type) - playbackTypeScore(a.source_type);
-    })
-    .map(cachedRe3ArabiSourceDto);
+    });
+
+  const healthy = await probeRe3ArabiSources(filtered);
+  const healthyUrls = new Set(healthy.map((source: any) => source.url));
+  const failedRows = filtered.filter((source: any) => !healthyUrls.has(source.url));
+
+  if (failedRows.length) {
+    await Promise.all(
+      failedRows.map((source: any) =>
+        adminSupabase
+          .from('playback_sources')
+          .update({
+            is_working: false,
+            last_checked_at: new Date().toISOString(),
+            failure_count: Number(source.failure_count || 0) + 1,
+          })
+          .eq('id', source.id)
+      ),
+    );
+  }
+
+  return healthy.map(cachedRe3ArabiSourceDto);
 }
 
 async function probeCachedPlaybackSources<T extends { url: string; type: string; quality?: string }>(
