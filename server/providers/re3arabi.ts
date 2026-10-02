@@ -1165,6 +1165,11 @@ async function resolveProvider(
               hit.url,
               context.seasonNumber,
               context.episodeNumber,
+            ) || findEpisodeUrl(
+              detail,
+              hit.url,
+              context.seasonNumber,
+              context.episodeNumber,
             ) || '';
           } else {
             targetUrl = findEpisodeUrl(
