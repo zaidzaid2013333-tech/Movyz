@@ -175,6 +175,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const startupWarmupUrlsRef = useRef<Set<string>>(new Set());
+  const startupGuardTimerRef = useRef<number | null>(null);
   const playbackEngineRef = useRef<{ destroy?: () => void; reset?: () => void } | null>(null);
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
@@ -518,7 +519,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     if (typeof document === 'undefined') return;
 
     const previousRobots = document.head.querySelector('meta[data-movyz-watch-robots]');
-    const previousReferrer = document.head.querySelector('meta[data-movyz-watch-referrer]');
 
     const robots = document.createElement('meta');
     robots.name = 'robots';
@@ -532,18 +532,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     googlebot.dataset.movyzWatchRobots = 'true';
     document.head.appendChild(googlebot);
 
-    const referrer = document.createElement('meta');
-    referrer.name = 'referrer';
-    referrer.content = 'no-referrer';
-    referrer.dataset.movyzWatchReferrer = 'true';
-    document.head.appendChild(referrer);
-
     return () => {
       robots.remove();
       googlebot.remove();
-      referrer.remove();
       previousRobots?.removeAttribute('data-movyz-watch-robots');
-      previousReferrer?.removeAttribute('data-movyz-watch-referrer');
     };
   }, []);
 
@@ -626,6 +618,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current = null;
       video.pause();
       video.removeAttribute('src');
+      video.referrerPolicy = 'origin';
       video.src = playbackUrl;
       video.preload = 'auto';
       video.load();
@@ -702,8 +695,24 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     void attachPlayback();
 
+    startupGuardTimerRef.current = window.setTimeout(() => {
+      if (cancelled) return;
+      const currentVideo = videoRef.current;
+      if (!currentVideo || currentVideo.readyState >= HTMLMediaElement.HAVE_METADATA) return;
+      if (tryNextStartupSource()) return;
+      setPlaybackError(
+        language === 'ar'
+          ? 'المصدر لم يرسل بيانات الفيديو في الوقت المحدد. جرّب مصدرًا آخر.'
+          : 'The source did not provide video data in time. Try another source.',
+      );
+    }, 10000);
+
     return () => {
       cancelled = true;
+      if (startupGuardTimerRef.current !== null) {
+        window.clearTimeout(startupGuardTimerRef.current);
+        startupGuardTimerRef.current = null;
+      }
       playbackEngineRef.current?.destroy?.();
       playbackEngineRef.current?.reset?.();
       playbackEngineRef.current = null;
@@ -928,8 +937,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 }}
                 onLoadedMetadata={() => {
                   const video = videoRef.current;
+                  if (!video) return;
+                  if (startupGuardTimerRef.current !== null) {
+                    window.clearTimeout(startupGuardTimerRef.current);
+                    startupGuardTimerRef.current = null;
+                  }
+                  if (Number.isFinite(video.duration)) setPlayerDuration(video.duration);
+
                   const resumeTime = qualityResumeTimeRef.current;
-                  if (!video || resumeTime === null || !Number.isFinite(video.duration)) return;
+                  if (resumeTime === null || !Number.isFinite(video.duration)) return;
 
                   qualityResumeTimeRef.current = null;
                   try {
@@ -937,7 +953,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   } catch {
                     // Ignore sources that reject a resume seek.
                   }
-                }}
+                }
                 onDurationChange={() => {
                   const video = videoRef.current;
                   if (video && Number.isFinite(video.duration)) setPlayerDuration(video.duration);
@@ -961,12 +977,46 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   setPlayerMuted(video.muted);
                 }}
                 onCanPlay={() => {
+                  const video = videoRef.current;
+                  if (!video) return;
+
+                  if (startupGuardTimerRef.current !== null) {
+                    window.clearTimeout(startupGuardTimerRef.current);
+                    startupGuardTimerRef.current = null;
+                  }
+                  if (Number.isFinite(video.duration)) setPlayerDuration(video.duration);
+
+                  // Warm the media pipeline by briefly seeking forward before the
+                  // first user play. This is only attempted once per URL and only
+                  // for finite on-demand native media.
+                  if (
+                    playbackUrl &&
+                    playbackEngineFor(playbackSource) === 'native' &&
+                    !userPlayRequestedRef.current &&
+                    !startupWarmupUrlsRef.current.has(playbackUrl) &&
+                    Number.isFinite(video.duration) &&
+                    video.duration > 150
+                  ) {
+                    startupWarmupUrlsRef.current.add(playbackUrl);
+                    const originalTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+                    const warmupTime = Math.min(120, Math.max(0, video.duration - 1));
+                    try {
+                      video.currentTime = warmupTime;
+                      window.setTimeout(() => {
+                        const current = videoRef.current;
+                        if (!current || userPlayRequestedRef.current) return;
+                        try {
+                          current.currentTime = Math.min(originalTime, Math.max(0, current.duration - 0.5));
+                        } catch {}
+                      }, 650);
+                    } catch {}
+                  }
+
                   if (qualitySwitchPendingRef.current) {
                     qualitySwitchPendingRef.current = false;
                     if (resumeAfterQualitySwitchRef.current) {
                       resumeAfterQualitySwitchRef.current = false;
-                      const video = videoRef.current;
-                      if (video) void video.play().catch(() => undefined);
+                      void video.play().catch(() => undefined);
                     }
                   }
                 }}
@@ -1016,7 +1066,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
  
               
               <div
-                ref={playerShellRef}
                 className="pointer-events-none absolute inset-0 z-10"
               >
                 <div className="pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent pt-16 pb-3 px-3 sm:px-4">
