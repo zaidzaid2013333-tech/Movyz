@@ -6,6 +6,7 @@ on:
     paths:
       - "scripts/diagnose-provider-specific.ts"
       - "server/providers/re3arabi.ts"
+      - ".github/workflows/diagnose-provider-specific.yml"
 
 concurrency:
   group: movyz-provider-diagnostic
