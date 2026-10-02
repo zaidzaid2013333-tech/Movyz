@@ -50,3 +50,52 @@ test('ArProv resolves an Akwam download page into a direct video source', async 
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test('ArProv follows iframe sources from provider pages', async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+
+    if (url.includes('ak.sv')) {
+      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
+    }
+
+    if (url.startsWith('https://cfu.cam/?s=DemoIframe') || url.startsWith('https://cfu.cam/search/?s=DemoIframe')) {
+      return new Response('<a href="https://cfu.cam/watch/demo-iframe"><img alt="DemoIframe"></a>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+
+    if (url === 'https://cfu.cam/watch/demo-iframe') {
+      return new Response('<div class="player"><iframe data-src="https://cdn.example.test/demo/720.mp4"></iframe></div>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+
+    if (url.includes('ciimaclub.us')) {
+      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
+    }
+
+    return new Response('', { status: 404, headers: { 'content-type': 'text/html' } });
+  }) as typeof fetch;
+
+  try {
+    const sources = await resolveArProvPlayback({
+      tmdbId: 2,
+      title: 'DemoIframe',
+      originalTitle: 'DemoIframe',
+    });
+
+    assert.equal(sources.some(source =>
+      source.provider === 'Cima4U' &&
+      source.type === 'mp4' &&
+      source.url === 'https://cdn.example.test/demo/720.mp4'
+    ), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
