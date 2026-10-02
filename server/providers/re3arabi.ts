@@ -1653,10 +1653,10 @@ export async function resolveRe3ArabiProviderWithContext(
     episodeNumber: episode,
   };
 
-  const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
+  const timeoutMs = Math.max(8_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
   return withTimeout(
-    resolveProvider(provider, resolvedContext, Math.min(timeoutMs, 8_000)),
-    Math.min(timeoutMs + 2_000, 10_000),
+    resolveProvider(provider, resolvedContext, timeoutMs),
+    Math.min(timeoutMs + 3_000, 12_000),
     `Provider ${providerKey} exceeded resolver budget`,
   );
 }
