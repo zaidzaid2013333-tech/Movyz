@@ -1169,7 +1169,7 @@ async function resolveAnime4upMegabox(
 ): Promise<Candidate[]> {
   try {
     const html = await getText(url, timeoutMs, referer);
-    const appJson = html.match(/<script[^>]*data-page=["']app["'][^>]*>([\\s\\S]*?)<\\/script>/i)?.[1];
+    const appJson = html.match(/<script[^>]*data-page=["']app["'][^>]*>([\s\S]*?)<\/script>/i)?.[1];
     if (!appJson) return [];
     let page: any;
     try { page = JSON.parse(appJson); } catch { return []; }
