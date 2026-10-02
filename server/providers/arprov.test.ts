@@ -8,21 +8,21 @@ test('ArProv resolves an Akwam download page into a direct video source', async 
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input);
 
-    if (url.startsWith('https://akwam.ss/search') || url.startsWith('https://akwam.ss/?s=')) {
-      return new Response('<a href="https://akwam.ss/movie/demo">Demo</a>', {
+    if (url.startsWith('https://ak.sv/search') || url.startsWith('https://ak.sv/?s=')) {
+      return new Response('<a href="https://ak.sv/movie/demo">Demo</a>', {
         status: 200,
         headers: { 'content-type': 'text/html' },
       });
     }
 
-    if (url === 'https://akwam.ss/movie/demo') {
-      return new Response('<a href="https://akwam.ss/download/quality1080">تحميل 1080p</a>', {
+    if (url === 'https://ak.sv/movie/demo') {
+      return new Response('<a href="https://ak.sv/download/quality1080">تحميل 1080p</a>', {
         status: 200,
         headers: { 'content-type': 'text/html' },
       });
     }
 
-    if (url === 'https://akwam.ss/download/quality1080') {
+    if (url === 'https://ak.sv/download/quality1080') {
       return new Response('<div class="btn-loader"><a href="https://cdn.example.test/demo/1080.mp4">تحميل</a></div>', {
         status: 200,
         headers: { 'content-type': 'text/html' },
@@ -63,7 +63,7 @@ test('ArProv follows iframe sources from provider pages', async () => {
     }
 
     if (url.startsWith('https://cfu.cam/?s=DemoIframe') || url.startsWith('https://cfu.cam/search/?s=DemoIframe')) {
-      return new Response('<a href="https://cfu.cam/watch/demo-iframe"><img alt="DemoIframe"></a>', {
+      return new Response('<a href="https://cfu.cam/watch/demo-iframe">DemoIframe</a>', {
         status: 200,
         headers: { 'content-type': 'text/html' },
       });
