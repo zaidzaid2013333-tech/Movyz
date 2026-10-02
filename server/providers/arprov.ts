@@ -207,7 +207,7 @@ async function search(site: Site, ctx: ProviderContext) {
   const candidates: Array<{url: string; score: number}> = [];
   const seen = new Set<string>();
 
-  for (const query of queries.slice(0, 2)) {
+  for (const query of queries.slice(0, 3)) {
     for (const searchUrl of site.searches(query)) {
       try {
         const page = await html(searchUrl);
