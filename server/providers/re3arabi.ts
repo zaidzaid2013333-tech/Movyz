@@ -2072,7 +2072,7 @@ export async function resolveRe3ArabiPlayback(
 export function createRe3ArabiAdapter() {
   return {
     key: 're3arabi',
-    name: 'Aflam / CimaClub / Anime3rb / Anime4Up',
+    name: 'Aflam / Anime3rb / Anime4Up',
     enabled: true,
     async resolveMovie(context: ProviderContext) {
       return resolveRe3ArabiPlayback({
