@@ -385,6 +385,7 @@ async function fillMovies(role: ProviderRole, limit: number, jobKey: Maintenance
   if (!providerId) return { requested: 0, succeeded: 0, failed: 0 };
 
   const genericProvider = providerKeyFor(role, false);
+  if (!genericProvider) return { requested: 0, succeeded: 0, failed: 0 };
   const failures = await getFailedIds(jobKey, 'movie', (movies || []).map((row) => String(row.id)));
   const candidates: any[] = [];
 
@@ -408,21 +409,14 @@ async function fillMovies(role: ProviderRole, limit: number, jobKey: Maintenance
 
   await runWithConcurrency(candidates, 4, async (movie: any) => {
     try {
-      const generic = await resolveRe3ArabiProvider({
+      const selected = await resolveRe3ArabiProvider({
         type: 'movie',
         tmdbId: Number(movie.tmdb_id),
       }, genericProvider).catch(() => []);
 
-      const animeKey = role === 'primary' ? 'anime3rb' : 'anime4up';
-      const anime = await resolveRe3ArabiProvider({
-        type: 'movie',
-        tmdbId: Number(movie.tmdb_id),
-      }, animeKey).catch(() => []);
-
-      const attempts = [
-        [genericProvider, generic] as const,
-        [animeKey, anime] as const,
-      ].filter(([, sources]) => sources.length > 0);
+      const attempts = selected.length
+        ? [[genericProvider, selected] as const]
+        : [];
 
       if (!attempts.length) {
         await recordFailure(jobKey, 'movie', String(movie.id), 'No playback source returned by any selected provider');
