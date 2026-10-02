@@ -1242,7 +1242,7 @@ async function resolveAnime4upSources(
 
   // Fallback for direct native media already embedded in the page.
   if (!links.length) {
-    for (const match of html.matchAll(/<(?:source|video)\\b[^>]*(?:src|data-src)=["']([^"']+)["'][^>]*>/gi)) {
+    for (const match of html.matchAll(/<(?:source|video)\b[^>]*(?:src|data-src)=["']([^"']+)["'][^>]*>/gi)) {
       addLink(match[1], qualityFromText(match[0], match[1]) || 'source');
     }
   }
