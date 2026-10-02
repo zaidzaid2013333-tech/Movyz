@@ -277,14 +277,31 @@ async function getText(url: string, timeoutMs: number, referer?: string) {
   const cached = pageCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-  const promise = fetchJsonOrText(url, timeoutMs, {
-    Accept: 'text/html,application/xhtml+xml,application/json,text/plain,*/*;q=0.8',
-    'Accept-Language': 'ar,en;q=0.9',
-    Referer: referer || url,
-    'User-Agent': 'Mozilla/5.0 (compatible; Movyz/1.0; +https://movyza.app)',
-  }).then((payload) =>
-    typeof payload === 'string' ? payload : JSON.stringify(payload),
-  );
+  const promise = (async () => {
+    try {
+      const payload = await fetchJsonOrText(url, timeoutMs, {
+        Accept: 'text/html,application/xhtml+xml,application/json,text/plain,*/*;q=0.8',
+        'Accept-Language': 'ar,en;q=0.9',
+        Referer: referer || url,
+        'User-Agent': 'Mozilla/5.0 (compatible; Movyz/1.0; +https://movyza.app)',
+      });
+      return typeof payload === 'string' ? payload : JSON.stringify(payload);
+    } catch (directError) {
+      // Source discovery only: when the runner/Worker cannot reach a provider
+      // host directly, use Jina Reader to retrieve the provider HTML. Media
+      // bytes are never requested through Jina.
+      const jinaUrl = `https://r.jina.ai/http://${url.replace(/^https?:\/\//i, '')}`;
+      try {
+        const fallback = await fetchJsonOrText(jinaUrl, Math.min(timeoutMs + 2_000, 12_000), {
+          Accept: 'text/plain,text/html;q=0.9,*/*;q=0.8',
+          'User-Agent': 'Mozilla/5.0 (compatible; Movyz-Discovery/1.0)',
+        });
+        return typeof fallback === 'string' ? fallback : JSON.stringify(fallback);
+      } catch {
+        throw directError;
+      }
+    }
+  })();
 
   pageCache.set(key, { expiresAt: Date.now() + PAGE_CACHE_TTL_MS, promise });
   promise.catch(() => {
