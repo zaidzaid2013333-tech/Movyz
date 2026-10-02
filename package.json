@@ -14,7 +14,8 @@
     "clean": "rm -rf dist",
     "test": "tsx --test server/providers/http.test.ts server/providers/tmdb-hls.test.ts server/providers/mapped-json.test.ts server/providers/vidzee.test.ts server/providers/streamprovider.test.ts server/providers/tmdb-embed.test.ts server/providers/universal-resolver.test.ts",
     "cf:deploy": "wrangler deploy",
-    "cf:dev": "wrangler dev"
+    "cf:dev": "wrangler dev",
+    "bot": "tsx bot/source-maintenance.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
