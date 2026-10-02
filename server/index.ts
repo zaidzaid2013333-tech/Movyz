@@ -128,7 +128,7 @@ async function persistRemoteRe3ArabiSources(
 
     const allowed = sources.filter((source) =>
       /^https:\/\//i.test(source.url) &&
-      ['hls', 'mp4', 'dash', 'webm', 'direct', 'embed'].includes(source.type) &&
+      ['hls', 'mp4', 'dash', 'webm', 'direct'].includes(source.type) &&
       ['aflaam', 'cimaclub', 'anime3rb', 'anime4up'].includes(String(source.providerReference || '').toLowerCase()),
     );
 
@@ -152,7 +152,7 @@ async function persistRemoteRe3ArabiSources(
         source_type: source.type,
         url: source.url,
         provider_reference: source.providerReference || null,
-        quality: source.quality || 'auto',
+        quality: source.quality || 'source',
         language: source.language || 'ar',
         label_ar: source.label || 're-3arabi',
         label_en: source.labelEn || source.label || 're-3arabi',
@@ -182,7 +182,7 @@ function cachedRe3ArabiSourceDto(source: any) {
   return {
     id: source.id,
     type: source.source_type,
-    quality: source.quality || 'auto',
+    quality: source.quality || 'source',
     language: source.language || 'und',
     label: source.label_ar || source.providers?.name || 'Selected Playback Site',
     labelEn: source.label_en || source.providers?.name || 'Selected Playback Site',
@@ -218,13 +218,14 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
     .filter((source: any) => allowedTypes.has(String(source.source_type || '').toLowerCase()))
     .filter((source: any) => {
       const type = String(source.source_type || '').toLowerCase();
-      return type === 'embed' || String(source.quality || '').toLowerCase() !== 'auto';
+      return ['hls', 'mp4', 'dash', 'webm', 'direct'].includes(type) &&
+        String(source.quality || '').toLowerCase() !== 'auto' &&
+        String(source.quality || '').trim().toLowerCase() !== 'source';
     })
     .filter((source: any) => {
       const url = typeof source.url === 'string' ? source.url.trim() : '';
       const type = String(source.source_type || '').toLowerCase();
       if (!/^https:\/\//i.test(url)) return false;
-      if (type === 'embed') return true;
       if (type === 'mp4') return /\.(?:mp4|m4v)(?:$|[?#])/i.test(url);
       if (type === 'webm') return /\.webm(?:$|[?#])/i.test(url);
       if (type === 'hls') return /\.m3u8(?:$|[?#])/i.test(url);
