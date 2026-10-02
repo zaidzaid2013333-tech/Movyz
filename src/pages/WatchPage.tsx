@@ -39,6 +39,7 @@ const isPlayableHttpSource = (source: PlaybackSource) =>
 function playbackEngineFor(source: PlaybackSource | null | undefined) {
   const type = String(source?.type || '').toLowerCase();
   const url = String(source?.url || '').toLowerCase();
+  if (type === 'embed') return 'embed' as const;
   if (type === 'hls' || /\.m3u8(?:[?#]|$)/i.test(url)) return 'hls' as const;
   if (type === 'dash' || /\.mpd(?:[?#]|$)/i.test(url)) return 'dash' as const;
   return 'native' as const;
@@ -68,6 +69,7 @@ const providerDisplayName = (key: string, fallback: string, language: 'ar' | 'en
     aflaam: ['أفلام', 'Aflam'],
     anime4up: ['أنمي فور أب', 'Anime4Up'],
     cimaclub: ['سيما كلوب', 'CimaClub'],
+    doodstream: ['DoodStream', 'DoodStream'],
   };
   return names[normalized]?.[language === 'ar' ? 0 : 1] || fallback;
 };
@@ -339,6 +341,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
+  const isEmbedPlayback = String(playbackSource?.type || '').toLowerCase() === 'embed';
 
   const formatPlayerTime = (value: number) => {
     if (!Number.isFinite(value) || value < 0) return '00:00';
@@ -635,6 +638,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     const attachPlayback = async () => {
       const engine = playbackEngineFor(playbackSource);
 
+      if (engine === 'embed') {
+        setPlayerReady(true);
+        setPlayerPlaying(false);
+        return;
+      }
+
       if (engine === 'hls') {
         if (Hls.isSupported()) {
           resetMediaElement();
@@ -727,6 +736,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }, [playbackUrl, playbackSource?.type, language]);
 
   useEffect(() => {
+    if (isEmbedPlayback) {
+      setPlayerReady(true);
+      setPlayerPlaying(false);
+      setPlayerCurrentTime(0);
+      setPlayerDuration(0);
+      setPlayerBufferedEnd(0);
+      return;
+    }
+
     const video = videoRef.current;
     if (!video || !playbackUrl) return;
 
@@ -751,12 +769,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       window.clearInterval(interval);
       window.clearTimeout(stop);
     };
-  }, [playbackUrl, playbackSource?.type]);
+  }, [playbackUrl, playbackSource?.type, isEmbedPlayback]);
 
   // Mirror the native media element state directly. React's media events are
   // supplemented with native listeners so duration/currentTime/buffering cannot
   // remain at their initial 00:00 state when an engine swaps the media source.
   useEffect(() => {
+    if (isEmbedPlayback) return;
+
     const video = videoRef.current;
     if (!video || !playbackUrl) return;
 
@@ -823,7 +843,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return () => {
       for (const [name, handler] of events) video.removeEventListener(name, handler);
     };
-  }, [playbackUrl, playbackSource?.type]);
+  }, [playbackUrl, playbackSource?.type, isEmbedPlayback]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -968,7 +988,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           <div className="flex items-center gap-2 text-slate-500">
             <span className="text-amber-400/90 font-bold">{playbackSource?.provider || 'MOVYZ SOURCE'}</span>
             <span>·</span>
-            <span>{language === 'ar' ? 'رابط مباشر من Re3Arabi' : 'Direct Re3Arabi link'}</span>
+            <span>{
+              isEmbedPlayback
+                ? (language === 'ar' ? 'مشغل DoodStream مضمّن' : 'DoodStream embedded player')
+                : (language === 'ar' ? 'مصدر تشغيل مباشر' : 'Direct playback source')
+            }</span>
           </div>
         </div>
       </div>
@@ -981,7 +1005,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         {availableSourceGroups.length > 0 && (
           <div dir={direction} className="space-y-2 px-1 pb-2">
             <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono">
-              <span>{language === 'ar' ? 'روابط التشغيل المباشرة:' : 'Direct playback links:'}</span>
+              <span>{language === 'ar' ? 'مصادر التشغيل:' : 'Playback sources:'}</span>
               <span className="text-amber-400/70">{availableSourceGroups.length}</span>
             </div>
 
@@ -1055,10 +1079,22 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 </div>
               ) : null}
               {/* Playback starts visibly with the native player; no preparation overlay is rendered. */}
+
+              {isEmbedPlayback ? (
+                <iframe
+                  key={playbackUrl}
+                  src={playbackUrl}
+                  title={displayTitle || 'Movyz player'}
+                  className="absolute inset-0 h-full w-full border-0 bg-black"
+                  allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+                  allowFullScreen
+                  referrerPolicy="strict-origin-when-cross-origin"
+                />
+              ) : null}
               <video
                 ref={videoRef}
                 poster={content.backdropUrl || content.posterUrl}
-                className="block h-full w-full bg-black object-contain"
+                className={(isEmbedPlayback ? 'hidden ' : '') + 'block h-full w-full bg-black object-contain'}
                 playsInline
                 preload="auto"
                 disablePictureInPicture={false}
@@ -1213,14 +1249,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               </video>
  
               
-              {!playbackError && !playerReady ? (
+              {!isEmbedPlayback && !playbackError && !playerReady ? (
                 <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center">
                   <div className="h-10 w-10 rounded-full border-2 border-white/15 border-t-amber-400 animate-spin" />
                 </div>
               ) : null}
 
               <div
-                className="pointer-events-none absolute inset-0 z-10"
+                className={(isEmbedPlayback ? 'hidden ' : '') + 'pointer-events-none absolute inset-0 z-10'}
               >
                 <div className="pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent pt-16 pb-3 px-3 sm:px-4">
                   <div className="flex flex-col gap-2">
