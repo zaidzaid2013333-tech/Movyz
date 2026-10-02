@@ -27,7 +27,7 @@ const CLAIM_BATCH = Math.min(Math.max(Number(process.env.EVERGREEN_CLAIM_BATCH |
 const MAX_JOBS = Math.min(Math.max(Number(process.env.EVERGREEN_MAX_JOBS || 600), 1), 2000);
 const CONCURRENCY = Math.min(Math.max(Number(process.env.EVERGREEN_CONCURRENCY || 12), 1), 24);
 
-function providerForLane(lane: Lane, isAnime: boolean) {
+function providerForLane(lane: Lane, isAnime: boolean): string {
   if (lane === 'primary') return isAnime ? 'anime3rb' : 'aflaam';
   return isAnime ? 'anime4up' : 'cimaclub';
 }
