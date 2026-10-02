@@ -394,8 +394,6 @@ async function fillMovies(role: ProviderRole, limit: number, jobKey: Maintenance
   const providerId = await getProviderId();
   if (!providerId) return { requested: 0, succeeded: 0, failed: 0 };
 
-  const genericProvider = providerKeyFor(role, false);
-  if (!genericProvider) return { requested: 0, succeeded: 0, failed: 0 };
   const failures = await getFailedIds(jobKey, 'movie', (movies || []).map((row) => String(row.id)));
   const candidates: any[] = [];
 
@@ -404,12 +402,12 @@ async function fillMovies(role: ProviderRole, limit: number, jobKey: Maintenance
 
     const { data: existing } = await adminSupabase
       .from('playback_sources')
-      .select('content_id')
+      .select('content_id,provider_reference')
       .eq('provider_id', providerId)
       .eq('content_type', 'movie')
-      .eq('provider_reference', genericProvider)
       .eq('content_id', movie.id)
-      .limit(1);
+      .in('provider_reference', ['aflaam', 'anime3rb', 'anime4up'])
+      .limit(3);
 
     if (!existing?.length) candidates.push(movie);
   }
@@ -419,41 +417,30 @@ async function fillMovies(role: ProviderRole, limit: number, jobKey: Maintenance
 
   await runWithConcurrency(candidates, 4, async (movie: any) => {
     try {
+      const context = await resolveRe3ArabiMovieContext(Number(movie.tmdb_id));
+      const providerKey = providerKeyFor(role, context.__isAnime);
+      if (!providerKey) return;
+
       const selected = await resolveRe3ArabiProvider({
         type: 'movie',
         tmdbId: Number(movie.tmdb_id),
-      }, genericProvider).catch(() => []);
+      }, providerKey).catch(() => []);
 
-      const attempts = selected.length
-        ? [[genericProvider, selected] as const]
-        : [];
-
-      if (!attempts.length) {
-        await recordFailure(jobKey, 'movie', String(movie.id), 'No playback source returned by any selected provider');
+      if (!selected.length) {
+        await recordFailure(jobKey, 'movie', String(movie.id), 'No ' + providerKey + ' playback source');
         failed++;
         return;
       }
 
-      let persistedTotal = 0;
-      for (const [providerKey, selected] of attempts) {
-        try {
-          persistedTotal += await persistSources(
-            'movie',
-            String(movie.id),
-            selected as PlaybackSource[],
-            providerKey,
-          );
-        } catch (error) {
-          console.warn('[movyz-maintenance] movie provider persistence failed', {
-            movieId: movie.id,
-            providerKey,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
+      const persisted = await persistSources(
+        'movie',
+        String(movie.id),
+        selected as PlaybackSource[],
+        providerKey,
+      );
 
-      if (!persistedTotal) {
-        await recordFailure(jobKey, 'movie', String(movie.id), 'No native playback source could be persisted');
+      if (!persisted) {
+        await recordFailure(jobKey, 'movie', String(movie.id), 'No native ' + providerKey + ' source');
         failed++;
         return;
       }
