@@ -39,57 +39,59 @@ const cases = [
   },
 ];
 
-let failed = false;
+const results = await Promise.all(
+  cases.map(async (test) => {
+    const started = Date.now();
 
-for (const test of cases) {
-  const started = Date.now();
+    try {
+      const sources = test.type === 'movie'
+        ? await resolveRe3ArabiProvider(
+            {
+              type: 'movie',
+              tmdbId: test.provider === 'cimaclub' ? 1271 : 27205,
+            },
+            test.provider,
+          )
+        : await resolveRe3ArabiProviderWithContext(
+            test.context,
+            test.season!,
+            test.episode!,
+            test.provider,
+          );
 
-  try {
-    const sources = test.type === 'movie'
-      ? await resolveRe3ArabiProvider(
-          { type: 'movie', tmdbId: test.provider === 'cimaclub' ? 1271 : 27205 },
-          test.provider,
-        )
-      : await resolveRe3ArabiProviderWithContext(
-          test.context,
-          test.season,
-          test.episode,
-          test.provider,
-        );
+      const normalized = sources.filter((source) =>
+        source &&
+        typeof source.url === 'string' &&
+        /^https:\/\//i.test(source.url) &&
+        ['hls', 'mp4', 'dash', 'webm', 'direct'].includes(String(source.type).toLowerCase()),
+      );
 
-    const normalized = sources.filter((source) =>
-      source &&
-      typeof source.url === 'string' &&
-      /^https:\/\//i.test(source.url) &&
-      ['hls', 'mp4', 'dash', 'webm', 'direct'].includes(String(source.type).toLowerCase()),
-    );
+      const summary = {
+        provider: test.provider,
+        type: test.type,
+        season: test.season,
+        episode: test.episode,
+        ms: Date.now() - started,
+        count: normalized.length,
+        qualities: [...new Set(normalized.map((x: any) => x.quality))],
+        types: [...new Set(normalized.map((x: any) => x.type))],
+        sampleUrls: normalized.slice(0, 3).map((x: any) => x.url),
+      };
 
-    const summary = {
-      provider: test.provider,
-      type: test.type,
-      season: test.season,
-      episode: test.episode,
-      ms: Date.now() - started,
-      count: normalized.length,
-      qualities: [...new Set(normalized.map((x: any) => x.quality))],
-      types: [...new Set(normalized.map((x: any) => x.type))],
-      sampleUrls: normalized.slice(0, 3).map((x: any) => x.url),
-    };
+      console.log(JSON.stringify(summary));
+      return normalized.length > 0;
+    } catch (error) {
+      console.log(JSON.stringify({
+        provider: test.provider,
+        type: test.type,
+        season: test.season,
+        episode: test.episode,
+        ms: Date.now() - started,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      return false;
+    }
+  }),
+);
 
-    console.log(JSON.stringify(summary));
-
-    if (!normalized.length) failed = true;
-  } catch (error) {
-    failed = true;
-    console.log(JSON.stringify({
-      provider: test.provider,
-      type: test.type,
-      season: test.season,
-      episode: test.episode,
-      ms: Date.now() - started,
-      error: error instanceof Error ? error.message : String(error),
-    }));
-  }
-}
-
-if (failed) process.exit(1);
+if (results.some((ok) => !ok)) process.exit(1);
