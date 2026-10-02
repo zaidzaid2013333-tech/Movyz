@@ -138,14 +138,14 @@ test('ArProv accepts an Akwam loader URL without a file extension as a direct vi
     const url = String(input);
 
     if (url.startsWith('https://ak.sv/search') || url.startsWith('https://ak.sv/?s=')) {
-      return mockResponse('<div class="entry-box"><a class="box" href="https://ak.sv/movie/direct-loader">Demo</a></div>');
+      return mockResponse('<div class="entry-box"><a class="box" href="https://ak.sv/movie/direct-loader-case">Demo</a></div>');
     }
 
-    if (url === 'https://ak.sv/movie/direct-loader') {
-      return mockResponse('<div class="tab-content quality" id="quality-5"><a href="https://ak.sv/link/direct-loader">تحميل 1080p</a></div>');
+    if (url === 'https://ak.sv/movie/direct-loader-case') {
+      return mockResponse('<div class="tab-content quality" id="quality-5"><a href="https://ak.sv/link/direct-loader-case">تحميل 1080p</a></div>');
     }
 
-    if (url === 'https://ak.sv/download/direct-loader/direct-loader') {
+    if (url === 'https://ak.sv/download/direct-loader-case/direct-loader-case') {
       return mockResponse('<div class="btn-loader"><a href="https://stream.example.test/play/abc123?token=xyz">تحميل</a></div>');
     }
 
@@ -155,8 +155,8 @@ test('ArProv accepts an Akwam loader URL without a file extension as a direct vi
   try {
     const sources = await resolveArProvPlayback({
       tmdbId: 27205,
-      title: 'Demo',
-      originalTitle: 'Demo',
+      title: 'Demo Direct Loader',
+      originalTitle: 'Demo Direct Loader',
     });
 
     assert.equal(sources.some(source =>
