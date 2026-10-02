@@ -29,7 +29,7 @@ jobs:
       REBIND_PROVIDER: primary
       REBIND_LIMIT: "500"
       REBIND_CONCURRENCY: "8"
-      RE3ARABI_TIMEOUT_MS: "6000"
+      RE3ARABI_TIMEOUT_MS: "5900"
     steps:
       - uses: actions/checkout@v4
 
