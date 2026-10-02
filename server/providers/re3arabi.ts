@@ -112,6 +112,74 @@ function stripTags(value: string) {
   return decodeHtml(value.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
 
+
+
+function normalizeNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const text = String(value)
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[^0-9]/g, " ")
+    .trim();
+  const match = text.match(/\d+/);
+  return match ? Number(match[0]) : undefined;
+}
+
+function parseJsonLdObjects(html: string): Array<Record<string, unknown>> {
+  const output: Array<Record<string, unknown>> = [];
+  const scriptRe = /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match: RegExpExecArray | null;
+  const visit = (value: unknown, depth = 0) => {
+    if (depth > 5 || value === null || value === undefined) return;
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, depth + 1);
+      return;
+    }
+    if (typeof value !== "object") return;
+    const object = value as Record<string, unknown>;
+    output.push(object);
+    for (const nested of Object.values(object)) {
+      if (nested && typeof nested === "object") visit(nested, depth + 1);
+    }
+  };
+  while ((match = scriptRe.exec(html))) {
+    try { visit(JSON.parse(match[1]) as unknown); } catch {}
+  }
+  return output;
+}
+
+type JsonLdEpisode = { url: string; number?: number; position?: number };
+
+function extractJsonLdEpisodes(html: string, pageUrl: string): JsonLdEpisode[] {
+  const output: JsonLdEpisode[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown, fallbackPosition?: number) => {
+    if (!value || typeof value !== "object") return;
+    const item = value as Record<string, unknown>;
+    const rawUrl =
+      typeof item.url === "string" ? item.url :
+      typeof item.contentUrl === "string" ? item.contentUrl :
+      typeof item.embedUrl === "string" ? item.embedUrl : "";
+    const url = absolute(pageUrl, rawUrl);
+    if (!url || seen.has(url)) return;
+    const name = typeof item.name === "string" ? item.name : "";
+    const number =
+      normalizeNumber(item.episodeNumber) ??
+      normalizeNumber(name.match(/(?:episode|ep|الحلقة|حلقه)[^0-9٠-٩]*(\d+)/i)?.[1]);
+    const position = normalizeNumber(item.position) ?? fallbackPosition;
+    seen.add(url);
+    output.push({ url, number, position });
+  };
+  for (const node of parseJsonLdObjects(html)) {
+    const rawType = node["@type"];
+    const types = Array.isArray(rawType) ? rawType.map(String) : [typeof rawType === "string" ? rawType : ""];
+    if (types.some((type) => /episode/i.test(type))) add(node);
+    const episodes = node.episode;
+    if (Array.isArray(episodes)) episodes.forEach((episode, index) => add(episode, index + 1));
+    else if (episodes && typeof episodes === "object") add(episodes, 1);
+  }
+  return output;
+}
+
 function extractYear(value: string) {
   const match = value.match(/\b(19\d{2}|20\d{2}|21\d{2})\b/);
   return match ? Number(match[1]) : undefined;
@@ -428,6 +496,12 @@ function extractEpisodeCandidates(html: string, baseUrl: string) {
 function findEpisodeUrl(html: string, pageUrl: string, season?: number, episode?: number) {
   if (episode === undefined) return null;
 
+  const jsonEpisodes = extractJsonLdEpisodes(html, pageUrl);
+  const exactJson = jsonEpisodes.find((item) => item.number === episode);
+  if (exactJson) return exactJson.url;
+  const positionJson = jsonEpisodes.find((item) => item.position === episode);
+  if (positionJson) return positionJson.url;
+
   const items = extractEpisodeCandidates(html, pageUrl);
   const exact = items.find((item) => item.number === episode);
   if (exact) return exact.url;
@@ -441,6 +515,69 @@ function findEpisodeUrl(html: string, pageUrl: string, season?: number, episode?
     (seasonPattern ? seasonPattern.test(item.text) && String(item.number || '').includes(String(episode)) : false),
   );
   return byText?.url || null;
+}
+
+
+async function resolveAnime3rbSources(
+  html: string,
+  pageUrl: string,
+  provider: SiteConfig,
+  timeoutMs: number,
+): Promise<Candidate[]> {
+  const output: Candidate[] = [];
+  const seen = new Set<string>();
+  const add = (rawUrl: string, hint = "") => {
+    const url = absolute(pageUrl, rawUrl);
+    if (!url || seen.has(url)) return;
+    const classified = classifyUrl(url, hint, true);
+    if (!classified) return;
+    seen.add(url);
+    output.push({
+      provider: provider.name,
+      providerKey: provider.key,
+      type: classified.type,
+      url,
+      providerReference: provider.key,
+      quality: classified.quality,
+      language: "ar",
+      label: `${provider.name} ${classified.quality === "auto" ? "Auto" : classified.quality}`,
+      expiresAt: undefined,
+      sourceUrl: pageUrl,
+    });
+  };
+
+  for (const source of parseQualitySources(html, pageUrl, provider)) {
+    if (!seen.has(source.url)) {
+      seen.add(source.url);
+      output.push(source);
+    }
+  }
+
+  const downloadRe = /<a\b[^>]*href=["']([^"']*\/download\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = downloadRe.exec(html))) {
+    const rawUrl = absolute(pageUrl, match[1]);
+    if (!rawUrl) continue;
+    const hint = stripTags(html.slice(Math.max(0, match.index - 300), Math.min(html.length, match.index + 700)));
+    try {
+      const response = await fetchWithTimeout(rawUrl, {
+        method: "HEAD",
+        redirect: "follow",
+        timeoutMs,
+        headers: {
+          Accept: "*/*",
+          Referer: pageUrl,
+          "User-Agent": "Mozilla/5.0 (compatible; Movyz/1.0; +https://movyza.app)",
+        },
+      });
+      const contentType = (response.headers.get("content-type") || "").toLowerCase();
+      const finalUrl = response.url || rawUrl;
+      const finalType = classifyUrl(finalUrl, hint, false);
+      if (contentType.startsWith("video/") || finalType) add(finalUrl, hint);
+    } catch {}
+  }
+
+  return output.sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality));
 }
 
 async function resolveProvider(
@@ -498,23 +635,6 @@ async function resolveProvider(
 
       if (context.episodeNumber !== undefined) {
         targetUrl = findEpisodeUrl(detail, hit.url, context.seasonNumber, context.episodeNumber) || '';
-
-        // Anime3rb exposes a stable canonical episode route even when the
-        // title page omits the episode anchors from the initial HTML.
-        if (!targetUrl && provider.key === 'anime3rb') {
-          try {
-            const titleSlug = new URL(hit.url).pathname.match(/^\/titles\/([^/]+)/i)?.[1];
-            if (titleSlug) {
-              const episodeUrl = `https://anime3rb.com/episode/${titleSlug}/${context.episodeNumber}`;
-              const episodeHtml = await getText(episodeUrl, timeoutMs, hit.url);
-              if (/(?:الحلقة|episode)/i.test(episodeHtml.slice(0, 12000))) {
-                targetUrl = episodeUrl;
-                detail = episodeHtml;
-              }
-            }
-          } catch {}
-        }
-
         if (!targetUrl) {
           // Some pages link the first episode from a separate panel; resolve
           // that page once and look for the requested episode there.
@@ -549,6 +669,11 @@ async function resolveProvider(
           const sourcePageHtml = targetUrl === hit.url ? detail : await getText(targetUrl, timeoutMs, hit.url);
           sources = parseQualitySources(sourcePageHtml, targetUrl, provider);
         }
+      } else if (provider.key === 'anime3rb') {
+        const watchHtml = targetUrl === hit.url
+          ? detail
+          : await getText(targetUrl, timeoutMs, hit.url);
+        sources = await resolveAnime3rbSources(watchHtml, targetUrl, provider, timeoutMs);
       } else {
         const watchHtml = targetUrl === hit.url
           ? detail
