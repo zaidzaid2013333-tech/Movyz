@@ -886,7 +886,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
-            <div className="relative h-full w-full bg-black">
+            <div ref={playerShellRef} className="relative h-full w-full bg-black">
 
               {playbackError ? (
                 <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/75 p-6 text-center">
