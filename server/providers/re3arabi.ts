@@ -746,15 +746,23 @@ function parseDirectMediaSources(
 
   // Fallback for provider pages that embed playable URLs directly inside
   // scripts, JSON blobs, or reader-generated text instead of <video>/<source>.
-  // Only URLs that classify as real media are accepted; ordinary watch/embed
-  // pages are ignored by classifyUrl/PLAYABLE_TYPES.
-  const rawUrlPattern = /https?:\/\/[^\s"'<>]+/gi;
+  // Handle both normal https:// URLs and JSON-escaped https:\/\/ URLs.
+  const rawUrlPattern = /https?:\\\/\\\/[^\s"'<>\\]+|https?:\/\/[^\s"'<>]+/gi;
 
   for (const match of html.matchAll(rawUrlPattern)) {
     const raw = String(match[0])
-      .replace(/\\\//g, '/')
-      .replace(/[),.;]+$/g, '');
+      .replace(/\\\\\//g, '/')
+      .replace(/[),.;}]+$/g, '');
     add(raw, inheritedQuality, false);
+  }
+
+  // Common player JSON shape: {file:"...", src:"...", url:"..."}.
+  // This catches escaped media URLs even when they are not present in a
+  // videos=[...] array or a native <source> element.
+  const jsonMediaPattern = /(?:file|src|url|source)\\s*:\\s*["'](https?:\\\/\\\/[^"']+|https?:\/\/[^"']+)["']/gi;
+  for (const match of html.matchAll(jsonMediaPattern)) {
+    const raw = String(match[1] || '').replace(/\\\\\//g, '/');
+    add(raw, inheritedQuality, true);
   }
 
   return candidates;
