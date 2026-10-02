@@ -456,8 +456,26 @@ async function resolveProvider(
 
   if (!titles.length) return [];
 
-  // Search each known title through the site's supported URL shapes.
   const searchResults: SearchHit[] = [];
+
+  // Anime3rb has stable canonical title pages; prefer them before generic search.
+  if (provider.key === 'anime3rb') {
+    for (const term of titles.slice(0, 2)) {
+      try {
+        const titleSlug = normalize(term).replace(/\\s+/g, '-');
+        const titleUrl = `https://anime3rb.com/titles/${titleSlug}`;
+        const titleHtml = await getText(titleUrl, timeoutMs, provider.base);
+        const marker = /<title[^>]*>([\\s\\S]*?)<\\/title>/i.exec(titleHtml)?.[1];
+        searchResults.push({
+          title: stripTags(marker || term).replace(/\\s*[-|].*$/, '').trim() || term,
+          url: titleUrl,
+          year: extractYear(titleHtml.slice(0, 5000)),
+        });
+      } catch {}
+    }
+  }
+
+  // Search each known title through the site's supported URL shapes.
   for (const term of titles.slice(0, 3)) {
     const q = encodeURIComponent(term);
     for (const searchUrl of provider.searchUrls(q)) {
