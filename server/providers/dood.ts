@@ -153,15 +153,6 @@ async function enrichEmbed(file: DoodFile, timeoutMs: number) {
   }
 }
 
-async function searchFiles(term: string, timeoutMs: number) {
-  try {
-    const payload = await doodFetch('/search/videos', { search_term: term }, timeoutMs);
-    return extractFiles(payload);
-  } catch {
-    return [];
-  }
-}
-
 async function listFilesFallback(timeoutMs: number) {
   const out: DoodFile[] = [];
   for (let page = 1; page <= 5; page += 1) {
@@ -186,17 +177,6 @@ export async function resolveDoodStreamPlayback(context: ProviderContext): Promi
 
   const season = context.seasonNumber;
   const episode = context.episodeNumber;
-  const variants = new Set<string>();
-  variants.add(title);
-  if (context.originalTitle) variants.add(context.originalTitle);
-  if (season !== undefined && episode !== undefined) {
-    const s = String(season).padStart(2, '0');
-    const e = String(episode).padStart(2, '0');
-    variants.add(`${title} S${s}E${e}`);
-    variants.add(`${title} ${season}x${episode}`);
-    variants.add(`${title} S${season} E${episode}`);
-  }
-
   const timeoutMs = Math.min(Math.max(Number(process.env.DOODSTREAM_TIMEOUT_MS || 6_000), 3_000), 10_000);
   const pool = new Map<string, DoodFile>();
 
@@ -207,11 +187,9 @@ export async function resolveDoodStreamPlayback(context: ProviderContext): Promi
     }
   }
 
-  if (!pool.size) {
-    for (const file of await listFilesFallback(timeoutMs)) {
-      const code = codeOf(file);
-      if (code) pool.set(code, file);
-    }
+  for (const file of await listFilesFallback(timeoutMs)) {
+    const code = codeOf(file);
+    if (code) pool.set(code, file);
   }
 
   const ranked = [...pool.values()]
