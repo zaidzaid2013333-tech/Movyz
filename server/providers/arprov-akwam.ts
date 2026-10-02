@@ -128,6 +128,14 @@ function searchUrls(base: string, query: string) {
   ];
 }
 
+function looksBlocked(page: { body: string; status: number } | null) {
+  if (!page) return true;
+  const body = page.body.toLowerCase();
+  return page.status === 403 ||
+    page.status === 429 ||
+    /just a moment|verify you are human|access denied|captcha|cf-chl-|challenge-platform/i.test(body);
+}
+
 async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime) {
   const titles = [...new Set([
     ctx.title,
@@ -146,21 +154,20 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
     }
   }
 
+  const searchRequestUrls = [...queries].flatMap(query => searchUrls(base, query).slice(0, 2));
   const pages = await Promise.allSettled(
-    [...queries].flatMap(query => searchUrls(base, query).slice(0, 2)).map(url =>
-      fetchArProvPage(url, {
-        browserBinding: runtime.browserBinding,
-        timeoutMs: 9_000,
-      }),
-    ),
+    searchRequestUrls.map(url => fetchArProvPage(url, {
+      browserBinding: runtime.browserBinding,
+      timeoutMs: 9_000,
+    })),
   );
 
   const candidates: SearchCandidate[] = [];
   const seen = new Set<string>();
 
-  for (const page of pages) {
-    if (page.status !== 'fulfilled' || !page.value) continue;
-    for (const anchor of anchors(page.value.body, page.value.url)) {
+  const collect = (page: { body: string; url: string } | null) => {
+    if (!page) return;
+    for (const anchor of anchors(page.body, page.url)) {
       if (!anchor.url.includes(new URL(base).hostname)) continue;
       if (seen.has(anchor.url)) continue;
       const score = titleScore(anchor, ctx);
@@ -168,10 +175,26 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
       seen.add(anchor.url);
       candidates.push({ url: anchor.url, title: anchor.text, score });
     }
+  };
+
+  for (const page of pages) {
+    if (page.status === 'fulfilled') collect(page.value);
+  }
+
+  if (!candidates.length && runtime.browserBinding) {
+    const browserPages = await Promise.allSettled(
+      searchRequestUrls.map(url => fetchArProvPage(url, {
+        browserBinding: runtime.browserBinding,
+        timeoutMs: 11_000,
+        forceBrowser: true,
+      })),
+    );
+    for (const page of browserPages) {
+      if (page.status === 'fulfilled') collect(page.value);
+    }
   }
 
   return candidates.sort((a, b) => b.score - a.score).slice(0, 6);
-}
 
 function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
   if (ctx.episodeNumber === undefined) return [];
@@ -416,10 +439,17 @@ export async function resolveAkwamPlayback(
 
     const detailResults = await Promise.allSettled(
       candidates.map(async candidate => {
-        const detail = await fetchArProvPage(candidate.url, {
+        let detail = await fetchArProvPage(candidate.url, {
           browserBinding: runtime.browserBinding,
           timeoutMs: 10_000,
         });
+        if (looksBlocked(detail) && runtime.browserBinding) {
+          detail = await fetchArProvPage(candidate.url, {
+            browserBinding: runtime.browserBinding,
+            timeoutMs: 12_000,
+            forceBrowser: true,
+          });
+        }
         if (!detail) return [];
 
         let target = candidate.url;
@@ -433,14 +463,32 @@ export async function resolveAkwamPlayback(
             const eps = episodeCandidates(detail.body, detail.url, context);
             const episode = eps[0]?.url;
             if (!episode) return [];
-            const episodePage = await fetchArProvPage(episode, {
+            let episodePage = await fetchArProvPage(episode, {
               referer: detail.url,
               browserBinding: runtime.browserBinding,
               timeoutMs: 10_000,
             });
+            if (looksBlocked(episodePage) && runtime.browserBinding) {
+              episodePage = await fetchArProvPage(episode, {
+                referer: detail.url,
+                browserBinding: runtime.browserBinding,
+                timeoutMs: 12_000,
+                forceBrowser: true,
+              });
+            }
             if (!episodePage) return [];
             target = episodePage.url;
-            return resolvePage(episodePage, context, runtime);
+            const episodeSources = await resolvePage(episodePage, context, runtime);
+            if (episodeSources.length || !runtime.browserBinding) return episodeSources;
+
+            const browserEpisode = await fetchArProvPage(episodePage.url, {
+              referer: detail.url,
+              browserBinding: runtime.browserBinding,
+              timeoutMs: 12_000,
+              forceBrowser: true,
+            });
+            if (!browserEpisode) return episodeSources;
+            return resolvePage(browserEpisode, context, runtime);
           }
         }
 
