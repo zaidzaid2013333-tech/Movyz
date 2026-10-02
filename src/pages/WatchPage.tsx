@@ -492,7 +492,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   // Automatic source failover is intentionally disabled.
   // A failed source must remain stable so the player never enters a quality-switch loop.
   const markPlaybackSourceFailed = () => {
-    rememberPlaybackHost(playbackSource, false);
   };
 
   const runStartupWarmup = (video: HTMLVideoElement, url: string) => {
@@ -1129,7 +1128,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   playbackStartedRef.current = true;
                   setPlaybackError(null);
                   runStartupWarmup(videoRef.current as HTMLVideoElement, playbackUrl);
-                  rememberPlaybackHost(playbackSource, true);
                 }}
                 onError={() => {
                   playbackStartedRef.current = false;
