@@ -1,6 +1,6 @@
 name: Movyz Cloudflare Deploy
 # Browser Run verification trigger: 2026-10-01
-# Selected playback sites: Aflam/CimaClub + Anime3rb/Anime4Up
+# Selected playback sites: Aflam + Anime3rb/Anime4Up
 # CI trigger: production deploys run from a real main-branch push.
 # Emergency playback verification: selected providers must return native playable media.
 
@@ -139,7 +139,7 @@ jobs:
 
           base = "https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve"
           checks = [
-              ("movie", 27205, None, None, "general"),  # Inception -> Aflam/CimaClub
+              ("movie", 27205, None, None, "general"),  # Inception -> Aflam
               ("series", 1396, 1, 1, "general"),        # Breaking Bad S01E01
               ("series", 1396, 5, 1, "general"),        # Breaking Bad S05E01 season-binding guard
               ("series", 37854, 1, 1, "anime"),         # One Piece S01E01 -> Anime3rb/Anime4Up
@@ -159,7 +159,7 @@ jobs:
                   if isinstance(item, dict)
               }
               allowed_providers = (
-                  {"aflaam", "cimaclub"}
+                  {"aflaam"}
                   if expected_kind == "general"
                   else {"anime3rb", "anime4up"}
               )
