@@ -7,6 +7,7 @@ import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolveRemotePlayback } from './providers/remote-resolver';
+import { diagnoseRe3ArabiPlayback } from './providers/re3arabi';
 import { resolvePlaybackSources } from './providers/resolver';
 import { fetchWithTimeout } from './providers/http';
 import type { PlaybackKind } from './providers/types';
@@ -386,46 +387,45 @@ async function resolveCachedRe3ArabiPlayback(
 
 app.get('/api/v1/diagnostics/playback', async (_req, res) => {
   const started = Date.now();
+
   try {
-    const sources = await resolveRemotePlayback({ type: 'movie', tmdbId: 27205 }, _req.env);
-    const externalOnly = sources.every((source) => {
-      try { return new URL(source.url).hostname !== 'movyz-api.sameranede.workers.dev'; }
-      catch { return false; }
+    const type = _req.query.type === 'series' ? 'series' : 'movie';
+    const tmdbId = Number(_req.query.tmdbId || 27205);
+    const season = _req.query.season !== undefined ? Number(_req.query.season) : undefined;
+    const episode = _req.query.episode !== undefined ? Number(_req.query.episode) : undefined;
+
+    const diagnostic = await diagnoseRe3ArabiPlayback({
+      type,
+      tmdbId,
+      season: Number.isInteger(season) && season! > 0 ? season : undefined,
+      episode: Number.isInteger(episode) && episode! > 0 ? episode : undefined,
     });
 
     return ok(res, {
-      success: sources.length > 0 && externalOnly,
+      success: diagnostic.providers.some((provider) => provider.success),
       buildId: MOVYZ_BUILD_ID,
-      resolver: 'selected-sites',
-      test: {
-        type: 'movie',
-        tmdbId: 27205,
-        sourceCount: sources.length,
-        sourceTypes: sources.map((source) => source.type),
-        embedCount: sources.filter((source) => source.type === 'embed').length,
-        externalOnly,
-      },
+      resolver: diagnostic.resolver,
+      test: diagnostic.request,
+      providers: diagnostic.providers,
       latencyMs: Date.now() - started,
     });
   } catch (error) {
     return ok(res, {
       success: false,
       buildId: MOVYZ_BUILD_ID,
-      resolver: 're3arabi',
+      resolver: 'selected-sites',
       test: {
-        type: 'movie',
-        tmdbId: 27205,
-        sourceCount: 0,
-        sourceTypes: [],
-        embedCount: 0,
-        externalOnly: false,
+        type: _req.query.type || 'movie',
+        tmdbId: Number(_req.query.tmdbId || 27205),
+        season: _req.query.season ? Number(_req.query.season) : undefined,
+        episode: _req.query.episode ? Number(_req.query.episode) : undefined,
       },
-      latencyMs: Date.now() - started,
+      providers: [],
       error: error instanceof Error ? error.message : String(error),
+      latencyMs: Date.now() - started,
     });
   }
 });
-
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   const origin = req.headers.get('origin');
   const allow = (process.env.CORS_ORIGINS || '').split(',').map((x) => x.trim()).filter(Boolean);
