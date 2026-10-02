@@ -1227,7 +1227,7 @@ async function resolveAnime4upSources(
     });
   };
 
-  // Match the Re-3Arabi Anime4Up plugin: every episode server is a data-watch URL.
+  // Match the Re-3Arabi Anime4Up plugin exactly: every episode server is a data-watch URL.
   for (const match of html.matchAll(/<li\\b[^>]*data-watch=["']([^"']+)["'][^>]*>/gi)) {
     const tag = match[0];
     addLink(match[1], qualityFromText(tag, match[1]) || 'source');
