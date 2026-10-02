@@ -48,23 +48,6 @@ const PROVIDERS: readonly SiteConfig[] = [
     ],
   },
   {
-    key: 'cimaclub',
-    name: 'CimaClub',
-    base: 'https://w.cimacub.com',
-    kind: 'general',
-    searchUrls: (q) => [
-      `https://w.cimacub.com/home/?s=${q}`,
-      `https://w.cimacub.com/?s=${q}`,
-      `https://w.cimacub.com/search?q=${q}`,
-      `https://cimacub.com/home/?s=${q}`,
-      `https://cimacub.com/?s=${q}`,
-      `https://www.cimacub.com/?s=${q}`,
-      `https://cimaclubgo.com/?s=${q}`,
-      `https://cimaclubgo.com/search?q=${q}`,
-      `https://www.cimaclubgo.com/?s=${q}`,
-    ],
-  },
-  {
     key: 'anime3rb',
     name: 'Anime3rb',
     base: 'https://anime3rb.com',
