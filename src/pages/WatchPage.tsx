@@ -48,7 +48,8 @@ const pickPlaybackSources = (content: Movie | Series, episode?: Episode) => {
   const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
   return candidates
     .filter(isPlayableHttpSource)
-    .sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
+    .sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b))
+    .slice(0, 5);
 };
 
 const playbackQualityRank = (source: PlaybackSource) => {
@@ -65,8 +66,8 @@ const providerDisplayName = (key: string, fallback: string, language: 'ar' | 'en
   const normalized = key.trim().toLowerCase();
   const names: Record<string, [string, string]> = {
     aflaam: ['أفلام', 'Aflam'],
-    anime3rb: ['أنمي عرب', 'Anime3rb'],
     anime4up: ['أنمي فور أب', 'Anime4Up'],
+    cimaclub: ['سيما كلوب', 'CimaClub'],
   };
   return names[normalized]?.[language === 'ar' ? 0 : 1] || fallback;
 };
