@@ -1724,6 +1724,10 @@ export async function resolveRe3ArabiPlaybackWithContext(
   return promise;
 }
 
+export async function resolveRe3ArabiMovieContext(tmdbId: number): Promise<ResolverContext> {
+  return resolveContext({ type: 'movie', tmdbId });
+}
+
 export async function resolveRe3ArabiPlayback(
   request: Re3ArabiPlaybackRequest,
 ): Promise<Candidate[]> {
