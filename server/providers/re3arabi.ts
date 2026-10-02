@@ -1161,6 +1161,53 @@ async function resolveAnime3rbSources(
   return unique.sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality));
 }
 
+async function resolveAnime4upEpisodeUrl(
+  html: string,
+  pageUrl: string,
+  episode?: number,
+  timeoutMs = 10_000,
+): Promise<string | null> {
+  if (episode === undefined) return null;
+  if (/\/episode\//i.test(pageUrl)) {
+    const pageEpisode = parseSeasonEpisode(pageUrl).episode;
+    if (pageEpisode === episode) return pageUrl;
+  }
+
+  const firstEp =
+    html.match(/<a\b[^>]*class=["'][^"']*anime-first-ep[^"']*["'][^>]*href=["']([^"']+)["']/i)?.[1] ||
+    html.match(/<div[^>]*id=["']episodesList["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["']/i)?.[1];
+
+  if (!firstEp) return null;
+
+  const firstUrl = absolute(pageUrl, firstEp);
+  if (!firstUrl) return null;
+
+  try {
+    const firstHtml = await getText(firstUrl, timeoutMs, pageUrl);
+
+    for (const match of firstHtml.matchAll(
+      /<li\b[^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/li>/gi,
+    )) {
+      const text = stripTags(match[2]);
+      const number = normalizeNumber(text.match(/[0-9٠-٩]{1,3}/)?.[0]);
+      if (number !== episode) continue;
+      const url = absolute(firstUrl, match[1]);
+      if (url) return url;
+    }
+
+    for (const match of firstHtml.matchAll(
+      /<div[^>]*class=["'][^"']*themexblock[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<span[^>]*>([^<]*?)<\/span>/gi,
+    )) {
+      const number = normalizeNumber(String(match[2]).match(/[0-9٠-٩]{1,3}/)?.[0]);
+      if (number !== episode) continue;
+      const url = absolute(firstUrl, match[1]);
+      if (url) return url;
+    }
+  } catch {}
+
+  return null;
+}
+
 async function resolveAnime4upMegabox(
   url: string,
   referer: string,
@@ -1526,6 +1573,18 @@ async function resolveProvider(
               hit.url,
               context.seasonNumber,
               context.episodeNumber,
+            ) || findEpisodeUrl(
+              detail,
+              hit.url,
+              context.seasonNumber,
+              context.episodeNumber,
+            ) || '';
+          } else if (provider.key === 'anime4up') {
+            targetUrl = await resolveAnime4upEpisodeUrl(
+              detail,
+              hit.url,
+              context.episodeNumber,
+              Math.min(timeoutMs, 10_000),
             ) || findEpisodeUrl(
               detail,
               hit.url,
