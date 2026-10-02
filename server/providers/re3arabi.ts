@@ -380,6 +380,115 @@ function parseAflamSearchHits(html: string, base: string): SearchHit[] {
   return hits;
 }
 
+async function resolveAflamSitemapSearch(
+  terms: string[],
+  context: ProviderContext,
+  provider: SiteConfig,
+  timeoutMs: number,
+): Promise<SearchHit[]> {
+  const sitemapUrls = new Set<string>();
+  const directUrls = new Set<string>();
+  const seeds = ['/sitemap.xml', '/sitemap_index.xml', '/wp-sitemap.xml', '/sitemap-index.xml'];
+
+  const collectLocs = (xml: string) => {
+    for (const match of xml.matchAll(/<loc>\s*(.*?)\s*<\/loc>/gis)) {
+      const url = decodeHtml(String(match[1] || '').trim());
+      if (/^https?:\/\//i.test(url)) sitemapUrls.add(url);
+    }
+  };
+
+  for (const seed of seeds) {
+    try {
+      const xml = await getText(new URL(seed, provider.base).toString(), Math.min(timeoutMs, 3_500), provider.base);
+      collectLocs(xml);
+    } catch {}
+  }
+
+  for (const url of [...sitemapUrls].slice(0, 16)) {
+    if (!/\.xml(?:$|[?#])/i.test(url)) {
+      directUrls.add(url);
+      continue;
+    }
+
+    try {
+      const xml = await getText(url, Math.min(timeoutMs, 3_500), url);
+      collectLocs(xml);
+    } catch {}
+  }
+
+  for (const url of sitemapUrls) {
+    if (!/\.xml(?:$|[?#])/i.test(url)) directUrls.add(url);
+  }
+
+  const wanted = terms.map(normalize).filter(Boolean);
+  const scored: SearchHit[] = [];
+
+  for (const url of [...directUrls].slice(0, 6000)) {
+    let pathText = url;
+    try {
+      pathText = decodeURIComponent(new URL(url).pathname);
+    } catch {}
+
+    const normalizedPath = normalize(pathText);
+    const tokenScore = Math.max(
+      0,
+      ...wanted.map((title) => {
+        const parts = title.split(' ').filter((part) => part.length > 2);
+        if (!parts.length) return 0;
+        return parts.filter((part) => normalizedPath.includes(part)).length / parts.length;
+      }),
+    );
+
+    if (tokenScore < 0.45) continue;
+
+    const identity = parseSeasonEpisode(pathText);
+    const episodeMatch =
+      context.episodeNumber !== undefined &&
+      (
+        identity.episode === context.episodeNumber ||
+        new RegExp(
+          `(?:episode|ep|الحلقة|حلقه|الحلقه)[-_ /]?${context.episodeNumber}(?:\\D|$)`,
+          'i',
+        ).test(pathText)
+      );
+    const seasonMatch =
+      context.seasonNumber !== undefined &&
+      (
+        identity.season === context.seasonNumber ||
+        new RegExp(
+          `(?:season|الموسم|الموسم رقم)[-_ /]?${context.seasonNumber}(?:\\D|$)`,
+          'i',
+        ).test(pathText)
+      );
+
+    const yearMatch =
+      context.releaseYear !== undefined &&
+      normalizedPath.includes(String(context.releaseYear));
+
+    const score =
+      tokenScore * 1000 +
+      (episodeMatch ? 420 : 0) +
+      (seasonMatch ? 320 : 0) +
+      (yearMatch ? 120 : 0);
+
+    scored.push({
+      title: pathText.replace(/[\/_-]+/g, ' ').trim(),
+      url,
+      year: yearMatch ? context.releaseYear : undefined,
+      ...(score ? { __score: score } as any : {}),
+    } as SearchHit & { __score?: number });
+  }
+
+  return scored
+    .sort((a: any, b: any) => Number(b.__score || 0) - Number(a.__score || 0))
+    .slice(0, 12)
+    .map((item: any) => ({
+      title: item.title,
+      url: item.url,
+      year: item.year,
+    }));
+}
+
 function rankHits(hits: SearchHit[], titles: string[], year?: number) {
   const wanted = titles.map(normalize).filter(Boolean);
   return [...hits]
@@ -1151,7 +1260,20 @@ async function resolveProvider(
     }
   }
 
-  const hits = rankHits(searchResults, searchTerms, context.releaseYear);
+  let hits = rankHits(searchResults, searchTerms, context.releaseYear);
+
+  if (provider.key === 'aflaam') {
+    const sitemapHits = await resolveAflamSitemapSearch(
+      searchTerms,
+      context,
+      provider,
+      timeoutMs,
+    );
+    if (sitemapHits.length) {
+      hits = rankHits([...hits, ...sitemapHits], searchTerms, context.releaseYear);
+    }
+  }
+
   if (!hits.length) return [];
 
   for (const hit of hits) {
