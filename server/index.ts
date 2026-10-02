@@ -686,8 +686,8 @@ app.get(`${api}/playback/ready`, asyncRoute(async (req, res) => {
     return fail(res, 400, 'INVALID_EPISODE', 'Series playback requires exact season and episode');
   }
 
-  const readySeason = type === 'series' ? season! : season;
-  const readyEpisode = type === 'series' ? episode! : episode;
+  const readySeason = type === 'series' ? (season as number) : undefined;
+  const readyEpisode = type === 'series' ? (episode as number) : undefined;
   const sources = await resolveCachedRe3ArabiPlayback(type, tmdbId, readySeason, readyEpisode);
   res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=60, stale-while-revalidate=120');
   res.setHeader('Referrer-Policy', 'no-referrer');
