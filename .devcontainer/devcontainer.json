@@ -1,0 +1,13 @@
+{
+  "name": "Movyz Source Worker",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "postCreateCommand": "npm install --no-audit --no-fund",
+  "postStartCommand": "bash -lc 'if [ -n \"$SUPABASE_URL\" ] && [ -n \"$SUPABASE_ANON_KEY\" ] && [ -n \"$SUPABASE_SERVICE_ROLE_KEY\" ]; then nohup npm run bot >/tmp/movyz-source-bot.log 2>&1 & echo $! >/tmp/movyz-source-bot.pid; else echo \"Movyz bot not started: add the three Codespaces secrets first.\"; fi'",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "typescript.tsdk": "node_modules/typescript/lib"
+      }
+    }
+  }
+}
