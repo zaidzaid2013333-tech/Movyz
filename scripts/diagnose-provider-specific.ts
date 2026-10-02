@@ -12,12 +12,10 @@ const breakingBadContext = await resolveRe3ArabiSeriesContext(1396);
 
 const cases = [
   {
-  {
     provider: 'aflaam' as const,
     type: 'movie' as const,
     context: inceptionContext,
   },
-  {
   {
     provider: 'aflaam' as const,
     type: 'episode' as const,
