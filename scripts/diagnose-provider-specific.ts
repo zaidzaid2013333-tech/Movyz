@@ -7,138 +7,96 @@ import {
   resolveRe3ArabiProviderWithContext,
 } from '../server/providers/re3arabi';
 
-async function debugAflamLinks() {
-  const urls = [
-    'https://aflaam.com/search?q=Breaking%20Bad',
-    'https://aflaam.com/?s=Breaking%20Bad',
-    'https://aflaam.com/search?q=Breaking%20Bad%20S01E02',
-    'https://aflaam.com/?s=Breaking%20Bad%20S01E02',
-  ];
-  for (const url of urls) {
-    try {
-      const response = await fetch(url, {
-        headers: {
-          Accept: 'text/html,application/xhtml+xml,*/*;q=0.8',
-          'Accept-Language': 'en,ar;q=0.9',
-          'User-Agent': 'Mozilla/5.0 (compatible; Movyz-Diagnostic/1.0)',
-        },
-      });
-      const html = await response.text();
-      const links = [...html.matchAll(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)]
-        .map((m) => ({
-          href: m[1],
-          text: m[2].replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim(),
-        }))
-        .filter((x) => /breaking|s01|episode|ep|الحلقة/i.test(x.href + ' ' + x.text))
-        .slice(0, 40);
-      console.log(JSON.stringify({
-        url,
-        status: response.status,
-        length: html.length,
-        links,
-        title: /<title[^>]*>([\\s\\S]*?)<\\/title>/i.exec(html)?.[1]?.replace(/<[^>]+>/g, ' ').trim() || '',
-      }));
-    } catch (error) {
-      console.log(JSON.stringify({ url, error: error instanceof Error ? error.message : String(error) }));
-    }
-  }
-}
+type DiagnosticCase = {
+  name: string;
+  provider: 'aflaam' | 'anime3rb' | 'anime4up';
+  type: 'movie' | 'episode';
+  context: Awaited<ReturnType<typeof resolveRe3ArabiSeriesContext>> | Awaited<ReturnType<typeof resolveRe3ArabiMovieContext>>;
+  season?: number;
+  episode?: number;
+  tmdbId: number;
+};
 
-await debugAflamLinks();
-
-const inceptionContext = await resolveRe3ArabiMovieContext(27205);
+const movieContext = await resolveRe3ArabiMovieContext(27205);
 const breakingBadContext = await resolveRe3ArabiSeriesContext(1396);
 const onePieceContext = await resolveRe3ArabiSeriesContext(37854);
 
-const cases = [
+const cases: DiagnosticCase[] = [
   {
-    provider: 'aflaam' as const,
-    type: 'movie' as const,
-    context: inceptionContext,
+    name: 'Inception movie',
+    provider: 'aflaam',
+    type: 'movie',
+    context: movieContext,
+    tmdbId: 27205,
   },
-  {
-    provider: 'aflaam' as const,
-    type: 'episode' as const,
-    context: breakingBadContext,
-    season: 1,
-    episode: 1,
-  },
-  ...[2, 3, 4, 5, 6, 7].map((episode) => ({
+  ...[1, 2, 3, 4, 5, 6, 7].map((episode) => ({
+    name: `Breaking Bad S01E${String(episode).padStart(2, '0')}`,
     provider: 'aflaam' as const,
     type: 'episode' as const,
     context: breakingBadContext,
     season: 1,
     episode,
+    tmdbId: 1396,
   })),
   {
-    provider: 'aflaam' as const,
-    type: 'episode' as const,
+    name: 'Breaking Bad S05E01',
+    provider: 'aflaam',
+    type: 'episode',
     context: breakingBadContext,
     season: 5,
     episode: 1,
+    tmdbId: 1396,
   },
   {
-    provider: 'anime3rb' as const,
-    type: 'episode' as const,
+    name: 'One Piece S01E01',
+    provider: 'anime3rb',
+    type: 'episode',
     context: onePieceContext,
     season: 1,
     episode: 1,
+    tmdbId: 37854,
   },
 ];
 
-const results = await Promise.all(
-  cases.map(async (test) => {
-    const started = Date.now();
+for (const test of cases) {
+  const started = Date.now();
+  try {
+    const sources = test.type === 'movie'
+      ? await resolveRe3ArabiProvider(
+          { type: 'movie', tmdbId: test.tmdbId },
+          test.provider,
+        )
+      : await resolveRe3ArabiProviderWithContext(
+          test.context as Awaited<ReturnType<typeof resolveRe3ArabiSeriesContext>>,
+          Number(test.season),
+          Number(test.episode),
+          test.provider,
+        );
 
-    try {
-      const sources = test.type === 'movie'
-        ? await resolveRe3ArabiProvider(
-            {
-              type: 'movie',
-              tmdbId: 27205,
-            },
-            test.provider,
-          )
-        : await resolveRe3ArabiProviderWithContext(
-            test.context,
-            test.season!,
-            test.episode!,
-            test.provider,
-          );
+    const playable = sources.filter((source) =>
+      /^https:/\//i.test(String(source.url || '')) &&
+      ['mp4', 'hls', 'dash', 'webm', 'direct'].includes(String(source.type || '').toLowerCase()),
+    );
 
-      const normalized = sources.filter((source) =>
-        source &&
-        typeof source.url === 'string' &&
-        /^https:\/\//i.test(source.url) &&
-        ['hls', 'mp4', 'dash', 'webm', 'direct'].includes(String(source.type).toLowerCase()),
-      );
+    console.log(JSON.stringify({
+      case: test.name,
+      provider: test.provider,
+      sources: sources.length,
+      playable: playable.length,
+      qualities: [...new Set(playable.map((source) => source.quality).filter(Boolean))],
+      elapsedMs: Date.now() - started,
+    }));
 
-      const summary = {
-        provider: test.provider,
-        type: test.type,
-        season: test.season,
-        episode: test.episode,
-        ms: Date.now() - started,
-        count: normalized.length,
-        qualities: [...new Set(normalized.map((x: any) => x.quality))],
-        types: [...new Set(normalized.map((x: any) => x.type))],
-        sampleUrls: normalized.slice(0, 3).map((x: any) => x.url),
-      };
-
-      console.log(JSON.stringify(summary));
-      return normalized.length > 0;
-    } catch (error) {
-      console.log(JSON.stringify({
-        provider: test.provider,
-        type: test.type,
-        season: test.season,
-        episode: test.episode,
-        ms: Date.now() - started,
-        error: error instanceof Error ? error.message : String(error),
-      }));
-      return false;
+    if (!playable.length) {
+      throw new Error(`No native playback source for ${test.name}`);
     }
-  }),
-);
-
-if (results.some((ok) => !ok)) process.exit(1);
+  } catch (error) {
+    console.error(JSON.stringify({
+      case: test.name,
+      provider: test.provider,
+      error: error instanceof Error ? error.message : String(error),
+      elapsedMs: Date.now() - started,
+    }));
+    process.exitCode = 1;
+  }
+}
