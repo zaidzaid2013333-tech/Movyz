@@ -777,11 +777,14 @@ async function resolveCimaClubSources(
   timeoutMs: number,
 ): Promise<Candidate[]> {
   let html = '';
+  // Current CimaClub's player route exposes server links after POST watch=1.
+  // Prefer that path, then fall back to the regular GET page for mirrors that
+  // still render their server list without the POST.
   try {
-    html = await getText(targetUrl, Math.min(timeoutMs, 6_000), provider.base);
+    html = await postText(targetUrl, Math.min(timeoutMs, 6_000), targetUrl);
   } catch {
     try {
-      html = await postText(targetUrl, Math.min(timeoutMs, 6_000), targetUrl);
+      html = await getText(targetUrl, Math.min(timeoutMs, 6_000), provider.base);
     } catch {
       return [];
     }
