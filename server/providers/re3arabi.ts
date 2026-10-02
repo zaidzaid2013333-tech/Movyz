@@ -147,35 +147,55 @@ function parseJsonLdObjects(html: string): Array<Record<string, unknown>> {
   return output;
 }
 
-type JsonLdEpisode = { url: string; number?: number; position?: number };
+function parseSeasonEpisode(value: string): { season?: number; episode?: number } {
+  const text = String(value || "");
+  const compact =
+    text.match(/(?:^|[^a-z])s(?:eason)?[\s._-]*(\d{1,3})[\s._-]*e(?:pisode)?[\s._-]*(\d{1,3})(?:[^0-9]|$)/i) ||
+    text.match(/(?:season|الموسم)[\s._-]*(\d{1,3})[\s._-]*(?:episode|ep|الحلقة|حلقه)[^0-9]*(\d{1,3})/i);
+  if (compact) return { season: Number(compact[1]), episode: Number(compact[2]) };
+
+  const season = normalizeNumber(text.match(/(?:season|الموسم)[^0-9٠-٩]*(\d+)/i)?.[1]);
+  const episode = normalizeNumber(text.match(/(?:episode|ep|الحلقة|حلقه)[^0-9٠-٩]*(\d+)/i)?.[1]);
+  return { season, episode };
+}
+
+type JsonLdEpisode = { url: string; number?: number; position?: number; season?: number };
 
 function extractJsonLdEpisodes(html: string, pageUrl: string): JsonLdEpisode[] {
   const output: JsonLdEpisode[] = [];
   const seen = new Set<string>();
+
   const add = (value: unknown, fallbackPosition?: number) => {
-    if (!value || typeof value !== "object") return;
+    if (!value || typeof value !== 'object') return;
     const item = value as Record<string, unknown>;
     const rawUrl =
-      typeof item.url === "string" ? item.url :
-      typeof item.contentUrl === "string" ? item.contentUrl :
-      typeof item.embedUrl === "string" ? item.embedUrl : "";
+      typeof item.url === 'string' ? item.url :
+      typeof item.contentUrl === 'string' ? item.contentUrl :
+      typeof item.embedUrl === 'string' ? item.embedUrl : "";
     const url = absolute(pageUrl, rawUrl);
     if (!url || seen.has(url)) return;
-    const name = typeof item.name === "string" ? item.name : "";
-    const number =
-      normalizeNumber(item.episodeNumber) ??
-      normalizeNumber(name.match(/(?:episode|ep|الحلقة|حلقه)[^0-9٠-٩]*(\d+)/i)?.[1]);
+
+    const name = typeof item.name === 'string' ? item.name : "";
+    const partOfSeason =
+      item.partOfSeason && typeof item.partOfSeason === 'object'
+        ? item.partOfSeason as Record<string, unknown>
+        : null;
+    const parsed = parseSeasonEpisode([name, rawUrl].join(' '));
+    const number = normalizeNumber(item.episodeNumber) ?? parsed.episode;
+    const season = normalizeNumber(item.seasonNumber) ?? normalizeNumber(partOfSeason?.seasonNumber) ?? parsed.season;
     const position = normalizeNumber(item.position) ?? fallbackPosition;
+
     seen.add(url);
-    output.push({ url, number, position });
+    output.push({ url, number, position, season });
   };
+
   for (const node of parseJsonLdObjects(html)) {
     const rawType = node["@type"];
     const types = Array.isArray(rawType) ? rawType.map(String) : [typeof rawType === "string" ? rawType : ""];
     if (types.some((type) => /episode/i.test(type))) add(node);
     const episodes = node.episode;
     if (Array.isArray(episodes)) episodes.forEach((episode, index) => add(episode, index + 1));
-    else if (episodes && typeof episodes === "object") add(episodes, 1);
+    else if (episodes && typeof episodes === 'object') add(episodes, 1);
   }
   return output;
 }
@@ -453,7 +473,7 @@ async function resolveCimaClubSources(
 }
 
 function extractEpisodeCandidates(html: string, baseUrl: string) {
-  const items: Array<{ url: string; number?: number; text: string }> = [];
+  const items: Array<{ url: string; number?: number; season?: number; text: string }> = [];
   const seen = new Set<string>();
   const re = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let match: RegExpExecArray | null;
@@ -464,30 +484,30 @@ function extractEpisodeCandidates(html: string, baseUrl: string) {
     const url = absolute(baseUrl, rawHref);
     if (!url || seen.has(url) || isNavigationLink(url, text)) continue;
 
-    const numberMatch =
-      text.match(/(?:episode|ep|الحلقة|حلقه)[^0-9]*(\d+)/i) ||
-      rawHref.match(/(?:episode|ep)[^0-9]*(\d+)/i) ||
-      rawHref.match(/s\d+e(\d+)/i);
+    const parsed = parseSeasonEpisode([rawHref, text].join(' '));
+    const number =
+      parsed.episode ??
+      normalizeNumber(text.match(/(?:episode|ep|الحلقة|حلقه)[^0-9٠-٩]*(\d+)/i)?.[1]) ??
+      normalizeNumber(rawHref.match(/(?:episode|ep)[^0-9٠-٩]*(\d+)/i)?.[1]);
 
-    if (!isLikelyEpisodeLink(rawHref, text) && !numberMatch) continue;
+    if (!isLikelyEpisodeLink(rawHref, text) && number === undefined) continue;
     seen.add(url);
-    items.push({
-      url,
-      number: numberMatch ? Number(numberMatch[1]) : undefined,
-      text,
-    });
+    items.push({ url, number, season: parsed.season, text });
   }
 
-  // Anime4Up also exposes episodes in a dedicated list.
   const liRe = /<li\b[^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/li>/gi;
   while ((match = liRe.exec(html))) {
-    const url = absolute(baseUrl, match[1]);
+    const rawHref = decodeHtml(match[1]);
+    const url = absolute(baseUrl, rawHref);
     const text = stripTags(match[2]);
     if (!url || seen.has(url)) continue;
-    const n = text.match(/(?:episode|ep|الحلقة|حلقه)[^0-9]*(\d+)/i)?.[1];
-    if (!n) continue;
+
+    const parsed = parseSeasonEpisode([rawHref, text].join(' '));
+    const number = parsed.episode ?? normalizeNumber(text.match(/(?:episode|ep|الحلقة|حلقه)[^0-9٠-٩]*(\d+)/i)?.[1]);
+    if (number === undefined) continue;
+
     seen.add(url);
-    items.push({ url, number: Number(n), text });
+    items.push({ url, number, season: parsed.season, text });
   }
 
   return items;
@@ -496,25 +516,38 @@ function extractEpisodeCandidates(html: string, baseUrl: string) {
 function findEpisodeUrl(html: string, pageUrl: string, season?: number, episode?: number) {
   if (episode === undefined) return null;
 
+  const pageIdentity = parseSeasonEpisode(pageUrl);
+  const requestedSeason = season ?? pageIdentity.season;
+
+  const matchesRequested = (item: { number?: number; season?: number }) =>
+    item.number === episode &&
+    (
+      requestedSeason === undefined ||
+      item.season === requestedSeason ||
+      (item.season === undefined && pageIdentity.season === requestedSeason)
+    );
+
   const jsonEpisodes = extractJsonLdEpisodes(html, pageUrl);
-  const exactJson = jsonEpisodes.find((item) => item.number === episode);
+  const exactJson = jsonEpisodes.find(matchesRequested);
   if (exactJson) return exactJson.url;
-  const positionJson = jsonEpisodes.find((item) => item.position === episode);
+
+  const positionJson = jsonEpisodes.find((item) =>
+    item.position === episode &&
+    (
+      requestedSeason === undefined ||
+      item.season === requestedSeason ||
+      (item.season === undefined && pageIdentity.season === requestedSeason)
+    ),
+  );
   if (positionJson) return positionJson.url;
 
   const items = extractEpisodeCandidates(html, pageUrl);
-  const exact = items.find((item) => item.number === episode);
+  const exact = items.find(matchesRequested);
   if (exact) return exact.url;
 
-  const seasonPattern = season !== undefined
-    ? new RegExp(`(?:season|الموسم|s)\\s*${season}\\b`, 'i')
-    : null;
-
-  const byText = items.find((item) =>
-    normalize(item.text).includes(normalize(`الحلقة ${episode}`)) ||
-    (seasonPattern ? seasonPattern.test(item.text) && String(item.number || '').includes(String(episode)) : false),
-  );
-  return byText?.url || null;
+  // Never choose "episode N" from an unscoped multi-season page. The old
+  // fallback could attach S05E01 to S01E01 on Breaking Bad.
+  return null;
 }
 
 
@@ -687,6 +720,25 @@ async function resolveProvider(
           ? detail
           : await getText(targetUrl, timeoutMs, hit.url);
         sources = parseQualitySources(watchHtml, targetUrl, provider);
+      }
+
+      if (sources.length && context.episodeNumber !== undefined && context.seasonNumber !== undefined) {
+        const tagged = sources.filter((source) => {
+          const identities = [source.url || '', source.sourceUrl || '']
+            .map(parseSeasonEpisode)
+            .filter((identity) => identity.season !== undefined || identity.episode !== undefined);
+
+          // Explicitly tagged media URLs must agree with the requested
+          // season/episode. Opaque URLs are accepted when the episode page was
+          // resolved unambiguously by findEpisodeUrl above.
+          if (!identities.length) return true;
+          return identities.some((identity) =>
+            identity.season === context.seasonNumber &&
+            identity.episode === context.episodeNumber,
+          );
+        });
+        if (tagged.length) return tagged;
+        continue;
       }
 
       if (sources.length) {
