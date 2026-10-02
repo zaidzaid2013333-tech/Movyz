@@ -349,7 +349,7 @@ async function resolveArabSeedPage(pageUrl: string, ctx: ProviderContext, site: 
       }
     }
 
-    const liRe = /<li\\b[^>]*data-src=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/li>/gi;
+    const liRe = /<li\b[^>]*data-src=["']([^"']+)["'][^>]*>([\s\S]*?)<\/li>/gi;
     let m: RegExpExecArray | null;
     while ((m = liRe.exec(watchPage.body))) {
       const src = https(m[1], watchPage.url);
@@ -368,7 +368,7 @@ async function resolveArabSeedPage(pageUrl: string, ctx: ProviderContext, site: 
             csrf_token: csrf,
           }, watchPage.url);
 
-          const qRe = /<li\\b[^>]*data-src=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/li>/gi;
+          const qRe = /<li\b[^>]*data-src=["']([^"']+)["'][^>]*>([\s\S]*?)<\/li>/gi;
           let qm: RegExpExecArray | null;
           while ((qm = qRe.exec(q.body))) {
             const src = https(qm[1], q.url);
