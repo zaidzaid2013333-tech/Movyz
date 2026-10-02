@@ -1,12 +1,6 @@
 name: Movyz full movie source prewarm
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - ".github/workflows/full-movie-source-prewarm.yml"
-      - "scripts/rebind-selected-playback.ts"
-      - "server/providers/re3arabi.ts"
   workflow_dispatch:
 
 permissions:
