@@ -192,7 +192,7 @@ const myVid: ArProvExtractor = {
     const page = await fetchArProvPage(url, { referer: context.referer, browserBinding: context.browserBinding });
     if (!page) return [];
     const text = page.body.match(/<script[^>]*>([\s\S]*?)<\/script>/gi)?.[1] || page.body;
-    const payload = text.substringAfter('||||').split('|');
+    const payload = (text.includes('||||') ? text.split('||||').pop()! : text).split('|');
     if (payload.length < 84) return [];
     const candidate = `${payload[7]}://${payload[24]}.${payload[6]}.${payload[5]}/${payload[83]}/v.${payload[82]}`;
     const value = absolute(candidate, page.url);
