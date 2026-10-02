@@ -201,22 +201,23 @@ async function rebindEpisodes() {
 
   const seriesById = new Map((seriesRows || []).map((row: any) => [String(row.id), row]));
 
-  // Resolve each series' TMDB metadata once per run. Episode playback then
-  // reuses the resolved title/language/anime context instead of making two
-  // TMDB requests for every single episode.
-  const seriesContextById = new Map<string, Awaited<ReturnType<typeof resolveRe3ArabiSeriesContext>>>();
-  await mapWithConcurrency(seriesRows || [], 8, async (series: any) => {
-    try {
-      const context = await resolveRe3ArabiSeriesContext(Number(series.tmdb_id));
-      seriesContextById.set(String(series.id), context);
-    } catch (error) {
-      console.warn('RE3ARABI_SERIES_CONTEXT_FAIL', JSON.stringify({
-        tmdbId: series.tmdb_id,
-        title: series.title_en,
-        error: error instanceof Error ? error.message : String(error),
-      }));
-    }
-  });
+  // Cache one resolver context per series lazily. This keeps each batch
+  // cheap while ensuring all episodes of the same series reuse the same TMDB
+  // metadata instead of fetching it repeatedly.
+  const seriesContextPromises = new Map<string, ReturnType<typeof resolveRe3ArabiSeriesContext>>();
+
+  const getSeriesContext = (series: any) => {
+    const key = String(series.id);
+    const existing = seriesContextPromises.get(key);
+    if (existing) return existing;
+
+    const promise = resolveRe3ArabiSeriesContext(Number(series.tmdb_id)).catch((error) => {
+      seriesContextPromises.delete(key);
+      throw error;
+    });
+    seriesContextPromises.set(key, promise);
+    return promise;
+  };
 
   const { data: seasonRows, error: seasonError } = await adminSupabase
     .from('seasons')
@@ -354,9 +355,7 @@ async function rebindEpisodes() {
     if (!season || !series) return;
 
     try {
-      const seriesContext =
-        seriesContextById.get(String(series.id)) ||
-        await resolveRe3ArabiSeriesContext(Number(series.tmdb_id));
+      const seriesContext = await getSeriesContext(series);
 
       const sources = await resolveRe3ArabiPlaybackWithContext(
         seriesContext,
