@@ -2,7 +2,7 @@ import { adminSupabase } from '../supabase';
 import { getProvider } from './registry';
 import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
-const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'webm']);
+const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'webm', 'embed']);
 // Legacy Fasel provider records are intentionally excluded; playback is routed through AbdoBest.
 const DISABLED_PROVIDERS = new Set(['fasel', 'faselhd']);
 
@@ -26,8 +26,10 @@ function sourceDto(source: any) {
     labelEn: source.label_en || source.providers?.name || 'Source',
     url: source.url || '',
     isWorking: source.is_working === true,
-    provider: source.providers?.name || 'Provider',
-    providerKey: String(source.providers?.key || '').toLowerCase() || undefined,
+    provider: source.label_ar || source.providers?.name || 'Provider',
+    providerKey: /^(aflaam|cimaclub|anime3rb|anime4up)$/i.test(String(source.provider_reference || ''))
+      ? String(source.provider_reference).toLowerCase()
+      : String(source.providers?.key || '').toLowerCase() || undefined,
     providerReference: source.provider_reference || undefined,
   };
 }
