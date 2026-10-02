@@ -1,0 +1,69 @@
+name: Movyz full catalog rebuild
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "scripts/full-catalog-rebuild.ts"
+      - ".github/workflows/full-catalog-rebuild.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-full-catalog-rebuild
+  cancel-in-progress: true
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      REBUILD_MOVIE_CONCURRENCY: "4"
+      REBUILD_SERIES_CONCURRENCY: "2"
+      REBUILD_RETRIES: "2"
+      REBIND_CONCURRENCY: "8"
+      REBIND_EPISODE_LIMIT: "10000"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configure npm resilience
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set audit false
+          npm config set fund false
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Validate rebuild code
+        run: npm run lint
+
+      - name: Delete and rebuild the complete catalog
+        run: npx tsx scripts/full-catalog-rebuild.ts
+
+      - name: Rebuild every movie source mapping
+        env:
+          REBIND_MODE: movies
+          REBIND_LIMIT: "240"
+          REBIND_OFFSET: "0"
+        run: npx tsx scripts/rebind-selected-playback.ts
+
+      - name: Begin resumable full episode source rebuild
+        env:
+          REBIND_MODE: episodes
+          REBIND_LIMIT: ${{ env.REBIND_EPISODE_LIMIT }}
+        run: npx tsx scripts/rebind-selected-playback.ts
+
+      - name: Verify rebuilt catalog
+        run: npx tsx scripts/verify-tmdb-sync.ts
