@@ -1,4 +1,4 @@
-export type PlaybackKind = 'hls' | 'mp4' | 'dash' | 'embed';
+export type PlaybackKind = 'hls' | 'mp4' | 'dash' | 'webm' | 'direct' | 'embed';
 
 export interface ProviderContext {
   tmdbId?: number;
