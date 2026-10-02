@@ -981,7 +981,8 @@ async function resolveProvider(
 
       sources = (sources || []).filter((source) =>
         PLAYABLE_TYPES.has(source.type) &&
-        source.quality !== 'auto',
+        source.quality !== 'auto' &&
+        source.quality !== 'source',
       );
 
       if (sources.length && context.episodeNumber !== undefined && context.seasonNumber !== undefined) {
