@@ -695,18 +695,15 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   }
 
   try {
-    // Movies may use the short-lived persisted cache for fast startup.
-    // Episodes intentionally bypass persisted playback cache: their source must
-    // be resolved from the exact TMDB + season + episode request so an old URL
-    // can never leak across seasons/episodes.
-    if (type === 'movie') {
-      const cachedSources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
-      const healthyCachedSources = await probeCachedPlaybackSources(cachedSources);
-      if (healthyCachedSources.length) {
-        res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=20');
-        res.setHeader('Referrer-Policy', 'no-referrer');
-        return ok(res, { sources: healthyCachedSources });
-      }
+    // Serve an exact persisted source first for both movies and episodes.
+    // Episode cache rows are keyed by the exact episode UUID resolved from
+    // TMDB + season + episode, so this does not reopen the old cross-season bug.
+    // Do not probe the media URL inline: the probe itself can add seconds.
+    const cachedSources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
+    if (cachedSources.length) {
+      res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=180, stale-while-revalidate=60');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      return ok(res, { sources: cachedSources });
     }
 
     // Resolve the selected playback sites before doing catalog/bootstrap work.
@@ -731,7 +728,7 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
         void persistPromise;
       }
 
-      res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=60');
+      res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=180, stale-while-revalidate=60');
       return ok(res, { sources });
     }
 
