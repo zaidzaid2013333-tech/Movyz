@@ -1,4 +1,5 @@
 import { app } from './server/index';
+import { runMaintenanceTick } from './server/maintenance';
 import type { WorkerEnvironment } from './server/mini-http';
 
 type ServiceBinding = {
@@ -50,6 +51,14 @@ export default {
     }
 
     return assetResponse;
+  },
+
+  async scheduled(_controller: unknown, _env: MovyzEnvironment, ctx: ExecutionContextLike) {
+    ctx.waitUntil(
+      runMaintenanceTick('primary_sources').catch((error) => {
+        console.error('[movyz-scheduled-maintenance]', error instanceof Error ? error.message : String(error));
+      }),
+    );
   },
 };
 
