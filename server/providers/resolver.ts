@@ -4,7 +4,7 @@ import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
 const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'webm', 'direct', 'embed']);
 // Legacy Fasel provider records are intentionally excluded; playback is routed through AbdoBest.
-const DISABLED_PROVIDERS = new Set(['fasel', 'faselhd', 'cimaclub']);
+const DISABLED_PROVIDERS = new Set(['fasel', 'faselhd']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
   re3arabi: 10,
@@ -27,7 +27,7 @@ function sourceDto(source: any) {
     url: source.url || '',
     isWorking: source.is_working === true,
     provider: source.label_ar || source.providers?.name || 'Provider',
-    providerKey: /^(aflaam|cimaclub|anime3rb|anime4up)$/i.test(String(source.provider_reference || ''))
+    providerKey: /^(aflaam|anime3rb|anime4up)$/i.test(String(source.provider_reference || ''))
       ? String(source.provider_reference).toLowerCase()
       : String(source.providers?.key || '').toLowerCase() || undefined,
     providerReference: source.provider_reference || undefined,
