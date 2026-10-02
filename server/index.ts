@@ -19,7 +19,7 @@ app.disable('x-powered-by');
 // Production diagnostics for the selected playback-sites path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
-function cachedRe3ArabiSourceDto(source: any) {
+function cachedArProvSourceDto(source: any) {
   const providerReference = String(source.provider_reference || '').trim().toLowerCase();
   const allowedProviders = new Set(['akwam', 'anime4up']);
 
@@ -61,7 +61,7 @@ function playbackTypeScore(value: unknown) {
   }
 }
 
-async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode', contentId: string) {
+async function getFreshArProvSourcesForContent(contentType: 'movie' | 'episode', contentId: string) {
   const { data, error } = await adminSupabase
     .from('playback_sources')
     .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name)')
@@ -83,7 +83,7 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
     .filter((source: any) => allowedTypes.has(String(source.source_type || '').trim().toLowerCase()))
     .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
     .filter((source: any) => String(source.quality || '').trim().toLowerCase() !== 'auto')
-        .map(cachedRe3ArabiSourceDto)
+        .map(cachedArProvSourceDto)
     .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
     .sort((a: any, b: any) => {
       const qualityDiff = playbackQualityScore(b.quality) - playbackQualityScore(a.quality);
@@ -215,7 +215,7 @@ async function batchSeriesGenres(ids: string[]) {
 
 async function movieDto(row: any, includePlaybackSources = false) {
   const playbackPromise = includePlaybackSources
-    ? getFreshRe3ArabiSourcesForContent('movie', row.id).catch((error) => {
+    ? getFreshArProvSourcesForContent('movie', row.id).catch((error) => {
         console.warn('[movie-playback-cache]', error instanceof Error ? error.message : String(error));
         return [];
       })
@@ -287,7 +287,7 @@ async function seriesDto(row: any, includePlaybackSources = false) {
         const list = playbackByEpisode.get(episodeId) || [];
         const providerReference = String(source.provider_reference || '').trim().toLowerCase();
         if (!['akwam', 'anime4up'].includes(providerReference)) continue;
-        const mapped = cachedRe3ArabiSourceDto(source);
+        const mapped = cachedArProvSourceDto(source);
         if (mapped.url && mapped.providerKey) list.push(mapped);
         playbackByEpisode.set(episodeId, list);
       }
@@ -368,7 +368,7 @@ async function seriesWatchDto(row: any, seasonNumber: number) {
       for (const source of playbackRows || []) {
         const providerReference = String(source.provider_reference || '').trim().toLowerCase();
         if (!['akwam', 'anime4up'].includes(providerReference)) continue;
-        const mapped = cachedRe3ArabiSourceDto(source);
+        const mapped = cachedArProvSourceDto(source);
         if (!mapped.url || !mapped.providerKey) continue;
         const episodeId = String(source.content_id || '');
         const list = playbackByEpisode.get(episodeId) || [];
@@ -766,13 +766,17 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 
     if (!sources.length) {
       try {
-        sources = await resolveRe3ArabiPlayback({
-          type: 'movie',
-          tmdbId: Number(data.tmdb_id),
-        });
+        const animeContext = await import('./providers/re3arabi').then(({ resolveRe3ArabiMovieContext }) =>
+          resolveRe3ArabiMovieContext(Number(data.tmdb_id))
+        );
+        if (animeContext.__isAnime) {
+          sources = await resolveRe3ArabiPlayback({
+            type: 'movie',
+            tmdbId: Number(data.tmdb_id),
+          });
+        }
       } catch (error) {
-        console.warn('[re3arabi-movie]', error instanceof Error ? error.message : String(error));
-        sources = [];
+        console.warn('[anime-playback-movie]', error instanceof Error ? error.message : String(error));
       }
     }
   } else {
@@ -827,15 +831,19 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 
     if (!sources.length) {
       try {
-        sources = await resolveRe3ArabiPlayback({
-          type: 'series',
-          tmdbId: Number(series.tmdb_id),
-          season: Number(season.season_number),
-          episode: Number(episode.episode_number),
-        });
+        const animeContext = await import('./providers/re3arabi').then(({ resolveRe3ArabiSeriesContext }) =>
+          resolveRe3ArabiSeriesContext(Number(series.tmdb_id))
+        );
+        if (animeContext.__isAnime) {
+          sources = await resolveRe3ArabiPlayback({
+            type: 'series',
+            tmdbId: Number(series.tmdb_id),
+            season: Number(season.season_number),
+            episode: Number(episode.episode_number),
+          });
+        }
       } catch (error) {
-        console.warn('[re3arabi-episode]', error instanceof Error ? error.message : String(error));
-        sources = [];
+        console.warn('[anime-playback-episode]', error instanceof Error ? error.message : String(error));
       }
     }
   }
@@ -847,11 +855,11 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       type: source.type,
       quality: source.quality || 'auto',
       language: source.language || 'ar',
-      label: source.label || source.provider || 'Re3Arabi',
-      labelEn: source.label || source.provider || 'Re3Arabi',
+      label: source.label || source.provider || 'ArProv',
+      labelEn: source.label || source.provider || 'ArProv',
       url: String(source.url).trim(),
       isWorking: true,
-      provider: source.provider || 'Re3Arabi',
+      provider: source.provider || 'ArProv',
       providerKey: source.providerKey || undefined,
       providerReference: source.providerReference || undefined,
     }))
@@ -891,7 +899,7 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
   }
 
-  const playbackSources = await getFreshRe3ArabiSourcesForContent('episode', String(episode.id))
+  const playbackSources = await getFreshArProvSourcesForContent('episode', String(episode.id))
     .catch((sourceError) => {
       console.warn('[episode-playback-cache]', sourceError instanceof Error ? sourceError.message : String(sourceError));
       return [];
@@ -1853,4 +1861,4 @@ app.use((err: any, _req: HttpRequest, res: HttpResponse, _next: NextFunction) =>
   return fail(res, 500, 'INTERNAL_ERROR', 'Internal server error');
 });
 
-// Playback architecture marker: browser consumes direct Re3Arabi links stored in Supabase.
+// Playback architecture marker: ArProv resolves Akwam; Anime4Up remains the isolated anime lane.
