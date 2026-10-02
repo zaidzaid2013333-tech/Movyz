@@ -1,12 +1,20 @@
+import 'dotenv/config';
 import { adminSupabase } from './supabase';
 import {
   resolveRe3ArabiProvider,
   resolveRe3ArabiProviderWithContext,
   resolveRe3ArabiSeriesContext,
 } from './providers/re3arabi';
+import { fetchWithTimeout } from './providers/http';
 
-type MaintenanceJob = 'primary_sources' | 'secondary_sources' | 'repair_sources';
-type ProviderRole = 'primary' | 'secondary';
+type PlaybackJob = {
+  id: string;
+  content_type: 'movie' | 'episode';
+  content_id: string;
+  provider_lane: 'primary' | 'secondary';
+  priority: number;
+  attempts: number;
+};
 
 type PlaybackSource = {
   url?: string;
@@ -20,14 +28,20 @@ type PlaybackSource = {
   expiresAt?: string;
 };
 
-const RETRY_AFTER_MS = 6 * 60 * 60 * 1000;
-const LEASE_MS = 4 * 60 * 1000;
+const WORKER_ID = `queue-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+const CLAIM_LEASE_SECONDS = 300;
+const RETRY_AFTER_MS = 30 * 60 * 1000;
+const DEFAULT_EXPIRY_MS = 12 * 60 * 60 * 1000;
+const VERIFY_TIMEOUT_MS = Math.max(3500, Number(process.env.RE3ARABI_VERIFY_TIMEOUT_MS || 6500));
 
-const nowIso = () => new Date().toISOString();
+const providerSiteBase: Record<string, string> = {
+  aflaam: 'https://aflaam.com/',
+  anime3rb: 'https://anime3rb.com/',
+  anime4up: 'https://anime4upp.cam/',
+};
 
-function providerKeyFor(role: ProviderRole, isAnime: boolean): string | null {
-  if (role === 'primary') return isAnime ? 'anime3rb' : 'aflaam';
-  return isAnime ? 'anime4up' : null;
+function nowIso() {
+  return new Date().toISOString();
 }
 
 function expiryFromUrl(url: string) {
@@ -41,160 +55,193 @@ function expiryFromUrl(url: string) {
       if (Number.isFinite(ms) && ms > Date.now()) return new Date(ms).toISOString();
     }
   } catch {}
-  return new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+  return new Date(Date.now() + DEFAULT_EXPIRY_MS).toISOString();
+}
+
+function qualityScore(value: unknown) {
+  const q = String(value || '').toLowerCase();
+  if (/2160|4k|ultra/.test(q)) return 4000;
+  if (/1440/.test(q)) return 3000;
+  if (/1080|fhd/.test(q)) return 2000;
+  if (/720|hd/.test(q)) return 1500;
+  if (/576/.test(q)) return 1200;
+  if (/480|sd/.test(q)) return 1000;
+  if (/360/.test(q)) return 800;
+  return 500;
+}
+
+function typeScore(value: unknown) {
+  switch (String(value || '').toLowerCase()) {
+    case 'hls': return 40;
+    case 'dash': return 35;
+    case 'mp4': return 30;
+    case 'webm': return 25;
+    case 'direct': return 10;
+    default: return 0;
+  }
+}
+
+function normalizeSource(source: PlaybackSource, providerKey: string) {
+  const url = String(source.url || '').trim();
+  const type = String(source.type || '').trim().toLowerCase();
+  const quality = String(source.quality || '').trim();
+
+  if (!/^https:\/\//i.test(url)) return null;
+  if (!new Set(['hls', 'mp4', 'dash', 'webm', 'direct']).has(type)) return null;
+  if (['auto', 'source'].includes(quality.toLowerCase())) return null;
+  if (/movyz-api\.sameranede\.workers\.dev/i.test(url)) return null;
+  if (String(source.providerKey || source.providerReference || '').trim().toLowerCase() !== providerKey) return null;
+
+  return {
+    url,
+    type,
+    quality,
+    language: String(source.language || 'ar'),
+    labelAr: String(source.label || providerKey),
+    labelEn: String(source.labelEn || source.label || providerKey),
+    expiresAt: source.expiresAt || expiryFromUrl(url),
+  };
+}
+
+async function verifyPlayableSource(url: string, type: string, providerKey: string) {
+  const referer = providerSiteBase[providerKey] || undefined;
+
+  const tryRequest = async (method: 'HEAD' | 'GET') => {
+    const response = await fetchWithTimeout(url, {
+      method,
+      timeoutMs: VERIFY_TIMEOUT_MS,
+      redirect: 'follow',
+      headers: {
+        Accept: type === 'mp4' ? 'video/mp4,application/octet-stream;q=0.9,*/*;q=0.5' : '*/*',
+        Range: 'bytes=0-1023',
+        Referer: referer || '',
+        'User-Agent': 'Mozilla/5.0 (compatible; Movyz-SourceWorker/2.0)',
+      },
+    });
+
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    const contentRange = String(response.headers.get('content-range') || '');
+    const length = Number(response.headers.get('content-length') || 0);
+    try { await response.body?.cancel(); } catch {}
+
+    const statusOk = response.status === 200 || response.status === 206;
+    const looksMedia =
+      type === 'hls' || type === 'dash'
+        ? statusOk
+        : statusOk && (
+            contentType.startsWith('video/') ||
+            contentType.includes('application/octet-stream') ||
+            contentRange.length > 0 ||
+            length > 512 * 1024
+          );
+
+    return { ok: looksMedia, status: response.status, contentType, contentRange };
+  };
+
+  try {
+    const head = await tryRequest('HEAD');
+    if (head.ok) return true;
+  } catch {}
+
+  try {
+    const get = await tryRequest('GET');
+    return get.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function getProviderId() {
-  const { data } = await adminSupabase
+  const { data, error } = await adminSupabase
     .from('providers')
     .select('id')
     .eq('key', 're3arabi')
     .maybeSingle();
+  if (error) throw new Error('provider lookup failed: ' + error.message);
   return data?.id as string | undefined;
 }
 
-async function claim(jobKey: MaintenanceJob) {
-  const now = new Date();
-  const { data, error } = await adminSupabase
-    .from('maintenance_state')
+async function claimJob(): Promise<PlaybackJob | null> {
+  const { data, error } = await adminSupabase.rpc('claim_playback_source_job', {
+    p_worker_id: WORKER_ID,
+    p_lease_seconds: CLAIM_LEASE_SECONDS,
+  });
+  if (error) throw new Error('queue claim failed: ' + error.message);
+  const row = Array.isArray(data) ? data[0] : data;
+  return row ? row as PlaybackJob : null;
+}
+
+async function finishJob(
+  job: PlaybackJob,
+  patch: {
+    status: 'succeeded' | 'pending';
+    sourceCount: number;
+    error?: string | null;
+    retryAfterMs?: number;
+  },
+) {
+  const availableAt = new Date(Date.now() + (patch.retryAfterMs || 0)).toISOString();
+  await adminSupabase
+    .from('playback_source_jobs')
     .update({
-      lease_until: new Date(now.getTime() + LEASE_MS).toISOString(),
-      last_run_at: now.toISOString(),
-      updated_at: now.toISOString(),
-      last_error: null,
+      status: patch.status,
+      source_count: patch.sourceCount,
+      last_error: patch.error || null,
+      last_success_at: patch.status === 'succeeded' ? nowIso() : undefined,
+      next_check_at: patch.status === 'succeeded' ? new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString() : undefined,
+      available_at: availableAt,
+      locked_at: null,
+      locked_by: null,
+      updated_at: nowIso(),
+      details: patch.error
+        ? { worker: WORKER_ID, error: patch.error }
+        : { worker: WORKER_ID, verified: true },
     })
-    .eq('job_key', jobKey)
-    .lt('lease_until', now.toISOString())
-    .select('job_key')
-    .maybeSingle();
-
-  if (error) throw new Error('maintenance lease failed: ' + error.message);
-  return Boolean(data?.job_key);
+    .eq('id', job.id);
 }
 
-async function release(
-  jobKey: MaintenanceJob,
-  stats: Record<string, unknown>,
-  errorMessage?: string,
-) {
-  const patch: Record<string, unknown> = {
-    lease_until: new Date(0).toISOString(),
-    last_error: errorMessage || null,
-    stats,
-    updated_at: nowIso(),
-  };
-  if (!errorMessage) patch.last_success_at = nowIso();
-
-  await adminSupabase
-    .from('maintenance_state')
-    .update(patch)
-    .eq('job_key', jobKey);
-}
-
-async function recordFailure(
-  jobKey: MaintenanceJob,
+async function persistVerifiedSources(
   contentType: 'movie' | 'episode',
   contentId: string,
-  error: unknown,
-) {
-  const message = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
-
-  const { data: previous } = await adminSupabase
-    .from('maintenance_failures')
-    .select('attempts')
-    .eq('job_key', jobKey)
-    .eq('content_type', contentType)
-    .eq('content_id', contentId)
-    .maybeSingle();
-
-  await adminSupabase
-    .from('maintenance_failures')
-    .upsert({
-      job_key: jobKey,
-      content_type: contentType,
-      content_id: contentId,
-      failed_at: nowIso(),
-      attempts: Number(previous?.attempts || 0) + 1,
-      last_error: message,
-    }, { onConflict: 'job_key,content_type,content_id' });
-}
-
-async function clearFailure(
-  jobKey: MaintenanceJob,
-  contentType: 'movie' | 'episode',
-  contentId: string,
-) {
-  await adminSupabase
-    .from('maintenance_failures')
-    .delete()
-    .eq('job_key', jobKey)
-    .eq('content_type', contentType)
-    .eq('content_id', contentId);
-}
-
-async function persistSources(
-  contentType: 'movie' | 'episode',
-  contentId: string,
-  sources: PlaybackSource[],
   providerKey: string,
+  rawSources: PlaybackSource[],
 ) {
   const providerId = await getProviderId();
-  if (!providerId) return 0;
+  if (!providerId) throw new Error('re3arabi provider is missing');
 
-  const allowedTypes = new Set(['hls', 'mp4', 'dash', 'webm', 'direct']);
-  const qualityScore = (value: unknown) => {
-    const q = String(value || '').toLowerCase();
-    if (/2160|4k|ultra/.test(q)) return 4000;
-    if (/1440/.test(q)) return 3000;
-    if (/1080|fhd/.test(q)) return 2000;
-    if (/720|hd/.test(q)) return 1500;
-    if (/480|sd/.test(q)) return 1000;
-    return 500;
-  };
-  const typeScore = (value: unknown) => {
-    switch (String(value || '').toLowerCase()) {
-      case 'hls': return 40;
-      case 'dash': return 35;
-      case 'mp4': return 30;
-      case 'webm': return 25;
-      case 'direct': return 10;
-      default: return 0;
+  const normalized = rawSources
+    .map((source) => normalizeSource(source, providerKey))
+    .filter((source): source is NonNullable<ReturnType<typeof normalizeSource>> => Boolean(source));
+
+  const verified: typeof normalized = [];
+  for (const source of normalized.slice(0, 12)) {
+    if (await verifyPlayableSource(source.url, source.type, providerKey)) {
+      verified.push(source);
     }
-  };
+  }
 
-  const rows = sources
-    .filter((source) =>
-      String(source.providerKey || source.providerReference || '').toLowerCase() === providerKey &&
-      allowedTypes.has(String(source.type || '').toLowerCase()) &&
-      /^https:\/\//i.test(String(source.url || '')) &&
-      !/movyz-api\.sameranede\.workers\.dev/i.test(String(source.url || '')) &&
-      !['auto', 'source'].includes(String(source.quality || '').toLowerCase()),
-    )
-    .filter((source, index, all) =>
-      index === all.findIndex((candidate) => String(candidate.url) === String(source.url)),
-    )
-    .sort((a, b) =>
-      (qualityScore(b.quality) + typeScore(b.type)) -
-      (qualityScore(a.quality) + typeScore(a.type)),
-    )
+  const rows = verified
+    .sort((a, b) => (qualityScore(b.quality) + typeScore(b.type)) - (qualityScore(a.quality) + typeScore(a.type)))
     .slice(0, 8)
     .map((source) => ({
       provider_id: providerId,
       content_type: contentType,
       content_id: contentId,
-      source_type: String(source.type).toLowerCase(),
-      url: String(source.url),
+      source_type: source.type,
+      url: source.url,
       provider_reference: providerKey,
-      quality: String(source.quality || ''),
-      language: String(source.language || 'ar'),
-      label_ar: String(source.label || providerKey),
-      label_en: String(source.labelEn || source.label || providerKey),
-      expires_at: source.expiresAt || expiryFromUrl(String(source.url)),
+      quality: source.quality,
+      language: source.language,
+      label_ar: source.labelAr,
+      label_en: source.labelEn,
+      expires_at: source.expiresAt,
       is_working: true,
       last_checked_at: nowIso(),
       failure_count: 0,
     }));
 
+  // Never erase the currently-working cache when a fresh resolver response
+  // contains only dead or unreachable URLs.
   if (!rows.length) return 0;
 
   const { error: deleteError } = await adminSupabase
@@ -215,364 +262,156 @@ async function persistSources(
   return rows.length;
 }
 
-async function getFailedIds(jobKey: MaintenanceJob, contentType: 'movie' | 'episode', contentIds: string[]) {
-  if (!contentIds.length) return new Set<string>();
-  const cutoff = new Date(Date.now() - RETRY_AFTER_MS).toISOString();
-  const failed = new Set<string>();
+async function loadEpisodeContext(episodeId: string) {
+  const { data: episode, error: episodeError } = await adminSupabase
+    .from('episodes')
+    .select('id,season_id,episode_number')
+    .eq('id', episodeId)
+    .maybeSingle();
+  if (episodeError || !episode) throw new Error('episode not found');
 
-  for (let i = 0; i < contentIds.length; i += 100) {
-    const chunk = contentIds.slice(i, i + 100);
-    const { data, error } = await adminSupabase
-      .from('maintenance_failures')
-      .select('content_id')
-      .eq('job_key', jobKey)
-      .eq('content_type', contentType)
-      .gt('failed_at', cutoff)
-      .in('content_id', chunk);
-
-    if (error) throw new Error('failure lookup failed: ' + error.message);
-    for (const row of data || []) failed.add(String(row.content_id));
-  }
-
-  return failed;
-}
-
-async function runWithConcurrency<T>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T) => Promise<void>,
-) {
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (true) {
-      const index = cursor++;
-      if (index >= items.length) return;
-      await fn(items[index]);
-    }
-  });
-  await Promise.all(workers);
-}
-
-async function loadEpisodesForSeries(series: any, providerKey: string, jobKey: MaintenanceJob, limit: number) {
-  const { data: seasons, error: seasonError } = await adminSupabase
+  const { data: season, error: seasonError } = await adminSupabase
     .from('seasons')
-    .select('id,season_number')
-    .eq('series_id', series.id)
-    .order('season_number');
+    .select('series_id,season_number')
+    .eq('id', episode.season_id)
+    .maybeSingle();
+  if (seasonError || !season) throw new Error('season not found');
 
-  if (seasonError || !seasons?.length) return [];
+  const { data: series, error: seriesError } = await adminSupabase
+    .from('series')
+    .select('id,tmdb_id,title_en')
+    .eq('id', season.series_id)
+    .eq('status', 'published')
+    .maybeSingle();
+  if (seriesError || !series?.tmdb_id) throw new Error('series not found');
 
-  const episodes: any[] = [];
-  for (let i = 0; i < seasons.length; i += 50) {
-    const chunk = seasons.slice(i, i + 50).map((row: any) => String(row.id));
-    const { data, error } = await adminSupabase
-      .from('episodes')
-      .select('id,season_id,episode_number')
-      .in('season_id', chunk)
-      .order('episode_number');
-    if (!error) episodes.push(...(data || []));
-  }
-
-  if (!episodes.length) return [];
-
-  const providerId = await getProviderId();
-  if (!providerId) return [];
-
-  const ids = episodes.map((row) => String(row.id));
-  const existing = new Set<string>();
-
-  for (let i = 0; i < ids.length; i += 100) {
-    const chunk = ids.slice(i, i + 100);
-    const { data, error } = await adminSupabase
-      .from('playback_sources')
-      .select('content_id')
-      .eq('provider_id', providerId)
-      .eq('content_type', 'episode')
-      .eq('provider_reference', providerKey)
-      .in('content_id', chunk);
-    if (!error) {
-      for (const row of data || []) existing.add(String(row.content_id));
-    }
-  }
-
-  const failedIds = await getFailedIds(jobKey, 'episode', ids);
-  const seasonById = new Map(seasons.map((row: any) => [String(row.id), Number(row.season_number)]));
-
-  return episodes
-    .filter((row) => !existing.has(String(row.id)) && !failedIds.has(String(row.id)))
-    .slice(0, limit)
-    .map((row) => ({
-      id: String(row.id),
-      episode: Number(row.episode_number),
-      season: Number(seasonById.get(String(row.season_id)) || 1),
-      tmdbId: Number(series.tmdb_id),
-      title: String(series.title_en || ''),
-    }));
+  const context = await resolveRe3ArabiSeriesContext(Number(series.tmdb_id));
+  return {
+    tmdbId: Number(series.tmdb_id),
+    season: Number(season.season_number),
+    episode: Number(episode.episode_number),
+    isAnime: !!context.__isAnime,
+    context,
+  };
 }
 
-async function fillEpisodes(role: ProviderRole, limit: number, jobKey: MaintenanceJob) {
-  const { data: seriesRows, error } = await adminSupabase
-    .from('series')
-    .select('id,tmdb_id,title_en,created_at')
-    .eq('status', 'published')
-    .not('tmdb_id', 'is', null)
-    .order('created_at', { ascending: false, nullsFirst: false })
-    .order('id', { ascending: false });
+async function resolveJob(job: PlaybackJob) {
+  if (job.content_type === 'movie') {
+    if (job.provider_lane !== 'primary') return { skipped: true, sourceCount: 0 };
 
-  if (error) throw new Error('series load failed: ' + error.message);
+    const { data: movie, error } = await adminSupabase
+      .from('movies')
+      .select('id,tmdb_id,status')
+      .eq('id', job.content_id)
+      .maybeSingle();
+    if (error || !movie?.tmdb_id || movie.status !== 'published') {
+      return { skipped: true, sourceCount: 0 };
+    }
 
-  const candidates: any[] = [];
-  for (const series of seriesRows || []) {
-    if (candidates.length >= limit) break;
-
-    const context = await resolveRe3ArabiSeriesContext(Number(series.tmdb_id));
-    const providerKey = providerKeyFor(role, context.__isAnime);
-    if (!providerKey) continue;
-
-    const pending = await loadEpisodesForSeries(
-      series,
-      providerKey,
-      jobKey,
-      limit - candidates.length,
+    const sources = await resolveRe3ArabiProvider(
+      { type: 'movie', tmdbId: Number(movie.tmdb_id) },
+      'aflaam',
     );
 
-    if (pending.length) {
-      candidates.push(...pending.map((item) => ({ ...item, providerKey })));
-    }
+    const sourceCount = await persistVerifiedSources('movie', String(movie.id), 'aflaam', sources as PlaybackSource[]);
+    return { skipped: false, sourceCount };
   }
 
-  let succeeded = 0;
-  let failed = 0;
+  const info = await loadEpisodeContext(job.content_id);
+  const providerKey = job.provider_lane === 'secondary'
+    ? (info.isAnime ? 'anime4up' : null)
+    : (info.isAnime ? 'anime3rb' : 'aflaam');
 
-  await runWithConcurrency(candidates, 8, async (item) => {
-    try {
-      const providerKey = String(item.providerKey || '');
-      if (!providerKey) return;
+  if (!providerKey) return { skipped: true, sourceCount: 0 };
 
-      const context = await resolveRe3ArabiSeriesContext(item.tmdbId);
-      const sources = await resolveRe3ArabiProviderWithContext(
-        context,
-        item.season,
-        item.episode,
-        providerKey,
-      );
+  const sources = await resolveRe3ArabiProviderWithContext(
+    info.context,
+    info.season,
+    info.episode,
+    providerKey,
+  );
 
-      if (!sources.length) {
-        await recordFailure(jobKey, 'episode', item.id, 'No ' + providerKey + ' playback source');
-        failed++;
-        return;
-      }
+  const sourceCount = await persistVerifiedSources(
+    'episode',
+    job.content_id,
+    providerKey,
+    sources as PlaybackSource[],
+  );
 
-      const persisted = await persistSources('episode', item.id, sources as PlaybackSource[], providerKey);
-      if (!persisted) {
-        await recordFailure(jobKey, 'episode', item.id, 'No native ' + providerKey + ' source');
-        failed++;
-        return;
-      }
-
-      await clearFailure(jobKey, 'episode', item.id);
-      succeeded++;
-    } catch (error) {
-      await recordFailure(jobKey, 'episode', item.id, error);
-      failed++;
-    }
-  });
-
-  return { requested: candidates.length, succeeded, failed };
+  return { skipped: false, sourceCount };
 }
 
-async function fillMovies(role: ProviderRole, limit: number, jobKey: MaintenanceJob) {
-  const { data: movies, error } = await adminSupabase
-    .from('movies')
-    .select('id,tmdb_id,title_en')
-    .eq('status', 'published')
-    .not('tmdb_id', 'is', null)
-    .order('id')
-    .limit(500);
-
-  if (error) throw new Error('movie load failed: ' + error.message);
-
-  const providerId = await getProviderId();
-  if (!providerId) return { requested: 0, succeeded: 0, failed: 0 };
-
-  const failures = await getFailedIds(jobKey, 'movie', (movies || []).map((row) => String(row.id)));
-  const candidates: any[] = [];
-
-  for (const movie of movies || []) {
-    if (candidates.length >= limit || failures.has(String(movie.id))) continue;
-
-    const { data: existing } = await adminSupabase
-      .from('playback_sources')
-      .select('content_id,provider_reference')
-      .eq('provider_id', providerId)
-      .eq('content_type', 'movie')
-      .eq('content_id', movie.id)
-      .in('provider_reference', ['aflaam', 'anime3rb', 'anime4up'])
-      .limit(3);
-
-    if (!existing?.length) candidates.push(movie);
+export async function runMaintenanceTick(
+  jobKey: 'primary_sources' | 'secondary_sources' | 'repair_sources',
+) {
+  if (jobKey === 'repair_sources') {
+    return runQueueBatch(['primary', 'secondary'], 40);
   }
 
-  let succeeded = 0;
-  let failed = 0;
-
-  await runWithConcurrency(candidates, 4, async (movie: any) => {
-    try {
-      const providerKey = providerKeyFor(role, false);
-      if (!providerKey) return;
-
-      const selected = await resolveRe3ArabiProvider({
-        type: 'movie',
-        tmdbId: Number(movie.tmdb_id),
-      }, providerKey).catch(() => []);
-
-      if (!selected.length) {
-        await recordFailure(jobKey, 'movie', String(movie.id), 'No ' + providerKey + ' playback source');
-        failed++;
-        return;
-      }
-
-      const persisted = await persistSources(
-        'movie',
-        String(movie.id),
-        selected as PlaybackSource[],
-        providerKey,
-      );
-
-      if (!persisted) {
-        await recordFailure(jobKey, 'movie', String(movie.id), 'No native ' + providerKey + ' source');
-        failed++;
-        return;
-      }
-
-      await clearFailure(jobKey, 'movie', String(movie.id));
-      succeeded++;
-    } catch (error) {
-      await recordFailure(jobKey, 'movie', String(movie.id), error);
-      failed++;
-    }
-  });
-
-  return { requested: candidates.length, succeeded, failed };
+  return jobKey === 'primary_sources'
+    ? runQueueBatch(['primary'], 80)
+    : runQueueBatch(['secondary'], 40);
 }
 
-async function refreshExpiringSources(limit = 30) {
-  const providerId = await getProviderId();
-  if (!providerId) return { requested: 0, refreshed: 0, failed: 0 };
-
-  const cutoff = new Date(Date.now() + 90 * 60 * 1000).toISOString();
-  const { data: sources, error } = await adminSupabase
-    .from('playback_sources')
-    .select('id,content_type,content_id,provider_reference,expires_at,failure_count')
-    .eq('provider_id', providerId)
-    .or('expires_at.lte.' + cutoff + ',is_working.eq.false')
-    .order('expires_at')
-    .limit(limit);
-
-  if (error) throw new Error('expiring source lookup failed: ' + error.message);
-
-  let refreshed = 0;
+async function runQueueBatch(
+  lanes: Array<'primary' | 'secondary'>,
+  limit: number,
+) {
+  let claimed = 0;
+  let succeeded = 0;
+  let skipped = 0;
   let failed = 0;
 
-  for (const row of sources || []) {
-    try {
-      const providerKey = String(row.provider_reference || '').toLowerCase();
-
-      if (row.content_type === 'movie') {
-        const { data: movie } = await adminSupabase
-          .from('movies')
-          .select('id,tmdb_id')
-          .eq('id', row.content_id)
-          .maybeSingle();
-        if (!movie?.tmdb_id) continue;
-
-        const resolved = await resolveRe3ArabiProvider({
-          type: 'movie',
-          tmdbId: Number(movie.tmdb_id),
-        }, providerKey);
-
-        if (await persistSources('movie', String(movie.id), resolved as PlaybackSource[], providerKey)) {
-          refreshed++;
-        }
-        continue;
-      }
-
-      const { data: episode } = await adminSupabase
-        .from('episodes')
-        .select('id,season_id,episode_number')
-        .eq('id', row.content_id)
-        .maybeSingle();
-      if (!episode) continue;
-
-      const { data: season } = await adminSupabase
-        .from('seasons')
-        .select('series_id,season_number')
-        .eq('id', episode.season_id)
-        .maybeSingle();
-      if (!season) continue;
-
-      const { data: series } = await adminSupabase
-        .from('series')
-        .select('tmdb_id')
-        .eq('id', season.series_id)
-        .maybeSingle();
-      if (!series?.tmdb_id) continue;
-
-      const context = await resolveRe3ArabiSeriesContext(Number(series.tmdb_id));
-      const resolved = await resolveRe3ArabiProviderWithContext(
-        context,
-        Number(season.season_number),
-        Number(episode.episode_number),
-        providerKey,
-      );
-
-      if (await persistSources('episode', String(episode.id), resolved as PlaybackSource[], providerKey)) {
-        refreshed++;
-      }
-    } catch (error) {
-      failed++;
+  while (claimed < limit) {
+    const job = await claimJob();
+    if (!job) break;
+    if (!lanes.includes(job.provider_lane)) {
+      // The RPC claims globally; return the unrelated job to pending so another
+      // lane worker can take it without losing it.
       await adminSupabase
-        .from('playback_sources')
+        .from('playback_source_jobs')
         .update({
-          is_working: false,
-          failure_count: Number(row.failure_count || 0) + 1,
-          last_checked_at: nowIso(),
+          status: 'pending',
+          available_at: new Date(Date.now() + 1000).toISOString(),
+          locked_at: null,
+          locked_by: null,
+          updated_at: nowIso(),
         })
-        .eq('id', row.id);
+        .eq('id', job.id);
+      continue;
+    }
+
+    claimed += 1;
+    try {
+      const result = await resolveJob(job);
+      if (result.skipped) {
+        skipped += 1;
+        await finishJob(job, { status: 'succeeded', sourceCount: result.sourceCount });
+      } else if (result.sourceCount > 0) {
+        succeeded += 1;
+        await finishJob(job, { status: 'succeeded', sourceCount: result.sourceCount });
+      } else {
+        failed += 1;
+        await finishJob(job, {
+          status: 'pending',
+          sourceCount: 0,
+          error: 'No verified playable source returned',
+          retryAfterMs: RETRY_AFTER_MS,
+        });
+      }
+    } catch (error) {
+      failed += 1;
+      const message = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
+      await finishJob(job, {
+        status: 'pending',
+        sourceCount: 0,
+        error: message,
+        retryAfterMs: RETRY_AFTER_MS,
+      });
     }
   }
 
-  return { requested: (sources || []).length, refreshed, failed };
-}
-
-export async function runMaintenanceTick(jobKey: MaintenanceJob) {
-  const acquired = await claim(jobKey);
-  if (!acquired) return { skipped: true, jobKey };
-
-  try {
-    let stats: Record<string, unknown>;
-
-    if (jobKey === 'primary_sources') {
-      stats = {
-        episodes: await fillEpisodes('primary', 80, jobKey),
-        movies: await fillMovies('primary', 4, jobKey),
-      };
-    } else if (jobKey === 'secondary_sources') {
-      stats = {
-        episodes: await fillEpisodes('secondary', 30, jobKey),
-        movies: await fillMovies('secondary', 2, jobKey),
-      };
-    } else {
-      stats = { refresh: await refreshExpiringSources(40) };
-    }
-
-    await release(jobKey, stats);
-    console.log('[movyz-maintenance]', jobKey, JSON.stringify(stats));
-    return { skipped: false, jobKey, stats };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await release(jobKey, { error: message }, message).catch(() => undefined);
-    console.error('[movyz-maintenance]', jobKey, message);
-    return { skipped: false, jobKey, error: message };
-  }
+  const stats = { worker: WORKER_ID, lanes, claimed, succeeded, skipped, failed };
+  console.log('[movyz-queue-maintenance]', JSON.stringify(stats));
+  return { skipped: false, jobKey: lanes.join(','), stats };
 }
