@@ -1237,6 +1237,12 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
   }
 
+  const playbackSources = await getFreshRe3ArabiSourcesForContent('episode', String(episode.id))
+    .catch((sourceError) => {
+      console.warn('[episode-playback-cache]', sourceError instanceof Error ? sourceError.message : String(sourceError));
+      return [];
+    });
+
   return ok(res, {
     contentType,
     id,
@@ -1255,6 +1261,7 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
       stillUrl: episode.still_url || '',
       duration: Number(episode.runtime_minutes || 0),
       airDate: episode.air_date || '',
+      sources: playbackSources,
     },
   });
 }));
