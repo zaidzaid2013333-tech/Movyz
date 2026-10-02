@@ -1293,6 +1293,14 @@ async function resolveProvider(
     const html = result.value;
     if (provider.key === 'aflaam') {
       searchResults.push(...parseAflamSearchHits(html, provider.base));
+      // Episode searches can return direct episode cards whose markup differs
+      // from the movie/series result template. Keep the generic parser as a
+      // second lane only for episode requests so those exact links are not
+      // discarded before season/episode matching.
+      if (context.episodeNumber !== undefined) {
+        searchResults.push(...parseSearchHits(html, provider.base, true));
+        searchResults.push(...parseMarkdownLinks(html, provider.base));
+      }
     } else if (provider.key === 'anime3rb') {
       searchResults.push(...parseSearchHits(html, provider.base, context.episodeNumber !== undefined));
       searchResults.push(...parseMarkdownLinks(html, provider.base));
