@@ -141,6 +141,12 @@ jobs:
           checks = [
               ("movie", 27205, None, None, "general"),  # Inception -> Aflam
               ("series", 1396, 1, 1, "general"),        # Breaking Bad S01E01
+              ("series", 1396, 1, 2, "general"),
+              ("series", 1396, 1, 3, "general"),
+              ("series", 1396, 1, 4, "general"),
+              ("series", 1396, 1, 5, "general"),
+              ("series", 1396, 1, 6, "general"),
+              ("series", 1396, 1, 7, "general"),
               ("series", 1396, 5, 1, "general"),        # Breaking Bad S05E01 season-binding guard
               ("series", 37854, 1, 1, "anime"),         # One Piece S01E01 -> Anime3rb/Anime4Up
           ]
