@@ -1,0 +1,104 @@
+name: Inspect AbdoBest 16355
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/inspect-abdobest-16355.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Inspect live AbdoBest response
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const base = "https://ogkushhh-abdobest.hf.space";
+
+          async function getJson(path) {
+            const response = await fetch(base + path, {
+              headers: { Accept: "application/json" },
+              redirect: "follow",
+              signal: AbortSignal.timeout(30000),
+            });
+            const text = await response.text();
+            let body = null;
+            try { body = text ? JSON.parse(text) : null; } catch {}
+            console.log("HTTP", response.status, "BYTES", text.length, "PATH", path);
+            if (!response.ok) throw new Error(text.slice(0, 2000));
+            return body;
+          }
+
+          const search = await getJson("/api/search?q=The%20Mentalist");
+          const rawItems =
+            Array.isArray(search) ? search :
+            Array.isArray(search?.results) ? search.results :
+            Array.isArray(search?.items) ? search.items :
+            Array.isArray(search?.series) ? search.series :
+            Array.isArray(search?.data) ? search.data : [];
+
+          const items = rawItems.map((x) => ({
+            id: x?.id ?? x?.ID ?? null,
+            title: x?.Title ?? x?.title ?? x?.name ?? x?.original_title ?? x?.original_name ?? null,
+            category: x?.Category ?? x?.category ?? x?.type ?? x?.content_type ?? null,
+            tmdb_id: x?.["TMDb ID"] ?? x?.tmdb_id ?? x?.tmdbId ?? x?.themoviedb_id ?? null,
+            year: x?.Year ?? x?.year ?? x?.first_air_date ?? null,
+          }));
+
+          console.log("SEARCH_ITEMS", JSON.stringify(items.slice(0, 30)));
+
+          const match =
+            items.find((x) => Number(x.tmdb_id) === 4020) ||
+            items.find((x) => String(x.title || "").toLowerCase() === "the mentalist") ||
+            items.find((x) => /mental/i.test(String(x.title || "")));
+
+          if (!match) throw new Error("No Mentalist match");
+          const category = String(match.category || "series").toLowerCase();
+          const id = String(match.id || "");
+          console.log("SELECTED_MATCH", JSON.stringify(match));
+
+          const path = category === "arabic-series"
+            ? "/api/arabic-series/episodes/" + encodeURIComponent(id)
+            : "/api/episodes/" + encodeURIComponent(category) + "/" + encodeURIComponent(id);
+
+          const body = await getJson(path);
+          console.log("EPISODE_ENDPOINT", path);
+
+          const sanitize = (value, depth = 0) => {
+            if (depth > 6) return "[depth]";
+            if (Array.isArray(value)) return value.slice(0, 30).map((item) => sanitize(item, depth + 1));
+            if (value && typeof value === "object") {
+              const out = {};
+              for (const [key, item] of Object.entries(value).slice(0, 100)) out[key] = sanitize(item, depth + 1);
+              return out;
+            }
+            return typeof value === "string" ? value.slice(0, 1200) : value;
+          };
+
+          console.log("EPISODE_BODY", JSON.stringify(sanitize(body), null, 2));
+
+          const urls = [];
+          const walk = (value, path = "root", depth = 0) => {
+            if (depth > 8 || value == null) return;
+            if (typeof value === "string") {
+              if (/^(https?:)?\/\//i.test(value) || value.startsWith("/")) {
+                urls.push({ path, value: value.slice(0, 1200) });
+              }
+              return;
+            }
+            if (Array.isArray(value)) {
+              value.slice(0, 50).forEach((item, index) => walk(item, path + "[" + index + "]", depth + 1));
+              return;
+            }
+            if (typeof value === "object") {
+              for (const [key, item] of Object.entries(value).slice(0, 100)) walk(item, path + "." + key, depth + 1);
+            }
+          };
+          walk(body);
+          console.log("EPISODE_URLS", JSON.stringify(urls.slice(0, 120), null, 2));
+          NODE
