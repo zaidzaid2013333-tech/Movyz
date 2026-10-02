@@ -126,12 +126,25 @@ async function persistRemoteRe3ArabiSources(
 
     if (!contentId) return;
 
-    const rows = sources
-      .filter((source) =>
-        /^https:\/\//i.test(source.url) &&
-        ['hls', 'mp4', 'dash', 'webm', 'direct', 'embed'].includes(source.type),
+    const allowed = sources.filter((source) =>
+      /^https:\/\//i.test(source.url) &&
+      ['hls', 'mp4', 'dash', 'webm', 'direct', 'embed'].includes(source.type) &&
+      ['aflaam', 'cimaclub', 'anime3rb', 'anime4up'].includes(String(source.providerReference || '').toLowerCase()),
+    );
+
+    // Replace the selected-site cache for this exact content item. This prevents
+    // an old S05E01 URL from surviving when the resolver now resolves S01E01.
+    await adminSupabase
+      .from('playback_sources')
+      .delete()
+      .eq('provider_id', providerId)
+      .eq('content_type', type === 'movie' ? 'movie' : 'episode')
+      .eq('content_id', contentId);
+
+    const rows = ['aflaam', 'cimaclub', 'anime3rb', 'anime4up']
+      .flatMap((providerReference) =>
+        allowed.filter((source) => String(source.providerReference || '').toLowerCase() === providerReference).slice(0, 6),
       )
-      .slice(0, 6)
       .map((source) => ({
         provider_id: providerId,
         content_type: type === 'movie' ? 'movie' : 'episode',
@@ -203,7 +216,10 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
       return allowedProviders.has(providerReference);
     })
     .filter((source: any) => allowedTypes.has(String(source.source_type || '').toLowerCase()))
-    .filter((source: any) => String(source.quality || '').toLowerCase() !== 'auto')
+    .filter((source: any) => {
+      const type = String(source.source_type || '').toLowerCase();
+      return type === 'embed' || String(source.quality || '').toLowerCase() !== 'auto';
+    })
     .filter((source: any) => {
       const url = typeof source.url === 'string' ? source.url.trim() : '';
       const type = String(source.source_type || '').toLowerCase();
@@ -601,8 +617,10 @@ async function seriesDto(row: any, includePlaybackSources = false) {
         const episodeId = String(source.content_id || '');
         if (!episodeId) continue;
         const list = playbackByEpisode.get(episodeId) || [];
+        const providerReference = String(source.provider_reference || '').trim().toLowerCase();
+        if (!['aflaam', 'cimaclub', 'anime3rb', 'anime4up'].includes(providerReference)) continue;
         const mapped = cachedRe3ArabiSourceDto(source);
-        if (mapped.url) list.push(mapped);
+        if (mapped.url && mapped.providerKey) list.push(mapped);
         playbackByEpisode.set(episodeId, list);
       }
     }
