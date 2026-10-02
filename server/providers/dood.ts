@@ -180,13 +180,6 @@ export async function resolveDoodStreamPlayback(context: ProviderContext): Promi
   const timeoutMs = Math.min(Math.max(Number(process.env.DOODSTREAM_TIMEOUT_MS || 6_000), 3_000), 10_000);
   const pool = new Map<string, DoodFile>();
 
-  for (const variant of variants) {
-    for (const file of await searchFiles(variant, timeoutMs)) {
-      const code = codeOf(file);
-      if (code) pool.set(code, file);
-    }
-  }
-
   for (const file of await listFilesFallback(timeoutMs)) {
     const code = codeOf(file);
     if (code) pool.set(code, file);
