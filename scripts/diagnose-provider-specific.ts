@@ -7,6 +7,45 @@ import {
   resolveRe3ArabiProviderWithContext,
 } from '../server/providers/re3arabi';
 
+async function debugAflamLinks() {
+  const urls = [
+    'https://aflaam.com/search?q=Breaking%20Bad',
+    'https://aflaam.com/?s=Breaking%20Bad',
+    'https://aflaam.com/search?q=Breaking%20Bad%20S01E02',
+    'https://aflaam.com/?s=Breaking%20Bad%20S01E02',
+  ];
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'text/html,application/xhtml+xml,*/*;q=0.8',
+          'Accept-Language': 'en,ar;q=0.9',
+          'User-Agent': 'Mozilla/5.0 (compatible; Movyz-Diagnostic/1.0)',
+        },
+      });
+      const html = await response.text();
+      const links = [...html.matchAll(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)]
+        .map((m) => ({
+          href: m[1],
+          text: m[2].replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim(),
+        }))
+        .filter((x) => /breaking|s01|episode|ep|الحلقة/i.test(x.href + ' ' + x.text))
+        .slice(0, 40);
+      console.log(JSON.stringify({
+        url,
+        status: response.status,
+        length: html.length,
+        links,
+        title: /<title[^>]*>([\\s\\S]*?)<\\/title>/i.exec(html)?.[1]?.replace(/<[^>]+>/g, ' ').trim() || '',
+      }));
+    } catch (error) {
+      console.log(JSON.stringify({ url, error: error instanceof Error ? error.message : String(error) }));
+    }
+  }
+}
+
+await debugAflamLinks();
+
 const inceptionContext = await resolveRe3ArabiMovieContext(27205);
 const breakingBadContext = await resolveRe3ArabiSeriesContext(1396);
 const onePieceContext = await resolveRe3ArabiSeriesContext(37854);
