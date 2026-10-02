@@ -1131,11 +1131,6 @@ async function resolveProvider(
 
   if (!titles.length) return [];
 
-  if (provider.key === 'cimaclub' && context.episodeNumber !== undefined) {
-    const canonicalSources = await resolveCanonicalCimaClubEpisode(titles, context, provider, timeoutMs);
-    if (canonicalSources.length) return canonicalSources;
-  }
-
   if (provider.key === 'anime3rb' && context.episodeNumber !== undefined) {
     const canonicalSources = await resolveCanonicalAnime3rbEpisode(titles, context, provider, timeoutMs);
     if (canonicalSources.length) return canonicalSources;
