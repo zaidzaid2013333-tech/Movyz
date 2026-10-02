@@ -126,6 +126,12 @@ export const MovyzaApi = {
   getWatchHistory: () => request<WatchProgress[]>('/history'),
   clearWatchHistory: () => request<{ cleared: boolean }>('/history', { method: 'DELETE' }),
 
+  resolvePlaybackSources: (contentType: 'movie' | 'episode', contentId: string) =>
+    request<import('../types').PlaybackSource[]>('/playback/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ contentType, contentId }),
+    }, { skipAuth: true }),
+
   getWatchProgress: (contentId: string, episodeId?: string) =>
     request<WatchProgress | null>(
       `/watch/${encodeURIComponent(contentId)}/progress${episodeId ? `?episodeId=${encodeURIComponent(episodeId)}` : ''}`
