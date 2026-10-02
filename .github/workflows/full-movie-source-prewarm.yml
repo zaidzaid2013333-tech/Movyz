@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: movyz-full-movie-source-prewarm
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   prewarm:
