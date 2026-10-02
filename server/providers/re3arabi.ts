@@ -981,15 +981,23 @@ async function resolveAflamQualitySources(
 ): Promise<Candidate[]> {
   const watchLinks: Array<{ url: string; quality?: string; referer?: string }> = [];
 
-  for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi)) {
+  for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
     const tag = match[0];
+    const href = match[1];
+    const bodyText = stripTags(tag);
     const classValue =
       /\bclass=["']([^"']*)["']/i.exec(tag)?.[1] ||
       /\bclass=([^\s>]+)/i.exec(tag)?.[1] ||
       '';
 
-    if (!/\blink-show\b/i.test(classValue)) continue;
-    const href = match[1];
+    // Current Aflam episode pages expose watch buttons directly as
+    // /watch/... links. Older builds used the link-show class.
+    if (
+      !/\blink-show\b/i.test(classValue) &&
+      !/\/watch\//i.test(href) &&
+      !/مشاهدة/i.test(bodyText)
+    ) continue;
+
     const url = absolute(pageUrl, href);
     if (!url) continue;
 
@@ -997,7 +1005,7 @@ async function resolveAflamQualitySources(
       url,
       quality: qualityFromText(
         /\b(?:size|label|quality|data-quality|data-resolution)=["']([^"']+)["']/i.exec(tag)?.[1],
-        stripTags(tag),
+        bodyText,
         href,
       ) || 'source',
       referer: pageUrl,
