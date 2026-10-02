@@ -304,6 +304,32 @@ function parseSearchHits(html: string, base: string, allowEpisodeLinks = false):
   return hits;
 }
 
+function parseJsonSearchHits(payload: string, base: string): SearchHit[] {
+  const hits: SearchHit[] = [];
+  try {
+    const value = JSON.parse(payload);
+    if (!Array.isArray(value)) return hits;
+    for (const item of value) {
+      if (!item || typeof item !== 'object') continue;
+      const titleValue = (item as any).title;
+      const title = typeof titleValue === 'string'
+        ? stripTags(titleValue)
+        : titleValue && typeof titleValue === 'object' && typeof titleValue.rendered === 'string'
+          ? stripTags(titleValue.rendered)
+          : '';
+      const rawUrl = typeof (item as any).url === 'string'
+        ? (item as any).url
+        : typeof (item as any).link === 'string'
+          ? (item as any).link
+          : '';
+      const url = absolute(base, rawUrl);
+      if (!url || !title || isNavigationLink(url, title)) continue;
+      hits.push({ title, url, year: extractYear(title) });
+    }
+  } catch {}
+  return hits;
+}
+
 function parseAflamSearchHits(html: string, base: string): SearchHit[] {
   const hits: SearchHit[] = [];
   const seen = new Set<string>();
@@ -1101,6 +1127,18 @@ async function resolveProvider(
   // Search each known title through the site's supported URL shapes.
   for (const term of searchTerms.slice(0, 5)) {
     const q = encodeURIComponent(term);
+    if (provider.key === 'cimaclub') {
+      for (const apiUrl of [
+        `https://cimacub.com/wp-json/wp/v2/search?search=${q}&per_page=20`,
+        `https://cimacub.com/wp-json/wp/v2/posts?search=${q}&per_page=20`,
+      ]) {
+        try {
+          const payload = await getText(apiUrl, timeoutMs, provider.base);
+          searchResults.push(...parseJsonSearchHits(payload, provider.base));
+        } catch {}
+      }
+    }
+
     for (const searchUrl of provider.searchUrls(q)) {
       try {
         const html = await getText(searchUrl, timeoutMs, provider.base);
