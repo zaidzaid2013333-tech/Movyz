@@ -1421,6 +1421,49 @@ async function resolveContext(request: Re3ArabiPlaybackRequest): Promise<Resolve
   };
 }
 
+export async function diagnoseRe3ArabiPlayback(request: Re3ArabiPlaybackRequest): Promise<{
+  resolver: 'selected-sites';
+  request: Re3ArabiPlaybackRequest;
+  providers: Array<{ key: string; success: boolean; sourceCount: number; qualities: string[]; types: string[]; error?: string }>;
+}> {
+  const context = await resolveContext(request);
+  const eligibleKind: SiteKind = context.__isAnime ? 'anime' : 'general';
+  const providers = PROVIDERS.filter((provider) => provider.kind === eligibleKind);
+  const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
+
+  const results = await Promise.all(providers.map(async (provider) => {
+    try {
+      const sources = await withTimeout(
+        resolveProvider(provider, context, Math.min(timeoutMs, 8_000)),
+        Math.min(timeoutMs + 4_000, 12_000),
+        `Provider ${provider.key} exceeded diagnostic budget`,
+      );
+      return {
+        key: provider.key,
+        success: sources.length > 0,
+        sourceCount: sources.length,
+        qualities: [...new Set(sources.map((source) => source.quality))],
+        types: [...new Set(sources.map((source) => source.type))],
+      };
+    } catch (error) {
+      return {
+        key: provider.key,
+        success: false,
+        sourceCount: 0,
+        qualities: [],
+        types: [],
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }));
+
+  return {
+    resolver: 'selected-sites',
+    request,
+    providers: results,
+  };
+}
+
 export async function resolveRe3ArabiPlayback(
   request: Re3ArabiPlaybackRequest,
 ): Promise<Candidate[]> {
