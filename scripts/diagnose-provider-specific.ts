@@ -5,7 +5,6 @@ import {
   resolveRe3ArabiSeriesContext,
   resolveRe3ArabiPlayback,
   resolveRe3ArabiPlaybackWithContext,
-} from '../server/providers/re3arabi';
 import { resolveArProvPlayback } from '../server/providers/arprov';
 
 } from '../server/providers/re3arabi';
@@ -15,6 +14,7 @@ type DiagnosticCase =
       name: string;
       type: 'movie';
       tmdbId: number;
+      context: Awaited<ReturnType<typeof resolveRe3ArabiMovieContext>>;
       expectedProviders: string[];
     }
   | {
@@ -36,6 +36,7 @@ const cases: DiagnosticCase[] = [
     name: 'Inception movie (Akwam)',
     type: 'movie',
     tmdbId: 27205,
+    context: movieContext,
     expectedProviders: ['akwam'],
   },
   {
