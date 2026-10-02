@@ -953,7 +953,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   } catch {
                     // Ignore sources that reject a resume seek.
                   }
-                }
+                }}
                 onDurationChange={() => {
                   const video = videoRef.current;
                   if (video && Number.isFinite(video.duration)) setPlayerDuration(video.duration);
