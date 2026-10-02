@@ -1,4 +1,5 @@
 name: Movyz full episode source prewarm
+# Resumable sweep: stale UUID state is validated by rebind-selected-playback.ts
 
 on:
   push:
