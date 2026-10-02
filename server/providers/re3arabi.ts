@@ -308,15 +308,20 @@ function parseAflamSearchHits(html: string, base: string): SearchHit[] {
   const hits: SearchHit[] = [];
   const seen = new Set<string>();
 
-  for (const card of html.matchAll(/<div\b[^>]*class=["'][^"']*\bitem\b[^"']*["'][^>]*>[\s\S]*?<\/div>/gi)) {
-    const block = card[0];
-    const url = absolute(base, /<a\b[^>]*href=["']([^"']+)["']/i.exec(block)?.[1] || '');
-    const title =
-      stripTags(/<h3\b[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>([\s\S]*?)<\/h3>/i.exec(block)?.[1] || '') ||
-      stripTags(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i.exec(block)?.[1] || '');
-    if (!url || !title || seen.has(url) || isNavigationLink(url, title)) continue;
-    seen.add(url);
-    hits.push({ title, url, year: extractYear(title) });
+  const patterns = [
+    /<a\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*\bbox\b[^"']*["'][^>]*>[\s\S]*?<h3\b[^>]*>([\s\S]*?)<\/h3>/gi,
+    /<a\b[^>]*class=["'][^"']*\bbox\b[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<h3\b[^>]*>([\s\S]*?)<\/h3>/gi,
+  ];
+
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(html))) {
+      const url = absolute(base, match[1]);
+      const title = stripTags(match[2] || '');
+      if (!url || !title || seen.has(url) || isNavigationLink(url, title)) continue;
+      seen.add(url);
+      hits.push({ title, url, year: extractYear(title) });
+    }
   }
 
   return hits;
@@ -326,15 +331,21 @@ function parseCimaClubSearchHits(html: string, base: string): SearchHit[] {
   const hits: SearchHit[] = [];
   const seen = new Set<string>();
 
-  for (const card of html.matchAll(/<div\b[^>]*class=["'][^"']*\bSmall--Box\b[^"']*["'][^>]*>[\s\S]*?<\/div>/gi)) {
-    const block = card[0];
-    const url = absolute(base, /<a\b[^>]*href=["']([^"']+)["']/i.exec(block)?.[1] || '');
-    const title =
-      stripTags(/<h2\b[^>]*>([\s\S]*?)<\/h2>/i.exec(block)?.[1] || '') ||
-      stripTags(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i.exec(block)?.[1] || '');
-    if (!url || !title || seen.has(url) || isNavigationLink(url, title)) continue;
-    seen.add(url);
-    hits.push({ title, url, year: extractYear(title) });
+  const patterns = [
+    /<div\b[^>]*class=["'][^"']*\bSmall--Box\b[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<h2\b[^>]*>([\s\S]*?)<\/h2>/gi,
+    /<div\b[^>]*class=["'][^"']*\bSmall--Box\b[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<h3\b[^>]*>([\s\S]*?)<\/h3>/gi,
+    /<div\b[^>]*class=["'][^"']*\bSmall--Box\b[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<h1\b[^>]*>([\s\S]*?)<\/h1>/gi,
+  ];
+
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(html))) {
+      const url = absolute(base, match[1]);
+      const title = stripTags(match[2] || '');
+      if (!url || !title || seen.has(url) || isNavigationLink(url, title)) continue;
+      seen.add(url);
+      hits.push({ title, url, year: extractYear(title) });
+    }
   }
 
   return hits;
