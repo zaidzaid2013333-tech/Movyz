@@ -1,6 +1,14 @@
 name: Movyz rolling catalog + selected playback sync
 
 on:
+  push:
+    branches: ["main"]
+    paths:
+      - "server/providers/**"
+      - "server/index.ts"
+      - "scripts/rebind-selected-playback.ts"
+      - "scripts/auto-catalog-import.ts"
+      - ".github/workflows/rolling-catalog-import.yml"
   schedule:
     - cron: "30 3,15 * * *"
   workflow_dispatch:
