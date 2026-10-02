@@ -29,6 +29,44 @@ type DiagnosticCase =
 const movieContext = await resolveRe3ArabiMovieContext(27205);
 const breakingBadContext = await resolveRe3ArabiSeriesContext(1396);
 const onePieceContext = await resolveRe3ArabiSeriesContext(37854);
+await debugAkwam();
+
+async function debugAkwam() {
+  try {
+    const response = await fetch('https://ak.sv/search?q=Inception', {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml,*/*',
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+      },
+      redirect: 'follow',
+    });
+    const body = await response.text();
+    const links = [...body.matchAll(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)]
+      .slice(0, 40)
+      .map(match => ({ href: match[1], text: match[2].replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim() }));
+
+    const qualityBlocks = (body.match(/tab-content[^"'<>]*quality/gi) || []).length;
+    const downloadLinks = links.filter(link => /download|link|تحميل/i.test(link.href + ' ' + link.text)).slice(0, 20);
+
+    console.log(JSON.stringify({
+      akwamRaw: {
+        status: response.status,
+        finalUrl: response.url,
+        bodyLength: body.length,
+        qualityBlocks,
+        sampleLinks: links,
+        downloadLinks,
+        hasInception: /inception/i.test(body),
+      },
+    }));
+  } catch (error) {
+    console.error(JSON.stringify({
+      akwamRaw: {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    }));
+  }
+}
 
 const cases: DiagnosticCase[] = [
   {
