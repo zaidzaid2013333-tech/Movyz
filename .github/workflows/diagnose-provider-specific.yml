@@ -6,6 +6,10 @@ on:
     paths:
       - "scripts/diagnose-provider-specific.ts"
       - "server/providers/re3arabi.ts"
+
+concurrency:
+  group: movyz-provider-diagnostic
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
