@@ -46,7 +46,7 @@ const PROVIDERS: readonly SiteConfig[] = [
       `https://w1.anime4up.rest/?s=${q}`,
     ],
   },
-] as const;;
+] as const;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
