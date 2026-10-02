@@ -48,11 +48,12 @@ const PROVIDERS: readonly SiteConfig[] = [
   {
     key: 'cimaclub',
     name: 'CimaClub',
-    base: 'https://cimacub.com',
+    base: 'https://w.cimacub.com',
     kind: 'general',
     searchUrls: (q) => [
+      `https://w.cimacub.com/?s=${q}`,
+      `https://w.cimacub.com/search?q=${q}`,
       `https://cimacub.com/?s=${q}`,
-      `https://cimacub.com/search?q=${q}`,
       `https://www.cimacub.com/?s=${q}`,
     ],
   },
@@ -1050,7 +1051,7 @@ async function resolveCanonicalCimaClubEpisode(
 
   const season = context.seasonNumber ?? 1;
   const episode = context.episodeNumber;
-  const bases = ['https://cimacub.com', provider.base];
+  const bases = ['https://w.cimacub.com', 'https://cimacub.com', provider.base];
 
   for (const term of titles.slice(0, 3)) {
     const slug = normalize(term).replace(/\s+/g, '-');
