@@ -145,7 +145,7 @@ test('ArProv accepts an Akwam loader URL without a file extension as a direct vi
       return mockResponse('<div class="tab-content quality" id="quality-5"><a href="https://ak.sv/link/direct-loader">تحميل 1080p</a></div>');
     }
 
-    if (url === 'https://ak.sv/download/direct-loader/movie/direct-loader') {
+    if (url === 'https://ak.sv/download/direct-loader/direct-loader') {
       return mockResponse('<div class="btn-loader"><a href="https://stream.example.test/play/abc123?token=xyz">تحميل</a></div>');
     }
 
