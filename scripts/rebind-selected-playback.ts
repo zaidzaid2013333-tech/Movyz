@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 import { adminSupabase } from '../server/supabase';
 import { resolvePlaybackSources } from '../server/providers/resolver';
+import { resolveRe3ArabiPlayback } from '../server/providers/re3arabi';
 
 const ALLOWED_PROVIDER_KEYS = new Set(['aflaam', 'cimaclub', 'anime3rb', 'anime4up']);
 const ALLOWED_TYPES = new Set(['hls', 'mp4', 'dash', 'webm', 'direct', 'embed']);
@@ -104,6 +105,7 @@ async function rebindMovies() {
         title: movie.title_en,
         providers: [...groups.keys()],
         sources: sources.length,
+        persisted: persistedCount,
       }));
     } catch (error) {
       summary.processed++;
@@ -118,6 +120,70 @@ async function rebindMovies() {
 
   await ensureSyncJob(summary);
   console.log('REBIND_MOVIES_SUMMARY', JSON.stringify(summary));
+}
+
+async function persistExactEpisodeSources(
+  episodeId: string,
+  sources: any[],
+) {
+  if (!sources.length) return 0;
+
+  const { data: provider } = await adminSupabase
+    .from('providers')
+    .select('id')
+    .eq('key', 're3arabi')
+    .maybeSingle();
+
+  if (!provider?.id) return 0;
+
+  const allowed = sources.filter((source: any) =>
+    ALLOWED_PROVIDER_KEYS.has(String(source?.providerKey || source?.providerReference || '').toLowerCase()) &&
+    ALLOWED_TYPES.has(String(source?.type || '').toLowerCase()) &&
+    ['mp4', 'hls', 'dash', 'webm', 'direct'].includes(String(source?.type || '').toLowerCase()) &&
+    /^https:///i.test(String(source?.url || '')) &&
+    !/movyz-api\.sameranede\.workers\.dev/i.test(String(source?.url || '')) &&
+    !['auto', 'source'].includes(String(source?.quality || '').trim().toLowerCase())
+  );
+
+  await adminSupabase
+    .from('playback_sources')
+    .delete()
+    .eq('provider_id', provider.id)
+    .eq('content_type', 'episode')
+    .eq('content_id', episodeId);
+
+  if (!allowed.length) return 0;
+
+  const rows = allowed
+    .filter((source: any, index: number, all: any[]) =>
+      index === all.findIndex((candidate) => candidate.url === source.url),
+    )
+    .slice(0, 12)
+    .map((source: any) => ({
+      provider_id: provider.id,
+      content_type: 'episode',
+      content_id: episodeId,
+      source_type: String(source.type).toLowerCase(),
+      url: String(source.url),
+      provider_reference: String(source.providerKey || source.providerReference || '').toLowerCase(),
+      quality: String(source.quality || ''),
+      language: String(source.language || 'ar'),
+      label_ar: String(source.label || source.provider || 'Selected Playback Site'),
+      label_en: String(source.labelEn || source.label || source.provider || 'Selected Playback Site'),
+      expires_at: source.expiresAt || null,
+      is_working: true,
+      last_checked_at: new Date().toISOString(),
+      failure_count: 0,
+    }));
+
+  if (!rows.length) return 0;
+
+  const { error } = await adminSupabase
+    .from('playback_sources')
+    .upsert(rows, { onConflict: 'provider_id,content_type,content_id,url' });
+
+  if (error) throw new Error('Unable to persist episode playback sources: ' + error.message);
+  return rows.length;
 }
 
 async function rebindEpisodes() {
@@ -221,7 +287,13 @@ async function rebindEpisodes() {
     if (!season || !series) return;
 
     try {
-      const sources = await resolvePlaybackSources('episode', episode.id);
+      const sources = await resolveRe3ArabiPlayback({
+        type: 'series',
+        tmdbId: Number(series.tmdb_id),
+        season: Number(season.season_number),
+        episode: Number(episode.episode_number),
+      });
+      const persistedCount = await persistExactEpisodeSources(String(episode.id), sources);
       const groups = validateSources(sources);
 
       summary.processed++;
