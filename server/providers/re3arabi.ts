@@ -1383,11 +1383,15 @@ async function resolveCanonicalCimaClubEpisode(
 
     const seasonWord = cimaSeasonWord(season);
     const paths = [
-      `/مشاهدة-مشاهدة-مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}-م/`,
-      `/مشاهدة-مشاهدة-مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}-م/`,
-      `/مشاهدة-مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}-م/`,
-      `/مشاهدة-مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}-م/`,
-      `/مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}/`,
+      `/مشاهدة-مشاهدة-مسلسل-${slug}-الجزء-${seasonWord}-الحلقة-${episode}-مترجمة/`,
+      `/مشاهدة-مشاهدة-مسلسل-${slug}-الجزء-${seasonWord}-الحلقة-${episode}-مدبلجة/`,
+      `/مشاهدة-مسلسل-${slug}-الجزء-${seasonWord}-الحلقة-${episode}-مترجمة/`,
+      `/مسلسل-${slug}-الجزء-${seasonWord}-الحلقة-${episode}-مترجمة/`,
+      `/مسلسل-${slug}-الجزء-${seasonWord}-الحلقة-${episode}-مدبلجة/`,
+      `/مسلسل-${slug}-الجزء-${seasonWord}-الحلقة-${episode}/`,
+      `/مشاهدة-مشاهدة-مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}-مترجمة/`,
+      `/مشاهدة-مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}-مترجمة/`,
+      `/مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}-مترجمة/`,
       `/مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}/`,
     ];
 
