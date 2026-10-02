@@ -76,17 +76,8 @@ jobs:
       - name: Repair and complete episode metadata
         run: npx tsx scripts/run-tmdb-sync.ts episodes 10000
 
-      - name: Rebind movie playback to Aflam/CimaClub
-        env:
-          REBIND_MODE: movies
-          REBIND_LIMIT: "240"
-        run: npx tsx scripts/rebind-selected-playback.ts
-
-      - name: Rebind a resumable batch of episode playback
-        env:
-          REBIND_MODE: episodes
-          REBIND_LIMIT: ${{ env.REBIND_EPISODE_LIMIT }}
-        run: npx tsx scripts/rebind-selected-playback.ts
+      # Playback-source discovery is handled by the dedicated primary/secondary
+      # prewarm workflows so catalog sync never competes with source rebuilds.
 
       - name: Verify catalog integrity
         run: npx tsx scripts/verify-tmdb-sync.ts
