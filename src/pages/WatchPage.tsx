@@ -329,7 +329,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       mounted = false;
     };
   }, [
-    resolveTmdbId,
     mediaType,
     activeSeason,
     activeEpisode,
