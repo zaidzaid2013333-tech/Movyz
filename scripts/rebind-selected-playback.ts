@@ -143,6 +143,7 @@ async function rebindEpisodes() {
   );
 
   let cursor = EXPLICIT_CURSOR;
+  let previousFailedIds: string[] = [];
 
   if (!cursor) {
     const { data: previous } = await adminSupabase
@@ -155,36 +156,64 @@ async function rebindEpisodes() {
       .limit(1)
       .maybeSingle();
 
-    const previousCursor = previous?.details && typeof previous.details === 'object'
-      ? String((previous.details as Record<string, unknown>).cursor || '')
-      : '';
-    cursor = previousCursor;
+    const details = previous?.details && typeof previous.details === 'object'
+      ? previous.details as Record<string, unknown>
+      : {};
+
+    cursor = String(details.cursor || '');
+    previousFailedIds = Array.isArray(details.failedEpisodeIds)
+      ? details.failedEpisodeIds.filter((id): id is string => typeof id === 'string').slice(0, 5000)
+      : [];
   }
 
-  let query = adminSupabase
-    .from('episodes')
-    .select('id,season_id,episode_number,name_en,tmdb_id')
-    .order('id', { ascending: true })
-    .limit(LIMIT);
+  // Retry failed IDs first so transient provider failures never disappear
+  // permanently just because the sweep cursor moved forward.
+  let retryRows: any[] = [];
+  if (previousFailedIds.length) {
+    const { data, error } = await adminSupabase
+      .from('episodes')
+      .select('id,season_id,episode_number,name_en,tmdb_id')
+      .in('id', previousFailedIds);
 
-  if (cursor) query = query.gt('id', cursor);
+    if (error) throw new Error('Unable to load failed episode retries: ' + error.message);
+    retryRows = data || [];
+  }
 
-  if (OFFSET > 0) query = query.range(OFFSET, OFFSET + LIMIT - 1);
+  const remaining = Math.max(0, LIMIT - retryRows.length);
+  let sweepRows: any[] = [];
 
-  const { data: episodeRows, error: episodeError } = await query;
-  if (episodeError) throw new Error('Unable to load episode batch: ' + episodeError.message);
+  if (remaining > 0) {
+    let query = adminSupabase
+      .from('episodes')
+      .select('id,season_id,episode_number,name_en,tmdb_id')
+      .order('id', { ascending: true })
+      .limit(remaining);
 
-  const eligible = (episodeRows || []).filter((episode: any) => seasonById.has(String(episode.season_id)));
+    if (cursor) query = query.gt('id', cursor);
+    if (!cursor && OFFSET > 0) query = query.range(OFFSET, OFFSET + remaining - 1);
+
+    const { data, error } = await query;
+    if (error) throw new Error('Unable to load episode batch: ' + error.message);
+    sweepRows = data || [];
+  }
+
+  const rowsById = new Map<string, any>();
+  for (const row of [...retryRows, ...sweepRows]) rowsById.set(String(row.id), row);
+  const eligible = [...rowsById.values()].filter((episode: any) => seasonById.has(String(episode.season_id)));
 
   const summary = {
     requested: LIMIT,
     processed: 0,
     playable: 0,
     failed: 0,
+    retried: retryRows.length,
     providerGroups: {} as Record<string, number>,
     cursor: cursor || null,
     nextCursor: cursor || null,
+    failedEpisodeIds: [] as string[],
   };
+
+  const failed = new Set(previousFailedIds);
 
   await mapWithConcurrency(eligible, async (episode: any) => {
     const season = seasonById.get(String(episode.season_id));
@@ -197,7 +226,7 @@ async function rebindEpisodes() {
 
       summary.processed++;
       summary.playable += groups.size > 0 ? 1 : 0;
-      summary.nextCursor = episode.id;
+      failed.delete(String(episode.id));
 
       for (const [providerKey, providerSources] of groups) {
         summary.providerGroups[providerKey] = (summary.providerGroups[providerKey] || 0) + providerSources.length;
@@ -214,7 +243,7 @@ async function rebindEpisodes() {
     } catch (error) {
       summary.processed++;
       summary.failed++;
-      summary.nextCursor = episode.id;
+      failed.add(String(episode.id));
       console.warn('REBIND_EPISODE_FAIL', JSON.stringify({
         tmdbId: series.tmdb_id,
         season: season.season_number,
@@ -225,9 +254,18 @@ async function rebindEpisodes() {
     }
   });
 
+  // Advance only across the fresh sweep rows, not retries. Any failed row is
+  // retained in failedEpisodeIds for the next run.
+  if (sweepRows.length) {
+    summary.nextCursor = String(sweepRows[sweepRows.length - 1].id);
+  }
+
+  summary.failedEpisodeIds = [...failed].slice(0, 5000);
+
   await ensureSyncJob(summary);
   console.log('REBIND_EPISODES_SUMMARY', JSON.stringify(summary));
 }
+
 
 assertEnvironment();
 
