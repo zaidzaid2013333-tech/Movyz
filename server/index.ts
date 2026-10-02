@@ -6,7 +6,7 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
-import { resolveRemotePlayback } from './providers/remote-resolver';
+import { resolveRemotePlayback, resolveRemotePlaybackFast } from './providers/remote-resolver';
 import { diagnoseRe3ArabiPlayback } from './providers/re3arabi';
 import { resolvePlaybackSources } from './providers/resolver';
 import { fetchWithTimeout } from './providers/http';
@@ -668,6 +668,59 @@ async function seriesDto(row: any, includePlaybackSources = false) {
   } as any;
 }
 
+async function seriesWatchDto(row: any, seasonNumber: number) {
+  const [genres, cast, seasonResult] = await Promise.all([
+    adminSupabase.from('series_genres').select('genres(id,name_ar,name_en,slug)').eq('series_id', row.id),
+    adminSupabase.from('series_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('series_id', row.id).order('cast_order'),
+    adminSupabase.from('seasons').select('*').eq('series_id', row.id).eq('season_number', seasonNumber).maybeSingle(),
+  ]);
+
+  if (seasonResult.error || !seasonResult.data) return null;
+  const season = seasonResult.data;
+  const { data: episodes, error: episodesError } = await adminSupabase
+    .from('episodes').select('*').eq('season_id', season.id).order('episode_number');
+  if (episodesError) throw new Error('Unable to load season episodes: ' + episodesError.message);
+
+  const seasonDto = {
+    id: season.id, seriesId: row.id, seasonNumber: season.season_number,
+    name: season.name_ar || season.name_en || ('الموسم ' + season.season_number),
+    nameEn: season.name_en || season.name_ar || ('Season ' + season.season_number),
+    posterUrl: season.poster_url || '', overview: season.overview_ar || '',
+    airDate: season.air_date || '', episodesCount: (episodes || []).length,
+    episodes: (episodes || []).map((e: any) => ({
+      id: e.id, seriesId: row.id, tmdbId: Number(e.tmdb_id || 0),
+      seasonNumber: season.season_number, episodeNumber: e.episode_number,
+      title: e.name_ar || e.name_en || ('الحلقة ' + e.episode_number),
+      titleEn: e.name_en || e.name_ar || ('Episode ' + e.episode_number),
+      overview: e.overview_ar || '', overviewEn: e.overview_en || e.overview_ar || '',
+      stillUrl: e.still_url || '', duration: Number(e.runtime_minutes || 0),
+      airDate: e.air_date || '', sources: [],
+    })),
+  };
+
+  return {
+    id: row.id, tmdbId: Number(row.tmdb_id || 0), type: 'series',
+    title: row.title_ar, titleEn: row.title_en || row.title_ar,
+    originalTitle: row.original_title || row.title_en || row.title_ar,
+    startYear: row.first_air_date ? Number(String(row.first_air_date).slice(0, 4)) : 0,
+    endYear: row.last_air_date ? Number(String(row.last_air_date).slice(0, 4)) : undefined,
+    releaseDate: row.first_air_date || '', rating: Number(row.rating || 0),
+    votesCount: Number(row.vote_count || 0), overview: row.overview_ar || '',
+    overviewEn: row.overview_en || row.overview_ar || '',
+    posterUrl: row.poster_url || '', backdropUrl: row.backdrop_url || '',
+    genres: (genres.data || []).map((x: any) => genreDto(x.genres)),
+    creator: row.metadata?.creator_ar || '', creatorEn: row.metadata?.creator_en || '',
+    cast: (cast.data || []).map((x: any) => ({
+      id: x.people.id, name: x.people.name_ar || x.people.name_en,
+      nameEn: x.people.name_en || x.people.name_ar, character: x.character_ar || '',
+      characterEn: x.character_en || '', avatarUrl: x.people.avatar_url || '',
+    })),
+    seasonsCount: 1, episodesCount: seasonDto.episodesCount, seasons: [seasonDto],
+    isFeatured: !!row.featured, isTrending: !!row.trending, isPopular: !!row.popular,
+    status: row.status, addedAt: row.created_at, ageRating: row.age_rating || '',
+  };
+}
+
 app.get(`${api}/playback/ready`, asyncRoute(async (req, res) => {
   const type = req.query.type === 'movie' || req.query.type === 'series'
     ? req.query.type
@@ -972,7 +1025,7 @@ app.get(`${api}/series/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
   }
 
   if (error || !data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
-  const series = await seriesDto(data, true);
+  const series = await seriesDto(data, false);
   return ok(res, { series, similar: [] });
 }));
 
