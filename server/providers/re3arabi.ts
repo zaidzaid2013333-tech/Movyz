@@ -182,13 +182,23 @@ function parseSeasonEpisode(value: string): { season?: number; episode?: number 
     text.match(/(?:season|الموسم)[\s._-]*(\d{1,3})[\s._-]*(?:episode|ep|الحلقة|حلقه)[^0-9]*(\d{1,3})/i);
   if (compact) return { season: Number(compact[1]), episode: Number(compact[2]) };
 
+  // Aflam uses deterministic series slugs such as:
+  // /series/55/breaking-bad-5-1 -> season 5, episode 1.
+  const aflaamSeriesSlug = text.match(
+    /\/series\/[^/]+\/[^/?#]*-(\d+)-(\d+)(?:[/?#]|$)/i,
+  );
+  if (aflaamSeriesSlug) {
+    return {
+      season: Number(aflaamSeriesSlug[1]),
+      episode: Number(aflaamSeriesSlug[2]),
+    };
+  }
+
   const season =
     normalizeNumber(text.match(/(?:season|الموسم)[^0-9٠-٩]*(\d+)/i)?.[1]) ??
-    // Aflam season pages use slugs such as /series/55/breaking-bad-5-1
-    // and episode URLs keep the season in the same slug.
-    normalizeNumber(text.match(/\/series\/[^/]+\/[^/?#]*-(\d+)-\d+(?:[/?#]|$)/i)?.[1]) ??
     normalizeNumber(text.match(/\/series\/[^/]+\/[^/?#]*-(\d+)(?:[/?#]|$)/i)?.[1]);
-  const episode = normalizeNumber(text.match(/(?:episode|ep|الحلقة|حلقه)[^0-9٠-٩]*(\d+)/i)?.[1]) ??
+  const episode =
+    normalizeNumber(text.match(/(?:episode|ep|الحلقة|حلقه)[^0-9٠-٩]*(\d+)/i)?.[1]) ??
     normalizeNumber(text.match(/(?:\/|-)الحلقة[-_ ]*(\d+)(?:[/?#]|$)/i)?.[1]);
   return { season, episode };
 }
