@@ -40,6 +40,14 @@ const sites: Site[] = [
       'https://ciimaclub.us/search?s=' + encodeURIComponent(q),
     ],
   },
+  {
+    key: 'arabseed',
+    name: 'ArabSeed',
+    base: 'https://arabseed.store',
+    searches: q => [
+      'https://arabseed.store/?s=' + encodeURIComponent(q),
+    ],
+  },
 ];
 
 function https(raw: string, base?: string) {
@@ -294,6 +302,122 @@ function pageLinks(body: string, base: string) {
   return out.slice(0, 12);
 }
 
+async function formHtml(url: string, data: Record<string, string>, referer?: string) {
+  const r = await fetchWithTimeout(url, {
+    method: 'POST',
+    redirect: 'follow',
+    timeoutMs,
+    headers: {
+      Accept: 'application/json,text/html,text/plain,*/*',
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'User-Agent': 'Movyz-ArProv/1.0',
+      ...(referer ? { Referer: referer } : {}),
+    },
+    body: new URLSearchParams(data).toString(),
+  });
+  const body = await r.text();
+  if (!r.ok) throw new Error('ArProv POST HTTP ' + r.status);
+  return { url: r.url || url, body };
+}
+
+function arabSeedToken(html: string, key: string) {
+  return html.match(new RegExp(
+    key + "[\\'\\\"]?\\s*(?::|=)\\s*[\\'\\\"]([^'\\\"]+)",
+    'i',
+  ))?.[1] || null;
+}
+
+async function resolveArabSeedPage(pageUrl: string, ctx: ProviderContext, site: Site) {
+  const page = await html(pageUrl);
+  const watch = anchors(page.body, page.url)
+    .find(link => /watch__btn|مشاهدة|watch/i.test(link.url + ' ' + link.text));
+
+  const watchPage = watch?.url ? await html(watch.url, page.url).catch(() => null) : null;
+  const current = watchPage || page;
+  const out: NormalizedPlaybackSource[] = [];
+
+  const addCandidate = async (url: string, referer: string, qualityHint = '') => {
+    try {
+      out.push(...await resolveLink(url, referer, site.name).then(items =>
+        items.map(item => ({ ...item, quality: inferQuality(qualityHint, item.url) }))
+      ));
+    } catch {}
+  };
+
+  if (watchPage) {
+    for (const link of anchors(watchPage.body, watchPage.url)) {
+      if (!link.url.startsWith('https://')) continue;
+      if (/\.(?:mp4|m3u8|mpd|webm)(?:[?#]|$)/i.test(link.url) || /\/watch\/\?url=|dood|filemoon|streamtape|mixdrop|voe|gofile|uqload/i.test(link.url)) {
+        await addCandidate(link.url, page.url, link.text + ' ' + link.url);
+      }
+    }
+
+    const liRe = /<li\b[^>]*data-src=["']([^"']+)["'][^>]*>([\s\S]*?)<\/li>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = liRe.exec(watchPage.body))) {
+      const src = https(m[1], watchPage.url);
+      if (src) await addCandidate(src, page.url, m[2] || '');
+    }
+
+    const postId = arabSeedToken(watchPage.body, 'post_id');
+    const csrf = arabSeedToken(watchPage.body, 'csrf__token');
+
+    if (postId && csrf) {
+      for (const quality of ['480', '720', '1080']) {
+        try {
+          const q = await formHtml(site.base + '/get__quality__servers/', {
+            post_id: postId,
+            quality,
+            csrf_token: csrf,
+          }, watchPage.url);
+
+          const qRe = /<li\b[^>]*data-src=["']([^"']+)["'][^>]*>([\s\S]*?)<\/li>/gi;
+          let qm: RegExpExecArray | null;
+          while ((qm = qRe.exec(q.body))) {
+            const src = https(qm[1], q.url);
+            if (src) await addCandidate(src, page.url, quality);
+          }
+        } catch {}
+      }
+    }
+  }
+
+  for (const directUrl of direct(current.body, current.url).slice(0, 8)) {
+    await addCandidate(directUrl, page.url);
+  }
+
+  const unique = new Map<string, NormalizedPlaybackSource>();
+  for (const source of out) {
+    if (source.url) unique.set(source.type + '|' + source.url, source);
+  }
+  return [...unique.values()];
+}
+
+async function resolveArabSeed(site: Site, ctx: ProviderContext) {
+  const pages = await search(site, ctx);
+  for (const p of pages) {
+    try {
+      const page = await html(p.url);
+      const candidates: Array<{ url: string; body: string }> = [{ url: page.url, body: page.body }];
+
+      if (ctx.episodeNumber !== undefined) {
+        for (const ep of episodeLinks(page.body, page.url, ctx)) {
+          try {
+            const epPage = await html(ep.url, page.url);
+            candidates.push({ url: epPage.url, body: epPage.body });
+          } catch {}
+        }
+      }
+
+      for (const candidate of candidates) {
+        const sources = await resolveArabSeedPage(candidate.url, ctx, site);
+        if (sources.length) return sources;
+      }
+    } catch {}
+  }
+  return [];
+}
+
 function episodeLinks(body: string, base: string, ctx: ProviderContext) {
   if (ctx.episodeNumber === undefined) return [] as Array<{ url: string; score: number }>;
 
@@ -319,6 +443,12 @@ async function resolveSite(site: Site, ctx: ProviderContext) {
   for (const p of pages) {
     try {
       const page = await html(p.url);
+
+      if (site.key === 'arabseed') {
+        const sources = await resolveArabSeed(site, ctx);
+        if (sources.length) return sources;
+        continue;
+      }
 
       const pageCandidates: Array<{ url: string; body: string }> = [{ url: page.url, body: page.body }];
 
