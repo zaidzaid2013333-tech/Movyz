@@ -832,8 +832,6 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
     }
 
     return fail(res, 404, 'PLAYBACK_SOURCE_NOT_FOUND', 'No playback source was returned by the selected playback sites resolver');
-    res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=60');
-    return ok(res, { sources });
   } catch (error) {
     console.error('[remote-playback]', error instanceof Error ? error.message : error);
     return fail(res, 502, 'PLAYBACK_RESOLVER_FAILED', 'Selected playback sites resolver failed');
