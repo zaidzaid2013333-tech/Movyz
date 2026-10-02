@@ -752,17 +752,27 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
     }
 
-    sources = await resolveDoodStreamPlayback({
-      tmdbId: Number(data.tmdb_id),
-      title: data.title_en || data.title_ar || data.original_title || undefined,
-      originalTitle: data.original_title || data.title_en || data.title_ar || undefined,
-    });
+    try {
+      sources = await resolveDoodStreamPlayback({
+        tmdbId: Number(data.tmdb_id),
+        title: data.title_en || data.title_ar || data.original_title || undefined,
+        originalTitle: data.original_title || data.title_en || data.title_ar || undefined,
+      });
+    } catch (error) {
+      console.warn('[doodstream-movie]', error instanceof Error ? error.message : String(error));
+      sources = [];
+    }
 
     if (!sources.length) {
-      sources = await resolveRe3ArabiPlayback({
-        type: 'movie',
-        tmdbId: Number(data.tmdb_id),
-      });
+      try {
+        sources = await resolveRe3ArabiPlayback({
+          type: 'movie',
+          tmdbId: Number(data.tmdb_id),
+        });
+      } catch (error) {
+        console.warn('[re3arabi-movie]', error instanceof Error ? error.message : String(error));
+        sources = [];
+      }
     }
   } else {
     const { data: episode, error: episodeError } = await adminSupabase
@@ -800,21 +810,31 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
     }
 
-    sources = await resolveDoodStreamPlayback({
-      tmdbId: Number(series.tmdb_id),
-      title: series.title_en || series.title_ar || series.original_title || undefined,
-      originalTitle: series.original_title || series.title_en || series.title_ar || undefined,
-      seasonNumber: Number(season.season_number),
-      episodeNumber: Number(episode.episode_number),
-    });
+    try {
+      sources = await resolveDoodStreamPlayback({
+        tmdbId: Number(series.tmdb_id),
+        title: series.title_en || series.title_ar || series.original_title || undefined,
+        originalTitle: series.original_title || series.title_en || series.title_ar || undefined,
+        seasonNumber: Number(season.season_number),
+        episodeNumber: Number(episode.episode_number),
+      });
+    } catch (error) {
+      console.warn('[doodstream-episode]', error instanceof Error ? error.message : String(error));
+      sources = [];
+    }
 
     if (!sources.length) {
-      sources = await resolveRe3ArabiPlayback({
-        type: 'series',
-        tmdbId: Number(series.tmdb_id),
-        season: Number(season.season_number),
-        episode: Number(episode.episode_number),
-      });
+      try {
+        sources = await resolveRe3ArabiPlayback({
+          type: 'series',
+          tmdbId: Number(series.tmdb_id),
+          season: Number(season.season_number),
+          episode: Number(episode.episode_number),
+        });
+      } catch (error) {
+        console.warn('[re3arabi-episode]', error instanceof Error ? error.message : String(error));
+        sources = [];
+      }
     }
   }
 
