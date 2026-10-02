@@ -1313,10 +1313,10 @@ async function resolveCanonicalCimaClubMovie(
   if (provider.key !== 'cimaclub') return [];
 
   const year = context.releaseYear;
-  const bases = ['https://cimacub.com', 'https://w.cimacub.com'];
+  const base = 'https://cimacub.com';
   const attempts: string[] = [];
 
-  for (const term of titles.slice(0, 3)) {
+  for (const term of titles.slice(0, 2)) {
     const slug = normalize(term).replace(/\s+/g, '-');
     if (!slug) continue;
 
@@ -1329,19 +1329,16 @@ async function resolveCanonicalCimaClubMovie(
         `/فيلم-${slug}${suffix}-مترجم/`,
         `/مشاهدة-فيلم-${slug}${suffix}/`,
       ];
-
-      for (const base of bases) {
-        for (const path of paths) attempts.push(new URL(path, base).toString());
-      }
+      for (const path of paths) attempts.push(new URL(path, base).toString());
     }
   }
 
   const results = await Promise.allSettled(
-    [...new Set(attempts)].slice(0, 24).map(async (url) => {
+    [...new Set(attempts)].slice(0, 8).map(async (url) => {
       const sources = await resolveCimaClubSources(
         url,
         provider,
-        Math.min(Math.max(timeoutMs, 3_000), 6_000),
+        Math.min(Math.max(timeoutMs, 3_000), 4_500),
       );
       return sources.filter((source) =>
         PLAYABLE_TYPES.has(source.type) &&
