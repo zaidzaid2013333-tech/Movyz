@@ -227,6 +227,7 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
     if (!page) return;
     for (const anchor of anchors(page.body, page.url)) {
       if (!anchor.url.includes(new URL(base).hostname)) continue;
+      if (!/class=["'][^"']*\bbox\b[^"']*["']/i.test(anchor.tag)) continue;
       if (seen.has(anchor.url)) continue;
       const score = titleScore(anchor, ctx);
       if (score < 100) continue;
@@ -267,18 +268,24 @@ function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
     const id = extractSeasonEpisode(anchor.url + ' ' + anchor.text);
     const hay = normalize(anchor.text + ' ' + anchor.url);
 
-    let score = 100;
-    if (id.episode === requestedEpisode) score += 500;
-    if (id.season === requestedSeason) score += 400;
-    if (id.episode !== undefined && id.episode !== requestedEpisode) score -= 1_000;
-    if (/(episode|ep|الحلقة|حلقه|حلقة)/i.test(hay)) score += 80;
+    let score = 0;
+    if (/class=["'][^"']*text-white[^"']*["']/i.test(anchor.tag)) score += 200;
+    if (id.episode === requestedEpisode) score += 1_000;
+    if (id.season === requestedSeason) score += 600;
+    if (id.episode !== undefined && id.episode !== requestedEpisode) score -= 2_000;
+    if (/(episode|ep|الحلقة|حلقه|حلقة)/i.test(hay)) score += 120;
 
-    if (score < 100 || seen.has(anchor.url)) continue;
+    if (score <= 0 || seen.has(anchor.url)) continue;
     seen.add(anchor.url);
     results.push({ url: anchor.url, score });
   }
 
   return results.sort((a, b) => b.score - a.score).slice(0, 5);
+}
+
+function inferAkwamQuality(value: string) {
+  const match = String(value || '').match(/(?:^|[^0-9])(2160|1440|1080|720|576|480|360|240)(?:p)?(?=(?:[^0-9]|$))/i);
+  return match ? `${match[1]}p` : 'auto';
 }
 
 function qualityFromBlock(block: string) {
@@ -344,84 +351,68 @@ function directCandidates(page: { body: string; url: string }) {
 async function resolveDownload(
   target: string,
   quality: string,
+  akwamBase: string,
   pageUrl: string,
   runtime: AkwamRuntime,
 ): Promise<NormalizedPlaybackSource[]> {
-  const page = await fetchArProvPage(target, {
+  let page = await fetchArProvPage(target, {
     referer: pageUrl,
     browserBinding: runtime.browserBinding,
     timeoutMs: 10_000,
   });
+
+  if (looksBlocked(page) && runtime.browserBinding) {
+    page = await fetchArProvPage(target, {
+      referer: pageUrl,
+      browserBinding: runtime.browserBinding,
+      timeoutMs: 12_000,
+      forceBrowser: true,
+    });
+  }
+
   if (!page) return [];
 
-  const candidates = new Set<string>();
+  const raw = /btn-loader[\s\S]*?<a\b[^>]*href=["']([^"']+)["']/i.exec(page.body)?.[1];
+  if (!raw) return [];
 
-  const loader = /btn-loader[\s\S]{0,5000}?<a\b[^>]*href=["']([^"']+)["']/i.exec(page.body)?.[1];
-  if (loader) {
-    const value = decodeUrl(loader, page.url);
-    if (value) candidates.add(value);
+  const finalUrl = decodeUrl(raw, page.url);
+  if (!finalUrl) return [];
+
+  const referer = akwamBase.endsWith('/') ? akwamBase : `${akwamBase}/`;
+  const effectiveQuality =
+    quality !== 'auto'
+      ? quality
+      : inferAkwamQuality(finalUrl) !== 'auto'
+        ? inferAkwamQuality(finalUrl)
+        : quality;
+
+  const extracted = await resolveArProvExtractor(finalUrl, {
+    referer,
+    browserBinding: runtime.browserBinding,
+  });
+
+  if (extracted.length) {
+    return extracted.map((source) => ({
+      ...source,
+      provider: 'Akwam',
+      providerReference: 'akwam',
+      quality: effectiveQuality !== 'auto' ? effectiveQuality : source.quality,
+      language: source.language || 'und',
+      label: source.label || `Akwam ${effectiveQuality !== 'auto' ? effectiveQuality : source.quality || ''}`.trim(),
+      referer: source.referer || referer,
+    }));
   }
 
-  for (const value of directCandidates(page)) candidates.add(value);
-
-  const output: NormalizedPlaybackSource[] = [];
-
-  for (const value of [...candidates].slice(0, 8)) {
-    const extractor = await resolveArProvExtractor(value, {
-      referer: page.url,
-      browserBinding: runtime.browserBinding,
-    });
-
-    if (extractor.length) {
-      output.push(...extractor.map(item => {
-        const inferredQuality =
-          quality !== 'auto'
-            ? quality
-            : inferQuality(item.label || '', item.url || '') !== 'auto'
-              ? inferQuality(item.label || '', item.url || '')
-              : item.quality;
-        return {
-          ...item,
-          provider: 'Akwam',
-          providerReference: 'akwam',
-          quality: inferredQuality,
-          language: item.language || 'und',
-          label: item.label || `Akwam ${inferredQuality || ''}`.trim(),
-        };
-      }));
-      continue;
-    }
-
-    if (inferPlaybackType(value) || /\/play\//i.test(value) || !/\/embed(?:\/|$)/i.test(value)) {
-      output.push({
-        provider: 'Akwam',
-        providerReference: 'akwam',
-        type: inferPlaybackType(value) || 'direct',
-        url: value,
-        quality: quality !== 'auto' ? quality : inferQuality('', value),
-        language: 'und',
-        label: `Akwam ${quality !== 'auto' ? quality : ''}`.trim(),
-      });
-      continue;
-    }
-
-    try {
-      const nested = await resolveUniversalSource(value, { timeoutMs: 7_000, maxDepth: 1 });
-      if (nested.type !== 'embed') {
-        output.push({
-          provider: 'Akwam',
-          providerReference: 'akwam',
-          type: nested.type,
-          url: nested.url,
-          quality: quality !== 'auto' ? quality : nested.quality,
-          language: 'und',
-          label: `Akwam ${quality !== 'auto' ? quality : nested.quality}`.trim(),
-        });
-      }
-    } catch {}
-  }
-
-  return output;
+  return [{
+    provider: 'Akwam',
+    providerReference: 'akwam',
+    type: inferPlaybackType(finalUrl) || 'direct',
+    url: finalUrl,
+    quality: effectiveQuality,
+    language: 'und',
+    label: `Akwam ${effectiveQuality !== 'auto' ? effectiveQuality : ''}`.trim(),
+    referer,
+  }];
 }
 
 async function resolvePage(page: { body: string; url: string }, ctx: ProviderContext, runtime: AkwamRuntime) {
@@ -444,28 +435,48 @@ async function resolvePage(page: { body: string; url: string }, ctx: ProviderCon
     const target = downloadTarget(page.url, anchor.url, new URL(page.url).origin) || anchor.url;
     if (!/^https:\/\//i.test(target)) continue;
 
-    output.push(...await resolveDownload(target, quality, page.url, runtime));
+    output.push(...await resolveDownload(target, quality, new URL(page.url).origin, page.url, runtime));
   }
 
   return dedupe(output);
 }
 
+function playbackTypeValue(value: unknown) {
+  switch (String(value || '').toLowerCase()) {
+    case 'mp4': return 50;
+    case 'hls': return 45;
+    case 'dash': return 40;
+    case 'webm': return 35;
+    case 'direct': return 30;
+    default: return 0;
+  }
+}
+
 function dedupe(values: NormalizedPlaybackSource[]) {
-  const map = new Map<string, NormalizedPlaybackSource>();
+  const byQuality = new Map<string, NormalizedPlaybackSource>();
+
   for (const value of values) {
     if (!value.url) continue;
-    map.set(value.type + '|' + value.url, value);
+
+    const quality = String(value.quality || '').trim().toLowerCase();
+    if (!quality || quality === 'auto' || quality === 'source') continue;
+
+    const current = byQuality.get(quality);
+    if (!current || playbackTypeValue(value.type) > playbackTypeValue(current.type)) {
+      byQuality.set(quality, {
+        ...value,
+        provider: 'Akwam',
+        providerReference: 'akwam',
+        quality,
+        language: value.language || 'und',
+        label: value.label || `Akwam ${quality}`.trim(),
+      });
+    }
   }
-  return [...map.values()]
-    .map((value) => ({
-      ...value,
-      provider: value.provider || 'Akwam',
-      providerReference: 'akwam',
-      language: value.language || 'und',
-      label: value.label || `Akwam ${value.quality || ''}`.trim(),
-    }))
+
+  return [...byQuality.values()]
     .sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality))
-    .slice(0, 12);
+    .slice(0, 8);
 }
 
 function qualityValue(value: unknown) {

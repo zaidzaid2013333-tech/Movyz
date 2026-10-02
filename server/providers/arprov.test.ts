@@ -16,7 +16,7 @@ test('ArProv resolves an Akwam movie download into a direct MP4 source', async (
     const url = String(input);
 
     if (url.startsWith('https://ak.sv/search') || url.startsWith('https://ak.sv/?s=')) {
-      return mockResponse('<a href="https://ak.sv/movie/demo">Demo</a>');
+      return mockResponse('<div class="entry-box"><a class="box" href="https://ak.sv/movie/demo">Demo</a></div>');
     }
 
     if (url === 'https://ak.sv/movie/demo') {
@@ -53,11 +53,11 @@ test('ArProv resolves an Akwam series episode page before extracting media', asy
     const url = String(input);
 
     if (url.startsWith('https://ak.sv/search') || url.startsWith('https://ak.sv/?s=')) {
-      return mockResponse('<a href="https://ak.sv/series/breaking-bad">Breaking Bad</a>');
+      return mockResponse('<div class="entry-box"><a class="box" href="https://ak.sv/series/breaking-bad">Breaking Bad</a></div>');
     }
 
     if (url === 'https://ak.sv/series/breaking-bad') {
-      return mockResponse('<a href="https://ak.sv/episode/breaking-bad-s01e01">الحلقة 1</a>');
+      return mockResponse('<div class="bg-primary2 p-4 col-lg-4 col-md-6 col-12"><a class="text-white" href="https://ak.sv/episode/breaking-bad-s01e01">الحلقة 1</a></div>');
     }
 
     if (url === 'https://ak.sv/episode/breaking-bad-s01e01') {

@@ -21,6 +21,8 @@ export interface NormalizedPlaybackSource {
   language: string;
   label: string;
   expiresAt?: string;
+  referer?: string;
+  headers?: Record<string, string>;
 }
 
 export interface ProviderAdapter {

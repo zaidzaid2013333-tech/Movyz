@@ -8,6 +8,8 @@ import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdb
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolveRe3ArabiPlayback } from './providers/re3arabi';
 import { resolveArProvPlayback } from './providers/arprov';
+import { createPlaybackProxyUrl, handlePlaybackProxy } from './playback-proxy';
+import { persistEvergreenEpisodeSources, persistEvergreenMovieSources } from './playback-source-persistence';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -729,6 +731,13 @@ app.get(`${api}/episodes/:id`, asyncRoute(async (req, res) => {
   });
 }));
 
+app.get(`${api}/playback/stream`, asyncRoute(async (req) => {
+  return handlePlaybackProxy(
+    new Request(req.url, { method: req.method, headers: req.headers }),
+    req.env || {},
+  );
+}));
+
 app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   const body = z.object({
     contentType: z.enum(['movie', 'episode']),
@@ -848,8 +857,31 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       }
     }
   }
+  let publicSources = sources || [];
+  try {
+    publicSources = await Promise.all(
+      publicSources.map(async (source: any) => ({
+        ...source,
+        url: await createPlaybackProxyUrl(source, req.url, req.env || {}),
+      })),
+    );
+  } catch (error) {
+    console.warn('[playback-proxy-mint]', error instanceof Error ? error.message : String(error));
+  }
 
-  const output = (sources || [])
+  if (publicSources.length) {
+    try {
+      if (body.data.contentType === 'movie') {
+        await persistEvergreenMovieSources(String(body.data.contentId), publicSources);
+      } else {
+        await persistEvergreenEpisodeSources(String(body.data.contentId), publicSources);
+      }
+    } catch (error) {
+      console.warn('[playback-cache]', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const output = publicSources
     .filter((source: any) => String(source?.url || '').trim().startsWith('https://'))
     .map((source: any) => ({
       id: crypto.randomUUID(),
@@ -863,8 +895,17 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       provider: source.provider || 'ArProv',
       providerKey: source.providerKey || source.providerReference || undefined,
       providerReference: source.providerReference || source.providerKey || undefined,
+      referer: source.referer || undefined,
     }))
-    .slice(0, 12);
+    .filter((source: any, index: number, all: any[]) =>
+      index === all.findIndex((candidate) =>
+        String(candidate.providerKey || candidate.providerReference || candidate.provider).toLowerCase() ===
+          String(source.providerKey || source.providerReference || source.provider).toLowerCase() &&
+        String(candidate.quality || '').toLowerCase() === String(source.quality || '').toLowerCase(),
+      ),
+    )
+    .slice(0, 8);
+
 
   res.setHeader('Cache-Control', 'no-store');
   return ok(res, output);
