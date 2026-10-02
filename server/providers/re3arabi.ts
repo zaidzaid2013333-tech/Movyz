@@ -1262,16 +1262,14 @@ async function resolveProvider(
 
   let hits = rankHits(searchResults, searchTerms, context.releaseYear);
 
-  if (provider.key === 'aflaam') {
+  if (!hits.length && provider.key === 'aflaam') {
     const sitemapHits = await resolveAflamSitemapSearch(
       searchTerms,
       context,
       provider,
-      timeoutMs,
+      Math.min(timeoutMs, 3_500),
     );
-    if (sitemapHits.length) {
-      hits = rankHits([...hits, ...sitemapHits], searchTerms, context.releaseYear);
-    }
+    hits = rankHits(sitemapHits, searchTerms, context.releaseYear);
   }
 
   if (!hits.length) return [];
