@@ -25,10 +25,9 @@ const LEASE_MS = 4 * 60 * 1000;
 
 const nowIso = () => new Date().toISOString();
 
-function providerKeyFor(role: ProviderRole, isAnime: boolean) {
-  return role === 'primary'
-    ? (isAnime ? 'anime3rb' : 'aflaam')
-    : (isAnime ? 'anime4up' : 'cimaclub');
+function providerKeyFor(role: ProviderRole, isAnime: boolean): string | null {
+  if (role === 'primary') return isAnime ? 'anime3rb' : 'aflaam';
+  return isAnime ? 'anime4up' : null;
 }
 
 function expiryFromUrl(url: string) {
@@ -312,8 +311,8 @@ async function loadEpisodesForSeries(series: any, providerKey: string, jobKey: M
 }
 
 async function fillEpisodes(role: ProviderRole, limit: number, jobKey: MaintenanceJob) {
-  const genericProvider = role === 'primary' ? 'aflaam' : 'cimaclub';
-  const animeProvider = role === 'primary' ? 'anime3rb' : 'anime4up';
+  const genericProvider = providerKeyFor(role, false);
+  const animeProvider = providerKeyFor(role, true);
 
   const { data: seriesRows, error } = await adminSupabase
     .from('series')
@@ -339,6 +338,7 @@ async function fillEpisodes(role: ProviderRole, limit: number, jobKey: Maintenan
     try {
       const context = await resolveRe3ArabiSeriesContext(item.tmdbId);
       const providerKey = providerKeyFor(role, context.__isAnime);
+      if (!providerKey) continue;
       const sources = await resolveRe3ArabiProviderWithContext(
         context,
         item.season,
@@ -384,7 +384,7 @@ async function fillMovies(role: ProviderRole, limit: number, jobKey: Maintenance
   const providerId = await getProviderId();
   if (!providerId) return { requested: 0, succeeded: 0, failed: 0 };
 
-  const genericProvider = role === 'primary' ? 'aflaam' : 'cimaclub';
+  const genericProvider = providerKeyFor(role, false);
   const failures = await getFailedIds(jobKey, 'movie', (movies || []).map((row) => String(row.id)));
   const candidates: any[] = [];
 
