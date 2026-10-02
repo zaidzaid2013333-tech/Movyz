@@ -7,6 +7,7 @@ import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolveRe3ArabiPlayback } from './providers/re3arabi';
+import { resolveDoodStreamPlayback } from './providers/dood';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -743,7 +744,7 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   if (body.data.contentType === 'movie') {
     const { data, error } = await adminSupabase
       .from('movies')
-      .select('tmdb_id,status')
+      .select('tmdb_id,status,title_ar,title_en,original_title')
       .eq('id', body.data.contentId)
       .maybeSingle();
 
@@ -751,10 +752,18 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
     }
 
-    sources = await resolveRe3ArabiPlayback({
-      type: 'movie',
+    sources = await resolveDoodStreamPlayback({
       tmdbId: Number(data.tmdb_id),
+      title: data.title_en || data.title_ar || data.original_title || undefined,
+      originalTitle: data.original_title || data.title_en || data.title_ar || undefined,
     });
+
+    if (!sources.length) {
+      sources = await resolveRe3ArabiPlayback({
+        type: 'movie',
+        tmdbId: Number(data.tmdb_id),
+      });
+    }
   } else {
     const { data: episode, error: episodeError } = await adminSupabase
       .from('episodes')
@@ -778,7 +787,7 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 
     const { data: series, error: seriesError } = await adminSupabase
       .from('series')
-      .select('tmdb_id,status')
+      .select('tmdb_id,status,title_ar,title_en,original_title')
       .eq('id', season.series_id)
       .maybeSingle();
 
@@ -791,12 +800,22 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
     }
 
-    sources = await resolveRe3ArabiPlayback({
-      type: 'series',
+    sources = await resolveDoodStreamPlayback({
       tmdbId: Number(series.tmdb_id),
-      season: Number(season.season_number),
-      episode: Number(episode.episode_number),
+      title: series.title_en || series.title_ar || series.original_title || undefined,
+      originalTitle: series.original_title || series.title_en || series.title_ar || undefined,
+      seasonNumber: Number(season.season_number),
+      episodeNumber: Number(episode.episode_number),
     });
+
+    if (!sources.length) {
+      sources = await resolveRe3ArabiPlayback({
+        type: 'series',
+        tmdbId: Number(series.tmdb_id),
+        season: Number(season.season_number),
+        episode: Number(episode.episode_number),
+      });
+    }
   }
 
   const output = (sources || [])
