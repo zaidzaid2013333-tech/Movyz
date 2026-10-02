@@ -1308,6 +1308,50 @@ async function resolveCanonicalAnime3rbEpisode(
   return [];
 }
 
+function resolveCimaClubEpisodeUrl(
+  html: string,
+  pageUrl: string,
+  season?: number,
+  episode?: number,
+): string | null {
+  if (episode === undefined) return null;
+
+  const candidates: Array<{ url: string; season?: number; episode?: number; score: number }> = [];
+  const seen = new Set<string>();
+
+  for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const tag = match[0];
+    const href = decodeHtml(match[1]);
+    const text = stripTags(match[2]);
+    if (!/(?:episode|الحلقة|حلقه|حلقة|الموسم|season)/i.test(href + ' ' + text + ' ' + tag)) continue;
+
+    const url = absolute(pageUrl, href);
+    if (!url || seen.has(url)) continue;
+
+    const identity = parseSeasonEpisode([href, text, tag].join(' '));
+    const bareEpisode =
+      identity.episode ??
+      normalizeNumber(text.match(/(?:episode|الحلقة|حلقه|حلقة)[^0-9٠-٩]*([0-9٠-٩]+)/i)?.[1]) ??
+      normalizeNumber(text.match(/^\s*([0-9٠-٩]{1,3})\s*$/)?.[1]);
+    const explicitSeason =
+      identity.season ??
+      normalizeNumber(text.match(/(?:الموسم|season|الجزء|part)[^0-9٠-٩]*([0-9٠-٩]+)/i)?.[1]);
+
+    if (bareEpisode !== episode) continue;
+    if (season !== undefined && explicitSeason !== undefined && explicitSeason !== season) continue;
+
+    let score = 100;
+    if (/allepcont|episode/i.test(tag)) score += 80;
+    if (season !== undefined && explicitSeason === season) score += 80;
+    if (/(?:الحلقة|episode)/i.test(href + ' ' + text)) score += 40;
+
+    candidates.push({ url, season: explicitSeason, episode: bareEpisode, score });
+    seen.add(url);
+  }
+
+  return candidates.sort((a, b) => b.score - a.score)[0]?.url || null;
+}
+
 async function resolveCimaClubSources(
   targetUrl: string,
   provider: SiteConfig,
@@ -1440,6 +1484,15 @@ async function resolveProvider(
 
       if (context.episodeNumber !== undefined) {
         const hitIdentity = parseSeasonEpisode([hit.url, hit.title].join(' '));
+
+        // Never resolve an explicitly different episode page as the requested one.
+        if (
+          hitIdentity.episode !== undefined &&
+          hitIdentity.episode !== context.episodeNumber
+        ) {
+          continue;
+        }
+
         const explicitEpisode =
           hitIdentity.episode === context.episodeNumber &&
           (
@@ -1451,6 +1504,18 @@ async function resolveProvider(
         if (!explicitEpisode) {
           if (provider.key === 'aflaam') {
             targetUrl = resolveAflamEpisodeUrl(
+              detail,
+              hit.url,
+              context.seasonNumber,
+              context.episodeNumber,
+            ) || findEpisodeUrl(
+              detail,
+              hit.url,
+              context.seasonNumber,
+              context.episodeNumber,
+            ) || '';
+          } else if (provider.key === 'cimaclub') {
+            targetUrl = resolveCimaClubEpisodeUrl(
               detail,
               hit.url,
               context.seasonNumber,
