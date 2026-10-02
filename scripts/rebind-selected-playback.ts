@@ -2,7 +2,11 @@ import 'dotenv/config';
 
 import { adminSupabase } from '../server/supabase';
 import { resolvePlaybackSources } from '../server/providers/resolver';
-import { resolveRe3ArabiPlayback } from '../server/providers/re3arabi';
+import {
+  resolveRe3ArabiPlayback,
+  resolveRe3ArabiPlaybackWithContext,
+  resolveRe3ArabiSeriesContext,
+} from '../server/providers/re3arabi';
 
 const ALLOWED_PROVIDER_KEYS = new Set(['aflaam', 'cimaclub', 'anime3rb', 'anime4up']);
 const ALLOWED_TYPES = new Set(['hls', 'mp4', 'dash', 'webm', 'direct', 'embed']);
@@ -195,6 +199,23 @@ async function rebindEpisodes() {
 
   const seriesById = new Map((seriesRows || []).map((row: any) => [String(row.id), row]));
 
+  // Resolve each series' TMDB metadata once per run. Episode playback then
+  // reuses the resolved title/language/anime context instead of making two
+  // TMDB requests for every single episode.
+  const seriesContextById = new Map<string, Awaited<ReturnType<typeof resolveRe3ArabiSeriesContext>>>();
+  await mapWithConcurrency(seriesRows || [], 8, async (series: any) => {
+    try {
+      const context = await resolveRe3ArabiSeriesContext(Number(series.tmdb_id));
+      seriesContextById.set(String(series.id), context);
+    } catch (error) {
+      console.warn('RE3ARABI_SERIES_CONTEXT_FAIL', JSON.stringify({
+        tmdbId: series.tmdb_id,
+        title: series.title_en,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  });
+
   const { data: seasonRows, error: seasonError } = await adminSupabase
     .from('seasons')
     .select('id,series_id,season_number');
@@ -331,12 +352,15 @@ async function rebindEpisodes() {
     if (!season || !series) return;
 
     try {
-      const sources = await resolveRe3ArabiPlayback({
-        type: 'series',
-        tmdbId: Number(series.tmdb_id),
-        season: Number(season.season_number),
-        episode: Number(episode.episode_number),
-      });
+      const seriesContext =
+        seriesContextById.get(String(series.id)) ||
+        await resolveRe3ArabiSeriesContext(Number(series.tmdb_id));
+
+      const sources = await resolveRe3ArabiPlaybackWithContext(
+        seriesContext,
+        Number(season.season_number),
+        Number(episode.episode_number),
+      );
       const persistedCount = await persistExactEpisodeSources(String(episode.id), sources);
       const groups = validateSources(sources);
 
