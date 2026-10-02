@@ -195,6 +195,29 @@ function cachedRe3ArabiSourceDto(source: any) {
   };
 }
 
+function playbackQualityScore(value: unknown) {
+  const q = String(value || '').toLowerCase();
+  if (/2160|4k|ultra/.test(q)) return 4000;
+  if (/1440/.test(q)) return 3000;
+  if (/1080|fhd/.test(q)) return 2000;
+  if (/720|hd/.test(q)) return 1500;
+  if (/576/.test(q)) return 1200;
+  if (/480|sd/.test(q)) return 1000;
+  if (/360/.test(q)) return 800;
+  return 500;
+}
+
+function playbackTypeScore(value: unknown) {
+  switch (String(value || '').toLowerCase()) {
+    case 'hls': return 50;
+    case 'dash': return 45;
+    case 'mp4': return 40;
+    case 'webm': return 35;
+    case 'direct': return 25;
+    default: return 0;
+  }
+}
+
 async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode', contentId: string) {
   const { data, error } = await adminSupabase
     .from('playback_sources')
@@ -233,6 +256,11 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
       if (type === 'dash') return /\.mpd(?:$|[?#])/i.test(url);
       if (type === 'direct') return /\.(?:mov|mkv|avi|mpeg|mpg|ogg|ogv|ts|m2ts|flv|3gp|3g2)(?:$|[?#])/i.test(url);
       return false;
+    })
+    .sort((a: any, b: any) => {
+      const qualityDiff = playbackQualityScore(b.quality) - playbackQualityScore(a.quality);
+      if (qualityDiff) return qualityDiff;
+      return playbackTypeScore(b.source_type) - playbackTypeScore(a.source_type);
     })
     .map(cachedRe3ArabiSourceDto);
 }
@@ -277,7 +305,13 @@ async function probeCachedPlaybackSources<T extends { url: string; type: string 
 
   return results
     .filter((item) => item.ok)
-    .sort((a, b) => a.latencyMs - b.latencyMs)
+    .sort((a, b) => {
+      const qualityDiff = playbackQualityScore(b.source.quality) - playbackQualityScore(a.source.quality);
+      if (qualityDiff) return qualityDiff;
+      const typeDiff = playbackTypeScore(b.source.type) - playbackTypeScore(a.source.type);
+      if (typeDiff) return typeDiff;
+      return a.latencyMs - b.latencyMs;
+    })
     .map((item) => item.source);
 }
 
