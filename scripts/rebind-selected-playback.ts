@@ -6,6 +6,7 @@ import {
   resolveRe3ArabiProvider,
   resolveRe3ArabiProviderWithContext,
   resolveRe3ArabiSeriesContext,
+  resolveRe3ArabiMovieContext,
 } from '../server/providers/re3arabi';
 
 const ALLOWED_PROVIDER_KEYS = new Set(['aflaam', 'anime3rb', 'anime4up']);
@@ -188,7 +189,7 @@ async function rebindMovies() {
 
       if (!providerKeysForMovie.length) {
         summary.processed++;
-        continue;
+        return;
       }
       const sources = providerResults.flat().filter((source: any) =>
         providerKeysForMovie.includes(String(source?.providerKey || source?.providerReference || '').toLowerCase()),
@@ -494,7 +495,7 @@ async function rebindEpisodes() {
 
       if (!providerKeysForEpisode.length) {
         summary.processed++;
-        continue;
+        return;
       }
       const sources = providerResults.flat();
       const persistedCount = await persistExactEpisodeSources(String(episode.id), sources);
