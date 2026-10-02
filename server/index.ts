@@ -756,26 +756,39 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       tmdbId: Number(data.tmdb_id),
     });
   } else {
-    const { data: episode, error } = await adminSupabase
+    const { data: episode, error: episodeError } = await adminSupabase
       .from('episodes')
-      .select('id,episode_number,seasons!inner(season_number,series_id,series:series_id!inner(tmdb_id,status))')
+      .select('id,episode_number,season_id')
       .eq('id', body.data.contentId)
       .maybeSingle();
 
-    const series = episode?.seasons?.series;
-    const season = episode?.seasons;
+    if (episodeError || !episode || !episode.season_id || !episode.episode_number) {
+      return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
+    }
+
+    const { data: season, error: seasonError } = await adminSupabase
+      .from('seasons')
+      .select('season_number,series_id')
+      .eq('id', episode.season_id)
+      .maybeSingle();
+
+    if (seasonError || !season || !season.series_id || !season.season_number) {
+      return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
+    }
+
+    const { data: series, error: seriesError } = await adminSupabase
+      .from('series')
+      .select('tmdb_id,status')
+      .eq('id', season.series_id)
+      .maybeSingle();
 
     if (
-      error ||
-      !episode ||
-      !season ||
+      seriesError ||
       !series ||
       series.status !== 'published' ||
-      !series.tmdb_id ||
-      !season.season_number ||
-      !episode.episode_number
+      !series.tmdb_id
     ) {
-      return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
+      return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
     }
 
     sources = await resolveRe3ArabiPlayback({
