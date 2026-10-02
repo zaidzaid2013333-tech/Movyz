@@ -1,6 +1,6 @@
 name: Movyz Cloudflare Deploy
 # Browser Run verification trigger: 2026-10-01
-# Selected playback sites: Aflam + Anime3rb/Anime4Up
+# Selected playback sites: Aflam + CimaClub; Anime4Up for anime
 # CI trigger: production deploys run from a real main-branch push.
 # Emergency playback verification: selected providers must return native playable media.
 
