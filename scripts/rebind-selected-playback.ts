@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { adminSupabase } from '../server/supabase';
 import {
   resolveRe3ArabiPlayback,
-  resolveRe3ArabiPlaybackWithContext,
+  resolveRe3ArabiProvider,
   resolveRe3ArabiProviderWithContext,
   resolveRe3ArabiSeriesContext,
 } from '../server/providers/re3arabi';
@@ -175,10 +175,10 @@ async function rebindMovies() {
       const providerResults = await Promise.all(
         providerKeysForMovie.map(async (providerKey) => {
           try {
-            return await resolveRe3ArabiPlayback({
+            return await resolveRe3ArabiProvider({
               type: 'movie',
               tmdbId: Number(movie.tmdb_id),
-            });
+            }, providerKey);
           } catch {
             return [];
           }
