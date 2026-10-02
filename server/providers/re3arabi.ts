@@ -112,6 +112,99 @@ function stripTags(value: string) {
   return decodeHtml(value.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
 
+function normalizeNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const normalized = String(value)
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .replace(/[^0-9]/g, ' ')
+    .trim();
+  const match = normalized.match(/\d+/);
+  return match ? Number(match[0]) : undefined;
+}
+
+function collectJsonLdObjects(value: unknown, output: Array<Record<string, unknown>>, depth = 0) {
+  if (depth > 5 || value === null || value === undefined) return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectJsonLdObjects(item, output, depth + 1);
+    return;
+  }
+  if (typeof value !== 'object') return;
+  const object = value as Record<string, unknown>;
+  output.push(object);
+  for (const nested of Object.values(object)) {
+    if (nested && typeof nested === 'object') {
+      collectJsonLdObjects(nested, output, depth + 1);
+    }
+  }
+}
+
+function parseJsonLdObjects(html: string): Array<Record<string, unknown>> {
+  const output: Array<Record<string, unknown>> = [];
+  const scriptRe = /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = scriptRe.exec(html))) {
+    const raw = decodeHtml(match[1]).trim();
+    if (!raw) continue;
+    try {
+      collectJsonLdObjects(JSON.parse(raw) as unknown, output);
+    } catch {}
+  }
+
+  return output;
+}
+
+type JsonLdEpisode = {
+  url: string;
+  number?: number;
+  position?: number;
+  text: string;
+};
+
+function extractJsonLdEpisodes(html: string, pageUrl: string): JsonLdEpisode[] {
+  const episodes: JsonLdEpisode[] = [];
+  const seen = new Set<string>();
+
+  const add = (value: unknown, fallbackPosition?: number) => {
+    if (!value || typeof value !== 'object') return;
+    const item = value as Record<string, unknown>;
+    const rawUrl =
+      typeof item.url === 'string' ? item.url :
+      typeof item.contentUrl === 'string' ? item.contentUrl :
+      typeof item.embedUrl === 'string' ? item.embedUrl : '';
+    const url = absolute(pageUrl, rawUrl);
+    if (!url || seen.has(url)) return;
+
+    const name = [
+      typeof item.name === 'string' ? item.name : '',
+      typeof item.alternateName === 'string' ? item.alternateName : '',
+    ].filter(Boolean).join(' ');
+    const number =
+      normalizeNumber(item.episodeNumber) ??
+      normalizeNumber(name.match(/(?:episode|ep|الحلقة|حلقه)[^0-9٠-٩]*(\d+)/i)?.[1]);
+    const position = normalizeNumber(item.position) ?? fallbackPosition;
+
+    seen.add(url);
+    episodes.push({ url, number, position, text: name });
+  };
+
+  for (const node of parseJsonLdObjects(html)) {
+    const type = node['@type'];
+    const types = Array.isArray(type) ? type.map(String) : [typeof type === 'string' ? type : ''];
+
+    if (types.some((value) => /episode/i.test(value))) add(node);
+
+    const rawEpisodes = node.episode;
+    if (Array.isArray(rawEpisodes)) {
+      rawEpisodes.forEach((episode, index) => add(episode, index + 1));
+    } else if (rawEpisodes && typeof rawEpisodes === 'object') {
+      add(rawEpisodes, 1);
+    }
+  }
+
+  return episodes.sort((a, b) => (a.number ?? a.position ?? Number.MAX_SAFE_INTEGER) - (b.number ?? b.position ?? Number.MAX_SAFE_INTEGER));
+}
+
 function extractYear(value: string) {
   const match = value.match(/\b(19\d{2}|20\d{2}|21\d{2})\b/);
   return match ? Number(match[1]) : undefined;
@@ -428,6 +521,13 @@ function extractEpisodeCandidates(html: string, baseUrl: string) {
 function findEpisodeUrl(html: string, pageUrl: string, season?: number, episode?: number) {
   if (episode === undefined) return null;
 
+  const jsonEpisodes = extractJsonLdEpisodes(html, pageUrl);
+  const byNumber = jsonEpisodes.find((item) => item.number === episode);
+  if (byNumber) return byNumber.url;
+
+  const byPosition = jsonEpisodes.find((item) => item.position === episode);
+  if (byPosition) return byPosition.url;
+
   const items = extractEpisodeCandidates(html, pageUrl);
   const exact = items.find((item) => item.number === episode);
   if (exact) return exact.url;
@@ -442,6 +542,106 @@ function findEpisodeUrl(html: string, pageUrl: string, season?: number, episode?
   );
   return byText?.url || null;
 }
+
+async function resolveAnime3rbSources(
+  html: string,
+  pageUrl: string,
+  provider: SiteConfig,
+  timeoutMs: number,
+): Promise<Candidate[]> {
+  const candidates: Candidate[] = [];
+  const seen = new Set<string>();
+
+  const add = (rawUrl: string, hint = '') => {
+    const url = absolute(pageUrl, rawUrl);
+    if (!url || seen.has(url)) return;
+    const classified = classifyUrl(url, hint, true);
+    if (!classified) return;
+    seen.add(url);
+    candidates.push({
+      provider: provider.name,
+      providerKey: provider.key,
+      type: classified.type,
+      url,
+      providerReference: provider.key,
+      quality: classified.quality,
+      language: 'ar',
+      label: `${provider.name} ${classified.quality === 'auto' ? 'Auto' : classified.quality}`,
+      expiresAt: undefined,
+      sourceUrl: pageUrl,
+    });
+  };
+
+  for (const source of parseQualitySources(html, pageUrl, provider)) {
+    if (!seen.has(source.url)) {
+      seen.add(source.url);
+      candidates.push(source);
+    }
+  }
+
+  const downloadRe = /<a\b[^>]*href=["']([^"']*\/download\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  const downloads: Array<{ url: string; hint: string }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = downloadRe.exec(html))) {
+    const url = absolute(pageUrl, match[1]);
+    if (!url || downloads.some((item) => item.url === url)) continue;
+    const contextWindow = stripTags(
+      html.slice(Math.max(0, match.index - 350), Math.min(html.length, match.index + 700)),
+    );
+    downloads.push({ url, hint: contextWindow });
+  }
+
+  for (const item of downloads.slice(0, 10)) {
+    try {
+      const head = await fetchWithTimeout(item.url, {
+        method: 'HEAD',
+        redirect: 'follow',
+        timeoutMs,
+        headers: {
+          Accept: '*/*',
+          'User-Agent': 'Mozilla/5.0 (compatible; Movyz/1.0; +https://movyza.app)',
+          Referer: pageUrl,
+        },
+      });
+      const contentType = (head.headers.get('content-type') || '').toLowerCase();
+      const finalUrl = head.url || item.url;
+
+      if (contentType.startsWith('video/')) {
+        add(finalUrl, item.hint);
+        continue;
+      }
+
+      if (/html|text/i.test(contentType)) {
+        const body = await head.text();
+        const nested = body.match(/<a\b[^>]*href=["']([^"']*\/download\/[^"']+)["'][^>]*>/i)?.[1];
+        if (nested) {
+          const nestedUrl = absolute(finalUrl, nested);
+          if (nestedUrl && nestedUrl !== item.url) add(nestedUrl, item.hint);
+        }
+      }
+    } catch {}
+  }
+
+  for (const node of parseJsonLdObjects(html)) {
+    for (const key of ['contentUrl', 'url', 'embedUrl']) {
+      const raw = node[key];
+      if (typeof raw === 'string') add(raw, typeof node.name === 'string' ? node.name : '');
+    }
+    const video = node.video;
+    if (video && typeof video === 'object') {
+      const object = video as Record<string, unknown>;
+      for (const key of ['contentUrl', 'url', 'embedUrl']) {
+        const raw = object[key];
+        if (typeof raw === 'string') add(raw, typeof object.name === 'string' ? object.name : '');
+      }
+    }
+  }
+
+  return candidates.sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality));
+}
+
+
 
 async function resolveProvider(
   provider: SiteConfig,
@@ -532,6 +732,11 @@ async function resolveProvider(
           const sourcePageHtml = targetUrl === hit.url ? detail : await getText(targetUrl, timeoutMs, hit.url);
           sources = parseQualitySources(sourcePageHtml, targetUrl, provider);
         }
+      } else if (provider.key === 'anime3rb') {
+        const watchHtml = targetUrl === hit.url
+          ? detail
+          : await getText(targetUrl, timeoutMs, hit.url);
+        sources = await resolveAnime3rbSources(watchHtml, targetUrl, provider, timeoutMs);
       } else {
         const watchHtml = targetUrl === hit.url
           ? detail
