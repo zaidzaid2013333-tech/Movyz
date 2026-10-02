@@ -7,6 +7,7 @@ import {
 } from '../server/playback-source-persistence';
 import {
   resolveRe3ArabiPlayback,
+  resolveRe3ArabiPlaybackWithContext,
   resolveRe3ArabiProvider,
   resolveRe3ArabiProviderWithContext,
   resolveRe3ArabiSeriesContext,
@@ -316,8 +317,13 @@ async function main() {
     if (error) throw new Error('claim jobs failed: ' + error.message);
     if (!jobs?.length) break;
 
-    const movieIds = jobs.filter((job: Job) => job.content_type === 'movie').map((job: Job) => job.content_id);
-    const episodeIds = jobs.filter((job: Job) => job.content_type === 'episode').map((job: Job) => job.content_id);
+    const claimedJobs = (jobs || []) as Job[];
+    const movieIds: string[] = claimedJobs
+      .filter((job) => job.content_type === 'movie')
+      .map((job) => String(job.content_id));
+    const episodeIds: string[] = claimedJobs
+      .filter((job) => job.content_type === 'episode')
+      .map((job) => String(job.content_id));
 
     const [movies, episodes] = await Promise.all([
       loadMovies([...new Set(movieIds)]),
@@ -325,12 +331,12 @@ async function main() {
     ]);
 
     await mapWithConcurrency(
-      jobs as Job[],
+      claimedJobs,
       CONCURRENCY,
       (job) => processJob(job, movies, episodes, seriesContextCache),
     );
 
-    processed += jobs.length;
+    processed += claimedJobs.length;
   }
 
   console.log('EVERGREEN_SOURCE_WORKER_SUMMARY', JSON.stringify({
