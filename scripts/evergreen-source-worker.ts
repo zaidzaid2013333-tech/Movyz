@@ -6,6 +6,7 @@ import {
   persistEvergreenMovieSources,
 } from '../server/playback-source-persistence';
 import {
+  resolveRe3ArabiPlayback,
   resolveRe3ArabiProvider,
   resolveRe3ArabiProviderWithContext,
   resolveRe3ArabiSeriesContext,
@@ -160,7 +161,7 @@ async function processJob(
 
       let sources: any[] = [];
       if (job.provider_lane === 'primary') {
-        sources = await importSourcesForMovie(Number(movie.tmdb_id));
+        sources = await resolveRe3ArabiPlayback({ type: 'movie', tmdbId: Number(movie.tmdb_id) });
       } else {
         sources = await resolveRe3ArabiProvider(
           { type: 'movie', tmdbId: Number(movie.tmdb_id) },
