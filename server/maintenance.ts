@@ -222,7 +222,7 @@ async function persistTopSources(
 async function loadEpisodeContext(episodeId: string) {
   const { data: episode, error: episodeError } = await adminSupabase
     .from('episodes')
-    .select('id,season_id,episode_number')
+    .select('id,season_id,episode_number,name_ar,name_en')
     .eq('id', episodeId)
     .maybeSingle();
   if (episodeError || !episode) throw new Error('episode not found');
@@ -247,6 +247,7 @@ async function loadEpisodeContext(episodeId: string) {
     tmdbId: Number(series.tmdb_id),
     season: Number(season.season_number),
     episode: Number(episode.episode_number),
+    episodeTitle: [episode.name_en, episode.name_ar].filter(Boolean).find((value) => String(value).trim()) as string | undefined,
     isAnime: !!context.__isAnime,
     context,
   };
@@ -297,6 +298,7 @@ async function resolveJob(
         alternateTitles: info.context.alternateTitles,
         seasonNumber: info.season,
         episodeNumber: info.episode,
+        episodeTitle: info.episodeTitle,
       }, { browserBinding });
 
   const sourceCount = await persistTopSources(
