@@ -2,7 +2,7 @@ name: Movyz Source Maintenance
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '7 * * * *'
   workflow_dispatch:
   push:
     branches:
