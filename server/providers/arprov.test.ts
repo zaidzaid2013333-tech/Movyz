@@ -89,3 +89,43 @@ test('ArProv resolves an Akwam series episode page before extracting media', asy
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test('ArProv follows the current Akwam quality/link/download flow', async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+
+    if (url.startsWith('https://ak.sv/search') || url.startsWith('https://ak.sv/?s=')) {
+      return mockResponse('<div class="entry-box"><a class="box" href="https://ak.sv/movies/inception">Inception</a></div>');
+    }
+
+    if (url === 'https://ak.sv/movies/inception') {
+      return mockResponse('<div class="tab-content quality" id="quality-5"><a href="https://ak.sv/link/abc">تحميل 1080p</a></div>');
+    }
+
+    if (url === 'https://ak.sv/download/abc/inception') {
+      return mockResponse('<div class="btn-loader"><a href="https://cdn.example.test/inception/1080.mp4">تحميل</a></div>');
+    }
+
+    return mockResponse('', 404);
+  }) as typeof fetch;
+
+  try {
+    const sources = await resolveArProvPlayback({
+      tmdbId: 27205,
+      title: 'Inception',
+      originalTitle: 'Inception',
+    });
+
+    assert.equal(sources.some(source =>
+      source.provider === 'Akwam' &&
+      source.type === 'mp4' &&
+      source.quality === '1080p' &&
+      source.url === 'https://cdn.example.test/inception/1080.mp4'
+    ), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
