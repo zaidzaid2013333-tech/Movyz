@@ -191,7 +191,7 @@ function rankHits(hits: SearchHit[], titles: string[], year?: number) {
     .slice(0, 6);
 }
 
-function classifyUrl(rawUrl: string, hint = ''): { type: NormalizedPlaybackSource['type']; quality: string } | null {
+function classifyUrl(rawUrl: string, hint = '', allowGenericDirect = false): { type: NormalizedPlaybackSource['type']; quality: string } | null {
   const value = rawUrl.toLowerCase();
   const qualityMatch =
     hint.match(/(?:^|[^0-9])(2160|1440|1080|720|576|480|360|240)(?:p)?(?:\b|[^0-9]|$)/i) ||
@@ -202,6 +202,7 @@ function classifyUrl(rawUrl: string, hint = ''): { type: NormalizedPlaybackSourc
   if (/\.(?:mp4|m4v)(?:[?#]|$)/i.test(value)) return { type: 'mp4', quality };
   if (/\.(?:webm)(?:[?#]|$)/i.test(value)) return { type: 'webm', quality };
   if (/\.mpd(?:[?#]|$)/i.test(value)) return { type: 'dash', quality };
+  if (/\.(?:m4v|mov|mkv|avi|mpeg|mpg|ogg|ogv|ts|m2ts|flv|3gp|3g2)(?:[?#]|$)/i.test(value)) return { type: 'direct', quality };
 
   // Cloudstream's four selected sites frequently expose their playable servers
   // as external watch/embed URLs. Keep those URLs external rather than proxying
@@ -210,7 +211,7 @@ function classifyUrl(rawUrl: string, hint = ''): { type: NormalizedPlaybackSourc
     return { type: 'embed', quality };
   }
 
-  return null;
+  return allowGenericDirect ? { type: 'direct', quality } : null;
 }
 
 function parseQualitySources(html: string, pageUrl: string, provider: SiteConfig): Candidate[] {
