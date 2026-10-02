@@ -1264,14 +1264,14 @@ async function resolveCimaClubSources(
   const links: Array<{ url: string; quality?: string; referer?: string }> = [];
   const seen = new Set<string>();
 
-  for (const match of html.matchAll(/<li\\b[^>]*\\bdata-watch=["']([^"']+)["'][^>]*>/gi)) {
+  for (const match of html.matchAll(/<li\b[^>]*\bdata-watch=["']([^"']+)["'][^>]*>/gi)) {
     const url = absolute(targetUrl, match[1]);
     if (!url || seen.has(url)) continue;
     seen.add(url);
     links.push({ url, quality: qualityFromText(match[0], url) || 'source', referer: targetUrl });
   }
 
-  for (const match of html.matchAll(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>/gi)) {
+  for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi)) {
     const tag = match[0];
     if (!/ServersList[^>]*Download|Download[^>]*ServersList/i.test(tag)) continue;
     const url = absolute(targetUrl, match[1]);
