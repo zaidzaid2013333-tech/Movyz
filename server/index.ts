@@ -130,7 +130,7 @@ async function persistRemoteRe3ArabiSources(
     const allowed = sources.filter((source) =>
       /^https:\/\//i.test(source.url) &&
       ['hls', 'mp4', 'dash', 'webm', 'direct'].includes(source.type) &&
-      ['aflaam', 'cimaclub', 'anime3rb', 'anime4up'].includes(String(source.providerReference || '').toLowerCase()),
+      ['aflaam', 'anime3rb', 'anime4up'].includes(String(source.providerReference || '').toLowerCase()),
     );
 
     // Replace the selected-site cache for this exact content item. This prevents
