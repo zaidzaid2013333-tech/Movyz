@@ -48,12 +48,12 @@ const PROVIDERS: readonly SiteConfig[] = [
   {
     key: 'cimaclub',
     name: 'CimaClub',
-    base: 'https://w.cimacub.com',
+    base: 'https://cimacub.com',
     kind: 'general',
     searchUrls: (q) => [
-      `https://w.cimacub.com/?s=${q}`,
-      `https://w.cimacub.com/search?q=${q}`,
       `https://cimacub.com/?s=${q}`,
+      `https://cimacub.com/search?q=${q}`,
+      `https://www.cimacub.com/?s=${q}`,
     ],
   },
   {
@@ -855,8 +855,6 @@ async function resolveAnime3rbSources(
   const direct = parseDirectMediaSources(html, pageUrl, provider);
   const output = [...direct];
 
-  const pageQualityText = stripTags(html.slice(0, 16000));
-
   for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']*\/download\/[^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
     const tag = match[0];
     const url = absolute(pageUrl, match[1]);
@@ -866,7 +864,6 @@ async function resolveAnime3rbSources(
       qualityFromText(
         /\b(?:quality|resolution|data-quality|data-resolution)=["']([^"']+)["']/i.exec(tag)?.[1],
         stripTags(tag),
-        pageQualityText,
         match[1],
       ) || 'source';
 
@@ -916,6 +913,57 @@ async function resolveAnime3rbSources(
   );
 
   return unique.sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality));
+}
+
+async function resolveAnime4upSources(
+  html: string,
+  pageUrl: string,
+  provider: SiteConfig,
+): Promise<Candidate[]> {
+  const candidates: Candidate[] = [];
+  const seen = new Set<string>();
+
+  const add = (rawUrl: string, hint = '') => {
+    const url = absolute(pageUrl, rawUrl);
+    if (!url || seen.has(url) || !/^https:\/\//i.test(url)) return;
+
+    const quality = qualityFromText(hint, rawUrl);
+    if (!quality) return;
+
+    const type = classifyUrl(url, hint, true)?.type;
+    if (!type || type === 'embed' || !PLAYABLE_TYPES.has(type)) return;
+
+    seen.add(url);
+    candidates.push({
+      provider: provider.name,
+      providerKey: provider.key,
+      type,
+      url,
+      providerReference: provider.key,
+      quality,
+      language: 'ar',
+      label: labelForQuality(provider, quality),
+      expiresAt: undefined,
+      sourceUrl: pageUrl,
+    });
+  };
+
+  for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
+    const tag = match[0];
+    const href = match[1];
+    const text = stripTags(tag);
+    if (!/\b(?:تحميل|download)\b/i.test(text) && !/\/download(?:\/|\?|$)/i.test(href)) continue;
+    add(href, text);
+  }
+
+  for (const match of html.matchAll(/<(?:a|li|div|source|video)\b[^>]*(?:href|src|data-url|data-src)=["']([^"']+)["'][^>]*>/gi)) {
+    const tag = match[0];
+    const hint = stripTags(tag);
+    if (!/1080|720|480|fhd|hd|sd/i.test(hint)) continue;
+    add(match[1], hint);
+  }
+
+  return candidates.sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality));
 }
 
 async function resolveCanonicalAnime3rbEpisode(
@@ -1065,6 +1113,11 @@ async function resolveProvider(
           ? detail
           : await getText(targetUrl, timeoutMs, hit.url);
         sources = await resolveAnime3rbSources(watchHtml, targetUrl, provider, timeoutMs);
+      } else if (provider.key === 'anime4up') {
+        const watchHtml = targetUrl === hit.url
+          ? detail
+          : await getText(targetUrl, timeoutMs, hit.url);
+        sources = await resolveAnime4upSources(watchHtml, targetUrl, provider);
       } else {
         const watchHtml = targetUrl === hit.url
           ? detail
