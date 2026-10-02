@@ -994,8 +994,8 @@ async function resolveAflamQualitySources(
     // /watch/... links. Older builds used the link-show class.
     if (
       !/\blink-show\b/i.test(classValue) &&
-      !/\/watch\//i.test(href) &&
-      !/مشاهدة/i.test(bodyText)
+      !/\/(?:watch|download)\//i.test(href) &&
+      !/(?:مشاهدة|تحميل)/i.test(bodyText)
     ) continue;
 
     const url = absolute(pageUrl, href);
@@ -1459,7 +1459,7 @@ async function resolveCanonicalCimaClubMovie(
   }
 
   const results = await Promise.allSettled(
-    [...new Set(attempts)].slice(0, 8).map(async (url) => {
+    [...new Set(attempts)].slice(0, 4).map(async (url) => {
       const sources = await resolveCimaClubSources(
         url,
         provider,
@@ -1611,6 +1611,32 @@ async function resolveProvider(
   }
 
   const searchResults: SearchHit[] = [];
+
+  if (provider.key === 'cimaclub') {
+    const fastRest = await Promise.allSettled(
+      searchTerms.slice(0, 2).map(async (term) => {
+        const q = encodeURIComponent(term);
+        const endpoints = [
+          `https://cimacub.com/wp-json/wp/v2/search?search=${q}&per_page=20`,
+          `https://w.cimacub.com/wp-json/wp/v2/search?search=${q}&per_page=20`,
+          `https://cimacub.com/wp-json/wp/v2/posts?search=${q}&per_page=20`,
+        ];
+        const hits: SearchHit[] = [];
+        for (const endpoint of endpoints) {
+          try {
+            const payload = await getText(endpoint, Math.min(timeoutMs, 4_000), provider.base);
+            hits.push(...parseJsonSearchHits(payload, provider.base));
+          } catch {}
+          if (hits.length) break;
+        }
+        return hits;
+      }),
+    );
+
+    for (const result of fastRest) {
+      if (result.status === 'fulfilled') searchResults.push(...result.value);
+    }
+  }
 
   // Anime3rb has stable canonical title pages; prefer them before generic search.
   if (provider.key === 'anime3rb') {
