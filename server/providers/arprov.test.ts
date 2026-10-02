@@ -2,37 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveArProvPlayback } from './arprov';
 
-test('ArProv resolves an Akwam download page into a direct video source', async () => {
+function mockResponse(body: string, status = 200) {
+  return new Response(body, {
+    status,
+    headers: { 'content-type': 'text/html' },
+  });
+}
+
+test('ArProv resolves an Akwam movie download into a direct MP4 source', async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input);
 
     if (url.startsWith('https://ak.sv/search') || url.startsWith('https://ak.sv/?s=')) {
-      return new Response('<a href="https://ak.sv/movie/demo">Demo</a>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
+      return mockResponse('<a href="https://ak.sv/movie/demo">Demo</a>');
     }
 
     if (url === 'https://ak.sv/movie/demo') {
-      return new Response('<a href="https://ak.sv/download/quality1080">تحميل 1080p</a>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
+      return mockResponse('<a href="https://ak.sv/download/quality1080">تحميل 1080p</a>');
     }
 
     if (url === 'https://ak.sv/download/quality1080') {
-      return new Response('<div class="btn-loader"><a href="https://cdn.example.test/demo/1080.mp4">تحميل</a></div>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
+      return mockResponse('<div class="btn-loader"><a href="https://cdn.example.test/demo/1080.mp4">تحميل</a></div>');
     }
 
-    return new Response('', {
-      status: 200,
-      headers: { 'content-type': 'text/html' },
-    });
+    return mockResponse('', 404);
   }) as typeof fetch;
 
   try {
@@ -51,88 +46,29 @@ test('ArProv resolves an Akwam download page into a direct video source', async 
   }
 });
 
-
-test('ArProv follows iframe sources from provider pages', async () => {
+test('ArProv resolves an Akwam series episode page before extracting media', async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input);
 
-    if (url.includes('ak.sv')) {
-      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
+    if (url.startsWith('https://ak.sv/search') || url.startsWith('https://ak.sv/?s=')) {
+      return mockResponse('<a href="https://ak.sv/series/breaking-bad">Breaking Bad</a>');
     }
 
-    if (url.startsWith('https://cfu.cam/?s=DemoIframe') || url.startsWith('https://cfu.cam/search/?s=DemoIframe')) {
-      return new Response('<a href="https://cfu.cam/watch/demo-iframe">DemoIframe</a>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
+    if (url === 'https://ak.sv/series/breaking-bad') {
+      return mockResponse('<a href="https://ak.sv/episode/breaking-bad-s01e01">الحلقة 1</a>');
     }
 
-    if (url === 'https://cfu.cam/watch/demo-iframe') {
-      return new Response('<div class="player"><iframe data-src="https://cdn.example.test/demo/720.mp4"></iframe></div>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
+    if (url === 'https://ak.sv/episode/breaking-bad-s01e01') {
+      return mockResponse('<a href="https://ak.sv/download/bb-s01e01">تحميل الحلقة</a>');
     }
 
-    if (url.includes('ciimaclub.us')) {
-      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
+    if (url === 'https://ak.sv/download/bb-s01e01') {
+      return mockResponse('<div class="btn-loader"><a href="https://cdn.example.test/bb/s01e01/720.mp4">تحميل</a></div>');
     }
 
-    return new Response('', { status: 404, headers: { 'content-type': 'text/html' } });
-  }) as typeof fetch;
-
-  try {
-    const sources = await resolveArProvPlayback({
-      tmdbId: 2,
-      title: 'DemoIframe',
-      originalTitle: 'DemoIframe',
-    });
-
-    assert.equal(sources.some(source =>
-      source.provider === 'Cima4U' &&
-      source.type === 'mp4' &&
-      source.url === 'https://cdn.example.test/demo/720.mp4'
-    ), true);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-
-test('ArProv follows a series page to the requested episode before extracting media', async () => {
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    const url = String(input);
-
-    if (url.startsWith('https://cfu.cam/?s=Breaking%20Bad') || url.startsWith('https://cfu.cam/search/?s=Breaking%20Bad')) {
-      return new Response('<a href="https://cfu.cam/series/breaking-bad">Breaking Bad</a>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    }
-
-    if (url === 'https://cfu.cam/series/breaking-bad') {
-      return new Response('<a href="https://cfu.cam/episode/breaking-bad-s01e01">الحلقة 1</a>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    }
-
-    if (url === 'https://cfu.cam/episode/breaking-bad-s01e01') {
-      return new Response('<iframe src="https://cdn.example.test/bb/s01e01/720.mp4"></iframe>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    }
-
-    if (url.includes('ak.sv') || url.includes('ciimaclub.us')) {
-      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
-    }
-
-    return new Response('', { status: 404, headers: { 'content-type': 'text/html' } });
+    return mockResponse('', 404);
   }) as typeof fetch;
 
   try {
@@ -145,142 +81,9 @@ test('ArProv follows a series page to the requested episode before extracting me
     });
 
     assert.equal(sources.some(source =>
-      source.provider === 'Cima4U' &&
+      source.provider === 'Akwam' &&
       source.type === 'mp4' &&
       source.url === 'https://cdn.example.test/bb/s01e01/720.mp4'
-    ), true);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-
-test('ArProv uses alternate Arabic titles when English search does not match', async () => {
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    const url = String(input);
-
-    if (url.includes('cfu.cam')) {
-      const parsed = new URL(url);
-
-      if (parsed.pathname === '/' && parsed.searchParams.get('s') === 'بريكنغ باد') {
-        return new Response('<a href="https://cfu.cam/series/breaking-bad-ar">بريكنغ باد</a>', {
-          status: 200,
-          headers: { 'content-type': 'text/html' },
-        });
-      }
-
-      if (url === 'https://cfu.cam/series/breaking-bad-ar') {
-        return new Response('<a href="https://cfu.cam/episode/breaking-bad-s01e01-ar">الحلقة 1</a>', {
-          status: 200,
-          headers: { 'content-type': 'text/html' },
-        });
-      }
-
-      if (url === 'https://cfu.cam/episode/breaking-bad-s01e01-ar') {
-        return new Response('<iframe src="https://cdn.example.test/bb/ar-s01e01/720.mp4"></iframe>', {
-          status: 200,
-          headers: { 'content-type': 'text/html' },
-        });
-      }
-    }
-
-    if (url.includes('ak.sv') || url.includes('ciimaclub.us')) {
-      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
-    }
-
-    return new Response('', { status: 404, headers: { 'content-type': 'text/html' } });
-  }) as typeof fetch;
-
-  try {
-    const sources = await resolveArProvPlayback({
-      tmdbId: 1396,
-      title: 'Breaking Bad',
-      originalTitle: 'Breaking Bad',
-      alternateTitles: ['بريكنغ باد'],
-      seasonNumber: 1,
-      episodeNumber: 1,
-    });
-
-    assert.equal(sources.some(source =>
-      source.provider === 'Cima4U' &&
-      source.type === 'mp4' &&
-      source.url === 'https://cdn.example.test/bb/ar-s01e01/720.mp4'
-    ), true);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-
-test('ArProv resolves an ArabSeed series episode through the watch servers', async () => {
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-
-    if (url.startsWith('https://arabseed.store/?s=')) {
-      return new Response('<a href="https://arabseed.store/series/breaking-bad">Breaking Bad</a>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    }
-
-    if (url === 'https://arabseed.store/series/breaking-bad') {
-      return new Response('<a href="https://arabseed.store/episode/breaking-bad-s01e01">الحلقة 1</a>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    }
-
-    if (url === 'https://arabseed.store/episode/breaking-bad-s01e01') {
-      return new Response('<a class="watch__btn" href="https://arabseed.store/watch/breaking-bad-s01e01"></a>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    }
-
-    if (url === 'https://arabseed.store/watch/breaking-bad-s01e01') {
-      return new Response('<div class="servers__list"><ul><li data-src="https://cdn.example.test/bb/720.mp4">720p</li></ul></div><script>const csrf__token = "token123"; const post_id = "9988";</script>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    }
-
-    if (url === 'https://arabseed.store/get__quality__servers/') {
-      return new Response('<ul><li data-src="https://cdn.example.test/bb/1080.mp4">1080p</li></ul>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    }
-
-    if (url.includes('ak.sv') || url.includes('cfu.cam') || url.includes('ciimaclub.us')) {
-      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
-    }
-
-    return new Response('', { status: 404, headers: { 'content-type': 'text/html' } });
-  }) as typeof fetch;
-
-  try {
-    const sources = await resolveArProvPlayback({
-      tmdbId: 1396,
-      title: 'Breaking Bad',
-      originalTitle: 'Breaking Bad',
-      seasonNumber: 1,
-      episodeNumber: 1,
-    });
-
-    assert.equal(sources.some(source =>
-      source.provider === 'ArabSeed' &&
-      source.type === 'mp4' &&
-      source.url === 'https://cdn.example.test/bb/720.mp4'
-    ), true);
-
-    assert.equal(sources.some(source =>
-      source.provider === 'ArabSeed' &&
-      source.type === 'mp4' &&
-      source.url === 'https://cdn.example.test/bb/1080.mp4'
     ), true);
   } finally {
     globalThis.fetch = originalFetch;

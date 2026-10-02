@@ -183,7 +183,7 @@ jobs:
               ("episode", "/watch/cfec368f-138e-405d-a98b-bb6734f5bbf5?type=episode", "Breaking Bad S01E01"),
           ]
 
-          allowed_providers = {"aflaam", "anime3rb", "anime4up"}
+          allowed_providers = {"akwam", "anime4up"}
           allowed_types = {"hls", "mp4", "dash", "webm", "direct"}
           warnings = 0
 

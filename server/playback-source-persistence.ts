@@ -5,7 +5,7 @@ type PersistableSource = NormalizedPlaybackSource & {
   providerKey?: string;
 };
 
-const SELECTED_PROVIDERS = new Set(['aflaam', 'anime3rb', 'anime4up']);
+const SELECTED_PROVIDERS = new Set(['akwam', 'anime4up']);
 const NATIVE_TYPES = new Set<PlaybackKind>(['hls', 'mp4', 'dash', 'webm', 'direct']);
 
 let providerIdPromise: Promise<string | null> | null = null;

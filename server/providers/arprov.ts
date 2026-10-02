@@ -22,32 +22,6 @@ const sites: Site[] = [
       'https://ak.sv/?s=' + encodeURIComponent(q),
     ],
   },
-  {
-    key: 'cima4u',
-    name: 'Cima4U',
-    base: 'https://cfu.cam',
-    searches: q => [
-      'https://cfu.cam/?s=' + encodeURIComponent(q),
-      'https://cfu.cam/search/?s=' + encodeURIComponent(q),
-    ],
-  },
-  {
-    key: 'cimaclub',
-    name: 'CimaClub',
-    base: 'https://ciimaclub.us',
-    searches: q => [
-      'https://ciimaclub.us/?s=' + encodeURIComponent(q),
-      'https://ciimaclub.us/search?s=' + encodeURIComponent(q),
-    ],
-  },
-  {
-    key: 'arabseed',
-    name: 'ArabSeed',
-    base: 'https://arabseed.store',
-    searches: q => [
-      'https://arabseed.store/?s=' + encodeURIComponent(q),
-    ],
-  },
 ];
 
 function https(raw: string, base?: string) {
@@ -221,26 +195,30 @@ async function search(site: Site, ctx: ProviderContext) {
     queries.push(title);
   }
 
+  const searchUrls = [...new Set(
+    queries.slice(0, ctx.episodeNumber !== undefined ? 4 : 3)
+      .flatMap(query => site.searches(query)),
+  )].slice(0, 6);
+
   const candidates: Array<{url: string; score: number}> = [];
   const seen = new Set<string>();
 
-  for (const query of queries.slice(0, 8)) {
-    for (const searchUrl of site.searches(query)) {
-      try {
-        const page = await html(searchUrl);
-        for (const link of anchors(page.body, page.url)) {
-          if (!link.url.includes(new URL(site.base).hostname) || seen.has(link.url)) continue;
-          const s = score(link.text, link.url, ctx);
-          if (s < 100) continue;
-          seen.add(link.url);
-          candidates.push({ url: link.url, score: s });
-        }
-      } catch {}
+  const pages = await Promise.allSettled(searchUrls.map(url => html(url)));
+  for (const result of pages) {
+    if (result.status !== 'fulfilled') continue;
+    const page = result.value;
+
+    for (const link of anchors(page.body, page.url)) {
+      if (!link.url.includes(new URL(site.base).hostname) || seen.has(link.url)) continue;
+      const s = score(link.text, link.url, ctx);
+      if (s < 100) continue;
+      seen.add(link.url);
+      candidates.push({ url: link.url, score: s });
     }
   }
 
   candidates.sort((a, b) => b.score - a.score);
-  return candidates.slice(0, 6);
+  return candidates.slice(0, 4);
 }
 
 async function resolveAkwam(pageUrl: string, body: string, site: Site) {
@@ -440,56 +418,41 @@ function episodeLinks(body: string, base: string, ctx: ProviderContext) {
 
 async function resolveSite(site: Site, ctx: ProviderContext) {
   const pages = await search(site, ctx);
-  for (const p of pages) {
-    try {
-      const page = await html(p.url);
+  if (!pages.length) return [];
 
-      if (site.key === 'arabseed') {
-        const sources = await resolveArabSeed(site, ctx);
-        if (sources.length) return sources;
-        continue;
-      }
+  const resolveCandidate = async (candidate: {url: string; score: number}) => {
+    try {
+      const page = await html(candidate.url);
 
       const pageCandidates: Array<{ url: string; body: string }> = [{ url: page.url, body: page.body }];
 
       if (ctx.episodeNumber !== undefined) {
-        for (const candidate of episodeLinks(page.body, page.url, ctx)) {
-          try {
-            const ep = await html(candidate.url, page.url);
-            pageCandidates.push({ url: ep.url, body: ep.body });
-          } catch {}
+        const episodeCandidates = episodeLinks(page.body, page.url, ctx).slice(0, 3);
+        const episodes = await Promise.allSettled(
+          episodeCandidates.map(item => html(item.url, page.url)),
+        );
+        for (const ep of episodes) {
+          if (ep.status === 'fulfilled') pageCandidates.push({ url: ep.value.url, body: ep.value.body });
         }
       }
 
       for (const candidatePage of pageCandidates) {
-        if (site.key === 'akwam') {
-          const sources = await resolveAkwam(candidatePage.url, candidatePage.body, site);
-          if (sources.length) return sources;
-          continue;
-        }
-
-        const output: NormalizedPlaybackSource[] = [];
-        for (const directUrl of direct(candidatePage.body, candidatePage.url).slice(0, 6)) {
-          output.push(...await resolveLink(directUrl, candidatePage.url, site.name));
-        }
-
-        const links = pageLinks(candidatePage.body, candidatePage.url);
-        for (const link of links) {
-          try {
-            output.push(...await resolveLink(link, candidatePage.url, site.name));
-          } catch {}
-          if (output.length >= 12) break;
-        }
-
-        const unique = new Map<string, NormalizedPlaybackSource>();
-        for (const source of output) {
-          if (source.url) unique.set(source.type + '|' + source.url, source);
-        }
-        if (unique.size) return [...unique.values()];
+        const sources = await resolveAkwam(candidatePage.url, candidatePage.body, site);
+        if (sources.length) return sources;
       }
     } catch {}
+    return [];
+  };
+
+  const results = await Promise.allSettled(pages.map(resolveCandidate));
+  const unique = new Map<string, NormalizedPlaybackSource>();
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue;
+    for (const source of result.value) {
+      if (source.url) unique.set(source.type + '|' + source.url, source);
+    }
   }
-  return [];
+  return [...unique.values()];
 }
 
 export async function resolveArProvPlayback(ctx: ProviderContext): Promise<NormalizedPlaybackSource[]> {
@@ -497,14 +460,23 @@ export async function resolveArProvPlayback(ctx: ProviderContext): Promise<Norma
   const existing = inflight.get(key);
   if (existing) return existing;
 
-  const promise = Promise.allSettled(sites.map(s => resolveSite(s, ctx))).then(results => {
-    const unique = new Map<string, NormalizedPlaybackSource>();
-    for (const r of results) {
-      if (r.status !== 'fulfilled') continue;
-      for (const s of r.value) if (s.url) unique.set(s.provider + '|' + s.type + '|' + s.url, s);
-    }
-    return [...unique.values()].sort((a, b) => (Number.parseInt(b.quality, 10) || 0) - (Number.parseInt(a.quality, 10) || 0)).slice(0, 12);
+  const totalTimeoutMs = Math.min(
+    Math.max(Number(process.env.MOVYZ_ARPROV_TOTAL_TIMEOUT_MS || 12000), 5000),
+    18000,
+  );
+
+  const timeout = new Promise<NormalizedPlaybackSource[]>(resolve => {
+    setTimeout(() => resolve([]), totalTimeoutMs);
   });
+
+  const promise = Promise.race([
+    resolveSite(sites[0]!, ctx).then(sources =>
+      sources
+        .sort((a, b) => (Number.parseInt(b.quality, 10) || 0) - (Number.parseInt(a.quality, 10) || 0))
+        .slice(0, 12),
+    ),
+    timeout,
+  ]);
 
   inflight.set(key, promise);
   try { return await promise; } finally { inflight.delete(key); }
