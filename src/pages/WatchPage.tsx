@@ -94,8 +94,6 @@ const groupPlaybackSources = (sources: PlaybackSource[], language: 'ar' | 'en') 
   return [...groups.values()];
 };
 
-const startupSourceRank = (source: PlaybackSource) => -playbackQualityRank(source);
-
 export const WatchPage: React.FC<WatchPageProps> = ({
   mediaType,
   contentId,
