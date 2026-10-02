@@ -670,6 +670,22 @@ function parseDirectMediaSources(
     }
   }
 
+  // Fallback for provider pages that embed playable URLs directly inside
+  // scripts, JSON blobs, or reader-generated text instead of <video>/<source>.
+  // Only URLs that classify as real media are accepted; ordinary watch/embed
+  // pages are ignored by classifyUrl/PLAYABLE_TYPES.
+  const rawUrlPatterns = [
+    /https?:\\/\\/[^\s"'<>\\)\\]}]+/gi,
+    /https?:\/\/[^\s"'<>\)\]}]+/gi,
+  ];
+
+  for (const pattern of rawUrlPatterns) {
+    for (const match of html.matchAll(pattern)) {
+      const raw = String(match[0]).replace(/\\\//g, '/').replace(/[),.;]+$/g, '');
+      add(raw, inheritedQuality, true);
+    }
+  }
+
   return candidates;
 }
 
