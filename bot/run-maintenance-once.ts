@@ -20,14 +20,26 @@ async function main() {
     throw new Error('Missing ' + missing.join(', '));
   }
 
-  for (const jobKey of JOBS) {
-    log('starting ' + jobKey);
-    const result = await runMaintenanceTick(jobKey);
-    log('finished ' + jobKey, result);
+  const failures: string[] = [];
 
-    if ('error' in result && result.error) {
-      throw new Error(jobKey + ': ' + result.error);
+  for (const jobKey of JOBS) {
+    try {
+      log('starting ' + jobKey);
+      const result = await runMaintenanceTick(jobKey);
+      log('finished ' + jobKey, result);
+
+      if ('error' in result && result.error) {
+        failures.push(jobKey + ': ' + result.error);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(jobKey + ': ' + message);
+      log('job exception ' + jobKey, { error: message });
     }
+  }
+
+  if (failures.length) {
+    throw new Error('Maintenance cycle completed with failures: ' + failures.join(' | '));
   }
 }
 
