@@ -1096,6 +1096,17 @@ async function resolveProvider(
       const variants = [clean];
       if (/^the\s+/i.test(clean)) variants.push(clean.replace(/^the\s+/i, ''));
       if (/\s+the$/i.test(clean)) variants.push(clean.replace(/\s+the$/i, ''));
+
+      if (context.episodeNumber !== undefined) {
+        const seasonPart = context.seasonNumber !== undefined
+          ? String(context.seasonNumber).padStart(2, '0')
+          : '01';
+        const episodePart = String(context.episodeNumber).padStart(2, '0');
+        variants.push(`${clean} S${seasonPart}E${episodePart}`);
+        variants.push(`${clean} ${seasonPart}x${episodePart}`);
+        variants.push(`${clean} الحلقة ${context.episodeNumber}`);
+      }
+
       return variants;
     }),
   )];
