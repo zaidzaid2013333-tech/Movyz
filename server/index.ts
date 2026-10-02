@@ -694,14 +694,18 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   }
 
   try {
-    // Fast path: serve a previously resolved, still-valid re-3arabi URL before
-    // doing any TMDB bootstrap work. This is the common path after the first play.
-    const cachedSources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
-    const healthyCachedSources = await probeCachedPlaybackSources(cachedSources);
-    if (healthyCachedSources.length) {
-      res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=20');
-      res.setHeader('Referrer-Policy', 'no-referrer');
-      return ok(res, { sources: healthyCachedSources });
+    // Movies may use the short-lived persisted cache for fast startup.
+    // Episodes intentionally bypass persisted playback cache: their source must
+    // be resolved from the exact TMDB + season + episode request so an old URL
+    // can never leak across seasons/episodes.
+    if (type === 'movie') {
+      const cachedSources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
+      const healthyCachedSources = await probeCachedPlaybackSources(cachedSources);
+      if (healthyCachedSources.length) {
+        res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=20');
+        res.setHeader('Referrer-Policy', 'no-referrer');
+        return ok(res, { sources: healthyCachedSources });
+      }
     }
 
     // Resolve the selected playback sites before doing catalog/bootstrap work.
