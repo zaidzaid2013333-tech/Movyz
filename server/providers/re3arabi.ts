@@ -1304,7 +1304,7 @@ async function resolveAnime4upSources(
       : await resolveNestedPlaybackLinks([item], provider, timeoutMs);
 
     for (const source of sources) {
-      if (seenUrls.has(source.url)) continue;
+      if (!source.url || seenUrls.has(source.url)) continue;
       seenUrls.add(source.url);
       all.push(source);
     }
@@ -1666,7 +1666,7 @@ async function resolveProvider(
           targetUrl === hit.url
             ? detail
             : await getText(targetUrl, timeoutMs, hit.url);
-        sources = await resolveAnime4upSources(watchHtml, targetUrl, provider);
+        sources = await resolveAnime4upSources(watchHtml, targetUrl, provider, timeoutMs);
       } else {
         const watchHtml =
           targetUrl === hit.url
