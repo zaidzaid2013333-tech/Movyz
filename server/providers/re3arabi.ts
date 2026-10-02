@@ -283,7 +283,7 @@ async function postText(url: string, timeoutMs: number, referer?: string) {
   return text;
 }
 
-function parseSearchHits(html: string, base: string): SearchHit[] {
+function parseSearchHits(html: string, base: string, allowEpisodeLinks = false): SearchHit[] {
   const hits: SearchHit[] = [];
   const seen = new Set<string>();
   const re = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -296,7 +296,7 @@ function parseSearchHits(html: string, base: string): SearchHit[] {
       stripTags(/<h3\b[^>]*class=["'][^"']*\bentry-title\b[^"']*["'][^>]*>([\s\S]*?)<\/h3>/i.exec(windowHtml)?.[1] || '') ||
       stripTags(/<h2\b[^>]*>([\s\S]*?)<\/h2>/i.exec(windowHtml)?.[1] || '');
     if (!url || !title || isNavigationLink(url, title) || seen.has(url)) continue;
-    if (isLikelyEpisodeLink(url, title)) continue;
+    if (!allowEpisodeLinks && isLikelyEpisodeLink(url, title)) continue;
     seen.add(url);
     hits.push({ title, url, year: extractYear(title) });
   }
@@ -1049,11 +1049,23 @@ async function resolveProvider(
   context: ProviderContext,
   timeoutMs: number,
 ): Promise<Candidate[]> {
-  const titles = [...new Set([
+  const baseTitles = [...new Set([
     context.title,
     context.originalTitle,
     ...(context.alternateTitles || []),
   ].filter((x): x is string => !!x?.trim()).map((x) => x.trim()))];
+
+  const searchTerms = [...new Set(
+    baseTitles.flatMap((value) => {
+      const clean = value.trim();
+      const variants = [clean];
+      if (/^the\s+/i.test(clean)) variants.push(clean.replace(/^the\s+/i, ''));
+      if (/\s+the$/i.test(clean)) variants.push(clean.replace(/\s+the$/i, ''));
+      return variants;
+    }),
+  )];
+
+  const titles = searchTerms;
 
   if (!titles.length) return [];
 
@@ -1087,14 +1099,14 @@ async function resolveProvider(
   }
 
   // Search each known title through the site's supported URL shapes.
-  for (const term of titles.slice(0, 3)) {
+  for (const term of searchTerms.slice(0, 5)) {
     const q = encodeURIComponent(term);
     for (const searchUrl of provider.searchUrls(q)) {
       try {
         const html = await getText(searchUrl, timeoutMs, provider.base);
         if (provider.key === 'aflaam') searchResults.push(...parseAflamSearchHits(html, provider.base));
         if (provider.key === 'cimaclub') searchResults.push(...parseCimaClubSearchHits(html, provider.base));
-        searchResults.push(...parseSearchHits(html, provider.base));
+        searchResults.push(...parseSearchHits(html, provider.base, context.episodeNumber !== undefined));
       } catch {
         // Try the next route/domain variant.
       }
@@ -1110,7 +1122,17 @@ async function resolveProvider(
       let targetUrl = hit.url;
 
       if (context.episodeNumber !== undefined) {
-        targetUrl = findEpisodeUrl(detail, hit.url, context.seasonNumber, context.episodeNumber) || '';
+        const hitIdentity = parseSeasonEpisode([hit.url, hit.title].join(' '));
+        const explicitEpisode =
+          hitIdentity.episode === context.episodeNumber &&
+          (
+            context.seasonNumber === undefined ||
+            hitIdentity.season === context.seasonNumber ||
+            (context.seasonNumber === 1 && hitIdentity.season === undefined)
+          );
+        targetUrl = explicitEpisode
+          ? hit.url
+          : (findEpisodeUrl(detail, hit.url, context.seasonNumber, context.episodeNumber) || '');
 
         // Anime3rb exposes a stable canonical episode route even when the
         // title page omits the episode anchors from the initial HTML.
