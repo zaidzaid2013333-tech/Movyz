@@ -860,8 +860,8 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
       url: String(source.url).trim(),
       isWorking: true,
       provider: source.provider || 'ArProv',
-      providerKey: source.providerKey || undefined,
-      providerReference: source.providerReference || undefined,
+      providerKey: source.providerKey || source.providerReference || undefined,
+      providerReference: source.providerReference || source.providerKey || undefined,
     }))
     .slice(0, 12);
 
