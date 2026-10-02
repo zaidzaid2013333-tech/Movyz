@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 import { adminSupabase } from '../server/supabase';
 import { syncMovieCandidate, syncSeriesCandidate } from '../server/tmdb';
-import { resolveRemotePlayback } from '../server/providers/remote-resolver';
+import { resolvePlaybackSources } from '../server/providers/resolver';
 
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const RUN_PAGES = Math.min(Math.max(Number(process.env.CATALOG_PAGES_PER_RUN || 3), 1), 6);
@@ -144,62 +144,10 @@ async function finishJob(jobId: string, status: 'succeeded' | 'failed', counts: 
     .eq('id', jobId);
 }
 
-function inferOmegaExpiry(url: string) {
-  const match = url.match(/\/download\/(\d{10}|\d{13})\//i);
-  if (!match) return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  const raw = Number(match[1]);
-  const timestamp = new Date(raw > 10_000_000_000 ? raw : raw * 1000).getTime();
-  return Number.isFinite(timestamp) && timestamp > Date.now()
-    ? new Date(timestamp).toISOString()
-    : new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
-}
-
-async function linkMoviePlayback(movieId: string, tmdbId: number) {
-  const { data: provider, error: providerError } = await adminSupabase
-    .from('providers')
-    .upsert({
-      key: 'omegatech-akwam',
-      name: 'OmegaTech Akwam',
-      adapter_name: 'omegatech-akwam',
-      enabled: true,
-      status: 'healthy',
-    }, { onConflict: 'key' })
-    .select('id')
-    .single();
-
-  if (providerError || !provider?.id) {
-    throw new Error('Unable to ensure OmegaTech provider: ' + (providerError?.message || 'missing provider'));
-  }
-
-  const sources = await resolveRemotePlayback({ type: 'movie', tmdbId });
-  const rows = sources
-    .filter((source) => /^https:\/\//i.test(source.url) && ['mp4', 'hls', 'dash'].includes(source.type))
-    .slice(0, 6)
-    .map((source) => ({
-      provider_id: provider.id,
-      content_type: 'movie',
-      content_id: movieId,
-      source_type: source.type,
-      url: source.url,
-      provider_reference: source.providerReference || null,
-      quality: source.quality || 'auto',
-      language: source.language || 'ar',
-      label_ar: source.label || 'OmegaTech Akwam',
-      label_en: source.labelEn || source.label || 'OmegaTech Akwam',
-      expires_at: inferOmegaExpiry(source.url),
-      is_working: true,
-      last_checked_at: new Date().toISOString(),
-      failure_count: 0,
-    }));
-
-  if (!rows.length) throw new Error('OmegaTech returned no direct playback URLs');
-
-  const { error } = await adminSupabase
-    .from('playback_sources')
-    .upsert(rows, { onConflict: 'provider_id,content_type,content_id,url' });
-
-  if (error) throw new Error('Playback source cache write failed: ' + error.message);
-  return rows.length;
+async function linkMoviePlayback(movieId: string) {
+  const sources = await resolvePlaybackSources('movie', movieId);
+  if (!sources.length) throw new Error('Selected playback sites returned no sources');
+  return sources.length;
 }
 
 function getPageNumbers() {
@@ -267,12 +215,12 @@ async function main() {
             movieBudget--;
             existing.add(tmdbId);
             try {
-              const linkedSources = await linkMoviePlayback(movieId, tmdbId);
+              const linkedSources = await linkMoviePlayback(movieId);
               moviesPlaybackLinked++;
               console.log('AUTO_IMPORTED_MOVIE', JSON.stringify({
                 tmdbId,
                 title: enMovie.title || arMovie.title,
-                playbackSources: linkedSources,
+                selectedSiteSources: linkedSources,
               }));
             } catch (sourceError) {
               moviesPlaybackFailed++;
