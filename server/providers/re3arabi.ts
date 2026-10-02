@@ -1228,13 +1228,13 @@ async function resolveAnime4upSources(
   };
 
   // Match the Re-3Arabi Anime4Up plugin exactly: every episode server is a data-watch URL.
-  for (const match of html.matchAll(/<li\\b[^>]*data-watch=["']([^"']+)["'][^>]*>/gi)) {
+  for (const match of html.matchAll(/<li\b[^>]*data-watch=["']([^"']+)["'][^>]*>/gi)) {
     const tag = match[0];
     addLink(match[1], qualityFromText(tag, match[1]) || 'source');
   }
 
   // And its explicit download list.
-  for (const match of html.matchAll(/<tr\\b[^>]*>[\\s\\S]*?<a\\b[^>]*href=["']([^"']+)["'][^>]*>[\\s\\S]*?<\\/a>[\\s\\S]*?<\\/tr>/gi)) {
+  for (const match of html.matchAll(/<tr\b[^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>[\s\S]*?<\/tr>/gi)) {
     const tag = match[0];
     if (!/td[-_]link|download/i.test(tag)) continue;
     addLink(match[1], qualityFromText(tag, match[1]) || 'source');
