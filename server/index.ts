@@ -722,10 +722,13 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 
     if (sources.length) {
       const persistPromise = persistRemoteRe3ArabiSources(type, tmdbId, season, episode, sources);
+      // Never make playback availability depend on Supabase cache persistence.
+      // The browser gets the live external source immediately; persistence runs
+      // as a background task when Workers gives us waitUntil().
       if (req.waitUntil) {
         req.waitUntil(persistPromise);
       } else {
-        await persistPromise;
+        void persistPromise;
       }
 
       res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=60');
