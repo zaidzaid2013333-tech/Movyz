@@ -197,8 +197,9 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
   const titles = [...new Set([
     ctx.title,
     ctx.originalTitle,
+    ctx.episodeTitle,
     ...(ctx.alternateTitles || []),
-  ].filter((value): value is string => Boolean(value?.trim())))].slice(0, 3);
+  ].filter((value): value is string => Boolean(value?.trim())))].slice(0, 5);
 
   const queries = new Set<string>();
   for (const title of titles) {
