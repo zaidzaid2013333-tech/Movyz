@@ -67,7 +67,6 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
     .eq('content_id', contentId)
     .eq('is_working', true)
     .eq('providers.key', 're3arabi')
-    .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
     .order('quality', { ascending: true });
 
   if (error) {
