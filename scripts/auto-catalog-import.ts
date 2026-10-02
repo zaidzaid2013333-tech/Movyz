@@ -89,7 +89,7 @@ async function readDailyUsage(): Promise<Counts> {
   );
 }
 
-async function startJob() {
+async function startJob(): Promise<string | null> {
   const { data: active, error: activeError } = await adminSupabase
     .from('sync_jobs')
     .select('id,job_type')
@@ -98,7 +98,13 @@ async function startJob() {
     .limit(1);
 
   if (activeError) throw new Error('Unable to inspect active sync jobs: ' + activeError.message);
-  if (active?.length) throw new Error(`Another TMDB sync is already running (${active[0].job_type})`);
+  if (active?.length) {
+    console.log(JSON.stringify({
+      skipped: 'another-tmdb-sync-running',
+      jobType: active[0].job_type,
+    }));
+    return null;
+  }
 
   const { data, error } = await adminSupabase
     .from('sync_jobs')
@@ -178,6 +184,7 @@ async function loadPopularPage(type: 'movie' | 'tv', page: number) {
 
 async function main() {
   const jobId = await startJob();
+  if (!jobId) return;
   const counts: Counts = { movies: 0, series: 0, seasons: 0, episodes: 0 };
   let moviesPlaybackLinked = 0;
   let moviesPlaybackFailed = 0;
