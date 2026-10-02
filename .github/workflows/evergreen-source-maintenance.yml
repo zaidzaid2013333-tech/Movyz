@@ -1,6 +1,15 @@
 name: Movyz evergreen playback source maintenance
 
 on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/evergreen-source-maintenance.yml"
+      - "scripts/evergreen-source-worker.ts"
+      - "scripts/evergreen-source-status.ts"
+      - "server/playback-source-persistence.ts"
+      - "server/providers/re3arabi.ts"
+      - "scripts/verify-tmdb-sync.ts"
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
