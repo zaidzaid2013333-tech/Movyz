@@ -32,7 +32,9 @@ type SiteConfig = {
 };
 
 const CACHE_TTL_MS = 120_000;
+const PAGE_CACHE_TTL_MS = 15 * 60_000;
 const cache = new Map<string, { expiresAt: number; promise: Promise<Candidate[]> }>();
+const pageCache = new Map<string, { expiresAt: number; promise: Promise<string> }>();
 
 const PROVIDERS: readonly SiteConfig[] = [
   {
@@ -271,13 +273,25 @@ function isNavigationLink(url: string, text: string) {
 }
 
 async function getText(url: string, timeoutMs: number, referer?: string) {
-  const payload = await fetchJsonOrText(url, timeoutMs, {
+  const key = `GET|${url}|${referer || ''}`;
+  const cached = pageCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const promise = fetchJsonOrText(url, timeoutMs, {
     Accept: 'text/html,application/xhtml+xml,application/json,text/plain,*/*;q=0.8',
     'Accept-Language': 'ar,en;q=0.9',
     Referer: referer || url,
     'User-Agent': 'Mozilla/5.0 (compatible; Movyz/1.0; +https://movyza.app)',
+  }).then((payload) =>
+    typeof payload === 'string' ? payload : JSON.stringify(payload),
+  );
+
+  pageCache.set(key, { expiresAt: Date.now() + PAGE_CACHE_TTL_MS, promise });
+  promise.catch(() => {
+    if (pageCache.get(key)?.promise === promise) pageCache.delete(key);
   });
-  return typeof payload === 'string' ? payload : JSON.stringify(payload);
+
+  return promise;
 }
 
 async function postText(url: string, timeoutMs: number, referer?: string) {
