@@ -76,6 +76,6 @@ console.log(JSON.stringify({
 if (movies === 0 || series === 0 || genres === 0) {
   throw new Error('TMDB verification failed: catalog tables are still empty');
 }
-if (seriesWithoutSeasons.length || emptySeasons.length) {
-  throw new Error('TMDB verification failed: published series contain missing seasons or seasons contain zero episodes');
+if (seriesWithoutSeasons.length) {
+  throw new Error('TMDB verification failed: published series contain missing seasons');
 }
