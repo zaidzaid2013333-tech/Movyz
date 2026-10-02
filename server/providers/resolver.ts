@@ -4,7 +4,7 @@ import type { NormalizedPlaybackSource, ProviderContext } from './types';
 
 const VALID_TYPES = new Set(['hls', 'mp4', 'dash', 'webm', 'direct', 'embed']);
 // Legacy Fasel provider records are intentionally excluded; playback is routed through AbdoBest.
-const DISABLED_PROVIDERS = new Set(['fasel', 'faselhd']);
+const DISABLED_PROVIDERS = new Set(['fasel', 'faselhd', 'cimaclub']);
 
 export const PROVIDER_PRIORITY: Record<string, number> = {
   re3arabi: 10,
@@ -107,7 +107,7 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
     const key = String(source.providers?.key || '').toLowerCase();
     const name = String(source.providers?.name || '').trim().toLowerCase().replace(/\s+/g, '');
     const sourceReference = String(source.provider_reference || '').trim().toLowerCase();
-    const selectedSite = ['aflaam', 'cimaclub', 'anime3rb', 'anime4up'].includes(sourceReference);
+    const selectedSite = ['aflaam', 'anime3rb', 'anime4up'].includes(sourceReference);
     return !DISABLED_PROVIDERS.has(key) &&
       !excluded.has(key) &&
       !excluded.has(name) &&
