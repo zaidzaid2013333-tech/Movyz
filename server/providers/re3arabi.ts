@@ -31,7 +31,7 @@ type SiteConfig = {
   searchUrls: (query: string) => string[];
 };
 
-const CACHE_TTL_MS = 20_000;
+const CACHE_TTL_MS = 120_000;
 const cache = new Map<string, { expiresAt: number; promise: Promise<Candidate[]> }>();
 
 const PROVIDERS: readonly SiteConfig[] = [
@@ -658,40 +658,45 @@ async function resolveNestedPlaybackLinks(
   };
 
   for (let depth = 0; depth < 2 && queue.length; depth += 1) {
-    const next: Array<{ url: string; quality?: string; referer?: string }> = [];
-
-    for (const item of queue.splice(0, 6)) {
+    const batch = queue.splice(0, 6);
+    const results = await Promise.all(batch.map(async (item) => {
       const direct = classifyUrl(item.url, item.quality || '', false);
       const downloadLike = /\/download(?:\/|$)|[?&](?:download|file)=/i.test(item.url);
+
       if (downloadLike || (direct && PLAYABLE_TYPES.has(direct.type))) {
-        const quality = qualityFromText(item.quality, item.url) || (direct?.type === 'hls' ? 'adaptive' : item.quality || 'source');
-        addMedia({
-          provider: provider.name,
-          providerKey: provider.key,
-          type: direct?.type || 'direct',
-          url: item.url,
-          providerReference: provider.key,
-          quality,
-          language: 'ar',
-          label: labelForQuality(provider, quality),
-          expiresAt: undefined,
-          sourceUrl: item.referer || item.url,
-        });
-        continue;
+        const quality =
+          qualityFromText(item.quality, item.url) ||
+          (direct?.type === 'hls' ? 'adaptive' : item.quality || 'source');
+        return {
+          media: [{
+            provider: provider.name,
+            providerKey: provider.key,
+            type: direct?.type || 'direct',
+            url: item.url,
+            providerReference: provider.key,
+            quality,
+            language: 'ar',
+            label: labelForQuality(provider, quality),
+            expiresAt: undefined,
+            sourceUrl: item.referer || item.url,
+          } as Candidate],
+          next: [] as Array<{ url: string; quality?: string; referer?: string }>,
+        };
       }
 
-      if (seenPages.has(item.url)) continue;
+      if (seenPages.has(item.url)) {
+        return { media: [] as Candidate[], next: [] as Array<{ url: string; quality?: string; referer?: string }> };
+      }
       seenPages.add(item.url);
 
       try {
         const html = await getText(item.url, timeoutMs, item.referer || provider.base);
-        for (const source of parsePackedPlaybackSources(html, item.url, provider)) {
-          addMedia(source);
-        }
-        for (const source of parseDirectMediaSources(html, item.url, provider, item.quality || 'source')) {
-          addMedia(source);
-        }
+        const media = [
+          ...parsePackedPlaybackSources(html, item.url, provider),
+          ...parseDirectMediaSources(html, item.url, provider, item.quality || 'source'),
+        ];
 
+        const next: Array<{ url: string; quality?: string; referer?: string }> = [];
         const nestedRe = /<(?:iframe|source|video|li)\b[^>]*(?:src|data-watch|data-player|data-src|data-url)=["']([^"']+)["'][^>]*>/gi;
         let match: RegExpExecArray | null;
         while ((match = nestedRe.exec(html))) {
@@ -704,15 +709,21 @@ async function resolveNestedPlaybackLinks(
               stripTags(tag),
               item.quality,
             ) || item.quality || 'source';
-
-          if (/^https:\/\/|^https?:\/\//i.test(nestedUrl)) {
-            next.push({ url: nestedUrl, quality: hint, referer: item.url });
-          }
+          next.push({ url: nestedUrl, quality: hint, referer: item.url });
         }
-      } catch {}
-    }
 
-    queue = next;
+        return { media, next };
+      } catch {
+        return { media: [] as Candidate[], next: [] as Array<{ url: string; quality?: string; referer?: string }> };
+      }
+    }));
+
+    const next: Array<{ url: string; quality?: string; referer?: string }> = [];
+    for (const result of results) {
+      for (const source of result.media) addMedia(source);
+      next.push(...result.next);
+    }
+    queue = next.slice(0, 6);
   }
 
   return output.sort((a, b) => {
@@ -759,7 +770,7 @@ async function resolveAflamQualitySources(
   return parseDirectMediaSources(html, pageUrl, provider);
 }
 
-async async function resolveCimaClubSources(
+async function resolveCimaClubSources(
   targetUrl: string,
   provider: SiteConfig,
   timeoutMs: number,
@@ -1085,18 +1096,18 @@ async function resolveCanonicalAnime3rbEpisode(
   // we never guess a season from an opaque episode number.
   if (context.seasonNumber !== undefined && context.seasonNumber !== 1) return [];
 
-  for (const term of titles.slice(0, 2)) {
-    const slug = normalize(term).replace(/\s+/g, '-');
-    if (!slug) continue;
-
-    const episodeUrl = `https://anime3rb.com/episode/${slug}/${context.episodeNumber}`;
-    try {
+  const attempts = await Promise.allSettled(
+    titles.slice(0, 2).map(async (term) => {
+      const slug = normalize(term).replace(/\s+/g, '-');
+      if (!slug) return [];
+      const episodeUrl = `https://anime3rb.com/episode/${slug}/${context.episodeNumber}`;
       const html = await getText(episodeUrl, timeoutMs, provider.base);
-      const sources = await resolveAnime3rbSources(html, episodeUrl, provider, timeoutMs);
-      if (sources.length) return sources;
-    } catch {
-      // Fall through to the canonical title/search resolver below.
-    }
+      return resolveAnime3rbSources(html, episodeUrl, provider, timeoutMs);
+    }),
+  );
+
+  for (const attempt of attempts) {
+    if (attempt.status === 'fulfilled' && attempt.value.length) return attempt.value;
   }
 
   return [];
@@ -1136,34 +1147,42 @@ async function resolveProvider(
 
   // Anime3rb has stable canonical title pages; prefer them before generic search.
   if (provider.key === 'anime3rb') {
-    for (const term of titles.slice(0, 2)) {
-      try {
+    const titleResults = await Promise.allSettled(
+      titles.slice(0, 2).map(async (term) => {
         const titleSlug = normalize(term).replace(/\s+/g, '-');
         const titleUrl = `https://anime3rb.com/titles/${titleSlug}`;
         const titleHtml = await getText(titleUrl, timeoutMs, provider.base);
         const marker = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(titleHtml)?.[1];
-        searchResults.push({
+        return {
           title: stripTags(marker || term).replace(/\s*[-|].*$/, '').trim() || term,
           url: titleUrl,
           year: extractYear(titleHtml.slice(0, 5000)),
-        });
-      } catch {}
+        };
+      }),
+    );
+    for (const result of titleResults) {
+      if (result.status === 'fulfilled') searchResults.push(result.value);
     }
   }
 
-  // Search each known title through the site's supported URL shapes.
-  for (const term of searchTerms.slice(0, 2)) {
-    const q = encodeURIComponent(term);
-    for (const searchUrl of provider.searchUrls(q)) {
-      try {
-        const html = await getText(searchUrl, timeoutMs, provider.base);
-        if (provider.key === 'aflaam') searchResults.push(...parseAflamSearchHits(html, provider.base));
-        if (provider.key === 'cimaclub') searchResults.push(...parseCimaClubSearchHits(html, provider.base));
-        searchResults.push(...parseSearchHits(html, provider.base, context.episodeNumber !== undefined));
-      } catch {
-        // Try the next route/domain variant.
-      }
-    }
+  // Search all configured URL variants concurrently. Slow/dead hosts no longer
+  // serialize the provider's entire discovery phase.
+  const searchJobs = searchTerms
+    .slice(0, 2)
+    .flatMap((term) =>
+      provider.searchUrls(encodeURIComponent(term)).map((searchUrl) => ({ searchUrl })),
+    );
+
+  const searchResponses = await Promise.allSettled(
+    searchJobs.map(({ searchUrl }) => getText(searchUrl, timeoutMs, provider.base)),
+  );
+
+  for (const result of searchResponses) {
+    if (result.status !== 'fulfilled') continue;
+    const html = result.value;
+    if (provider.key === 'aflaam') searchResults.push(...parseAflamSearchHits(html, provider.base));
+    if (provider.key === 'cimaclub') searchResults.push(...parseCimaClubSearchHits(html, provider.base));
+    searchResults.push(...parseSearchHits(html, provider.base, context.episodeNumber !== undefined));
   }
 
   if (!searchResults.length && provider.key === 'cimaclub') {
