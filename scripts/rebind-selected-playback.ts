@@ -304,13 +304,20 @@ async function rebindEpisodes() {
   // permanently just because the sweep cursor moved forward.
   let retryRows: any[] = [];
   if (previousFailedIds.length) {
-    const { data, error } = await adminSupabase
-      .from('episodes')
-      .select('id,season_id,episode_number,name_en,tmdb_id')
-      .in('id', previousFailedIds);
+    // Keep retry lookups safely below URL/request-size limits. Only retry up
+    // to one batch worth of IDs at a time; the remaining IDs stay in the
+    // saved failedEpisodeIds list for the next run.
+    const retryIds = previousFailedIds.slice(0, LIMIT);
+    for (let offset = 0; offset < retryIds.length; offset += 100) {
+      const chunk = retryIds.slice(offset, offset + 100);
+      const { data, error } = await adminSupabase
+        .from('episodes')
+        .select('id,season_id,episode_number,name_en,tmdb_id')
+        .in('id', chunk);
 
-    if (error) throw new Error('Unable to load failed episode retries: ' + error.message);
-    retryRows = data || [];
+      if (error) throw new Error('Unable to load failed episode retries: ' + error.message);
+      retryRows.push(...(data || []));
+    }
   }
 
   const remaining = Math.max(0, LIMIT - retryRows.length);
