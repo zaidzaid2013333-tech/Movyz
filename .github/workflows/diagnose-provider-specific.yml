@@ -9,14 +9,14 @@ on:
       - ".github/workflows/diagnose-provider-specific.yml"
 
 concurrency:
-  group: movyz-provider-diagnostic
+  group: movyz-provider-diagnostic-${{ github.sha }}
   cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
