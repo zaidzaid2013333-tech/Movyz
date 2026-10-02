@@ -1,4 +1,4 @@
-import { inferPlaybackType, inferQuality } from './http';
+import { fetchWithTimeout, inferPlaybackType, inferQuality } from './http';
 import type { NormalizedPlaybackSource, ProviderContext } from './types';
 import { fetchArProvPage, type ArProvBrowserBinding } from './arprov-runtime';
 import { resolveArProvExtractor } from './arprov-extractors';
@@ -41,6 +41,63 @@ function normalize(value: string) {
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+async function enrichAkwamTitles(context: ProviderContext): Promise<ProviderContext> {
+  if (context.episodeNumber === undefined || !context.tmdbId) return context;
+
+  const token = process.env.TMDB_API_READ_ACCESS_TOKEN?.trim();
+  if (!token) return context;
+
+  try {
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    };
+
+    const [details, alternatives] = await Promise.all([
+      fetchWithTimeout(`https://api.themoviedb.org/3/tv/${context.tmdbId}?language=ar`, {
+        method: 'GET',
+        timeoutMs: 7_000,
+        headers,
+      }),
+      fetchWithTimeout(`https://api.themoviedb.org/3/tv/${context.tmdbId}/alternative_titles`, {
+        method: 'GET',
+        timeoutMs: 7_000,
+        headers,
+      }),
+    ]);
+
+    const names: string[] = [];
+    if (details.ok) {
+      const payload = await details.json() as Record<string, unknown>;
+      for (const key of ['name', 'original_name']) {
+        if (typeof payload[key] === 'string' && payload[key].trim()) names.push(payload[key].trim());
+      }
+    }
+
+    if (alternatives.ok) {
+      const payload = await alternatives.json() as Record<string, unknown>;
+      const results = Array.isArray(payload.results) ? payload.results : [];
+      for (const item of results) {
+        if (!item || typeof item !== 'object') continue;
+        const name = (item as Record<string, unknown>).name;
+        const country = (item as Record<string, unknown>).iso_3166_1;
+        if (typeof name === 'string' && name.trim() && (country === 'EG' || /[\u0600-\u06ff]/u.test(name))) {
+          names.push(name.trim());
+        }
+      }
+    }
+
+    if (!names.length) return context;
+
+    return {
+      ...context,
+      alternateTitles: [...new Set([...(context.alternateTitles || []), ...names])],
+    };
+  } catch {
+    return context;
+  }
 }
 
 function decodeUrl(raw: string, base: string) {
@@ -428,6 +485,7 @@ export async function resolveAkwamPlayback(
   runtime: AkwamRuntime = {},
 ): Promise<NormalizedPlaybackSource[]> {
   const bases = [...AKWAM_BASES];
+  let searchContext = context;
 
   const titleVariants = [context.title, context.originalTitle, ...(context.alternateTitles || [])]
     .filter((value): value is string => Boolean(value?.trim()))
@@ -435,7 +493,13 @@ export async function resolveAkwamPlayback(
     .filter((value, index, all) => all.indexOf(value) === index);
 
   for (const base of bases) {
-    const candidates = await search(base, context, runtime);
+    let candidates = await search(base, searchContext, runtime);
+    if (!candidates.length && searchContext === context) {
+      searchContext = await enrichAkwamTitles(context);
+      if (searchContext !== context) {
+        candidates = await search(base, searchContext, runtime);
+      }
+    }
     if (!candidates.length) continue;
 
     const detailResults = await Promise.allSettled(
