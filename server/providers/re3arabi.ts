@@ -803,8 +803,8 @@ async function resolveUncached(context: ResolverContext, timeoutMs: number) {
   const eligibleKind: SiteKind = context.__isAnime ? 'anime' : 'general';
   const providers = PROVIDERS.filter((provider) => provider.kind === eligibleKind);
 
-  // Run the two providers in parallel. We still publish only one chosen
-  // provider group, so the player never mixes servers from different sites.
+  // Resolve both eligible sites in parallel and retain each non-empty
+  // provider group separately; qualities are never mixed across sites.
   const groups = await Promise.all(
     providers.map(async (provider) => {
       try {
