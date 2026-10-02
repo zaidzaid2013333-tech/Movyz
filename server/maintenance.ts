@@ -5,7 +5,6 @@ import {
   resolveRe3ArabiProviderWithContext,
   resolveRe3ArabiSeriesContext,
 } from './providers/re3arabi';
-import { fetchWithTimeout } from './providers/http';
 
 type PlaybackJob = {
   id: string;
@@ -31,31 +30,11 @@ type PlaybackSource = {
 const WORKER_ID = `queue-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const CLAIM_LEASE_SECONDS = 300;
 const RETRY_AFTER_MS = 30 * 60 * 1000;
-const DEFAULT_EXPIRY_MS = 12 * 60 * 60 * 1000;
-const VERIFY_TIMEOUT_MS = Math.max(3500, Number(process.env.RE3ARABI_VERIFY_TIMEOUT_MS || 6500));
 
-const providerSiteBase: Record<string, string> = {
-  aflaam: 'https://aflaam.com/',
-  anime3rb: 'https://anime3rb.com/',
-  anime4up: 'https://anime4upp.cam/',
-};
+
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function expiryFromUrl(url: string) {
-  try {
-    const parsed = new URL(url);
-    for (const key of ['expires', 'expires_at', 'exp']) {
-      const raw = parsed.searchParams.get(key);
-      if (!raw) continue;
-      const numeric = Number(raw);
-      const ms = numeric > 10_000_000_000 ? numeric : numeric * 1000;
-      if (Number.isFinite(ms) && ms > Date.now()) return new Date(ms).toISOString();
-    }
-  } catch {}
-  return new Date(Date.now() + DEFAULT_EXPIRY_MS).toISOString();
 }
 
 function qualityScore(value: unknown) {
@@ -99,56 +78,8 @@ function normalizeSource(source: PlaybackSource, providerKey: string) {
     language: String(source.language || 'ar'),
     labelAr: String(source.label || providerKey),
     labelEn: String(source.labelEn || source.label || providerKey),
-    expiresAt: source.expiresAt || expiryFromUrl(url),
+    expiresAt: source.expiresAt,
   };
-}
-
-async function verifyPlayableSource(url: string, type: string, providerKey: string) {
-  const referer = providerSiteBase[providerKey] || undefined;
-
-  const tryRequest = async (method: 'HEAD' | 'GET') => {
-    const response = await fetchWithTimeout(url, {
-      method,
-      timeoutMs: VERIFY_TIMEOUT_MS,
-      redirect: 'follow',
-      headers: {
-        Accept: type === 'mp4' ? 'video/mp4,application/octet-stream;q=0.9,*/*;q=0.5' : '*/*',
-        Range: 'bytes=0-1023',
-        Referer: referer || '',
-        'User-Agent': 'Mozilla/5.0 (compatible; Movyz-SourceWorker/2.0)',
-      },
-    });
-
-    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-    const contentRange = String(response.headers.get('content-range') || '');
-    const length = Number(response.headers.get('content-length') || 0);
-    try { await response.body?.cancel(); } catch {}
-
-    const statusOk = response.status === 200 || response.status === 206;
-    const looksMedia =
-      type === 'hls' || type === 'dash'
-        ? statusOk
-        : statusOk && (
-            contentType.startsWith('video/') ||
-            contentType.includes('application/octet-stream') ||
-            contentRange.length > 0 ||
-            length > 512 * 1024
-          );
-
-    return { ok: looksMedia, status: response.status, contentType, contentRange };
-  };
-
-  try {
-    const head = await tryRequest('HEAD');
-    if (head.ok) return true;
-  } catch {}
-
-  try {
-    const get = await tryRequest('GET');
-    return get.ok;
-  } catch {
-    return false;
-  }
 }
 
 async function getProviderId() {
