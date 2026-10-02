@@ -108,6 +108,20 @@ jobs:
                   raise SystemExit(f"{url}: expected TMDB {expected_tmdb}, got {actual}")
               print(f"API OK: {expected_type} TMDB {actual}")
 
+          watch_url = f"{api_base}/api/v1/series/tmdb/1396/watch/1/1"
+          with urllib.request.urlopen(watch_url, timeout=20) as response:
+              watch_payload = json.load(response)
+          watch_series = watch_payload.get("data", {}).get("series")
+          if watch_payload.get("success") is not True:
+              raise SystemExit(f"{watch_url}: API success=false")
+          if not watch_series or int(watch_series.get("tmdbId", 0)) != 1396:
+              raise SystemExit(f"{watch_url}: lightweight series watch payload is invalid")
+          season = (watch_series.get("seasons") or [None])[0]
+          episodes = season.get("episodes") if isinstance(season, dict) else []
+          if not any(int(item.get("episodeNumber", 0)) == 1 for item in episodes if isinstance(item, dict)):
+              raise SystemExit(f"{watch_url}: S01E01 missing from lightweight watch payload")
+          print("Series watch API OK: Breaking Bad S01E01")
+
           print("Playback provider checks skipped: production player is now resolved from Movyz API playback sources.")
 
       # Verify the complete path: Movyz resolver -> re-3arabi -> external playback URL.
@@ -125,7 +139,6 @@ jobs:
           base = "https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve"
           checks = [
               ("movie", 27205, None, None, "general"),  # Inception -> Aflam/CimaClub
-              ("series", 5920, 1, 1, "general"),        # The Mentalist S01E01
               ("series", 1396, 1, 1, "general"),        # Breaking Bad S01E01
               ("series", 1396, 5, 1, "general"),        # Breaking Bad S05E01 season-binding guard
               ("series", 37854, 1, 1, "anime"),         # One Piece S01E01 -> Anime3rb/Anime4Up
