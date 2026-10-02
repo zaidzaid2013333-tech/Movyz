@@ -788,27 +788,36 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
     // Resolve the selected playback sites before doing catalog/bootstrap work.
     // The external resolver already resolves by TMDB ID, so catalog sync is only a fallback
     // when no selected-site source can be resolved.
-    const sources = await resolveRemotePlayback({
+    const fastSources = await resolveRemotePlaybackFast({
       type,
       tmdbId,
       ...(season !== undefined ? { season } : {}),
       ...(episode !== undefined ? { episode } : {}),
       ...(episodeTmdbId !== undefined ? { episodeTmdbId } : {}),
-    }, req.env);
+    });
 
-    if (sources.length) {
-      const persistPromise = persistRemoteRe3ArabiSources(type, tmdbId, season, episode, sources);
-      // Never make playback availability depend on Supabase cache persistence.
-      // The browser gets the live external source immediately; persistence runs
-      // as a background task when Workers gives us waitUntil().
-      if (req.waitUntil) {
-        req.waitUntil(persistPromise);
-      } else {
-        void persistPromise;
-      }
+    if (fastSources.length) {
+      const refreshPromise = (async () => {
+        try {
+          const fullSources = await resolveRemotePlayback({
+            type,
+            tmdbId,
+            ...(season !== undefined ? { season } : {}),
+            ...(episode !== undefined ? { episode } : {}),
+            ...(episodeTmdbId !== undefined ? { episodeTmdbId } : {}),
+          }, req.env);
+          await persistRemoteRe3ArabiSources(type, tmdbId, season, episode, fullSources);
+        } catch (error) {
+          console.warn('[playback-background-refresh]', error instanceof Error ? error.message : String(error));
+        }
+      })();
 
-      res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=180, stale-while-revalidate=60');
-      return ok(res, { sources });
+      if (req.waitUntil) req.waitUntil(refreshPromise);
+      else void refreshPromise;
+
+      res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=90, stale-while-revalidate=180');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      return ok(res, { sources: fastSources });
     }
 
     // Fallback: bootstrap catalog records, then give the cache one more chance.
@@ -993,6 +1002,45 @@ app.get(`${api}/series`, asyncRoute(async (req, res) => {
   const genreMap = await batchSeriesGenres(rows.map((row: any) => row.id));
   const output = rows.map((row: any) => seriesCardDto(row, genreMap.get(row.id) || []));
   return ok(res, output, { page: q.page, limit: q.limit, total: count || 0, totalPages: Math.ceil((count || 0) / q.limit) || 1 });
+}));
+
+app.get(`${api}/series/tmdb/:tmdbId/watch/:season/:episode`, asyncRoute(async (req, res) => {
+  const tmdbId = Number(req.params.tmdbId);
+  const seasonNumber = Number(req.params.season);
+  const episodeNumber = Number(req.params.episode);
+  if (!Number.isInteger(tmdbId) || tmdbId <= 0 || !Number.isInteger(seasonNumber) || seasonNumber < 1 || !Number.isInteger(episodeNumber) || episodeNumber < 1) {
+    return fail(res, 400, 'INVALID_WATCH_REQUEST', 'Invalid series watch request');
+  }
+  const { data, error } = await adminSupabase.from('series').select('*')
+    .eq('tmdb_id', tmdbId).eq('status', 'published').maybeSingle();
+  if (error) return fail(res, 500, 'SERIES_QUERY_FAILED', 'Unable to load series');
+  if (!data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
+  const series = await seriesWatchDto(data, seasonNumber);
+  if (!series) return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
+  if (!series.seasons[0].episodes.some((item: any) => item.episodeNumber === episodeNumber)) {
+    return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
+  }
+  res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=60, stale-while-revalidate=120');
+  return ok(res, { series, currentSeason: series.seasons[0] });
+}));
+
+app.get(`${api}/series/:id/watch/:season/:episode`, asyncRoute(async (req, res) => {
+  const seasonNumber = Number(req.params.season);
+  const episodeNumber = Number(req.params.episode);
+  if (!Number.isInteger(seasonNumber) || seasonNumber < 1 || !Number.isInteger(episodeNumber) || episodeNumber < 1) {
+    return fail(res, 400, 'INVALID_WATCH_REQUEST', 'Invalid series watch request');
+  }
+  const { data, error } = await adminSupabase.from('series').select('*')
+    .eq('id', req.params.id).eq('status', 'published').maybeSingle();
+  if (error) return fail(res, 500, 'SERIES_QUERY_FAILED', 'Unable to load series');
+  if (!data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
+  const series = await seriesWatchDto(data, seasonNumber);
+  if (!series) return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
+  if (!series.seasons[0].episodes.some((item: any) => item.episodeNumber === episodeNumber)) {
+    return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
+  }
+  res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=60, stale-while-revalidate=120');
+  return ok(res, { series, currentSeason: series.seasons[0] });
 }));
 
 app.get(`${api}/series/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
