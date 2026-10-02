@@ -80,6 +80,45 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }}
 
+      - name: Smoke test DoodStream account library
+        continue-on-error: true
+        env:
+          DOODSTREAM_API_KEY: ${{ secrets.DOODSTREAM_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          key = os.environ.get("DOODSTREAM_API_KEY", "").strip()
+          if not key:
+              print("DoodStream WARN: API key missing")
+              raise SystemExit(0)
+
+          def get(path, **params):
+              query = urllib.parse.urlencode({"key": key, **params})
+              request = urllib.request.Request(
+                  f"https://doodapi.co/api/{path}?{query}",
+                  headers={"Accept": "application/json", "User-Agent": "Movyz-CI/1.0"},
+              )
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          try:
+              account = get("account/info")
+              print(f"DoodStream account API: status={account.get('status')} msg={account.get('msg')}")
+              listing = get("file/list", page=1, per_page=1)
+              result = listing.get("result") or {}
+              print(
+                  "DoodStream library: "
+                  f"status={listing.get('status')} total_pages={result.get('total_pages')} "
+                  f"results_total={result.get('results_total')} files_on_page={len(result.get('files') or [])}"
+              )
+          except Exception as exc:
+              print(f"DoodStream WARN: {exc!r}")
+          PY
+
       - name: Smoke test production watch paths
         continue-on-error: true
         run: |
