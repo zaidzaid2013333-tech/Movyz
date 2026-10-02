@@ -311,9 +311,6 @@ async function loadEpisodesForSeries(series: any, providerKey: string, jobKey: M
 }
 
 async function fillEpisodes(role: ProviderRole, limit: number, jobKey: MaintenanceJob) {
-  const genericProvider = providerKeyFor(role, false);
-  const animeProvider = providerKeyFor(role, true);
-
   const { data: seriesRows, error } = await adminSupabase
     .from('series')
     .select('id,tmdb_id,title_en')
@@ -327,8 +324,20 @@ async function fillEpisodes(role: ProviderRole, limit: number, jobKey: Maintenan
   for (const series of seriesRows || []) {
     if (candidates.length >= limit) break;
 
-    const generic = await loadEpisodesForSeries(series, genericProvider, jobKey, limit - candidates.length);
-    if (generic.length) candidates.push(...generic);
+    const context = await resolveRe3ArabiSeriesContext(Number(series.tmdb_id));
+    const providerKey = providerKeyFor(role, context.__isAnime);
+    if (!providerKey) continue;
+
+    const pending = await loadEpisodesForSeries(
+      series,
+      providerKey,
+      jobKey,
+      limit - candidates.length,
+    );
+
+    if (pending.length) {
+      candidates.push(...pending.map((item) => ({ ...item, providerKey })));
+    }
   }
 
   let succeeded = 0;
@@ -336,9 +345,10 @@ async function fillEpisodes(role: ProviderRole, limit: number, jobKey: Maintenan
 
   await runWithConcurrency(candidates, 8, async (item) => {
     try {
+      const providerKey = String(item.providerKey || '');
+      if (!providerKey) return;
+
       const context = await resolveRe3ArabiSeriesContext(item.tmdbId);
-      const providerKey = providerKeyFor(role, context.__isAnime);
-      if (!providerKey) continue;
       const sources = await resolveRe3ArabiProviderWithContext(
         context,
         item.season,
