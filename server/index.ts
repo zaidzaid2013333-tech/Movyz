@@ -680,8 +680,8 @@ app.get(`${api}/playback/ready`, asyncRoute(async (req, res) => {
     return fail(res, 400, 'INVALID_PLAYBACK_REQUEST', 'Invalid playback request');
   }
   if (type === 'series' && (
-    !Number.isInteger(season) || season < 1 ||
-    !Number.isInteger(episode) || episode < 1
+    !Number.isInteger(season) || (season as number) < 1 ||
+    !Number.isInteger(episode) || (episode as number) < 1
   )) {
     return fail(res, 400, 'INVALID_EPISODE', 'Series playback requires exact season and episode');
   }
