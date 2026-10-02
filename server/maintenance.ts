@@ -161,10 +161,11 @@ async function getProviderId() {
   return data?.id as string | undefined;
 }
 
-async function claimJob(): Promise<PlaybackJob | null> {
+async function claimJob(lane?: 'primary' | 'secondary'): Promise<PlaybackJob | null> {
   const { data, error } = await adminSupabase.rpc('claim_playback_source_job', {
     p_worker_id: WORKER_ID,
     p_lease_seconds: CLAIM_LEASE_SECONDS,
+    p_provider_lane: lane || null,
   });
   if (error) throw new Error('queue claim failed: ' + error.message);
   const row = Array.isArray(data) ? data[0] : data;
@@ -363,23 +364,9 @@ async function runQueueBatch(
   let failed = 0;
 
   while (claimed < limit) {
-    const job = await claimJob();
+    const lane = lanes.length === 1 ? lanes[0] : undefined;
+    const job = await claimJob(lane);
     if (!job) break;
-    if (!lanes.includes(job.provider_lane)) {
-      // The RPC claims globally; return the unrelated job to pending so another
-      // lane worker can take it without losing it.
-      await adminSupabase
-        .from('playback_source_jobs')
-        .update({
-          status: 'pending',
-          available_at: new Date(Date.now() + 1000).toISOString(),
-          locked_at: null,
-          locked_by: null,
-          updated_at: nowIso(),
-        })
-        .eq('id', job.id);
-      continue;
-    }
 
     claimed += 1;
     try {
