@@ -752,7 +752,78 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current = null;
       video.pause();
     };
-  }, [playbackUrl, playbackSource?.type, playerUnlocked, language]);
+  }, [playbackUrl, playbackSource?.type, language]);
+
+  // Mirror the native media element state directly. React's media events are
+  // supplemented with native listeners so duration/currentTime/buffering cannot
+  // remain at their initial 00:00 state when an engine swaps the media source.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !playbackUrl) return;
+
+    const syncDuration = () => {
+      const duration = video.duration;
+      if (Number.isFinite(duration) && duration > 0) setPlayerDuration(duration);
+    };
+    const syncTime = () => {
+      const current = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+      setPlayerCurrentTime(Math.max(0, current));
+      syncDuration();
+    };
+    const syncBuffered = () => {
+      if (!video.buffered.length) return;
+      try {
+        setPlayerBufferedEnd(video.buffered.end(video.buffered.length - 1));
+      } catch {}
+    };
+    const onMetadata = () => {
+      if (startupGuardTimerRef.current !== null) {
+        window.clearTimeout(startupGuardTimerRef.current);
+        startupGuardTimerRef.current = null;
+      }
+      setPlayerReady(true);
+      syncDuration();
+      syncTime();
+      syncBuffered();
+    };
+    const onPlaying = () => {
+      setPlayerPlaying(true);
+      setPlayerReady(true);
+      setPlaybackError(null);
+      syncTime();
+      syncBuffered();
+    };
+    const onPause = () => setPlayerPlaying(false);
+    const onWaiting = () => {
+      if (!playbackStartedRef.current) setPlaybackError(null);
+      syncTime();
+      syncBuffered();
+    };
+    const onVolume = () => {
+      setPlayerVolume(video.volume);
+      setPlayerMuted(video.muted);
+    };
+    const events: Array<[string, EventListener]> = [
+      ['loadedmetadata', onMetadata],
+      ['durationchange', syncDuration],
+      ['loadeddata', () => { setPlayerReady(true); syncTime(); syncBuffered(); }],
+      ['canplay', () => { setPlayerReady(true); syncDuration(); syncBuffered(); }],
+      ['canplaythrough', () => { setPlayerReady(true); syncDuration(); syncBuffered(); }],
+      ['timeupdate', syncTime],
+      ['progress', syncBuffered],
+      ['playing', onPlaying],
+      ['pause', onPause],
+      ['waiting', onWaiting],
+      ['stalled', onWaiting],
+      ['volumechange', onVolume],
+      ['ended', () => setPlayerPlaying(false)],
+    ];
+
+    for (const [name, handler] of events) video.addEventListener(name, handler);
+    return () => {
+      for (const [name, handler] of events) video.removeEventListener(name, handler);
+    };
+  }, [playbackUrl, playbackSource?.type]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1062,37 +1133,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   }
                   setPlayerReady(true);
                   if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
-
-                  // Warm long native files once before the first play. Only seek when
-                  // the media exposes an actual seekable range so unsupported range
-                  // servers do not leave the player stuck at 00:00.
-                  if (
-                    playbackUrl &&
-                    playbackEngineFor(playbackSource) === 'native' &&
-                    !userPlayRequestedRef.current &&
-                    !startupWarmupUrlsRef.current.has(playbackUrl) &&
-                    Number.isFinite(video.duration) &&
-                    video.duration > 150 &&
-                    video.seekable.length > 0
-                  ) {
-                    startupWarmupUrlsRef.current.add(playbackUrl);
-                    const originalTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
-                    const seekEnd = video.seekable.end(video.seekable.length - 1);
-                    const warmupTime = Math.min(120, Math.max(0, seekEnd - 1));
-                    if (warmupTime > 8) {
-                      try {
-                        video.currentTime = warmupTime;
-                        window.setTimeout(() => {
-                          const current = videoRef.current;
-                          if (!current || userPlayRequestedRef.current) return;
-                          try {
-                            const target = Math.min(originalTime, Math.max(0, current.duration - 0.5));
-                            current.currentTime = target;
-                          } catch {}
-                        }, 1200);
-                      } catch {}
-                    }
-                  }
 
                   if (qualitySwitchPendingRef.current) {
                     qualitySwitchPendingRef.current = false;
