@@ -6,9 +6,7 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
-import { resolveRemotePlayback, resolveRemotePlaybackFast } from './providers/remote-resolver';
 import { diagnoseRe3ArabiPlayback } from './providers/re3arabi';
-import { resolvePlaybackSources } from './providers/resolver';
 import { fetchWithTimeout } from './providers/http';
 import type { PlaybackKind } from './providers/types';
 
@@ -287,57 +285,27 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
     .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
     .order('quality', { ascending: true });
 
-  if (error) throw new Error('Unable to load cached selected playback sources: ' + error.message);
-
-  const allowedProviders = new Set(['aflaam', 'anime3rb', 'anime4up']);
-  const allowedTypes = new Set(['mp4', 'hls', 'dash', 'webm', 'direct', 'embed']);
-
-  const filtered = (data || [])
-    .filter((source: any) => {
-      const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-      return allowedProviders.has(providerReference);
-    })
-    .filter((source: any) => allowedTypes.has(String(source.source_type || '').toLowerCase()))
-    .filter((source: any) => {
-      const type = String(source.source_type || '').toLowerCase();
-      return ['hls', 'mp4', 'dash', 'webm', 'direct'].includes(type) &&
-        String(source.quality || '').toLowerCase() !== 'auto' &&
-        String(source.quality || '').trim().toLowerCase() !== 'source';
-    })
-    .filter((source: any) => {
-      const url = typeof source.url === 'string' ? source.url.trim() : '';
-      const type = String(source.source_type || '').toLowerCase();
-      if (!/^https:\/\//i.test(url)) return false;
-      if (type === 'mp4') return /\.(?:mp4|m4v)(?:$|[?#])/i.test(url);
-      if (type === 'webm') return /\.webm(?:$|[?#])/i.test(url);
-      if (type === 'hls') return /\.m3u8(?:$|[?#])/i.test(url);
-      if (type === 'dash') return /\.mpd(?:$|[?#])/i.test(url);
-      if (type === 'direct') return /\.(?:mov|mkv|avi|mpeg|mpg|ogg|ogv|ts|m2ts|flv|3gp|3g2)(?:$|[?#])/i.test(url);
-      return false;
-    });
-
-  const healthy = await probeRe3ArabiSources(
-    filtered.map((source: any) => ({ ...source, type: String(source.source_type || '').toLowerCase() })),
-  );
-  const healthyUrls = new Set(healthy.map((source: any) => source.url));
-  const failedRows = filtered.filter((source: any) => !healthyUrls.has(source.url));
-
-  if (failedRows.length) {
-    await Promise.all(
-      failedRows.map((source: any) =>
-        adminSupabase
-          .from('playback_sources')
-          .update({
-            is_working: false,
-            last_checked_at: new Date().toISOString(),
-            failure_count: Number(source.failure_count || 0) + 1,
-          })
-          .eq('id', source.id)
-      ),
-    );
+  if (error) {
+    throw new Error('Unable to load ready cached playback sources: ' + error.message);
   }
 
-  return healthy.map(cachedRe3ArabiSourceDto);
+  const allowedProviders = new Set(['aflaam', 'anime3rb', 'anime4up']);
+  const allowedTypes = new Set(['mp4', 'hls', 'dash', 'webm', 'direct']);
+
+  return (data || [])
+    .filter((source: any) => allowedProviders.has(String(source.provider_reference || '').trim().toLowerCase()))
+    .filter((source: any) => allowedTypes.has(String(source.source_type || '').trim().toLowerCase()))
+    .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
+    .filter((source: any) => String(source.quality || '').trim().toLowerCase() !== 'auto')
+    .filter((source: any) => String(source.quality || '').trim().toLowerCase() !== 'source')
+    .map(cachedRe3ArabiSourceDto)
+    .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
+    .sort((a: any, b: any) => {
+      const qualityDiff = playbackQualityScore(b.quality) - playbackQualityScore(a.quality);
+      if (qualityDiff) return qualityDiff;
+      return playbackTypeScore(b.type) - playbackTypeScore(a.type);
+    })
+    .slice(0, 12);
 }
 
 async function probeCachedPlaybackSources<T extends { url: string; type: string; quality?: string }>(
@@ -851,7 +819,7 @@ app.get(`${api}/playback/ready`, asyncRoute(async (req, res) => {
   const readySeason = type === 'series' ? (season as number) : undefined;
   const readyEpisode = type === 'series' ? (episode as number) : undefined;
   const sources = await resolveCachedRe3ArabiPlayback(type, tmdbId, readySeason, readyEpisode);
-  res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=60, stale-while-revalidate=120');
+  res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=300, stale-while-revalidate=600');
   res.setHeader('Referrer-Policy', 'no-referrer');
   return ok(res, { sources, ready: sources.length > 0 });
 }));
@@ -882,69 +850,20 @@ app.get(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
     return fail(res, 400, 'INVALID_EPISODE_TMDB_ID', 'Invalid episode TMDB id');
   }
 
-  try {
-    // Serve an exact persisted source first for both movies and episodes.
-    // Episode cache rows are keyed by the exact episode UUID resolved from
-    // TMDB + season + episode, so this does not reopen the old cross-season bug.
-    // Do not probe the media URL inline: the probe itself can add seconds.
-    const cachedSources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
-    if (cachedSources.length) {
-      res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=180, stale-while-revalidate=60');
-      res.setHeader('Referrer-Policy', 'no-referrer');
-      return ok(res, { sources: cachedSources });
-    }
-
-    // Resolve the selected playback sites before doing catalog/bootstrap work.
-    // The external resolver already resolves by TMDB ID, so catalog sync is only a fallback
-    // when no selected-site source can be resolved.
-    const fastSources = await resolveRemotePlaybackFast({
-      type,
-      tmdbId,
-      ...(season !== undefined ? { season } : {}),
-      ...(episode !== undefined ? { episode } : {}),
-      ...(episodeTmdbId !== undefined ? { episodeTmdbId } : {}),
-    });
-
-    if (fastSources.length) {
-      const refreshPromise = (async () => {
-        try {
-          const fullSources = await resolveRemotePlayback({
-            type,
-            tmdbId,
-            ...(season !== undefined ? { season } : {}),
-            ...(episode !== undefined ? { episode } : {}),
-            ...(episodeTmdbId !== undefined ? { episodeTmdbId } : {}),
-          }, req.env);
-          await persistRemoteRe3ArabiSources(type, tmdbId, season, episode, fullSources);
-        } catch (error) {
-          console.warn('[playback-background-refresh]', error instanceof Error ? error.message : String(error));
-        }
-      })();
-
-      if (req.waitUntil) req.waitUntil(refreshPromise);
-      else void refreshPromise;
-
-      res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=90, stale-while-revalidate=180');
-      res.setHeader('Referrer-Policy', 'no-referrer');
-      return ok(res, { sources: fastSources });
-    }
-
-    // Fallback: bootstrap catalog records, then give the cache one more chance.
-    await ensureTmdbPlaybackContent(type, tmdbId, season, episode);
-
-    const syncedCachedSources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
-    const healthySyncedSources = await probeCachedPlaybackSources(syncedCachedSources);
-    if (healthySyncedSources.length) {
-      res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=20');
-      res.setHeader('Referrer-Policy', 'no-referrer');
-      return ok(res, { sources: healthySyncedSources });
-    }
-
-    return fail(res, 404, 'PLAYBACK_SOURCE_NOT_FOUND', 'No playback source was returned by the selected playback sites resolver');
-  } catch (error) {
-    console.error('[remote-playback]', error instanceof Error ? error.message : error);
-    return fail(res, 502, 'PLAYBACK_RESOLVER_FAILED', 'Selected playback sites resolver failed');
+  const cachedSources = await resolveCachedRe3ArabiPlayback(type, tmdbId, season, episode);
+  if (cachedSources.length) {
+    res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=180, stale-while-revalidate=300');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    return ok(res, { sources: cachedSources });
   }
+
+  return fail(
+    res,
+    404,
+    'PLAYBACK_SOURCE_NOT_READY',
+    'No preloaded playback source is ready for this title yet',
+  );
+
 }));
 
 app.get(`${api}/subtitles/proxy`, asyncRoute(async (req, res) => {
