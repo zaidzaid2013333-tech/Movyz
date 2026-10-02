@@ -3,6 +3,19 @@ name: Movyz full episode source prewarm
 
 on:
   workflow_dispatch:
+    inputs:
+      episode_limit:
+        description: 'Maximum episodes to rebind in this run'
+        required: false
+        default: '1500'
+        type: string
+  push:
+    branches: ["main"]
+    paths:
+      - "server/providers/re3arabi.ts"
+      - "scripts/rebind-selected-playback.ts"
+      - "scripts/episode-rebind-status.ts"
+      - ".github/workflows/full-episode-source-prewarm.yml"
 
 permissions:
   contents: read
