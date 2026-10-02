@@ -123,7 +123,7 @@ async function assertDatabaseReady() {
   }
 }
 
-async function startJob(jobType: string, pages: number) {
+async function startJob(jobType: string, pages: number, options: { skipIfActive?: boolean } = {}) {
   const staleBefore = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
   const { data: runningJobs, error: runningError } = await adminSupabase
     .from('sync_jobs')
@@ -157,6 +157,7 @@ async function startJob(jobType: string, pages: number) {
 
   const active = (runningJobs || []).filter((job: any) => !stale.some((item: any) => item.id === job.id));
   if (active.length) {
+    if (options.skipIfActive) return null;
     throw new Error(`A TMDB sync is already running (${active[0].job_type || 'unknown'} job ${active[0].id})`);
   }
 
@@ -551,7 +552,10 @@ async function syncSeriesPage(page: number) {
 
 export async function syncEpisodesForSeries(seriesLimit?: number) {
   const limit = seriesLimit == null ? 10_000 : Math.min(Math.max(seriesLimit, 1), 10_000);
-  const job = await startJob('episodes', 0);
+  const job = await startJob('episodes', 0, { skipIfActive: true });
+  if (!job) {
+    return { skipped: true, reason: 'another-tmdb-sync-running' };
+  }
 
   try {
     await assertDatabaseReady();
