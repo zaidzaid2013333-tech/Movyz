@@ -466,7 +466,7 @@ function parseJsonSearchHits(payload: string, base: string): SearchHit[] {
 async function resolveCimaClubSitemapSearch(
   terms: string[],
   year: number | undefined,
-  context: ResolverContext,
+  context: ProviderContext,
   timeoutMs: number,
 ): Promise<SearchHit[]> {
   const bases = ['https://w.cimacub.com', 'https://cimacub.com'];
