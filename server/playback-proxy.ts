@@ -4,6 +4,7 @@ type ProxyPayload = {
   url: string;
   referer?: string;
   headers?: Record<string, string>;
+  type?: string;
   exp: number;
 };
 
@@ -70,6 +71,7 @@ export async function createPlaybackProxyUrl(
     url: source.url,
     referer: source.referer,
     headers: source.headers,
+    type: source.type,
     exp: Date.now() + 12 * 60 * 60 * 1000,
   };
 
@@ -158,6 +160,17 @@ export async function handlePlaybackProxy(
   ]) {
     const value = upstream.headers.get(name);
     if (value) responseHeaders.set(name, value);
+  }
+
+  const upstreamType = String(upstream.headers.get('content-type') || '').toLowerCase();
+  if (!upstreamType || upstreamType === 'application/octet-stream') {
+    const mediaType =
+      payload.type === 'mp4' ? 'video/mp4' :
+      payload.type === 'webm' ? 'video/webm' :
+      payload.type === 'hls' ? 'application/vnd.apple.mpegurl' :
+      payload.type === 'dash' ? 'application/dash+xml' :
+      null;
+    if (mediaType) responseHeaders.set('Content-Type', mediaType);
   }
 
   responseHeaders.set('Cache-Control', 'no-store');
