@@ -313,10 +313,11 @@ async function loadEpisodesForSeries(series: any, providerKey: string, jobKey: M
 async function fillEpisodes(role: ProviderRole, limit: number, jobKey: MaintenanceJob) {
   const { data: seriesRows, error } = await adminSupabase
     .from('series')
-    .select('id,tmdb_id,title_en')
+    .select('id,tmdb_id,title_en,created_at')
     .eq('status', 'published')
     .not('tmdb_id', 'is', null)
-    .order('id');
+    .order('created_at', { ascending: false, nullsFirst: false })
+    .order('id', { ascending: false });
 
   if (error) throw new Error('series load failed: ' + error.message);
 
