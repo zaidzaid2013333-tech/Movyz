@@ -123,6 +123,7 @@ jobs:
               ("movie", 27205, None, None),  # Inception
               ("series", 5920, 1, 1),       # The Mentalist S01E01
               ("series", 1396, 1, 1),       # Breaking Bad S01E01
+              ("series", 37854, 1, 1),       # One Piece S01E01 (anime)
           ]
 
           for media_type, tmdb_id, season, episode in checks:
