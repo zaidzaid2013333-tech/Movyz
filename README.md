@@ -13,11 +13,11 @@ TMDB is used for catalog metadata only.
 
 The production playback path is:
 
-1. Re3Arabi is the only playback-source API/provider used by Movyz.
-2. Re3Arabi returns direct HTTPS media links such as MP4/HLS/DASH/WebM.
-3. Those direct links are stored in `playback_sources` and served by the Movyz API.
-4. WatchPage consumes the stored direct links; it does not call a runtime playback resolver.
-5. Movyz never proxies video bytes through the user-facing API.
+1. The on-demand playback endpoint tries the ArProv-inspired provider/extractor layer first (Akwam, Cima4U, CimaClub).
+2. Existing DoodStream and Re3Arabi providers remain as fallbacks.
+3. Providers return normalized HTTPS MP4/HLS/DASH/WebM sources; the player consumes the same `PlaybackSource` contract.
+4. Movyz never proxies video bytes through the user-facing API.
+5. ArProv/CloudStream code is not embedded wholesale; the useful provider/extractor patterns are reimplemented in TypeScript for Workers.
 
 The retired playback maintenance bot, queue prewarm workflow, and scheduled source cron are disabled.
 
