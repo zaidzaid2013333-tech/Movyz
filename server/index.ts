@@ -265,7 +265,7 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
     .map(cachedRe3ArabiSourceDto);
 }
 
-async function probeCachedPlaybackSources<T extends { url: string; type: string }>(
+async function probeCachedPlaybackSources<T extends { url: string; type: string; quality?: string }>(
   sources: T[],
 ) {
   if (!sources.length) return [];
