@@ -59,6 +59,9 @@ const PROVIDERS: readonly SiteConfig[] = [
       `https://cimacub.com/home/?s=${q}`,
       `https://cimacub.com/?s=${q}`,
       `https://www.cimacub.com/?s=${q}`,
+      `https://cimaclubgo.com/?s=${q}`,
+      `https://cimaclubgo.com/search?q=${q}`,
+      `https://www.cimaclubgo.com/?s=${q}`,
     ],
   },
   {
@@ -376,7 +379,7 @@ async function resolveCimaClubRestSearch(
   timeoutMs: number,
 ): Promise<SearchHit[]> {
   const hits: SearchHit[] = [];
-  const bases = ['https://cimacub.com', 'https://w.cimacub.com'];
+  const bases = ['https://cimacub.com', 'https://w.cimacub.com', 'https://cimaclubgo.com'];
   const seen = new Set<string>();
   const addHits = (items: SearchHit[]) => {
     for (const hit of items) {
@@ -1440,7 +1443,7 @@ async function resolveCanonicalCimaClubMovie(
   if (provider.key !== 'cimaclub') return [];
 
   const year = context.releaseYear;
-  const base = 'https://cimacub.com';
+  const bases = ['https://cimacub.com', 'https://w.cimacub.com', 'https://cimaclubgo.com'];
   const attempts: string[] = [];
 
   for (const term of titles.slice(0, 2)) {
@@ -1456,7 +1459,9 @@ async function resolveCanonicalCimaClubMovie(
         `/فيلم-${slug}${suffix}-مترجم/`,
         `/مشاهدة-فيلم-${slug}${suffix}/`,
       ];
-      for (const path of paths) attempts.push(new URL(path, base).toString());
+      for (const base of bases) {
+        for (const path of paths) attempts.push(new URL(path, base).toString());
+      }
     }
   }
 
