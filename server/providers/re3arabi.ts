@@ -966,6 +966,54 @@ async function resolveAnime4upSources(
   return candidates.sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality));
 }
 
+async function resolveCanonicalCimaClubEpisode(
+  titles: string[],
+  context: ProviderContext,
+  provider: SiteConfig,
+  timeoutMs: number,
+): Promise<Candidate[]> {
+  if (provider.key !== 'cimaclub' || context.episodeNumber === undefined) return [];
+
+  const season = context.seasonNumber ?? 1;
+  const episode = context.episodeNumber;
+  const paths = new Set<string>();
+
+  for (const term of titles.slice(0, 3)) {
+    const slug = normalize(term).replace(/\s+/g, '-');
+    if (!slug) continue;
+
+    const variants = [
+      `/مشاهدة-مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}/`,
+      `/مشاهدة-مسلسل-${slug}-الجزء-${season === 1 ? 'الاول' : season}-الحلقة-${episode}/`,
+      `/مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}/`,
+      `/مسلسل-${slug}-الحلقة-${episode}/`,
+      `/${slug}-الموسم-${season}-الحلقة-${episode}/`,
+      `/${slug}-الحلقة-${episode}/`,
+    ];
+
+    for (const path of variants) paths.add(path);
+  }
+
+  for (const path of paths) {
+    const episodeUrl = new URL(path, provider.base).toString();
+    try {
+      const html = await getText(episodeUrl, timeoutMs, provider.base);
+      if (!/(?:الحلقة|episode)/i.test(html.slice(0, 20000))) continue;
+
+      const sources = await resolveCimaClubSources(episodeUrl, provider, timeoutMs);
+      const usable = sources.filter((source) =>
+        PLAYABLE_TYPES.has(source.type) &&
+        source.quality !== 'auto' &&
+        source.quality !== 'source',
+      );
+
+      if (usable.length) return usable;
+    } catch {}
+  }
+
+  return [];
+}
+
 async function resolveCanonicalAnime3rbEpisode(
   titles: string[],
   context: ProviderContext,
@@ -1008,6 +1056,11 @@ async function resolveProvider(
   ].filter((x): x is string => !!x?.trim()).map((x) => x.trim()))];
 
   if (!titles.length) return [];
+
+  if (context.episodeNumber !== undefined && provider.key === 'cimaclub') {
+    const canonicalSources = await resolveCanonicalCimaClubEpisode(titles, context, provider, timeoutMs);
+    if (canonicalSources.length) return canonicalSources;
+  }
 
   if (provider.key === 'anime3rb' && context.episodeNumber !== undefined) {
     const canonicalSources = await resolveCanonicalAnime3rbEpisode(titles, context, provider, timeoutMs);
