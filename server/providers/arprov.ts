@@ -321,7 +321,10 @@ async function formHtml(url: string, data: Record<string, string>, referer?: str
 }
 
 function arabSeedToken(html: string, key: string) {
-  return html.match(new RegExp(key + "['\\\"]?\\s*:\\s*['\\\"]([^'\\\"]+)", 'i'))?.[1] || null;
+  return html.match(new RegExp(
+    key + "[\\'\\\"]?\\s*(?::|=)\\s*[\\'\\\"]([^'\\\"]+)",
+    'i',
+  ))?.[1] || null;
 }
 
 async function resolveArabSeedPage(pageUrl: string, ctx: ProviderContext, site: Site) {
