@@ -22,32 +22,6 @@ const sites: Site[] = [
       'https://ak.sv/?s=' + encodeURIComponent(q),
     ],
   },
-  {
-    key: 'cima4u',
-    name: 'Cima4U',
-    base: 'https://cfu.cam',
-    searches: q => [
-      'https://cfu.cam/?s=' + encodeURIComponent(q),
-      'https://cfu.cam/search/?s=' + encodeURIComponent(q),
-    ],
-  },
-  {
-    key: 'cimaclub',
-    name: 'CimaClub',
-    base: 'https://ciimaclub.us',
-    searches: q => [
-      'https://ciimaclub.us/?s=' + encodeURIComponent(q),
-      'https://ciimaclub.us/search?s=' + encodeURIComponent(q),
-    ],
-  },
-  {
-    key: 'arabseed',
-    name: 'ArabSeed',
-    base: 'https://arabseed.store',
-    searches: q => [
-      'https://arabseed.store/?s=' + encodeURIComponent(q),
-    ],
-  },
 ];
 
 function https(raw: string, base?: string) {
