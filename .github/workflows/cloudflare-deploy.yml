@@ -190,6 +190,27 @@ jobs:
                   for item in sources
                   if isinstance(item, dict) and item.get("quality")
               }
+              source_types = {
+                  str(item.get("type")).lower()
+                  for item in sources
+                  if isinstance(item, dict)
+              }
+              playable_types = {"hls", "mp4", "dash", "webm", "direct"}
+              if not source_types.issubset(playable_types):
+                  raise SystemExit(
+                      f"{media_type} {tmdb_id}: non-native source type returned: {sorted(source_types)}"
+                  )
+              if "auto" in {q.lower() for q in qualities} or "source" in {q.lower() for q in qualities}:
+                  raise SystemExit(
+                      f"{media_type} {tmdb_id}: resolver returned placeholder quality labels: {sorted(qualities)}"
+                  )
+              if media_type == "series" or media_type == "movie":
+                  fixed_qualities = {q for q in qualities if re.match(r"^(2160|1440|1080|720|576|480|360|240)p$", q, re.I)}
+                  if not fixed_qualities and "adaptive" not in {q.lower() for q in qualities}:
+                      raise SystemExit(
+                          f"{media_type} {tmdb_id}: no real quality/adaptive quality returned: {sorted(qualities)}"
+                      )
+
               urls = [
                   item.get("url")
                   for item in sources
