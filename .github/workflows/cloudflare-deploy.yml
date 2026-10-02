@@ -148,6 +148,17 @@ jobs:
                   body = exc.read().decode("utf-8", "replace")
                   print(f"Resolver HTTP {exc.code} for {url}")
                   print(body[:12000])
+                  diagnostic_url = "https://movyz-api.sameranede.workers.dev/api/v1/diagnostics/playback"
+                  diagnostic_request = urllib.request.Request(
+                      diagnostic_url,
+                      headers={"User-Agent": "Movyz-CI/1.0", "Accept": "application/json"},
+                  )
+                  try:
+                      with urllib.request.urlopen(diagnostic_request, timeout=75) as diagnostic_response:
+                          print("Resolver diagnostic:", diagnostic_response.read().decode("utf-8", "replace")[:12000])
+                  except HTTPError as diagnostic_error:
+                      print("Resolver diagnostic HTTP:", diagnostic_error.code)
+                      print(diagnostic_error.read().decode("utf-8", "replace")[:12000])
                   raise
 
               if payload.get("success") is not True:
