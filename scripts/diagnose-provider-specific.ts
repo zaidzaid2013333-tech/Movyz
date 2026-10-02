@@ -27,8 +27,8 @@ async function debugAflamBreakingBad() {
     'https://aflaam.com/sitemap_index.xml',
   ];
 
-  const anchorPattern = new RegExp('<a\\\\b[^>]*href=["\\']([^"\\']+)["\\'][^>]*>([\\\\s\\\\S]*?)</a>', 'gi');
-  const locPattern = new RegExp('<loc>\\\\s*(.*?)\\\\s*</loc>', 'gis');
+  const anchorPattern = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  const locPattern = /<loc>\s*(.*?)\s*<\/loc>/gis;
 
   for (const url of urls) {
     try {
