@@ -86,9 +86,11 @@ function score(text: string, url: string, ctx: ProviderContext) {
     .filter((x): x is string => Boolean(x && x.trim())).map(norm).filter(Boolean);
 
   let n = 0;
+  const compactHay = hay.replace(/[^\\p{L}\\p{N}]+/gu, '');
   for (const title of titles) {
-    if (hay === title) n += 1800;
-    else if (hay.includes(title)) n += 1000;
+    const compactTitle = title.replace(/[^\\p{L}\\p{N}]+/gu, '');
+    if (hay === title || compactHay === compactTitle) n += 1800;
+    else if (hay.includes(title) || compactHay.includes(compactTitle)) n += 1000;
     else n += title.split(' ').filter(x => x.length > 2 && hay.includes(x)).length * 60;
   }
   if (ctx.releaseYear && hay.includes(String(ctx.releaseYear))) n += 100;
@@ -264,7 +266,7 @@ function pageLinks(body: string, base: string) {
     out.push(u);
   };
 
-  const mediaTagRe = /<(?:iframe|embed|source|video)\\b[^>]*>/gi;
+  const mediaTagRe = /<(?:iframe|embed|source|video)\b[^>]*>/gi;
   let m: RegExpExecArray | null;
   while ((m = mediaTagRe.exec(body))) {
     const attr = m[0].match(/(?:src|data-src|data-url)\\s*=\\s*["']([^"']+)["']/i);
