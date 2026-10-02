@@ -32,39 +32,46 @@ const onePieceContext = await resolveRe3ArabiSeriesContext(37854);
 await debugAkwam();
 
 async function debugAkwam() {
-  try {
-    const response = await fetch('https://ak.sv/search?q=Inception', {
-      headers: {
-        Accept: 'text/html,application/xhtml+xml,*/*',
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
-      },
-      redirect: 'follow',
-    });
-    const body = await response.text();
-    const links = [...body.matchAll(/<a[^>]*href=["']([^"']+)["'][^>]*>/gi)]
-      .slice(0, 80)
-      .map(match => ({ href: match[1], text: match[0].replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim() }));
+  const candidates = [
+    'https://akwam.ss/search?q=Inception',
+    'https://akwam.net/search?q=Inception',
+    'https://ak.sv/search?q=Inception',
+  ];
 
-    const qualityBlocks = (body.match(/tab-content[^"'<>]*quality/gi) || []).length;
-    const downloadLinks = links.filter(link => /download|link|تحميل/i.test(link.href + ' ' + link.text)).slice(0, 20);
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'text/html,application/xhtml+xml,*/*',
+          'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+          Referer: new URL(url).origin + '/',
+        },
+        redirect: 'follow',
+      });
+      const body = await response.text();
+      const links = [...body.matchAll(/<a[^>]*href=["']([^"']+)["'][^>]*>/gi)]
+        .slice(0, 60)
+        .map(match => match[1]);
 
-    console.log(JSON.stringify({
-      akwamRaw: {
-        status: response.status,
-        finalUrl: response.url,
-        bodyLength: body.length,
-        qualityBlocks,
-        sampleLinks: links,
-        downloadLinks,
-        hasInception: /inception/i.test(body),
-      },
-    }));
-  } catch (error) {
-    console.error(JSON.stringify({
-      akwamRaw: {
-        error: error instanceof Error ? error.message : String(error),
-      },
-    }));
+      console.log(JSON.stringify({
+        akwamDomainCheck: {
+          requestUrl: url,
+          status: response.status,
+          finalUrl: response.url,
+          bodyLength: body.length,
+          linkCount: links.length,
+          sampleLinks: links.slice(0, 12),
+          hasInception: /inception/i.test(body),
+        },
+      }));
+    } catch (error) {
+      console.error(JSON.stringify({
+        akwamDomainCheck: {
+          requestUrl: url,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      }));
+    }
   }
 }
 
