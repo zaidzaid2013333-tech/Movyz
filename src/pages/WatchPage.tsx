@@ -7,6 +7,13 @@ import {
   Film,
   Info,
   Play,
+  Pause,
+  RotateCcw,
+  RotateCw,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
   Star,
   Share2,
   ShieldAlert,
@@ -151,7 +158,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [resolverLoading, setResolverLoading] = useState(false);
   const [playerUnlocked, setPlayerUnlocked] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [playerPlaying, setPlayerPlaying] = useState(false);
+  const [playerCurrentTime, setPlayerCurrentTime] = useState(0);
+  const [playerDuration, setPlayerDuration] = useState(0);
+  const [playerVolume, setPlayerVolume] = useState(1);
+  const [playerMuted, setPlayerMuted] = useState(false);
+  const [playerFullscreen, setPlayerFullscreen] = useState(false);
+  const [playerSpeed, setPlayerSpeed] = useState(1);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playerShellRef = useRef<HTMLDivElement | null>(null);
   const qualityResumeTimeRef = useRef<number | null>(null);
   const resumeAfterQualitySwitchRef = useRef(false);
   const qualitySwitchPendingRef = useRef(false);
@@ -367,6 +382,76 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
+
+  const formatPlayerTime = (value: number) => {
+    if (!Number.isFinite(value) || value < 0) return '00:00';
+    const total = Math.floor(value);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    const base = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return hours > 0 ? `${String(hours).padStart(2, '0')}:${base}` : base;
+  };
+
+  const togglePlayerPlayback = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) void video.play().catch(() => undefined);
+    else video.pause();
+  };
+
+  const seekPlayerBy = (seconds: number) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration)) return;
+    video.currentTime = Math.min(
+      Math.max(0, video.currentTime + seconds),
+      Math.max(0, video.duration),
+    );
+  };
+
+  const setPlayerProgress = (value: number) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration)) return;
+    video.currentTime = Math.min(Math.max(0, value), video.duration);
+    setPlayerCurrentTime(video.currentTime);
+  };
+
+  const setPlayerVolumeLevel = (value: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    const next = Math.min(Math.max(0, value), 1);
+    video.volume = next;
+    video.muted = next === 0;
+    setPlayerVolume(next);
+    setPlayerMuted(video.muted);
+  };
+
+  const togglePlayerMute = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = !video.muted;
+    if (!video.muted && video.volume === 0) {
+      video.volume = 0.8;
+      setPlayerVolume(0.8);
+    }
+    setPlayerMuted(video.muted);
+  };
+
+  const togglePlayerFullscreen = async () => {
+    const shell = playerShellRef.current;
+    if (!shell) return;
+    try {
+      if (!document.fullscreenElement) {
+        await shell.requestFullscreen();
+        setPlayerFullscreen(true);
+      } else {
+        await document.exitFullscreen();
+        setPlayerFullscreen(false);
+      }
+    } catch {}
+  };
+
+
   const playbackMimeType = /\.mp4(?:$|[?#])/i.test(playbackUrl)
     ? 'video/mp4'
     : /\.m3u8(?:$|[?#])/i.test(playbackUrl)
@@ -826,10 +911,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 ref={videoRef}
                 poster={content.backdropUrl || content.posterUrl}
                 className="block h-full w-full bg-black object-contain"
-                controls
                 playsInline
                 preload="auto"
-                controlsList="nodownload noplaybackrate"
                 disablePictureInPicture={false}
                 onLoadStart={() => {
                   playbackStartedRef.current = false;
@@ -838,6 +921,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 }}
                 onPlay={() => {
                   userPlayRequestedRef.current = true;
+                  setPlayerPlaying(true);
+                }}
+                onPause={() => {
+                  setPlayerPlaying(false);
                 }}
                 onLoadedMetadata={() => {
                   const video = videoRef.current;
@@ -851,8 +938,27 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     // Ignore sources that reject a resume seek.
                   }
                 }}
-                onDurationChange={() => undefined}
+                onDurationChange={() => {
+                  const video = videoRef.current;
+                  if (video && Number.isFinite(video.duration)) setPlayerDuration(video.duration);
+                }}
+                onTimeUpdate={() => {
+                  const video = videoRef.current;
+                  if (!video) return;
+                  setPlayerCurrentTime(video.currentTime || 0);
+                  if (Number.isFinite(video.duration)) setPlayerDuration(video.duration);
+                }}
                 onLoadedData={() => {
+                  const video = videoRef.current;
+                  if (!video) return;
+                  if (Number.isFinite(video.duration)) setPlayerDuration(video.duration);
+                  setPlayerCurrentTime(video.currentTime || 0);
+                }}
+                onVolumeChange={() => {
+                  const video = videoRef.current;
+                  if (!video) return;
+                  setPlayerVolume(video.volume);
+                  setPlayerMuted(video.muted);
                 }}
                 onCanPlay={() => {
                   if (qualitySwitchPendingRef.current) {
@@ -907,7 +1013,101 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
                   : 'Your browser does not support this playback source.'}
               </video>
-            </div>
+ 
+              
+              <div
+                ref={playerShellRef}
+                className="pointer-events-none absolute inset-0 z-10"
+              >
+                <div className="pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent pt-16 pb-3 px-3 sm:px-4">
+                  <div className="flex flex-col gap-2">
+                    <input
+                      aria-label={language === 'ar' ? 'موضع الفيديو' : 'Video position'}
+                      type="range"
+                      min={0}
+                      max={Math.max(playerDuration, 0)}
+                      step="0.1"
+                      value={Math.min(playerCurrentTime, Math.max(playerDuration, 0))}
+                      onChange={(event) => setPlayerProgress(Number(event.target.value))}
+                      className="w-full accent-amber-400 cursor-pointer"
+                    />
+                    <div className="flex items-center gap-2 text-white">
+                      <button
+                        type="button"
+                        onClick={togglePlayerPlayback}
+                        className="h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        aria-label={playerPlaying ? (language === 'ar' ? 'إيقاف' : 'Pause') : (language === 'ar' ? 'تشغيل' : 'Play')}
+                      >
+                        {playerPlaying ? <Pause size={17} /> : <Play size={17} className="translate-x-0.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => seekPlayerBy(-10)}
+                        className="h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        aria-label={language === 'ar' ? 'رجوع 10 ثواني' : 'Back 10 seconds'}
+                      >
+                        <RotateCcw size={17} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => seekPlayerBy(10)}
+                        className="h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        aria-label={language === 'ar' ? 'تقديم 10 ثواني' : 'Forward 10 seconds'}
+                      >
+                        <RotateCw size={17} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={togglePlayerMute}
+                        className="h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        aria-label={playerMuted ? (language === 'ar' ? 'إلغاء الكتم' : 'Unmute') : (language === 'ar' ? 'كتم الصوت' : 'Mute')}
+                      >
+                        {playerMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}
+                      </button>
+                      <input
+                        aria-label={language === 'ar' ? 'مستوى الصوت' : 'Volume'}
+                        type="range"
+                        min={0}
+                        max={1}
+                        step="0.01"
+                        value={playerMuted ? 0 : playerVolume}
+                        onChange={(event) => setPlayerVolumeLevel(Number(event.target.value))}
+                        className="hidden sm:block w-20 accent-amber-400 cursor-pointer"
+                      />
+                      <span className="min-w-[92px] text-[11px] font-mono text-white/75 tabular-nums">
+                        {formatPlayerTime(playerCurrentTime)} / {formatPlayerTime(playerDuration)}
+                      </span>
+                      <div className="flex-1" />
+                      <label className="flex items-center gap-1.5 text-[11px] text-white/80">
+                        <span className="hidden sm:inline">{language === 'ar' ? 'السرعة' : 'Speed'}</span>
+                        <select
+                          aria-label={language === 'ar' ? 'سرعة التشغيل' : 'Playback speed'}
+                          value={playerSpeed}
+                          onChange={(event) => {
+                            const next = Number(event.target.value);
+                            const video = videoRef.current;
+                            if (video) video.playbackRate = next;
+                            setPlayerSpeed(next);
+                          }}
+                          className="bg-white/10 border border-white/10 rounded-md px-1.5 py-1 outline-none"
+                        >
+                          {[0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
+                            <option key={speed} value={speed} className="bg-slate-950">{speed}x</option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void togglePlayerFullscreen()}
+                        className="h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        aria-label={playerFullscreen ? (language === 'ar' ? 'الخروج من ملء الشاشة' : 'Exit fullscreen') : (language === 'ar' ? 'ملء الشاشة' : 'Fullscreen')}
+                      >
+                        {playerFullscreen ? <Minimize size={17} /> : <Maximize size={17} />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>           </div>
           </div>
         </div>
       </div>
