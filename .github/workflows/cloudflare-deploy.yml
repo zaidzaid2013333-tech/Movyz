@@ -270,8 +270,29 @@ jobs:
 
               sources = payload.get("data") if isinstance(payload.get("data"), list) else []
               print(f"On-demand resolver: {label} success={payload.get('success')} sources={len(sources)}")
+              if payload.get("success") is not True:
+                  raise SystemExit(f"{label}: resolver returned success=false")
+              if not sources:
+                  raise SystemExit(f"{label}: resolver returned zero sources")
+
               for source in sources[:5]:
-                  print("  ", source.get("providerKey"), source.get("quality"), source.get("type"))
+                  provider = str(source.get("providerKey") or "").lower()
+                  quality = str(source.get("quality") or "").lower()
+                  source_type = str(source.get("type") or "").lower()
+                  url = str(source.get("url") or "")
+
+                  if provider not in {"akwam", "anime4up"}:
+                      raise SystemExit(f"{label}: unexpected provider {provider!r}")
+                  if source_type not in {"hls", "mp4", "dash", "webm", "direct"}:
+                      raise SystemExit(f"{label}: invalid source type {source_type!r}")
+                  if quality in {"", "auto", "source"}:
+                      raise SystemExit(f"{label}: invalid quality {quality!r}")
+                  if not url.startswith("https://"):
+                      raise SystemExit(f"{label}: non-HTTPS playback URL")
+                  if "movyz-api.sameranede.workers.dev" in url:
+                      raise SystemExit(f"{label}: Movyz is proxying playback")
+
+                  print("  ", provider, quality, source_type)
 
           print("On-demand resolver smoke test complete.")
           PY
