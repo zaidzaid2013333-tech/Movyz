@@ -1,6 +1,6 @@
 name: Movyz Cloudflare Deploy
 # Browser Run verification trigger: 2026-10-01
-# re-3arabi primary playback resolver deployment
+# Selected playback sites: Aflam/CimaClub + Anime3rb/Anime4Up
 # CI trigger: production deploys run from a real main-branch push.
 
 on:
@@ -111,7 +111,7 @@ jobs:
       # Verify the complete path: Movyz resolver -> re-3arabi -> external playback URL.
       # The selected provider is allowed to return multiple qualities, but all returned
       # sources for a title must belong to the same provider group.
-      - name: Smoke test production re-3arabi playback resolver
+      - name: Smoke test production selected playback sites
         run: |
           python - <<'PY'
           import json
@@ -153,7 +153,7 @@ jobs:
                   for item in sources
                   if isinstance(item, dict)
               }
-              if providers != {"re3arabi"}:
+              if not providers.issubset({"aflaam", "cimaclub", "anime3rb", "anime4up"}) or not providers:
                   raise SystemExit(f"{media_type} {tmdb_id}: unexpected providers={providers}")
 
               qualities = {
@@ -193,9 +193,9 @@ jobs:
 
           if diagnostic.get("success") is not True:
               raise SystemExit(f"diagnostic endpoint failed: {diagnostic}")
-          if diagnostic.get("data", {}).get("resolver") != "re3arabi":
+          if diagnostic.get("data", {}).get("resolver") not in {"selected-sites", "re3arabi"}:
               raise SystemExit(f"unexpected diagnostic resolver: {diagnostic}")
-          print("Diagnostic OK: re3arabi is the active playback resolver.")
+          print("Diagnostic OK: selected playback sites resolver is active.")
           PY
 
       # Probe one selected external source for native HTTP range support without storing
@@ -242,7 +242,7 @@ jobs:
 
       # Warm only a small set of common titles/episodes after deployment.
       # No bulk episode crawl is performed.
-      - name: Warm re-3arabi playback cache
+      - name: Warm selected playback-sites cache
         continue-on-error: true
         run: |
           python - <<'PY'
