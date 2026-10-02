@@ -110,26 +110,6 @@ export const MovyzaApi = {
       cast: { name: string; nameEn: string; worksCount: number; avatarUrl: string }[];
     }>(`/search?q=${encodeURIComponent(search)}`, {}, { skipAuth: true }),
 
-  getReadyPlaybackSources: (params: {
-    type: 'movie' | 'series';
-    tmdbId: number;
-    season?: number;
-    episode?: number;
-  }) => request<{
-    sources: import('../types').PlaybackSource[];
-    ready: boolean;
-  }>(`/playback/ready${query(params)}`, {}, { skipAuth: true }),
-
-  resolvePlaybackSource: (params: {
-    type: 'movie' | 'series';
-    tmdbId: number;
-    season?: number;
-    episode?: number;
-    episodeTmdbId?: number;
-  }) => request<{
-    sources: import('../types').PlaybackSource[];
-  }>(`/playback/resolve${query(params)}`, {}, { skipAuth: true }),
-
   getGenres: () => request<Genre[]>('/genres'),
 
   getWatchlist: () => request<WatchlistItem[]>('/watchlist'),
