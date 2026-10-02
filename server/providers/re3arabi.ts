@@ -1,4 +1,4 @@
-import { fetchJsonOrText, inferPlaybackType } from './http';
+import { fetchJsonOrText, fetchWithTimeout, inferPlaybackType } from './http';
 import type { ProviderContext, NormalizedPlaybackSource } from './types';
 
 export type Re3ArabiPlaybackRequest = {
@@ -48,11 +48,10 @@ const PROVIDERS: readonly SiteConfig[] = [
   {
     key: 'cimaclub',
     name: 'CimaClub',
-    base: 'https://ciimaclub.club',
+    base: 'https://cimacub.com',
     kind: 'general',
     searchUrls: (q) => [
-      `https://ciimaclub.club/?s=${q}`,
-      `https://ciimaclub.club/search?q=${q}`,
+      `https://cimacub.com/?s=${q}`,
     ],
   },
   {
@@ -147,6 +146,26 @@ async function getText(url: string, timeoutMs: number, referer?: string) {
     'User-Agent': 'Mozilla/5.0 (compatible; Movyz/1.0; +https://movyza.app)',
   });
   return typeof payload === 'string' ? payload : JSON.stringify(payload);
+}
+
+async function postText(url: string, timeoutMs: number, referer?: string) {
+  const response = await fetchWithTimeout(url, {
+    method: 'POST',
+    timeoutMs,
+    redirect: 'follow',
+    headers: {
+      Accept: 'text/html,application/xhtml+xml,application/json,text/plain,*/*;q=0.8',
+      'Accept-Language': 'ar,en;q=0.9',
+      Referer: referer || url,
+      Origin: new URL(url).origin,
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'User-Agent': 'Mozilla/5.0 (compatible; Movyz/1.0; +https://movyza.app)',
+    },
+    body: 'watch=1',
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Provider HTTP ${response.status} from ${new URL(url).hostname}`);
+  return text;
 }
 
 function parseSearchHits(html: string, base: string): SearchHit[] {
@@ -273,6 +292,83 @@ function parseQualitySources(html: string, pageUrl: string, provider: SiteConfig
   return candidates;
 }
 
+async function resolveAflamQualitySources(
+  html: string,
+  pageUrl: string,
+  provider: SiteConfig,
+  timeoutMs: number,
+): Promise<Candidate[]> {
+  const watchUrls = [...html.matchAll(/<a\\b[^>]*class=["'][^"']*\\blink-show\\b[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>/gi)]
+    .map((m) => absolute(pageUrl, m[1]))
+    .filter((value): value is string => !!value);
+
+  const results: Candidate[] = [];
+  for (const watchUrl of watchUrls.slice(0, 8)) {
+    try {
+      const watchHtml = await getText(watchUrl, timeoutMs, pageUrl);
+      const sourceMatches = [...watchHtml.matchAll(/<source\\b[^>]*src=["']([^"']+)["'][^>]*>/gi)];
+      for (const match of sourceMatches) {
+        const url = absolute(watchUrl, match[1]);
+        if (!url) continue;
+        const hint = /\\bsize=["']([^"']+)["']/i.exec(match[0])?.[1] || '';
+        const classified = classifyUrl(url, hint, true);
+        if (!classified) continue;
+        results.push({
+          provider: provider.name,
+          providerKey: provider.key,
+          type: classified.type,
+          url,
+          providerReference: provider.key,
+          quality: classified.quality,
+          language: 'ar',
+          label: `${provider.name} ${classified.quality === 'auto' ? 'Auto' : classified.quality}`,
+          expiresAt: undefined,
+          sourceUrl: watchUrl,
+        });
+      }
+    } catch {}
+    if (results.length) break;
+  }
+  return results;
+}
+
+async function resolveCimaClubSources(
+  targetUrl: string,
+  provider: SiteConfig,
+  timeoutMs: number,
+): Promise<Candidate[]> {
+  const html = await postText(targetUrl, timeoutMs, targetUrl);
+  const results: Candidate[] = [];
+  const seen = new Set<string>();
+
+  const add = (rawUrl: string, type: 'embed' | 'direct' = 'embed') => {
+    const url = absolute(targetUrl, rawUrl);
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    results.push({
+      provider: provider.name,
+      providerKey: provider.key,
+      type: type === 'direct'
+        ? (classifyUrl(url, '', true)?.type || 'direct')
+        : 'embed',
+      url,
+      providerReference: provider.key,
+      quality: 'auto',
+      language: 'ar',
+      label: `${provider.name} Auto`,
+      expiresAt: undefined,
+      sourceUrl: targetUrl,
+    });
+  };
+
+  for (const match of html.matchAll(/<li\\b[^>]*data-watch=["']([^"']+)["'][^>]*>/gi)) add(match[1], 'embed');
+  for (const match of html.matchAll(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>/gi)) {
+    const tag = match[0];
+    if (/ServersList|Download|download/i.test(tag)) add(match[1], 'embed');
+  }
+  return results;
+}
+
 function extractEpisodeCandidates(html: string, baseUrl: string) {
   const items: Array<{ url: string; number?: number; text: string }> = [];
   const seen = new Set<string>();
@@ -386,11 +482,29 @@ async function resolveProvider(
 
       if (!targetUrl) continue;
 
-      const watchHtml = targetUrl === hit.url
-        ? detail
-        : await getText(targetUrl, timeoutMs, hit.url);
+      let sources: Candidate[] = [];
 
-      let sources = parseQualitySources(watchHtml, targetUrl, provider);
+      if (provider.key === 'aflaam') {
+        const sourcePageHtml = targetUrl === hit.url ? detail : await getText(targetUrl, timeoutMs, hit.url);
+        sources = await resolveAflamQualitySources(sourcePageHtml, targetUrl, provider, timeoutMs);
+        if (!sources.length) sources = parseQualitySources(sourcePageHtml, targetUrl, provider);
+      } else if (provider.key === 'cimaclub') {
+        const watchTarget = context.episodeNumber !== undefined
+          ? targetUrl
+          : (targetUrl.endsWith('/') ? `${targetUrl}watch/` : `${targetUrl}/watch/`);
+        try {
+          sources = await resolveCimaClubSources(watchTarget, provider, timeoutMs);
+        } catch {}
+        if (!sources.length) {
+          const sourcePageHtml = targetUrl === hit.url ? detail : await getText(targetUrl, timeoutMs, hit.url);
+          sources = parseQualitySources(sourcePageHtml, targetUrl, provider);
+        }
+      } else {
+        const watchHtml = targetUrl === hit.url
+          ? detail
+          : await getText(targetUrl, timeoutMs, hit.url);
+        sources = parseQualitySources(watchHtml, targetUrl, provider);
+      }
 
       // For Anime4Up, server URLs are explicit data-watch attributes; when a
       // page exposes those servers, preserve them as embeds instead of trying
