@@ -4,6 +4,7 @@ import { adminSupabase } from '../server/supabase';
 import {
   resolveRe3ArabiPlayback,
   resolveRe3ArabiPlaybackWithContext,
+  resolveRe3ArabiProviderWithContext,
   resolveRe3ArabiSeriesContext,
 } from '../server/providers/re3arabi';
 
@@ -11,6 +12,7 @@ const ALLOWED_PROVIDER_KEYS = new Set(['aflaam', 'cimaclub', 'anime3rb', 'anime4
 const ALLOWED_TYPES = new Set(['hls', 'mp4', 'dash', 'webm', 'direct', 'embed']);
 
 const MODE = (process.env.REBIND_MODE || 'movies') as 'movies' | 'episodes';
+const REBIND_PROVIDER = (process.env.REBIND_PROVIDER || 'all') as 'all' | 'primary' | 'secondary';
 const LIMIT = Math.min(Math.max(Number(process.env.REBIND_LIMIT || 200), 1), 10_000);
 const OFFSET = Math.max(Number(process.env.REBIND_OFFSET || 0), 0);
 const CONCURRENCY = Math.min(Math.max(Number(process.env.REBIND_CONCURRENCY || 6), 1), 16);
@@ -63,7 +65,9 @@ function validateSources(sources: any[]) {
 async function ensureSyncJob(details: Record<string, unknown>) {
   await adminSupabase.from('sync_jobs').insert({
     provider: 'selected-sites',
-    job_type: MODE === 'movies' ? 'playback-rebind-movies' : 'playback-rebind-episodes',
+    job_type: MODE === 'movies'
+      ? `playback-rebind-movies-${REBIND_PROVIDER}`
+      : `playback-rebind-episodes-${REBIND_PROVIDER}`,
     status: 'succeeded',
     stage: 'playback-rebind',
     pages: 1,
@@ -98,12 +102,21 @@ async function persistExactMovieSources(
     !['auto', 'source'].includes(String(source?.quality || '').trim().toLowerCase())
   );
 
-  await adminSupabase
-    .from('playback_sources')
-    .delete()
-    .eq('provider_id', provider.id)
-    .eq('content_type', 'movie')
-    .eq('content_id', movieId);
+  const providerKeys = [...new Set(
+    allowed.map((source: any) =>
+      String(source?.providerKey || source?.providerReference || '').toLowerCase(),
+    ),
+  )];
+
+  if (providerKeys.length) {
+    await adminSupabase
+      .from('playback_sources')
+      .delete()
+      .eq('provider_id', provider.id)
+      .eq('content_type', 'movie')
+      .eq('content_id', movieId)
+      .in('provider_reference', providerKeys);
+  }
 
   const rows = allowed
     .filter((source: any, index: number, all: any[]) =>
@@ -152,10 +165,29 @@ async function rebindMovies() {
 
   await mapWithConcurrency(data || [], async (movie: any) => {
     try {
-      const sources = await resolveRe3ArabiPlayback({
-        type: 'movie',
-        tmdbId: Number(movie.tmdb_id),
-      });
+      const providerKeysForMovie =
+        REBIND_PROVIDER === 'primary'
+          ? ['aflaam']
+          : REBIND_PROVIDER === 'secondary'
+            ? ['cimaclub']
+            : ['aflaam', 'cimaclub'];
+
+      const providerResults = await Promise.all(
+        providerKeysForMovie.map(async (providerKey) => {
+          try {
+            return await resolveRe3ArabiPlayback({
+              type: 'movie',
+              tmdbId: Number(movie.tmdb_id),
+            });
+          } catch {
+            return [];
+          }
+        }),
+      );
+
+      const sources = providerResults.flat().filter((source: any) =>
+        providerKeysForMovie.includes(String(source?.providerKey || source?.providerReference || '').toLowerCase()),
+      );
       const persistedCount = await persistExactMovieSources(String(movie.id), sources);
       const groups = validateSources(sources);
 
@@ -212,12 +244,21 @@ async function persistExactEpisodeSources(
     !['auto', 'source'].includes(String(source?.quality || '').trim().toLowerCase())
   );
 
-  await adminSupabase
-    .from('playback_sources')
-    .delete()
-    .eq('provider_id', provider.id)
-    .eq('content_type', 'episode')
-    .eq('content_id', episodeId);
+  const providerKeys = [...new Set(
+    allowed.map((source: any) =>
+      String(source?.providerKey || source?.providerReference || '').toLowerCase(),
+    ),
+  )];
+
+  if (providerKeys.length) {
+    await adminSupabase
+      .from('playback_sources')
+      .delete()
+      .eq('provider_id', provider.id)
+      .eq('content_type', 'episode')
+      .eq('content_id', episodeId)
+      .in('provider_reference', providerKeys);
+  }
 
   if (!allowed.length) return 0;
 
@@ -301,7 +342,7 @@ async function rebindEpisodes() {
       .from('sync_jobs')
       .select('details')
       .eq('provider', 'selected-sites')
-      .eq('job_type', 'playback-rebind-episodes')
+      .eq('job_type', `playback-rebind-episodes-${REBIND_PROVIDER}`)
       .eq('status', 'succeeded')
       .order('finished_at', { ascending: false })
       .limit(1)
@@ -426,11 +467,29 @@ async function rebindEpisodes() {
     try {
       const seriesContext = await getSeriesContext(series);
 
-      const sources = await resolveRe3ArabiPlaybackWithContext(
-        seriesContext,
-        Number(season.season_number),
-        Number(episode.episode_number),
+      const providerKeysForEpisode =
+        REBIND_PROVIDER === 'primary'
+          ? [seriesContext.__isAnime ? 'anime3rb' : 'aflaam']
+          : REBIND_PROVIDER === 'secondary'
+            ? [seriesContext.__isAnime ? 'anime4up' : 'cimaclub']
+            : [seriesContext.__isAnime ? 'anime3rb' : 'aflaam', seriesContext.__isAnime ? 'anime4up' : 'cimaclub'];
+
+      const providerResults = await Promise.all(
+        providerKeysForEpisode.map(async (providerKey) => {
+          try {
+            return await resolveRe3ArabiProviderWithContext(
+              seriesContext,
+              Number(season.season_number),
+              Number(episode.episode_number),
+              providerKey,
+            );
+          } catch {
+            return [];
+          }
+        }),
       );
+
+      const sources = providerResults.flat();
       const persistedCount = await persistExactEpisodeSources(String(episode.id), sources);
       const groups = validateSources(sources);
 
