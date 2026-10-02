@@ -144,6 +144,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
   const [resolverLoading, setResolverLoading] = useState(false);
   const [playerUnlocked, setPlayerUnlocked] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const qualityResumeTimeRef = useRef<number | null>(null);
   const resumeAfterQualitySwitchRef = useRef(false);
@@ -151,6 +152,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const userPlayRequestedRef = useRef(false);
   const playbackStartedRef = useRef(false);
   const startupWatchTimerRef = useRef<number | null>(null);
+  const startupStallTimerRef = useRef<number | null>(null);
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const activeSeason = seasonNumber || 1;
@@ -170,12 +172,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setRemotePlaybackSource(null);
         setResolverLoading(false);
         setPlayerUnlocked(false);
+        setPlaybackError(null);
         userPlayRequestedRef.current = false;
         playbackStartedRef.current = false;
         startupTriedUrlsRef.current.clear();
         if (startupWatchTimerRef.current !== null) {
           window.clearTimeout(startupWatchTimerRef.current);
           startupWatchTimerRef.current = null;
+        }
+        if (startupStallTimerRef.current !== null) {
+          window.clearTimeout(startupStallTimerRef.current);
+          startupStallTimerRef.current = null;
         }
 
         const legacyTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
@@ -256,89 +263,94 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   useEffect(() => {
     let mounted = true;
 
-    // Cached playback is the fast path: start from it immediately, even while
-    // the resolver checks whether additional qualities are available.
+    const applyReadySources = (sources: PlaybackSource[]) => {
+      const ready = sortPlaybackSources(
+        sources
+          .filter(isPlayableHttpSource)
+          .filter((source) => source.isWorking !== false)
+          .slice(0, 12),
+      );
+
+      if (!ready.length) return false;
+
+      setPlaybackError(null);
+      setRemotePlaybackSources(ready);
+      setRemotePlaybackSource((current) => current ?? (
+        ready.find((source) => /720p/i.test(source.quality || source.labelEn || '')) ||
+        ready[0]
+      ));
+      setResolverLoading(false);
+      setPlayerUnlocked(true);
+      return true;
+    };
+
     if (storedPlaybackSources.length) {
-      setRemotePlaybackSources(storedPlaybackSources);
-      setRemotePlaybackSource((current) => current ?? storedPlaybackSource);
+      applyReadySources(storedPlaybackSources);
     } else {
       setRemotePlaybackSources([]);
       setRemotePlaybackSource(null);
     }
 
-    const hasReadyStoredSource = storedPlaybackSources.some(
-      (source) => source.isWorking && isPlayableHttpSource(source),
-    );
-
-    // DB-first architecture: once a working native source is stored for the
-    // exact movie/episode, do not call the resolver on the normal watch path.
-    // Resolver remains a fallback only for cache misses or broken/missing rows.
-    if (hasReadyStoredSource || !resolveTmdbId) {
+    if (!resolveTmdbId) {
       setResolverLoading(false);
+      setPlaybackError(language === 'ar' ? 'لا يوجد مصدر تشغيل جاهز لهذا المحتوى.' : 'No ready playback source exists for this title.');
       return () => {
         mounted = false;
       };
     }
 
-    setResolverLoading(true);
-
-    void MovyzaApi.resolvePlaybackSource({
+    const params = {
       type: mediaType,
       tmdbId: resolveTmdbId,
       ...(mediaType === 'series'
         ? {
             season: currentEpisode?.seasonNumber ?? activeSeason,
             episode: currentEpisode?.episodeNumber ?? activeEpisode,
-            ...(currentEpisode?.tmdbId ? { episodeTmdbId: currentEpisode.tmdbId } : {}),
           }
         : {}),
-    })
+    } as const;
+
+    setResolverLoading(true);
+    setPlaybackError(null);
+
+    void MovyzaApi.getReadyPlaybackSources(params)
       .then((response) => {
         if (!mounted) return;
-
-        const resolvedSources = sortPlaybackSources(
-          response.data.sources
-            .filter(isPlayableHttpSource)
-            .slice(0, 12),
-        );
-
-        const merged = sortPlaybackSources(
-          [...storedPlaybackSources, ...resolvedSources].filter(
-            (source, index, all) =>
-              index === all.findIndex((candidate) => candidate.url === source.url),
-          ),
-        );
-
-        const source =
-          resolvedSources.find((candidate) => candidate.isWorking && /720p/i.test(candidate.quality || candidate.labelEn || '')) ??
-          resolvedSources.find((candidate) => candidate.isWorking) ??
-          merged.find((candidate) => candidate.isWorking && /720p/i.test(candidate.quality || candidate.labelEn || '')) ??
-          merged.find((candidate) => candidate.isWorking) ??
-          merged[0] ??
-          null;
-        const resolvedUrls = new Set(resolvedSources.map((candidate) => candidate.url));
-
-        setRemotePlaybackSources(merged);
-        setRemotePlaybackSource((current) => {
-          if (!current) return source;
-          // Once playback has started, keep the active URL stable. Background
-          // resolver results must never interrupt a healthy video in Chrome.
-          if (userPlayRequestedRef.current || playbackStartedRef.current) return current;
-          if (resolvedUrls.size === 0 || resolvedUrls.has(current.url)) return current;
-          return source;
-        });
+        if (!applyReadySources(response.data.sources)) {
+          setResolverLoading(false);
+          setPlayerUnlocked(false);
+          setPlaybackError(
+            language === 'ar'
+              ? 'لا يوجد مصدر جاهز لهذه الحلقة حاليًا.'
+              : 'No prepared playback source is available for this episode yet.',
+          );
+        }
       })
       .catch(() => {
-        // Keep the already-playable cached source(s) when supplementation fails.
-      })
-      .finally(() => {
-        if (mounted) setResolverLoading(false);
+        if (!mounted) return;
+        setResolverLoading(false);
+        setPlayerUnlocked(false);
+        setPlaybackError(
+          language === 'ar'
+            ? 'تعذر الوصول إلى مصادر التشغيل الجاهزة حاليًا.'
+            : 'Unable to read the prepared playback sources right now.',
+        );
       });
 
     return () => {
       mounted = false;
     };
-  }, [resolveTmdbId, mediaType, activeSeason, activeEpisode, storedPlaybackSources.length, storedPlaybackSource?.url]);
+  }, [
+    resolveTmdbId,
+    mediaType,
+    activeSeason,
+    activeEpisode,
+    currentEpisode?.seasonNumber,
+    currentEpisode?.episodeNumber,
+    storedPlaybackSources.length,
+    storedPlaybackSource?.url,
+    language,
+  ]);
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
@@ -448,6 +460,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     }
   };
 
+  const clearStartupStall = () => {
+    if (startupStallTimerRef.current !== null) {
+      window.clearTimeout(startupStallTimerRef.current);
+      startupStallTimerRef.current = null;
+    }
+  };
+
   const tryNextStartupSource = () => {
     const video = videoRef.current;
     if (!video || availableSources.length < 2) return false;
@@ -467,6 +486,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         : 0;
     resumeAfterQualitySwitchRef.current = userPlayRequestedRef.current || !video.paused;
     qualitySwitchPendingRef.current = true;
+    setPlaybackError(null);
+    clearStartupStall();
     rememberPlaybackHost(playbackSource, false);
     setRemotePlaybackSource(next);
     return true;
@@ -498,8 +519,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     qualitySwitchPendingRef.current = true;
     startupTriedUrlsRef.current.add(source.url);
     playbackStartedRef.current = false;
-
+    setPlaybackError(null);
     clearStartupWatch();
+    clearStartupStall();
+    setPlayerUnlocked(true);
     setRemotePlaybackSource(source);
   };
 
@@ -527,7 +550,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !playerUnlocked || !playbackUrl) return;
+    if (!video || !playbackUrl) return;
 
     const current = video.getAttribute('src') || '';
     if (current === playbackUrl) return;
@@ -560,7 +583,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     );
   }
 
-  if (!playerUnlocked || !playbackUrl) {
+  if (!playbackUrl) {
     return (
       <div className="min-h-screen bg-[#030406] text-slate-100 flex items-center justify-center p-4">
         <div className="w-full max-w-3xl rounded-3xl overflow-hidden border border-amber-500/20 bg-black shadow-2xl">
@@ -576,45 +599,28 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             ) : null}
             <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-black/20" />
             <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
-              {!playerUnlocked ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleUnlockPlayer}
-                    className="group inline-flex items-center gap-3 rounded-2xl bg-amber-500 px-6 py-3 text-sm font-bold text-slate-950 shadow-xl shadow-amber-500/20 transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                  >
-                    <span className="grid h-8 w-8 place-items-center rounded-full bg-black/15">
-                      <Play className="w-4 h-4 fill-current" />
-                    </span>
-                    <span>{language === 'ar' ? 'تشغيل المشغل' : 'Open player'}</span>
-                  </button>
-                  <p className="mt-4 max-w-md text-[11px] leading-relaxed text-slate-400">
-                    {language === 'ar'
-                      ? 'سيتم فتح مصدر المشاهدة عند تشغيل المشغل.'
-                      : 'The playback source stays outside the player until you open it.'}
-                  </p>
-                </>
-              ) : resolverLoading ? (
+              {resolverLoading ? (
                 <>
                   <div className="mb-4 h-10 w-10 rounded-full border-2 border-amber-400/25 border-t-amber-400 animate-spin" />
                   <p className="text-sm font-medium text-slate-200">
-                    {language === 'ar' ? 'جاري تجهيز المشغل…' : 'Preparing player…'}
+                    {language === 'ar' ? 'جاري قراءة المصدر الجاهز…' : 'Reading prepared playback source…'}
                   </p>
                 </>
               ) : (
                 <ErrorState
-                  message={language === 'ar' ? 'لا يوجد مصدر تشغيل متاح حاليًا.' : 'No playback source is currently available.'}
-                  onRetry={() => {
-                    setPlayerUnlocked(false);
-                    setResolverLoading(true);
-                    window.setTimeout(() => setResolverLoading(false), 0);
-                  }}
+                  message={playbackError || (language === 'ar' ? 'لا يوجد مصدر تشغيل جاهز حاليًا.' : 'No prepared playback source is currently available.')}
+                  onRetry={() => window.location.reload()}
                   onGoHome={() => onNavigate('/')}
                 />
               )}
             </div>
           </div>
-          <div className="p-5 border-t border-amber-500/15">
+        </div>
+      </div>
+    );
+  }
+
+der-t border-amber-500/15">
             <button
               type="button"
               onClick={() => onNavigate('/')}
@@ -743,6 +749,25 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
             <div className="relative h-full w-full bg-black">
+
+              {playbackError ? (
+                <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/75 p-6 text-center">
+                  <ErrorState
+                    message={playbackError}
+                    onRetry={() => {
+                      setPlaybackError(null);
+                      startupTriedUrlsRef.current.delete(playbackUrl);
+                      retriedPlaybackUrlsRef.current.delete(playbackUrl);
+                      const video = videoRef.current;
+                      if (video) {
+                        video.preload = 'auto';
+                        video.load();
+                      }
+                    }}
+                    onGoHome={() => onNavigate('/')}
+                  />
+                </div>
+              ) : null}
               {/* Playback starts visibly with the native player; no preparation overlay is rendered. */}
               <video
                 ref={videoRef}
@@ -755,11 +780,26 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 disablePictureInPicture={false}
                 onLoadStart={() => {
                   playbackStartedRef.current = false;
+                  setPlaybackError(null);
                   if (playbackUrl) startupTriedUrlsRef.current.add(playbackUrl);
+
+                  clearStartupStall();
+                  startupStallTimerRef.current = window.setTimeout(() => {
+                    startupStallTimerRef.current = null;
+                    const video = videoRef.current;
+                    if (!video || playbackStartedRef.current || !playbackUrl) return;
+
+                    if (!tryNextStartupSource()) {
+                      setPlaybackError(
+                        language === 'ar'
+                          ? 'المصدر لم يبدأ التشغيل. جرّب مصدرًا آخر.'
+                          : 'This source did not start. Try another source.',
+                      );
+                    }
+                  }, 8000);
                 }}
                 onPlay={() => {
                   userPlayRequestedRef.current = true;
-                  playbackStartedRef.current = false;
                 }}
                 onLoadedMetadata={() => {
                   const video = videoRef.current;
@@ -777,6 +817,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onLoadedData={() => {
                 }}
                 onCanPlay={() => {
+                  clearStartupStall();
                   if (qualitySwitchPendingRef.current) {
                     qualitySwitchPendingRef.current = false;
                     if (resumeAfterQualitySwitchRef.current) {
@@ -787,16 +828,30 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   }
                 }}
                 onWaiting={() => {
-                  // Native buffering is browser-owned. Never seek, reload, or
-                  // rotate sources just because a waiting event fires.
+                  clearStartupStall();
+                  startupStallTimerRef.current = window.setTimeout(() => {
+                    startupStallTimerRef.current = null;
+                    if (playbackStartedRef.current) return;
+                    if (!tryNextStartupSource()) {
+                      setPlaybackError(
+                        language === 'ar'
+                          ? 'المصدر عالق أثناء البدء. جرّب مصدرًا آخر.'
+                          : 'The source is stuck while starting. Try another source.',
+                      );
+                    }
+                  }, 7000);
                 }}
                 onPlaying={() => {
                   playbackStartedRef.current = true;
                   clearStartupWatch();
+                  clearStartupStall();
+                  setPlaybackError(null);
                   rememberPlaybackHost(playbackSource, true);
                 }}
                 onError={() => {
+                  const wasPlaying = playbackStartedRef.current;
                   playbackStartedRef.current = false;
+                  clearStartupStall();
                   if (!playbackUrl) return;
 
                   rememberPlaybackHost(playbackSource, false);
@@ -804,27 +859,24 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   const video = videoRef.current;
                   if (!video) return;
 
-                  if (playbackStartedRef.current) {
+                  if (wasPlaying) {
                     if (retriedPlaybackUrlsRef.current.has(playbackUrl)) return;
                     retriedPlaybackUrlsRef.current.add(playbackUrl);
                     window.setTimeout(() => {
                       if (videoRef.current !== video) return;
                       video.preload = 'auto';
                       video.load();
-                    }, 500);
+                    }, 400);
                     return;
                   }
 
-                  if (userPlayRequestedRef.current && tryNextStartupSource()) return;
+                  if (tryNextStartupSource()) return;
 
-                  if (retriedPlaybackUrlsRef.current.has(playbackUrl)) return;
-                  retriedPlaybackUrlsRef.current.add(playbackUrl);
-
-                  window.setTimeout(() => {
-                    if (videoRef.current !== video) return;
-                    video.preload = 'auto';
-                    video.load();
-                  }, 350);
+                  setPlaybackError(
+                    language === 'ar'
+                      ? 'تعذر تشغيل المصدر الحالي.'
+                      : 'The current playback source could not start.',
+                  );
                 }}
               >
                 {playbackUrl ? null : null}
