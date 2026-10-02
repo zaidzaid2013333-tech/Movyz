@@ -7,29 +7,28 @@ Arabic-first movie and series platform.
 Browser UI -> Movyz API -> Supabase/PostgreSQL
                      -> TMDB metadata sync
 
-TMDB is used for catalog metadata. Playback does not go through a Watch Source API or server-side playback resolver.
+TMDB is used for catalog metadata only.
 
 ## Playback
 
 The production playback path is:
 
-1. The browser loads published movie/series metadata from the Movyz API.
-2. WatchPage requests `/api/v1/playback/resolve` with the TMDB ID and, for series, season/episode.
-3. Movyz resolves Akwam playback through OmegaTech and returns external HTTPS media URLs.
-4. WatchPage accepts only the `omegatech-akwam` provider and plays returned MP4/HLS media directly in the browser.
-5. Video bytes are never proxied or stored by Movyz.
+1. Re3Arabi is the only playback-source API/provider used by Movyz.
+2. Re3Arabi returns direct HTTPS media links such as MP4/HLS/DASH/WebM.
+3. Those direct links are stored in `playback_sources` and served by the Movyz API.
+4. WatchPage consumes the stored direct links; it does not call a runtime playback resolver.
+5. Movyz never proxies video bytes through the user-facing API.
 
-There is no VidCore URL generation and no VidCore iframe in the production WatchPage.
+The retired playback maintenance bot, queue prewarm workflow, and scheduled source cron are disabled.
 
 ## Authentication and roles
 
 Supabase Auth handles credentials and sessions. Roles are stored in public.profiles as USER, ADMIN, or OWNER.
-A database trigger creates a profile automatically when a new Auth user is created.
 
 ## Local development
 
 1. Copy .env.example to .env.
-2. Create the Supabase project and run supabase/MOVYZ_FULL_SETUP.sql.
+2. Create the Supabase project and run the database setup.
 3. Fill Supabase and TMDB credentials.
 4. Start the API with npm run server:dev.
 5. Start Vite with npm run dev.
@@ -40,4 +39,5 @@ A database trigger creates a profile automatically when a new Auth user is creat
 - Never ship mock catalog data.
 - Never trust a client-supplied role.
 - Keep TMDB metadata-only.
-- Keep playback routed through OmegaTech/Akwam and played directly in the browser; never generate or embed VidCore URLs.
+- Keep playback restricted to direct Re3Arabi links.
+- Never proxy or embed a separate playback provider from the WatchPage.
