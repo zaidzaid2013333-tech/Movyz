@@ -28,9 +28,9 @@ const CLAIM_BATCH = Math.min(Math.max(Number(process.env.EVERGREEN_CLAIM_BATCH |
 const MAX_JOBS = Math.min(Math.max(Number(process.env.EVERGREEN_MAX_JOBS || 600), 1), 2000);
 const CONCURRENCY = Math.min(Math.max(Number(process.env.EVERGREEN_CONCURRENCY || 12), 1), 24);
 
-function providerForLane(lane: Lane, isAnime: boolean): string {
+function providerForLane(lane: Lane, isAnime: boolean): string | null {
   if (lane === 'primary') return isAnime ? 'anime3rb' : 'aflaam';
-  return isAnime ? 'anime4up' : 'cimaclub';
+  return isAnime ? 'anime4up' : null;
 }
 
 function retryDelay(attempts: number) {
@@ -136,9 +136,9 @@ async function processJob(
       const primaryProvider = providerForLane('primary', isAnime);
       const secondaryProvider = providerForLane('secondary', isAnime);
 
-      const targetProviders = job.provider_lane === 'primary'
+      const targetProviders = (job.provider_lane === 'primary'
         ? [primaryProvider, secondaryProvider]
-        : [secondaryProvider];
+        : [secondaryProvider]).filter((value): value is string => Boolean(value));
 
       const alreadyFresh = await hasFreshProviderSource(
         'movie',
