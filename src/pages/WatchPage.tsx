@@ -618,7 +618,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current = null;
       video.pause();
       video.removeAttribute('src');
-      video.referrerPolicy = 'origin';
       video.src = playbackUrl;
       video.preload = 'auto';
       video.load();
