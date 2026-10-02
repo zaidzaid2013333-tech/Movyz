@@ -5,6 +5,8 @@ import {
   Check,
   Film,
   Info,
+  Play,
+  Star,
   Share2,
   ShieldAlert,
   Sparkles,
@@ -538,7 +540,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     onClick={handleUnlockPlayer}
                     className="group inline-flex items-center gap-3 rounded-2xl bg-amber-500 px-6 py-3 text-sm font-bold text-slate-950 shadow-xl shadow-amber-500/20 transition-transform hover:scale-[1.02] active:scale-[0.98]"
                   >
-                    <span className="grid h-8 w-8 place-items-center rounded-full bg-black/15 text-lg">▶</span>
+                    <span className="grid h-8 w-8 place-items-center rounded-full bg-black/15">
+                      <Play className="w-4 h-4 fill-current" />
+                    </span>
                     <span>{language === 'ar' ? 'تشغيل المشغل' : 'Open player'}</span>
                   </button>
                   <p className="mt-4 max-w-md text-[11px] leading-relaxed text-slate-400">
@@ -801,7 +805,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 {isMovie ? (content as Movie).year : (content as Series).startYear}
               </span>
               <span aria-hidden="true" className="text-amber-500/40">·</span>
-              <span className="font-bold text-amber-400">★ {content.rating.toFixed(1)}</span>
+              <span className="inline-flex items-center gap-1 font-bold text-amber-400">
+                <Star className="w-3 h-3 fill-current" />
+                {content.rating.toFixed(1)}
+              </span>
             </div>
           </div>
 
