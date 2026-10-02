@@ -1373,6 +1373,8 @@ async function resolveCanonicalCimaClubEpisode(
 
     const seasonWord = cimaSeasonWord(season);
     const paths = [
+      `/مشاهدة-مشاهدة-مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}-م/`,
+      `/مشاهدة-مشاهدة-مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}-م/`,
       `/مشاهدة-مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}-م/`,
       `/مشاهدة-مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}-م/`,
       `/مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}/`,
