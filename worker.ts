@@ -53,9 +53,9 @@ export default {
     return assetResponse;
   },
 
-  async scheduled(_controller: unknown, _env: MovyzEnvironment, ctx: ExecutionContextLike) {
+  async scheduled(_controller: unknown, env: MovyzEnvironment, ctx: ExecutionContextLike) {
     ctx.waitUntil(
-      runMaintenanceTick('primary_sources').catch((error) => {
+      runMaintenanceTick('primary_sources', env.BROWSER).catch((error) => {
         console.error('[movyz-scheduled-maintenance]', error instanceof Error ? error.message : String(error));
       }),
     );

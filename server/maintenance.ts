@@ -1,10 +1,12 @@
 import 'dotenv/config';
 import { adminSupabase } from './supabase';
 import {
-  resolveRe3ArabiPlayback,
+  resolveRe3ArabiMovieContext,
   resolveRe3ArabiPlaybackWithContext,
   resolveRe3ArabiSeriesContext,
+  resolveRe3ArabiPlayback,
 } from './providers/re3arabi';
+import { resolveArProvPlayback } from './providers/arprov';
 
 type PlaybackJob = {
   id: string;
@@ -69,7 +71,7 @@ function normalizeSource(source: PlaybackSource) {
   if (!/^https:\/\//i.test(url)) return null;
   if (!new Set(['hls', 'mp4', 'dash', 'webm', 'direct']).has(type)) return null;
   if (quality.toLowerCase() === 'auto') return null;
-  if (!new Set(['aflaam', 'cimaclub', 'anime4up']).has(providerKey)) return null;
+  if (!new Set(['akwam', 'anime4up']).has(providerKey)) return null;
   if (/movyz-api\.sameranede\.workers\.dev/i.test(url)) return null;
 
   return {
@@ -88,7 +90,7 @@ async function getProviderId() {
   const { data, error } = await adminSupabase
     .from('providers')
     .select('id')
-    .eq('key', 're3arabi')
+.eq('key', 'arprov')
     .maybeSingle();
   if (error) throw new Error('provider lookup failed: ' + error.message);
   return data?.id as string | undefined;
@@ -140,7 +142,7 @@ async function persistTopSources(
   rawSources: PlaybackSource[],
 ) {
   const providerId = await getProviderId();
-  if (!providerId) throw new Error('re3arabi provider is missing');
+  if (!providerId) throw new Error('ArProv provider is missing');
 
   const normalized = rawSources
     .map(normalizeSource)
@@ -152,8 +154,8 @@ async function persistTopSources(
       if (qualityDiff) return qualityDiff;
       const typeDiff = typeScore(b.type) - typeScore(a.type);
       if (typeDiff) return typeDiff;
-      const providerOrder = (a.providerKey === 'aflaam' ? 0 : a.providerKey === 'cimaclub' ? 1 : 2)
-        - (b.providerKey === 'aflaam' ? 0 : b.providerKey === 'cimaclub' ? 1 : 2);
+      const providerOrder = (a.providerKey === 'akwam' ? 0 : 1)
+        - (b.providerKey === 'akwam' ? 0 : 1);
       return providerOrder;
     })
     .filter((source, index, all) => all.findIndex((item) => item.url === source.url) === index);
@@ -250,7 +252,10 @@ async function loadEpisodeContext(episodeId: string) {
   };
 }
 
-async function resolveJob(job: PlaybackJob) {
+async function resolveJob(
+  job: PlaybackJob,
+  browserBinding?: unknown,
+) {
   if (job.provider_lane !== 'primary') {
     return { skipped: true, sourceCount: 0 };
   }
@@ -258,7 +263,7 @@ async function resolveJob(job: PlaybackJob) {
   if (job.content_type === 'movie') {
     const { data: movie, error } = await adminSupabase
       .from('movies')
-      .select('id,tmdb_id,status')
+      .select('id,tmdb_id,status,title_en,original_title')
       .eq('id', job.content_id)
       .maybeSingle();
 
@@ -266,21 +271,33 @@ async function resolveJob(job: PlaybackJob) {
       return { skipped: true, sourceCount: 0 };
     }
 
-    const sources = await resolveRe3ArabiPlayback({
-      type: 'movie',
-      tmdbId: Number(movie.tmdb_id),
-    });
+    const movieContext = await resolveRe3ArabiMovieContext(Number(movie.tmdb_id));
+    const sources = movieContext.__isAnime
+      ? await resolveRe3ArabiPlayback({ type: 'movie', tmdbId: Number(movie.tmdb_id) })
+      : await resolveArProvPlayback({
+          tmdbId: Number(movie.tmdb_id),
+          title: movie.title_en || undefined,
+        }, { browserBinding });
 
     const sourceCount = await persistTopSources('movie', String(movie.id), sources as PlaybackSource[]);
     return { skipped: false, sourceCount };
   }
 
   const info = await loadEpisodeContext(job.content_id);
-  const sources = await resolveRe3ArabiPlaybackWithContext(
-    info.context,
-    info.season,
-    info.episode,
-  );
+  const sources = info.isAnime
+    ? await resolveRe3ArabiPlaybackWithContext(
+        info.context,
+        info.season,
+        info.episode,
+      )
+    : await resolveArProvPlayback({
+        tmdbId: info.tmdbId,
+        title: info.context.title || undefined,
+        originalTitle: info.context.originalTitle || undefined,
+        alternateTitles: info.context.alternateTitles,
+        seasonNumber: info.season,
+        episodeNumber: info.episode,
+      }, { browserBinding });
 
   const sourceCount = await persistTopSources(
     'episode',
@@ -293,19 +310,21 @@ async function resolveJob(job: PlaybackJob) {
 
 export async function runMaintenanceTick(
   jobKey: 'primary_sources' | 'secondary_sources' | 'repair_sources',
+  browserBinding?: unknown,
 ) {
   if (jobKey === 'repair_sources') {
-    return runQueueBatch(['primary', 'secondary'], 40);
+    return runQueueBatch(['primary', 'secondary'], 40, browserBinding);
   }
 
   return jobKey === 'primary_sources'
-    ? runQueueBatch(['primary'], 80)
-    : runQueueBatch(['secondary'], 40);
+    ? runQueueBatch(['primary'], 80, browserBinding)
+    : runQueueBatch(['secondary'], 40, browserBinding);
 }
 
 async function runQueueBatch(
   lanes: Array<'primary' | 'secondary'>,
   limit: number,
+  browserBinding?: unknown,
 ) {
   let claimed = 0;
   let succeeded = 0;
@@ -327,7 +346,7 @@ async function runQueueBatch(
       if (!job) return;
 
       try {
-        const result = await resolveJob(job);
+        const result = await resolveJob(job, browserBinding);
         if (result.skipped) {
           skipped += 1;
           await finishJob(job, { status: 'succeeded', sourceCount: result.sourceCount });
