@@ -1,4 +1,4 @@
-name: Movyz rolling TMDB catalog import
+name: Movyz rolling catalog + selected playback sync
 
 on:
   schedule:
@@ -11,12 +11,18 @@ on:
         default: "3"
         type: choice
         options: ["1","2","3","4","5","6"]
+      episode_limit:
+        description: "Episode playback rebind batch size"
+        required: true
+        default: "1000"
+        type: choice
+        options: ["250","500","1000","2000"]
 
 permissions:
   contents: read
 
 concurrency:
-  group: movyz-tmdb-sync
+  group: movyz-tmdb-and-playback-sync
   cancel-in-progress: false
 
 jobs:
@@ -32,6 +38,9 @@ jobs:
       MOVIE_DAILY_CAP: "240"
       SERIES_DAILY_CAP: "20"
       TMDB_REQUEST_TIMEOUT_MS: "15000"
+      MOVYZA_PROVIDER_TIMEOUT_MS: "10000"
+      REBIND_CONCURRENCY: "8"
+      REBIND_EPISODE_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.episode_limit || '1000' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -53,27 +62,23 @@ jobs:
       - name: Validate code
         run: npm run lint
 
-      - name: Import new TMDB catalog items within daily caps
+      - name: Import new TMDB catalog items
         run: npx tsx scripts/auto-catalog-import.ts
 
-      - name: Link newly imported movies to OmegaTech immediately
-        run: |
-          echo "Newly imported movies are linked during auto-catalog-import."
-
-      - name: Warm OmegaTech playback cache for missing/new movies
-        env:
-          MOVIE_LIMIT: "240"
-          EPISODE_LIMIT: "0"
-          CACHE_CONCURRENCY: "2"
-        run: |
-          for attempt in 1 2; do
-            echo "OmegaTech movie cache attempt $attempt/2"
-            npx tsx scripts/sync-omegatech-cache.ts && exit 0
-            test "$attempt" -lt 2 && sleep 30
-          done
-          exit 1
-
-      - name: Repair and complete episode metadata for all published series
+      - name: Repair and complete episode metadata
         run: npx tsx scripts/run-tmdb-sync.ts episodes 10000
+
+      - name: Rebind movie playback to Aflam/CimaClub
+        env:
+          REBIND_MODE: movies
+          REBIND_LIMIT: "240"
+        run: npx tsx scripts/rebind-selected-playback.ts
+
+      - name: Rebind a resumable batch of episode playback
+        env:
+          REBIND_MODE: episodes
+          REBIND_LIMIT: ${{ env.REBIND_EPISODE_LIMIT }}
+        run: npx tsx scripts/rebind-selected-playback.ts
+
       - name: Verify catalog integrity
         run: npx tsx scripts/verify-tmdb-sync.ts
