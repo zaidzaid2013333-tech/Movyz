@@ -8,6 +8,7 @@ import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdb
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolveRe3ArabiPlayback } from './providers/re3arabi';
 import { resolveDoodStreamPlayback } from './providers/dood';
+import { resolveArProvPlayback } from './providers/arprov';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -753,14 +754,27 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
     }
 
     try {
-      sources = await resolveDoodStreamPlayback({
+      sources = await resolveArProvPlayback({
         tmdbId: Number(data.tmdb_id),
         title: data.title_en || data.title_ar || data.original_title || undefined,
         originalTitle: data.original_title || data.title_en || data.title_ar || undefined,
       });
     } catch (error) {
-      console.warn('[doodstream-movie]', error instanceof Error ? error.message : String(error));
+      console.warn('[arprov-movie]', error instanceof Error ? error.message : String(error));
       sources = [];
+    }
+
+    if (!sources.length) {
+      try {
+        sources = await resolveDoodStreamPlayback({
+          tmdbId: Number(data.tmdb_id),
+          title: data.title_en || data.title_ar || data.original_title || undefined,
+          originalTitle: data.original_title || data.title_en || data.title_ar || undefined,
+        });
+      } catch (error) {
+        console.warn('[doodstream-movie]', error instanceof Error ? error.message : String(error));
+        sources = [];
+      }
     }
 
     if (!sources.length) {
@@ -811,7 +825,7 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
     }
 
     try {
-      sources = await resolveDoodStreamPlayback({
+      sources = await resolveArProvPlayback({
         tmdbId: Number(series.tmdb_id),
         title: series.title_en || series.title_ar || series.original_title || undefined,
         originalTitle: series.original_title || series.title_en || series.title_ar || undefined,
@@ -819,8 +833,23 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
         episodeNumber: Number(episode.episode_number),
       });
     } catch (error) {
-      console.warn('[doodstream-episode]', error instanceof Error ? error.message : String(error));
+      console.warn('[arprov-episode]', error instanceof Error ? error.message : String(error));
       sources = [];
+    }
+
+    if (!sources.length) {
+      try {
+        sources = await resolveDoodStreamPlayback({
+          tmdbId: Number(series.tmdb_id),
+          title: series.title_en || series.title_ar || series.original_title || undefined,
+          originalTitle: series.original_title || series.title_en || series.title_ar || undefined,
+          seasonNumber: Number(season.season_number),
+          episodeNumber: Number(episode.episode_number),
+        });
+      } catch (error) {
+        console.warn('[doodstream-episode]', error instanceof Error ? error.message : String(error));
+        sources = [];
+      }
     }
 
     if (!sources.length) {
