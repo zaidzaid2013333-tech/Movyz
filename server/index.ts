@@ -127,7 +127,10 @@ async function persistRemoteRe3ArabiSources(
     if (!contentId) return;
 
     const rows = sources
-      .filter((source) => /^https:\/\//i.test(source.url) && ['hls', 'mp4', 'dash'].includes(source.type))
+      .filter((source) =>
+        /^https:\/\//i.test(source.url) &&
+        ['hls', 'mp4', 'dash', 'webm', 'direct', 'embed'].includes(source.type),
+      )
       .slice(0, 6)
       .map((source) => ({
         provider_id: providerId,
