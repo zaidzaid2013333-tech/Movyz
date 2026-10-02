@@ -87,7 +87,7 @@ jobs:
           import json
           import os
           import urllib.request
-from urllib.error import HTTPError
+          from urllib.error import HTTPError
 
           api_base = os.environ["API_BASE"]
           api_checks = [
@@ -118,6 +118,7 @@ from urllib.error import HTTPError
           import json
           import urllib.parse
           import urllib.request
+          from urllib.error import HTTPError
 
           base = "https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve"
           checks = [
