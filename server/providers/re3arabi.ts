@@ -1100,40 +1100,18 @@ async function resolveProvider(
     }),
   )];
 
-  const titles = searchTerms;
+  if (!searchTerms.length) return [];
 
-  if (!titles.length) return [];
-  // expensive title searches so exact episode prewarming does not depend on
-  // search ranking or a slow mirror.
   if (provider.key === 'anime3rb' && context.episodeNumber !== undefined) {
-    const canonicalSources = await resolveCanonicalAnime3rbEpisode(titles, context, provider, timeoutMs);
+    const canonicalSources = await resolveCanonicalAnime3rbEpisode(
+      searchTerms,
+      context,
+      provider,
+      timeoutMs,
+    );
     if (canonicalSources.length) return canonicalSources;
   }
 
-  const searchResults: SearchHit[] = [];
-
-  // Anime3rb has stable canonical title pages; prefer them before generic search.
-  if (provider.key === 'anime3rb') {
-    const titleResults = await Promise.allSettled(
-      titles.slice(0, 2).map(async (term) => {
-        const titleSlug = normalize(term).replace(/\s+/g, '-');
-        const titleUrl = `https://anime3rb.com/titles/${titleSlug}`;
-        const titleHtml = await getText(titleUrl, timeoutMs, provider.base);
-        const marker = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(titleHtml)?.[1];
-        return {
-          title: stripTags(marker || term).replace(/\s*[-|].*$/, '').trim() || term,
-          url: titleUrl,
-          year: extractYear(titleHtml.slice(0, 5000)),
-        };
-      }),
-    );
-    for (const result of titleResults) {
-      if (result.status === 'fulfilled') searchResults.push(result.value);
-    }
-  }
-
-  // Search all configured URL variants concurrently. Slow/dead hosts no longer
-  // serialize the provider's entire discovery phase.
   const searchJobs = searchTerms
     .slice(0, 2)
     .flatMap((term) =>
@@ -1144,14 +1122,26 @@ async function resolveProvider(
     searchJobs.map(({ searchUrl }) => getText(searchUrl, timeoutMs, provider.base)),
   );
 
+  const searchResults: SearchHit[] = [];
   for (const result of searchResponses) {
     if (result.status !== 'fulfilled') continue;
     const html = result.value;
-    if (provider.key === 'aflaam') searchResults.push(...parseAflamSearchHits(html, provider.base));
-    const hits = rankHits(searchResults, titles, context.releaseYear);
-  if (!hits.length) {
-    return [];
+    if (provider.key === 'aflaam') {
+      searchResults.push(...parseAflamSearchHits(html, provider.base));
+    } else if (provider.key === 'anime3rb') {
+      searchResults.push(...parseSearchHits(html, provider.base, context.episodeNumber !== undefined));
+      searchResults.push(...parseMarkdownLinks(html, provider.base));
+    } else if (provider.key === 'anime4up') {
+      searchResults.push(...parseSearchHits(html, provider.base, context.episodeNumber !== undefined));
+      searchResults.push(...parseMarkdownLinks(html, provider.base));
+    } else {
+      searchResults.push(...parseSearchHits(html, provider.base, context.episodeNumber !== undefined));
+      searchResults.push(...parseMarkdownLinks(html, provider.base));
+    }
   }
+
+  const hits = rankHits(searchResults, searchTerms, context.releaseYear);
+  if (!hits.length) return [];
 
   for (const hit of hits) {
     try {
@@ -1168,21 +1158,24 @@ async function resolveProvider(
             (context.seasonNumber === 1 && hitIdentity.season === undefined)
           );
 
-        if (explicitEpisode) {
-          targetUrl = hit.url;
- else if (provider.key === 'aflaam') {
-          targetUrl = resolveAflamEpisodeUrl(
-            detail,
-            hit.url,
-            context.seasonNumber,
-            context.episodeNumber,
-          ) || '';
-        } else {
-          targetUrl = findEpisodeUrl(detail, hit.url, context.seasonNumber, context.episodeNumber) || '';
+        if (!explicitEpisode) {
+          if (provider.key === 'aflaam') {
+            targetUrl = resolveAflamEpisodeUrl(
+              detail,
+              hit.url,
+              context.seasonNumber,
+              context.episodeNumber,
+            ) || '';
+          } else {
+            targetUrl = findEpisodeUrl(
+              detail,
+              hit.url,
+              context.seasonNumber,
+              context.episodeNumber,
+            ) || '';
+          }
         }
 
-        // Anime3rb exposes a stable canonical episode route even when the
-        // title page omits the episode anchors from the initial HTML.
         if (!targetUrl && provider.key === 'anime3rb') {
           try {
             const titleSlug = new URL(hit.url).pathname.match(/^\/titles\/([^/]+)/i)?.[1];
@@ -1197,14 +1190,17 @@ async function resolveProvider(
         }
 
         if (!targetUrl) {
-          // Some pages link the first episode from a separate panel; resolve
-          // that page once and look for the requested episode there.
           const firstEpisode = extractEpisodeCandidates(detail, hit.url)[0];
           if (firstEpisode?.url) {
             try {
               const episodePage = await getText(firstEpisode.url, timeoutMs, hit.url);
               targetUrl =
-                findEpisodeUrl(episodePage, firstEpisode.url, context.seasonNumber, context.episodeNumber) ||
+                findEpisodeUrl(
+                  episodePage,
+                  firstEpisode.url,
+                  context.seasonNumber,
+                  context.episodeNumber,
+                ) ||
                 (firstEpisode.number === context.episodeNumber ? firstEpisode.url : '');
             } catch {}
           }
@@ -1214,25 +1210,42 @@ async function resolveProvider(
       if (!targetUrl) continue;
 
       let sources: Candidate[] = [];
-
       if (provider.key === 'aflaam') {
-        const sourcePageHtml = targetUrl === hit.url ? detail : await getText(targetUrl, timeoutMs, hit.url);
-        sources = await resolveAflamQualitySources(sourcePageHtml, targetUrl, provider, timeoutMs);
-        if (!sources.length) sources = parseQualitySources(sourcePageHtml, targetUrl, provider);
- else if (provider.key === 'anime3rb') {
-        const watchHtml = targetUrl === hit.url
-          ? detail
-          : await getText(targetUrl, timeoutMs, hit.url);
-        sources = await resolveAnime3rbSources(watchHtml, targetUrl, provider, timeoutMs);
+        const sourcePageHtml =
+          targetUrl === hit.url
+            ? detail
+            : await getText(targetUrl, timeoutMs, hit.url);
+        sources = await resolveAflamQualitySources(
+          sourcePageHtml,
+          targetUrl,
+          provider,
+          timeoutMs,
+        );
+        if (!sources.length) {
+          sources = parseQualitySources(sourcePageHtml, targetUrl, provider);
+        }
+      } else if (provider.key === 'anime3rb') {
+        const watchHtml =
+          targetUrl === hit.url
+            ? detail
+            : await getText(targetUrl, timeoutMs, hit.url);
+        sources = await resolveAnime3rbSources(
+          watchHtml,
+          targetUrl,
+          provider,
+          timeoutMs,
+        );
       } else if (provider.key === 'anime4up') {
-        const watchHtml = targetUrl === hit.url
-          ? detail
-          : await getText(targetUrl, timeoutMs, hit.url);
+        const watchHtml =
+          targetUrl === hit.url
+            ? detail
+            : await getText(targetUrl, timeoutMs, hit.url);
         sources = await resolveAnime4upSources(watchHtml, targetUrl, provider);
       } else {
-        const watchHtml = targetUrl === hit.url
-          ? detail
-          : await getText(targetUrl, timeoutMs, hit.url);
+        const watchHtml =
+          targetUrl === hit.url
+            ? detail
+            : await getText(targetUrl, timeoutMs, hit.url);
         sources = parseQualitySources(watchHtml, targetUrl, provider);
       }
 
@@ -1242,28 +1255,34 @@ async function resolveProvider(
         source.quality !== 'source',
       );
 
-      if (sources.length && context.episodeNumber !== undefined && context.seasonNumber !== undefined) {
+      if (
+        sources.length &&
+        context.episodeNumber !== undefined &&
+        context.seasonNumber !== undefined
+      ) {
         const tagged = sources.filter((source) => {
           const identities = [source.url || '', source.sourceUrl || '']
             .map(parseSeasonEpisode)
-            .filter((identity) => identity.season !== undefined || identity.episode !== undefined);
+            .filter(
+              (identity) =>
+                identity.season !== undefined ||
+                identity.episode !== undefined,
+            );
 
-          // Explicitly tagged media URLs must agree with the requested
-          // season/episode. Opaque URLs are accepted when the episode page was
-          // resolved unambiguously by findEpisodeUrl above.
           if (!identities.length) return true;
-          return identities.some((identity) =>
-            identity.season === context.seasonNumber &&
-            identity.episode === context.episodeNumber,
+
+          return identities.some(
+            (identity) =>
+              identity.season === context.seasonNumber &&
+              identity.episode === context.episodeNumber,
           );
         });
+
         if (tagged.length) return tagged;
         continue;
       }
 
-      if (sources.length) {
-        return sources;
-      }
+      if (sources.length) return sources;
     } catch {
       // Continue with the next ranked result.
     }
