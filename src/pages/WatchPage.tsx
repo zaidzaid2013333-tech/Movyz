@@ -723,6 +723,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         window.clearTimeout(startupGuardTimerRef.current);
         startupGuardTimerRef.current = null;
       }
+      if (startupWarmupTimerRef.current !== null) {
+        window.clearTimeout(startupWarmupTimerRef.current);
+        startupWarmupTimerRef.current = null;
+      }
       playbackEngineRef.current?.destroy?.();
       playbackEngineRef.current = null;
       video.pause();
