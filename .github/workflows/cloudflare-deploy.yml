@@ -366,15 +366,15 @@ jobs:
 
           base = "https://movyz-api.sameranede.workers.dev/api/v1/playback/resolve"
           checks = [
-              ("movie", 27205, None, None),
-              ("movie", 278, None, None),
-              ("movie", 550, None, None),
-              ("movie", 155, None, None),
-              ("series", 1396, 1, 1),
-              ("series", 5920, 1, 1),
+              ("movie", 27205, None, None, "general"),
+              ("movie", 278, None, None, "general"),
+              ("movie", 550, None, None, "general"),
+              ("movie", 155, None, None, "general"),
+              ("series", 1396, 1, 1, "general"),
+              ("series", 5920, 1, 1, "anime"),
           ]
 
-          for media_type, tmdb_id, season, episode in checks:
+          for media_type, tmdb_id, season, episode, kind in checks:
               params = {"type": media_type, "tmdbId": str(tmdb_id)}
               if season is not None:
                   params["season"] = str(season)
@@ -394,7 +394,12 @@ jobs:
                           and isinstance(sources, list)
                           and len(sources) > 0
                           and all(
-                              isinstance(item, dict) and item.get("providerKey") == "re3arabi"
+                              isinstance(item, dict)
+                              and (
+                                  item.get("providerKey") == "aflaam"
+                                  if kind == "general"
+                                  else item.get("providerKey") in {"anime3rb", "anime4up"}
+                              )
                               for item in sources
                           )
                       )
