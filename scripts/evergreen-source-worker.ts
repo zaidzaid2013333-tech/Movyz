@@ -9,6 +9,7 @@ import {
   resolveRe3ArabiProvider,
   resolveRe3ArabiProviderWithContext,
   resolveRe3ArabiSeriesContext,
+  resolveRe3ArabiMovieContext,
 } from '../server/providers/re3arabi';
 
 type Lane = 'primary' | 'secondary';
@@ -109,9 +110,11 @@ async function processJob(
         return;
       }
 
+      const context = await resolveRe3ArabiMovieContext(Number(movie.tmdb_id));
+      const providerKey = providerForLane(job.provider_lane, !!context.__isAnime);
       const sources = await resolveRe3ArabiProvider(
         { type: 'movie', tmdbId: Number(movie.tmdb_id) },
-        providerForLane(job.provider_lane, false),
+        providerKey,
       );
 
       const persisted = await persistEvergreenMovieSources(String(movie.id), sources);
@@ -133,7 +136,7 @@ async function processJob(
         p_details: {
           worker: WORKER_ID,
           lane: job.provider_lane,
-          provider: providerForLane(job.provider_lane, false),
+          provider: providerKey,
         },
       });
       return;
