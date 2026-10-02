@@ -2,8 +2,15 @@ name: Movyz Source Maintenance
 
 on:
   schedule:
-    - cron: '7 * * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "server/maintenance.ts"
+      - "server/providers/re3arabi.ts"
+      - "scripts/rebind-selected-playback.ts"
+      - "bot/**"
 
 concurrency:
   group: movyz-source-maintenance
