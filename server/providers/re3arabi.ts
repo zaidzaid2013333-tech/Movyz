@@ -48,7 +48,7 @@ const PROVIDERS: readonly SiteConfig[] = [
   {
     key: 'cimaclub',
     name: 'CimaClub',
-    base: 'https://cimacub.com',
+    base: 'https://w.cimacub.com',
     kind: 'general',
     searchUrls: (q) => [
       `https://w.cimacub.com/?s=${q}`,
