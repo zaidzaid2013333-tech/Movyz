@@ -199,14 +199,28 @@ function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
 }
 
 function qualityFromBlock(block: string) {
-  const id = /id=["'][^"']*?([2-5])[^"']*["']/i.exec(block)?.[1];
+  const text = cleanText(block);
+  const explicit = /(?:2160|1440|1080|720|576|480|360|240)\s*p?/i.exec(text)?.[0];
+  if (explicit) return `${explicit.replace(/\s+/g, '').replace(/(2160|1440|1080|720|576|480|360|240)$/i, '$1')}p`.toLowerCase();
+
+  const dataQuality = /(?:data-quality|data-resolution|quality|resolution|res)[\s:=\"']+(2160|1440|1080|720|576|480|360|240)/i.exec(block)?.[1];
+  if (dataQuality) return `${dataQuality}p`;
+
+  const id = /(?:^|[-_\s])([2-5])(?:[-_\s]|$)/i.exec(
+    /(?:id|data-id|quality-id|res)[=:"'\s-]+([^\s"' >]+)/i.exec(block)?.[1] || '',
+  )?.[1];
   if (id === '5') return '1080p';
   if (id === '4') return '720p';
   if (id === '3') return '480p';
   if (id === '2') return '360p';
 
-  const quality = inferQuality(cleanText(block), block);
-  return quality === 'auto' ? 'auto' : quality;
+  const attributeId = /id=["'](?:[^"']*?)([2-5])(?:[^"']*)["']/i.exec(block)?.[1];
+  if (attributeId === '5') return '1080p';
+  if (attributeId === '4') return '720p';
+  if (attributeId === '3') return '480p';
+  if (attributeId === '2') return '360p';
+
+  return inferQuality(text, block); 
 }
 
 function downloadTarget(pageUrl: string, href: string, base: string) {
@@ -273,14 +287,22 @@ async function resolveDownload(
     });
 
     if (extractor.length) {
-      output.push(...extractor.map(item => ({
-        ...item,
-        provider: 'Akwam',
-        providerReference: 'akwam',
-        quality: quality !== 'auto' ? quality : item.quality,
-        language: item.language || 'und',
-        label: item.label || `Akwam ${quality !== 'auto' ? quality : item.quality}`.trim(),
-      })));
+      output.push(...extractor.map(item => {
+        const inferredQuality =
+          quality !== 'auto'
+            ? quality
+            : inferQuality(item.label || '', item.url || '') !== 'auto'
+              ? inferQuality(item.label || '', item.url || '')
+              : item.quality;
+        return {
+          ...item,
+          provider: 'Akwam',
+          providerReference: 'akwam',
+          quality: inferredQuality,
+          language: item.language || 'und',
+          label: item.label || `Akwam ${inferredQuality || ''}`.trim(),
+        };
+      }));
       continue;
     }
 
