@@ -26,16 +26,20 @@ export function absoluteHttpsUrl(value: unknown): string | null {
   }
 }
 
-export function inferPlaybackType(url: string, explicit?: unknown): 'hls' | 'mp4' | 'dash' | null {
+export function inferPlaybackType(url: string, explicit?: unknown): 'hls' | 'mp4' | 'dash' | 'webm' | 'direct' | null {
   const type = typeof explicit === 'string' ? explicit.toLowerCase() : '';
   if (type === 'hls' || type === 'm3u8') return 'hls';
   if (type === 'mp4') return 'mp4';
   if (type === 'dash' || type === 'mpd') return 'dash';
+  if (type === 'webm') return 'webm';
+  if (type === 'direct') return 'direct';
 
   const pathname = new URL(url).pathname.toLowerCase();
   if (pathname.includes('.m3u8')) return 'hls';
   if (pathname.includes('.mpd')) return 'dash';
   if (pathname.includes('.mp4')) return 'mp4';
+  if (pathname.includes('.webm')) return 'webm';
+  if (/\.(?:m4v|mov|mkv|avi|mpeg|mpg|ogg|ogv|ts|m2ts|flv|3gp|3g2)(?:$|[?#])/.test(pathname)) return 'direct';
   return null;
 }
 
