@@ -18,6 +18,11 @@ const details = previous?.details && typeof previous.details === 'object'
   ? previous.details as Record<string, unknown>
   : {};
 const cursor = typeof details.nextCursor === 'string' ? details.nextCursor : '';
+const failedEpisodeIds = Array.isArray(details.failedEpisodeIds)
+  ? details.failedEpisodeIds.filter((id): id is string => typeof id === 'string')
+  : [];
+
+let remaining = 0;
 
 if (!cursor) {
   const { count, error } = await adminSupabase
@@ -25,15 +30,18 @@ if (!cursor) {
     .select('id', { count: 'exact', head: true });
 
   if (error) throw new Error('Unable to count episodes: ' + error.message);
-  console.log(Math.max(0, count || 0));
-  process.exit(0);
+  remaining = Math.max(0, count || 0);
+} else {
+  const { count, error } = await adminSupabase
+    .from('episodes')
+    .select('id', { count: 'exact', head: true })
+    .gt('id', cursor);
+
+  if (error) throw new Error('Unable to count remaining episodes: ' + error.message);
+  remaining = Math.max(0, count || 0);
 }
 
-const { count, error } = await adminSupabase
-  .from('episodes')
-  .select('id', { count: 'exact', head: true })
-  .gt('id', cursor);
+// Force one more retry pass whenever the latest batch recorded failures.
+if (failedEpisodeIds.length) remaining = Math.max(remaining, 1);
 
-if (error) throw new Error('Unable to count remaining episodes: ' + error.message);
-
-console.log(Math.max(0, count || 0));
+console.log(remaining);
