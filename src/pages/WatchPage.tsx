@@ -496,7 +496,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     startupTriedUrlsRef.current.add(source.url);
     playbackStartedRef.current = false;
     setPlaybackError(null);
-    clearStartupWatch();
     setPlayerUnlocked(true);
     setRemotePlaybackSource(source);
   };
@@ -783,7 +782,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onError={() => {
                   const wasPlaying = playbackStartedRef.current;
                   playbackStartedRef.current = false;
-                  clearStartupStall();
                   if (!playbackUrl) return;
 
                   rememberPlaybackHost(playbackSource, false);
