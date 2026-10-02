@@ -1,0 +1,57 @@
+name: Movyz full episode secondary source prewarm
+
+on:
+  schedule:
+    - cron: "47 * * * *"
+  workflow_dispatch:
+    inputs:
+      episode_limit:
+        description: "Secondary-provider episode batch size"
+        required: true
+        default: "500"
+        type: choice
+        options: ["250","500","750","1000"]
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: movyz-full-episode-secondary-prewarm
+  cancel-in-progress: false
+
+jobs:
+  prewarm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      REBIND_MODE: episodes
+      REBIND_PROVIDER: secondary
+      REBIND_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.episode_limit || '500' }}
+      REBIND_CONCURRENCY: "16"
+      RE3ARABI_TIMEOUT_MS: "6000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Rebuild the next secondary-provider episode batch
+        run: npx tsx scripts/rebind-selected-playback.ts
+      - name: Verify catalog integrity
+        run: npx tsx scripts/verify-tmdb-sync.ts
+      - name: Check remaining secondary episode work
+        id: remaining
+        run: |
+          remaining=$(npx tsx scripts/episode-rebind-status.ts)
+          echo "remaining=$remaining" >> "$GITHUB_OUTPUT"
+      - name: Queue the next secondary episode batch
+        if: steps.remaining.outputs.remaining != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run full-episode-secondary-source-prewarm.yml --ref main -f episode_limit=500
