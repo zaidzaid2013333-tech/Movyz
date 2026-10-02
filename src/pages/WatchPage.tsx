@@ -281,9 +281,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       .sort((a, b) => startupSourceRank(b) - startupSourceRank(a))[0]
     ?? storedPlaybackSources[0]
     ?? null;
-  const routeTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
-  const resolveTmdbId = content?.tmdbId ?? routeTmdbId;
-
   useEffect(() => {
     let mounted = true;
 
@@ -308,73 +305,25 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       return true;
     };
 
-    if (storedPlaybackSources.length) {
-      applyReadySources(storedPlaybackSources);
-    } else {
-      setRemotePlaybackSources([]);
-      setRemotePlaybackSource(null);
-    }
+    setRemotePlaybackSources([]);
+    setRemotePlaybackSource(null);
+    setResolverLoading(false);
+    setPlaybackError(null);
 
-    if (!resolveTmdbId) {
-      setResolverLoading(false);
-      setPlaybackError(language === 'ar' ? 'لا يوجد مصدر تشغيل جاهز لهذا المحتوى.' : 'No ready playback source exists for this title.');
+    // Playback is intentionally DB-only now. The content DTO already carries
+    // preloaded sources, so opening the player never starts a resolver request.
+    if (storedPlaybackSources.length && applyReadySources(storedPlaybackSources)) {
       return () => {
         mounted = false;
       };
     }
 
-    const params = {
-      type: mediaType,
-      tmdbId: resolveTmdbId,
-      ...(mediaType === 'series'
-        ? {
-            season: currentEpisode?.seasonNumber ?? activeSeason,
-            episode: currentEpisode?.episodeNumber ?? activeEpisode,
-          }
-        : {}),
-    } as const;
-
-    setResolverLoading(true);
-    setPlaybackError(null);
-
-    void MovyzaApi.getReadyPlaybackSources(params)
-      .then(async (response) => {
-        if (!mounted) return;
-        if (applyReadySources(response.data.sources)) return;
-
-        try {
-          const fallback = await MovyzaApi.resolvePlaybackSource(params);
-          if (!mounted) return;
-          if (applyReadySources(fallback.data.sources)) return;
-
-          setResolverLoading(false);
-          setPlayerUnlocked(false);
-          setPlaybackError(
-            language === 'ar'
-              ? 'لم يتم العثور على مصدر تشغيل لهذه الحلقة حاليًا.'
-              : 'No playback source is available for this episode right now.',
-          );
-        } catch {
-          if (!mounted) return;
-          setResolverLoading(false);
-          setPlayerUnlocked(false);
-          setPlaybackError(
-            language === 'ar'
-              ? 'تعذر الحصول على مصدر التشغيل حاليًا.'
-              : 'Unable to obtain a playback source right now.',
-          );
-        }
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setResolverLoading(false);
-        setPlayerUnlocked(false);
-        setPlaybackError(
-          language === 'ar'
-            ? 'تعذر الوصول إلى مصدر التشغيل حاليًا.'
-            : 'Unable to reach the playback source service right now.',
-        );
-      });
+    setPlayerUnlocked(false);
+    setPlaybackError(
+      language === 'ar'
+        ? 'لا يوجد مصدر تشغيل جاهز لهذا المحتوى حاليًا.'
+        : 'No preloaded playback source is ready for this title yet.',
+    );
 
     return () => {
       mounted = false;
