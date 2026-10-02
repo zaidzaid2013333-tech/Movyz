@@ -357,200 +357,6 @@ function parseSearchHits(html: string, base: string, allowEpisodeLinks = false):
   return hits;
 }
 
-async function resolveCimaClubRestSearch(
-  terms: string[],
-  timeoutMs: number,
-): Promise<SearchHit[]> {
-  const hits: SearchHit[] = [];
-  const bases = ['https://cimacub.com', 'https://w.cimacub.com', 'https://cimaclubgo.com'];
-  const seen = new Set<string>();
-  const addHits = (items: SearchHit[]) => {
-    for (const hit of items) {
-      if (!seen.has(hit.url)) {
-        seen.add(hit.url);
-        hits.push(hit);
-      }
-    }
-  };
-
-  for (const base of bases) {
-    for (const term of terms.slice(0, 2)) {
-      const q = encodeURIComponent(term);
-
-      const endpoints = [
-        `${base}/wp-json/wp/v2/search?search=${q}&per_page=20`,
-        `${base}/wp-json/wp/v2/search?search=${q}&per_page=20&subtype=post`,
-        `${base}/wp-json/wp/v2/posts?search=${q}&per_page=20`,
-      ];
-
-      for (const endpoint of endpoints) {
-        try {
-          const payload = await getText(endpoint, Math.min(timeoutMs, 5_000), base);
-          addHits(parseJsonSearchHits(payload, base));
-        } catch {}
-      }
-
-      // Some CimaClub installs expose movies/series as custom WordPress post
-      // types. Discover their REST bases and search them without hardcoding a
-      // specific custom post type name.
-      try {
-        const typesPayload = await getText(`${base}/wp-json/wp/v2/types`, Math.min(timeoutMs, 5_000), base);
-        const types = JSON.parse(typesPayload);
-        if (types && typeof types === 'object') {
-          const restBases = Object.values(types)
-            .map((value: any) => String(value?.rest_base || '').trim())
-            .filter((value) =>
-              value &&
-              !['attachment', 'nav_menu_item', 'wp_block', 'wp_template', 'wp_template_part'].includes(value),
-            )
-            .slice(0, 12);
-
-          for (const restBase of restBases) {
-            try {
-              const payload = await getText(
-                `${base}/wp-json/wp/v2/${encodeURIComponent(restBase)}?search=${q}&per_page=20`,
-                Math.min(timeoutMs, 5_000),
-                base,
-              );
-              addHits(parseJsonSearchHits(payload, base));
-            } catch {}
-          }
-        }
-      } catch {}
-
-      if (hits.length) return hits;
-    }
-  }
-
-  return hits;
-}
-
-function parseJsonSearchHits(payload: string, base: string): SearchHit[] {
-  const hits: SearchHit[] = [];
-  try {
-    const value = JSON.parse(payload);
-    if (!Array.isArray(value)) return hits;
-    for (const item of value) {
-      if (!item || typeof item !== 'object') continue;
-      const titleValue = (item as any).title;
-      const title = typeof titleValue === 'string'
-        ? stripTags(titleValue)
-        : titleValue && typeof titleValue === 'object' && typeof titleValue.rendered === 'string'
-          ? stripTags(titleValue.rendered)
-          : '';
-      const rawUrl = typeof (item as any).url === 'string'
-        ? (item as any).url
-        : typeof (item as any).link === 'string'
-          ? (item as any).link
-          : '';
-      const url = absolute(base, rawUrl);
-      if (!url || !title || isNavigationLink(url, title)) continue;
-      hits.push({ title, url, year: extractYear(title) });
-    }
-  } catch {}
-  return hits;
-}
-
-async function resolveCimaClubSitemapSearch(
-  terms: string[],
-  year: number | undefined,
-  context: ProviderContext,
-  timeoutMs: number,
-): Promise<SearchHit[]> {
-  const bases = ['https://w.cimacub.com', 'https://cimacub.com'];
-  const sitemapSeeds = [
-    '/wp-sitemap.xml',
-    '/sitemap_index.xml',
-    '/sitemap.xml',
-  ];
-  const sitemapUrls = new Set<string>();
-  const directUrls = new Set<string>();
-
-  const collectLocs = (text: string) => {
-    for (const match of text.matchAll(/<loc>\s*(.*?)\s*<\/loc>/gis)) {
-      const value = decodeHtml(String(match[1] || '').trim());
-      if (/^https?:\/\//i.test(value)) sitemapUrls.add(value);
-    }
-  };
-
-  for (const base of bases) {
-    for (const seed of sitemapSeeds) {
-      try {
-        const xml = await getText(new URL(seed, base).toString(), Math.min(timeoutMs, 4_000), base);
-        collectLocs(xml);
-      } catch {}
-    }
-  }
-
-  const firstLevel = [...sitemapUrls].slice(0, 12);
-  for (const url of firstLevel) {
-    if (/\.xml(?:$|[?#])/i.test(url)) {
-      try {
-        const xml = await getText(url, Math.min(timeoutMs, 4_000), url);
-        collectLocs(xml);
-      } catch {}
-    } else {
-      directUrls.add(url);
-    }
-  }
-
-  // Avoid exploding the request count. Keep a representative slice of URL
-  // entries from the discovered sitemap sets and score the paths locally.
-  for (const url of sitemapUrls) {
-    if (!/\.xml(?:$|[?#])/i.test(url)) directUrls.add(url);
-  }
-
-  const wanted = terms.map(normalize).filter(Boolean);
-  const scored: SearchHit[] = [];
-
-  for (const url of [...directUrls].slice(0, 6000)) {
-    let pathText = url;
-    try {
-      pathText = decodeURIComponent(new URL(url).pathname);
-    } catch {}
-
-    const normalizedPath = normalize(pathText);
-    const tokenMatches = wanted.map((title) => {
-      const parts = title.split(' ').filter((part) => part.length > 2);
-      if (!parts.length) return 0;
-      return parts.filter((part) => normalizedPath.includes(part)).length / parts.length;
-    });
-
-    const bestTokenScore = Math.max(0, ...tokenMatches);
-    if (bestTokenScore < 0.45) continue;
-
-    const yearMatch = year !== undefined && normalizedPath.includes(String(year));
-    const episodeMatch = context.episodeNumber !== undefined
-      ? new RegExp('(?:episode|الحلقه|الحلقة)[- _]?' + context.episodeNumber + '(?:\\D|$)', 'i').test(pathText)
-      : false;
-    const seasonMatch = context.seasonNumber !== undefined
-      ? new RegExp('(?:season|الموسم|الجزء)[- _]?(?:' + context.seasonNumber + '|الاول|الأول|الثاني|الثالث|الرابع|الخامس|السادس|السابع|الثامن|التاسع|العاشر)', 'i').test(pathText)
-      : false;
-
-    const score =
-      bestTokenScore * 1000 +
-      (yearMatch ? 180 : 0) +
-      (episodeMatch ? 260 : 0) +
-      (seasonMatch ? 180 : 0);
-
-    scored.push({
-      title: pathText.replace(/[\/_-]+/g, ' ').trim(),
-      url,
-      year: yearMatch ? year : undefined,
-    });
-
-    (scored[scored.length - 1] as any).__score = score;
-  }
-
-  return scored
-    .sort((a: any, b: any) => Number(b.__score || 0) - Number(a.__score || 0))
-    .slice(0, 12)
-    .map((item: any) => {
-      const clean = { title: item.title, url: item.url, year: item.year };
-      return clean;
-    });
-}
-
 function parseAflamSearchHits(html: string, base: string): SearchHit[] {
   const hits: SearchHit[] = [];
   const seen = new Set<string>();
@@ -558,30 +364,6 @@ function parseAflamSearchHits(html: string, base: string): SearchHit[] {
   const patterns = [
     /<a\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*\bbox\b[^"']*["'][^>]*>[\s\S]*?<h3\b[^>]*>([\s\S]*?)<\/h3>/gi,
     /<a\b[^>]*class=["'][^"']*\bbox\b[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<h3\b[^>]*>([\s\S]*?)<\/h3>/gi,
-  ];
-
-  for (const pattern of patterns) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(html))) {
-      const url = absolute(base, match[1]);
-      const title = stripTags(match[2] || '');
-      if (!url || !title || seen.has(url) || isNavigationLink(url, title)) continue;
-      seen.add(url);
-      hits.push({ title, url, year: extractYear(title) });
-    }
-  }
-
-  return hits;
-}
-
-function parseCimaClubSearchHits(html: string, base: string): SearchHit[] {
-  const hits: SearchHit[] = [];
-  const seen = new Set<string>();
-
-  const patterns = [
-    /<div\b[^>]*class=["'][^"']*\bSmall--Box\b[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<h2\b[^>]*>([\s\S]*?)<\/h2>/gi,
-    /<div\b[^>]*class=["'][^"']*\bSmall--Box\b[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<h3\b[^>]*>([\s\S]*?)<\/h3>/gi,
-    /<div\b[^>]*class=["'][^"']*\bSmall--Box\b[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<h1\b[^>]*>([\s\S]*?)<\/h1>/gi,
   ];
 
   for (const pattern of patterns) {
@@ -1019,89 +801,6 @@ async function resolveAflamQualitySources(
   return parseDirectMediaSources(html, pageUrl, provider);
 }
 
-async function resolveCimaClubSources(
-  targetUrl: string,
-  provider: SiteConfig,
-  timeoutMs: number,
-): Promise<Candidate[]> {
-  let html = '';
-  // Current CimaClub's player route exposes server links after POST watch=1.
-  // Prefer that path, then fall back to the regular GET page for mirrors that
-  // still render their server list without the POST.
-  try {
-    html = await postText(targetUrl, Math.min(timeoutMs, 6_000), targetUrl);
-  } catch {
-    try {
-      html = await getText(targetUrl, Math.min(timeoutMs, 6_000), provider.base);
-    } catch {
-      return [];
-    }
-  }
-
-  const links: Array<{ url: string; quality?: string; referer?: string }> = [];
-
-  for (const match of html.matchAll(/<li\b[^>]*data-watch=["']([^"']+)["'][^>]*>[\s\S]*?<\/li>/gi)) {
-    const tag = match[0];
-    const url = absolute(targetUrl, match[1]);
-    if (!url) continue;
-    links.push({
-      url,
-      quality: qualityFromText(
-        /\b(?:quality|resolution|data-quality|data-resolution)=["']([^"']+)["']/i.exec(tag)?.[1],
-        stripTags(tag),
-        match[1],
-      ) || 'source',
-      referer: targetUrl,
-    });
-  }
-
-  for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
-    const tag = match[0];
-    const rawHref = match[1];
-    const text = stripTags(tag);
-    if (
-      !/ServersList|Download|download/i.test(tag) &&
-      !/مشاهدة|Watch|Play|Player/i.test(text) &&
-      !/\/(?:watch|player|embed|download)(?:\/|$)/i.test(rawHref)
-    ) continue;
-
-    const url = absolute(targetUrl, rawHref);
-    if (!url) continue;
-    links.push({
-      url,
-      quality: qualityFromText(
-        /\b(?:quality|resolution|data-quality|data-resolution)=["']([^"']+)["']/i.exec(tag)?.[1],
-        text,
-        rawHref,
-      ) || 'source',
-      referer: targetUrl,
-    });
-  }
-
-  if (!links.length) {
-    links.push(
-      ...parseMarkdownLinks(html, targetUrl)
-        .filter((hit) => /\/(?:watch|download|player|embed)\//i.test(hit.url) || /(?:m3u8|mp4|mpd|webm)(?:[?#]|$)/i.test(hit.url))
-        .map((hit) => ({
-          url: hit.url,
-          quality: qualityFromText(hit.title, hit.url) || 'source',
-          referer: targetUrl,
-        }))
-        .slice(0, 12),
-    );
-  }
-
-  const inline = parseDirectMediaSources(html, targetUrl, provider);
-  const nested = await resolveNestedPlaybackLinks(links.slice(0, 12), provider, timeoutMs);
-
-  const merged = [...inline, ...nested];
-  const unique = merged.filter((source, index, all) =>
-    all.findIndex((item) => item.url === source.url) === index,
-  );
-
-  return unique.sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality));
-}
-
 function extractEpisodeCandidates(html: string, baseUrl: string) {
   const items: Array<{ url: string; number?: number; season?: number; text: string }> = [];
   const seen = new Set<string>();
@@ -1141,73 +840,6 @@ function extractEpisodeCandidates(html: string, baseUrl: string) {
   }
 
   return items;
-}
-
-async function resolveCimaClubEpisodeUrl(
-  html: string,
-  pageUrl: string,
-  season?: number,
-  episode?: number,
-  timeoutMs = 6_000,
-): Promise<string | null> {
-  if (episode === undefined) return null;
-
-  const seasonSection = /<section\b[^>]*class=["'][^"']*allseasonss[^"']*["'][^>]*>([\s\S]*?)<\/section>/i.exec(html)?.[1] || '';
-  const seasonCandidates: Array<{ url: string; season: number }> = [];
-
-  for (const match of seasonSection.matchAll(
-    /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
-  )) {
-    const url = absolute(pageUrl, match[1]);
-    const body = match[0];
-    if (!url) continue;
-
-    const text = stripTags(body);
-    const seasonNumber =
-      normalizeNumber(
-        /class=["'][^"']*epnum[^"']*["'][^>]*>[\s\S]*?<span[^>]*>[\s\S]*?<\/span>\s*([^<]+)/i.exec(body)?.[1],
-      ) ??
-      normalizeNumber(/(?:season|الموسم)[^0-9٠-٩]*(\d+)/i.exec(text)?.[1]) ??
-      [...text.matchAll(/\b(\d{1,3})\b/g)].map((x) => Number(x[1])).find((n) => n >= 1 && n <= 100);
-
-    if (seasonNumber === undefined) continue;
-    if (season !== undefined && seasonNumber !== season) continue;
-    seasonCandidates.push({ url, season: seasonNumber });
-  }
-
-  const candidates = seasonCandidates.length
-    ? seasonCandidates.slice(0, 2)
-    : [{ url: pageUrl, season: season ?? 1 }];
-
-  for (const candidate of candidates) {
-    const pageHtml = candidate.url === pageUrl
-      ? html
-      : await getText(candidate.url, timeoutMs, pageUrl).catch(() => '');
-
-    if (!pageHtml) continue;
-
-    const episodeSection =
-      /<section\b[^>]*class=["'][^"']*allepcont[^"']*["'][^>]*>([\s\S]*?)<\/section>/i.exec(pageHtml)?.[1] || '';
-
-    for (const match of episodeSection.matchAll(
-      /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
-    )) {
-      const body = match[0];
-      const url = absolute(candidate.url, match[1]);
-      if (!url) continue;
-
-      const number =
-        normalizeNumber(
-          /class=["'][^"']*epnum[^"']*["'][^>]*>\s*([0-9٠-٩]+)/i.exec(body)?.[1],
-        ) ??
-        parseSeasonEpisode(stripTags(body)).episode;
-
-      if (number !== episode) continue;
-      return url;
-    }
-  }
-
-  return null;
 }
 
 function resolveAflamEpisodeUrl(
@@ -1417,116 +1049,6 @@ function cimaSeasonWord(season: number): string {
   return words[season] || String(season);
 }
 
-async function resolveCanonicalCimaClubMovie(
-  titles: string[],
-  context: ProviderContext,
-  provider: SiteConfig,
-  timeoutMs: number,
-): Promise<Candidate[]> {
-  if (provider.key !== 'cimaclub') return [];
-
-  const year = context.releaseYear;
-  const bases = ['https://cimacub.com', 'https://w.cimacub.com', 'https://cimaclubgo.com'];
-  const attempts: string[] = [];
-
-  for (const term of titles.slice(0, 2)) {
-    const slug = normalize(term).replace(/\s+/g, '-');
-    if (!slug) continue;
-
-    const yearParts = year ? [String(year), ''] : [''];
-    for (const yearPart of yearParts) {
-      const suffix = yearPart ? `-${yearPart}` : '';
-      const paths = [
-        `/مشاهدة-مشاهدة-فيلم-${slug}${suffix}-مترجم/`,
-        `/مشاهدة-فيلم-${slug}${suffix}-مترجم/`,
-        `/فيلم-${slug}${suffix}-مترجم/`,
-        `/مشاهدة-فيلم-${slug}${suffix}/`,
-      ];
-      for (const base of bases) {
-        for (const path of paths) attempts.push(new URL(path, base).toString());
-      }
-    }
-  }
-
-  const results = await Promise.allSettled(
-    [...new Set(attempts)].slice(0, 4).map(async (url) => {
-      const sources = await resolveCimaClubSources(
-        url,
-        provider,
-        Math.min(Math.max(timeoutMs, 3_000), 4_500),
-      );
-      return sources.filter((source) =>
-        PLAYABLE_TYPES.has(source.type) &&
-        source.quality !== 'auto' &&
-        source.quality !== 'source',
-      );
-    }),
-  );
-
-  for (const result of results) {
-    if (result.status === 'fulfilled' && result.value.length) return result.value;
-  }
-
-  return [];
-}
-
-async function resolveCanonicalCimaClubEpisode(
-  titles: string[],
-  context: ProviderContext,
-  provider: SiteConfig,
-  timeoutMs: number,
-): Promise<Candidate[]> {
-  if (provider.key !== 'cimaclub' || context.episodeNumber === undefined) return [];
-
-  const season = context.seasonNumber ?? 1;
-  const episode = context.episodeNumber;
-  const bases = ['https://w.cimacub.com', 'https://cimacub.com'];
-
-  const attempts = titles.slice(0, 2).flatMap((term) => {
-    const slug = normalize(term).replace(/\s+/g, '-');
-    if (!slug) return [];
-
-    const seasonWord = cimaSeasonWord(season);
-    const paths = [
-      `/مشاهدة-مشاهدة-مسلسل-${slug}-الجزء-${seasonWord}-الحلقة-${episode}-مترجمة/`,
-      `/مشاهدة-مشاهدة-مسلسل-${slug}-الجزء-${seasonWord}-الحلقة-${episode}-مدبلجة/`,
-      `/مشاهدة-مسلسل-${slug}-الجزء-${seasonWord}-الحلقة-${episode}-مترجمة/`,
-      `/مسلسل-${slug}-الجزء-${seasonWord}-الحلقة-${episode}-مترجمة/`,
-      `/مسلسل-${slug}-الجزء-${seasonWord}-الحلقة-${episode}-مدبلجة/`,
-      `/مسلسل-${slug}-الجزء-${seasonWord}-الحلقة-${episode}/`,
-      `/مشاهدة-مشاهدة-مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}-مترجمة/`,
-      `/مشاهدة-مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}-مترجمة/`,
-      `/مسلسل-${slug}-الموسم-${seasonWord}-الحلقة-${episode}-مترجمة/`,
-      `/مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}/`,
-    ];
-
-    return bases.flatMap((base) => paths.map((path) => new URL(path, base).toString()));
-  });
-
-  const results = await Promise.allSettled(
-    [...new Set(attempts)].map(async (url) => {
-      const sources = await resolveCimaClubSources(
-        url,
-        provider,
-        Math.min(Math.max(timeoutMs, 3_000), 5_000),
-      );
-      return sources.filter((source) =>
-        PLAYABLE_TYPES.has(source.type) &&
-        source.quality !== 'auto' &&
-        source.quality !== 'source',
-      );
-    }),
-  );
-
-  for (const result of results) {
-    if (result.status === 'fulfilled' && result.value.length) return result.value;
-  }
-
-  return [];
-}
-
-
-
 async function resolveCanonicalAnime3rbEpisode(
   titles: string[],
   context: ProviderContext,
@@ -1581,52 +1103,14 @@ async function resolveProvider(
   const titles = searchTerms;
 
   if (!titles.length) return [];
-
-  // CimaClub has deterministic season/episode routes. Try those before
   // expensive title searches so exact episode prewarming does not depend on
   // search ranking or a slow mirror.
-  if (provider.key === 'cimaclub' && context.episodeNumber !== undefined) {
-    const canonicalSources = await resolveCanonicalCimaClubEpisode(titles, context, provider, timeoutMs);
-    if (canonicalSources.length) return canonicalSources;
-  }
-
-  if (provider.key === 'cimaclub' && context.episodeNumber === undefined) {
-    const canonicalSources = await resolveCanonicalCimaClubMovie(titles, context, provider, timeoutMs);
-    if (canonicalSources.length) return canonicalSources;
-  }
-
   if (provider.key === 'anime3rb' && context.episodeNumber !== undefined) {
     const canonicalSources = await resolveCanonicalAnime3rbEpisode(titles, context, provider, timeoutMs);
     if (canonicalSources.length) return canonicalSources;
   }
 
   const searchResults: SearchHit[] = [];
-
-  if (provider.key === 'cimaclub') {
-    const fastRest = await Promise.allSettled(
-      searchTerms.slice(0, 2).map(async (term) => {
-        const q = encodeURIComponent(term);
-        const endpoints = [
-          `https://cimacub.com/wp-json/wp/v2/search?search=${q}&per_page=20`,
-          `https://w.cimacub.com/wp-json/wp/v2/search?search=${q}&per_page=20`,
-          `https://cimacub.com/wp-json/wp/v2/posts?search=${q}&per_page=20`,
-        ];
-        const hits: SearchHit[] = [];
-        for (const endpoint of endpoints) {
-          try {
-            const payload = await getText(endpoint, Math.min(timeoutMs, 4_000), provider.base);
-            hits.push(...parseJsonSearchHits(payload, provider.base));
-          } catch {}
-          if (hits.length) break;
-        }
-        return hits;
-      }),
-    );
-
-    for (const result of fastRest) {
-      if (result.status === 'fulfilled') searchResults.push(...result.value);
-    }
-  }
 
   // Anime3rb has stable canonical title pages; prefer them before generic search.
   if (provider.key === 'anime3rb') {
@@ -1664,32 +1148,8 @@ async function resolveProvider(
     if (result.status !== 'fulfilled') continue;
     const html = result.value;
     if (provider.key === 'aflaam') searchResults.push(...parseAflamSearchHits(html, provider.base));
-    if (provider.key === 'cimaclub') searchResults.push(...parseCimaClubSearchHits(html, provider.base));
-    searchResults.push(...parseSearchHits(html, provider.base, context.episodeNumber !== undefined));
-    searchResults.push(...parseMarkdownLinks(html, provider.base));
-  }
-
-  if (!searchResults.length && provider.key === 'cimaclub') {
-    searchResults.push(...await resolveCimaClubRestSearch(searchTerms, timeoutMs));
-  }
-
-  if (!searchResults.length && provider.key === 'cimaclub') {
-    searchResults.push(
-      ...await resolveCimaClubSitemapSearch(
-        searchTerms,
-        context.releaseYear,
-        context,
-        timeoutMs,
-      ),
-    );
-  }
-
-  const hits = rankHits(searchResults, titles, context.releaseYear);
+    const hits = rankHits(searchResults, titles, context.releaseYear);
   if (!hits.length) {
-    if (context.episodeNumber !== undefined && provider.key === 'cimaclub') {
-      const canonicalSources = await resolveCanonicalCimaClubEpisode(titles, context, provider, timeoutMs);
-      if (canonicalSources.length) return canonicalSources;
-    }
     return [];
   }
 
@@ -1710,15 +1170,7 @@ async function resolveProvider(
 
         if (explicitEpisode) {
           targetUrl = hit.url;
-        } else if (provider.key === 'cimaclub') {
-          targetUrl = await resolveCimaClubEpisodeUrl(
-            detail,
-            hit.url,
-            context.seasonNumber,
-            context.episodeNumber,
-            Math.min(timeoutMs, 6_000),
-          ) || '';
-        } else if (provider.key === 'aflaam') {
+ else if (provider.key === 'aflaam') {
           targetUrl = resolveAflamEpisodeUrl(
             detail,
             hit.url,
@@ -1767,18 +1219,7 @@ async function resolveProvider(
         const sourcePageHtml = targetUrl === hit.url ? detail : await getText(targetUrl, timeoutMs, hit.url);
         sources = await resolveAflamQualitySources(sourcePageHtml, targetUrl, provider, timeoutMs);
         if (!sources.length) sources = parseQualitySources(sourcePageHtml, targetUrl, provider);
-      } else if (provider.key === 'cimaclub') {
-        const watchTarget = context.episodeNumber !== undefined
-          ? targetUrl
-          : (targetUrl.endsWith('/') ? `${targetUrl}watch/` : `${targetUrl}/watch/`);
-        try {
-          sources = await resolveCimaClubSources(watchTarget, provider, timeoutMs);
-        } catch {}
-        if (!sources.length) {
-          const sourcePageHtml = targetUrl === hit.url ? detail : await getText(targetUrl, timeoutMs, hit.url);
-          sources = parseQualitySources(sourcePageHtml, targetUrl, provider);
-        }
-      } else if (provider.key === 'anime3rb') {
+ else if (provider.key === 'anime3rb') {
         const watchHtml = targetUrl === hit.url
           ? detail
           : await getText(targetUrl, timeoutMs, hit.url);
@@ -1872,7 +1313,6 @@ async function resolveUncached(context: ResolverContext, timeoutMs: number) {
   // Keep both selected provider groups when available. Each group is kept
   // internally intact so the UI can show:
   //   Aflam -> 1080p / 720p / 480p
-  //   CimaClub -> quality list
   // without mixing sources across sites.
   const merged: Candidate[] = [];
   for (const group of usable) {
@@ -1918,7 +1358,7 @@ async function resolveContext(request: Re3ArabiPlaybackRequest): Promise<Resolve
     : [];
 
   // Prefer the dedicated anime providers for Japanese animation; normal
-  // animated western titles continue through Aflam/CimaClub.
+  // animated western titles continue through Aflam.
   const isAnime = animation && (originalLanguage === 'ja' || originCountry.includes('JP'));
 
   return {
