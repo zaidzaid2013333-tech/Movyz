@@ -1,6 +1,12 @@
 name: Movyz full episode secondary source prewarm
 
 on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/full-episode-secondary-source-prewarm.yml"
+      - "scripts/rebind-selected-playback.ts"
+      - "server/providers/re3arabi.ts"
   schedule:
     - cron: "47 * * * *"
   workflow_dispatch:
