@@ -1,5 +1,5 @@
 import type { WorkerEnvironment } from '../mini-http';
-import { resolveRe3ArabiPlayback } from './re3arabi';
+import { resolveRe3ArabiPlayback, resolveRe3ArabiProvider } from './re3arabi';
 import type { PlaybackKind } from './types';
 
 export type RemotePlaybackRequest = {
@@ -23,6 +23,41 @@ export type RemotePlaybackSource = {
   providerKey: string;
   providerReference?: string;
 };
+
+export async function resolveRemotePlaybackFast(
+  request: RemotePlaybackRequest,
+): Promise<RemotePlaybackSource[]> {
+  const keys = ['aflaam', 'anime3rb'] as const;
+  const results = await Promise.all(
+    keys.map(async (providerKey) => {
+      try {
+        return await resolveRe3ArabiProvider({
+          type: request.type,
+          tmdbId: request.tmdbId,
+          season: request.season,
+          episode: request.episode,
+        }, providerKey);
+      } catch {
+        return [];
+      }
+    }),
+  );
+
+  const first = results.find((sources) => sources.length) || [];
+  return first.map((source, index) => ({
+    id: `fast-${index + 1}-${source.providerReference || source.sourceUrl || 'source'}`,
+    type: source.type,
+    quality: source.quality || 'auto',
+    language: source.language || 'ar',
+    label: source.label || source.provider,
+    labelEn: source.label || source.provider,
+    url: source.url || '',
+    isWorking: true,
+    provider: source.provider,
+    providerKey: source.providerKey,
+    ...(source.providerReference ? { providerReference: source.providerReference } : {}),
+  }));
+}
 
 export async function resolveRemotePlayback(
   request: RemotePlaybackRequest,
