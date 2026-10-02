@@ -182,8 +182,14 @@ function parseSeasonEpisode(value: string): { season?: number; episode?: number 
     text.match(/(?:season|الموسم)[\s._-]*(\d{1,3})[\s._-]*(?:episode|ep|الحلقة|حلقه)[^0-9]*(\d{1,3})/i);
   if (compact) return { season: Number(compact[1]), episode: Number(compact[2]) };
 
-  const season = normalizeNumber(text.match(/(?:season|الموسم)[^0-9٠-٩]*(\d+)/i)?.[1]);
-  const episode = normalizeNumber(text.match(/(?:episode|ep|الحلقة|حلقه)[^0-9٠-٩]*(\d+)/i)?.[1]);
+  const season =
+    normalizeNumber(text.match(/(?:season|الموسم)[^0-9٠-٩]*(\d+)/i)?.[1]) ??
+    // Aflam season pages use slugs such as /series/55/breaking-bad-5-1
+    // and episode URLs keep the season in the same slug.
+    normalizeNumber(text.match(/\/series\/[^/]+\/[^/?#]*-(\d+)-\d+(?:[/?#]|$)/i)?.[1]) ??
+    normalizeNumber(text.match(/\/series\/[^/]+\/[^/?#]*-(\d+)(?:[/?#]|$)/i)?.[1]);
+  const episode = normalizeNumber(text.match(/(?:episode|ep|الحلقة|حلقه)[^0-9٠-٩]*(\d+)/i)?.[1]) ??
+    normalizeNumber(text.match(/(?:\/|-)الحلقة[-_ ]*(\d+)(?:[/?#]|$)/i)?.[1]);
   return { season, episode };
 }
 
@@ -489,7 +495,7 @@ async function resolveAflamSitemapSearch(
     }));
 }
 
-function rankHits(hits: SearchHit[], titles: string[], year?: number) {
+function rankHits(hits: SearchHit[], titles: string[], year?: number, requestedSeason?: number) {
   const wanted = titles.map(normalize).filter(Boolean);
   return [...hits]
     .map((hit, index) => {
@@ -502,9 +508,17 @@ function rankHits(hits: SearchHit[], titles: string[], year?: number) {
         return parts.length > 1 && matched / parts.length >= 0.6;
       });
       const yearMatch = year !== undefined && hit.year === year;
+      const hitIdentity = parseSeasonEpisode([hit.url, hit.title].join(' '));
+      const seasonMatch = requestedSeason !== undefined && hitIdentity.season === requestedSeason;
+      const seasonMismatch =
+        requestedSeason !== undefined &&
+        hitIdentity.season !== undefined &&
+        hitIdentity.season !== requestedSeason;
       const score =
         (exact ? 1000 : partial ? 600 : tokens ? 320 : 0) +
-        (yearMatch ? 160 : 0) -
+        (yearMatch ? 160 : 0) +
+        (seasonMatch ? 260 : 0) -
+        (seasonMismatch ? 420 : 0) -
         index;
       return { hit, score };
     })
@@ -1313,7 +1327,7 @@ async function resolveProvider(
     }
   }
 
-  let hits = rankHits(searchResults, searchTerms, context.releaseYear);
+  let hits = rankHits(searchResults, searchTerms, context.releaseYear, context.seasonNumber);
 
   // For episodes, never trust the first series/detail result as the complete
   // catalog. Aflam episode URLs can live only in the sitemap, while the normal
@@ -1331,6 +1345,7 @@ async function resolveProvider(
       [...searchResults, ...sitemapHits],
       searchTerms,
       context.releaseYear,
+      context.seasonNumber,
     );
   } else if (!hits.length && provider.key === 'aflaam') {
     const sitemapHits = await resolveAflamSitemapSearch(
@@ -1339,7 +1354,7 @@ async function resolveProvider(
       provider,
       Math.min(timeoutMs, 3_500),
     );
-    hits = rankHits(sitemapHits, searchTerms, context.releaseYear);
+    hits = rankHits(sitemapHits, searchTerms, context.releaseYear, context.seasonNumber);
   }
 
   if (!hits.length) return [];
