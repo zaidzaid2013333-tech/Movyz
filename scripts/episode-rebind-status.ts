@@ -2,11 +2,14 @@ import 'dotenv/config';
 
 import { adminSupabase } from '../server/supabase';
 
+const providerMode = (process.env.REBIND_PROVIDER || 'all').trim() || 'all';
+const jobType = `playback-rebind-episodes-${providerMode}`;
+
 const { data: previous, error: jobError } = await adminSupabase
   .from('sync_jobs')
   .select('details,finished_at')
   .eq('provider', 'selected-sites')
-  .eq('job_type', 'playback-rebind-episodes')
+  .eq('job_type', jobType)
   .eq('status', 'succeeded')
   .order('finished_at', { ascending: false })
   .limit(1)
