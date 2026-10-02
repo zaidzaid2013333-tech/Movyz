@@ -1975,7 +1975,7 @@ export async function resolveRe3ArabiProvider(
   const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
   return withTimeout(
     resolveProvider(provider, context, timeoutMs),
-    Math.min(timeoutMs + 4_000, 12_000),
+    Math.min(timeoutMs + 12_000, 20_000),
     `Provider ${providerKey} exceeded resolver budget`,
   );
 }
@@ -1998,7 +1998,7 @@ export async function resolveRe3ArabiProviderWithContext(
   const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
   return withTimeout(
     resolveProvider(provider, resolvedContext, timeoutMs),
-    Math.min(timeoutMs + 4_000, 12_000),
+    Math.min(timeoutMs + 12_000, 20_000),
     `Provider ${providerKey} exceeded resolver budget`,
   );
 }
