@@ -106,11 +106,14 @@ export async function resolvePlaybackSources(contentType: 'movie' | 'episode', c
   const usableCached = (cachedSources || []).filter((source: any) => {
     const key = String(source.providers?.key || '').toLowerCase();
     const name = String(source.providers?.name || '').trim().toLowerCase().replace(/\s+/g, '');
+    const sourceReference = String(source.provider_reference || '').trim().toLowerCase();
+    const selectedSite = ['aflaam', 'cimaclub', 'anime3rb', 'anime4up'].includes(sourceReference);
     return !DISABLED_PROVIDERS.has(key) &&
       !excluded.has(key) &&
       !excluded.has(name) &&
       (!onlyProvider || key === onlyProvider.toLowerCase()) &&
-      VALID_TYPES.has(String(source.source_type || '').toLowerCase());
+      VALID_TYPES.has(String(source.source_type || '').toLowerCase()) &&
+      (key !== 're3arabi' || selectedSite);
   });
 
   if (usableCached.length) {
