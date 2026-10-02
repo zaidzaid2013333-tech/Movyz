@@ -8,7 +8,7 @@ import {
   resolveRe3ArabiSeriesContext,
 } from '../server/providers/re3arabi';
 
-const ALLOWED_PROVIDER_KEYS = new Set(['aflaam', 'cimaclub', 'anime3rb', 'anime4up']);
+const ALLOWED_PROVIDER_KEYS = new Set(['aflaam', 'anime3rb', 'anime4up']);
 const ALLOWED_TYPES = new Set(['hls', 'mp4', 'dash', 'webm', 'direct', 'embed']);
 
 const MODE = (process.env.REBIND_MODE || 'movies') as 'movies' | 'episodes';
@@ -166,11 +166,9 @@ async function rebindMovies() {
   await mapWithConcurrency(data || [], async (movie: any) => {
     try {
       const providerKeysForMovie =
-        REBIND_PROVIDER === 'primary'
-          ? ['aflaam']
-          : REBIND_PROVIDER === 'secondary'
-            ? ['cimaclub']
-            : ['aflaam', 'cimaclub'];
+        REBIND_PROVIDER === 'secondary'
+          ? []
+          : ['aflaam'];
 
       const providerResults = await Promise.all(
         providerKeysForMovie.map(async (providerKey) => {
@@ -185,6 +183,10 @@ async function rebindMovies() {
         }),
       );
 
+      if (!providerKeysForMovie.length) {
+        summary.processed++;
+        continue;
+      }
       const sources = providerResults.flat().filter((source: any) =>
         providerKeysForMovie.includes(String(source?.providerKey || source?.providerReference || '').toLowerCase()),
       );
@@ -468,11 +470,9 @@ async function rebindEpisodes() {
       const seriesContext = await getSeriesContext(series);
 
       const providerKeysForEpisode =
-        REBIND_PROVIDER === 'primary'
-          ? [seriesContext.__isAnime ? 'anime3rb' : 'aflaam']
-          : REBIND_PROVIDER === 'secondary'
-            ? [seriesContext.__isAnime ? 'anime4up' : 'cimaclub']
-            : [seriesContext.__isAnime ? 'anime3rb' : 'aflaam', seriesContext.__isAnime ? 'anime4up' : 'cimaclub'];
+        REBIND_PROVIDER === 'secondary'
+          ? (seriesContext.__isAnime ? ['anime4up'] : [])
+          : [seriesContext.__isAnime ? 'anime3rb' : 'aflaam'];
 
       const providerResults = await Promise.all(
         providerKeysForEpisode.map(async (providerKey) => {
@@ -489,6 +489,10 @@ async function rebindEpisodes() {
         }),
       );
 
+      if (!providerKeysForEpisode.length) {
+        summary.processed++;
+        continue;
+      }
       const sources = providerResults.flat();
       const persistedCount = await persistExactEpisodeSources(String(episode.id), sources);
       const groups = validateSources(sources);
