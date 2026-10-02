@@ -14,6 +14,8 @@ type SearchHit = {
   year?: number;
 };
 
+type ResolverContext = ProviderContext & { __isAnime: boolean };
+
 type Candidate = NormalizedPlaybackSource & {
   providerKey: string;
   sourceUrl: string;
@@ -415,7 +417,7 @@ function groupScore(sources: Candidate[]) {
   return (distinctQualities.size * 800) + (maxQuality * 3) + (directCount * 220) + (embedCount * 20);
 }
 
-async function resolveUncached(context: ProviderContext, timeoutMs: number) {
+async function resolveUncached(context: ResolverContext, timeoutMs: number) {
   const eligibleKind: SiteKind = context.__isAnime ? 'anime' : 'general';
   const providers = PROVIDERS.filter((provider) => provider.kind === eligibleKind);
 
@@ -451,7 +453,7 @@ async function resolveUncached(context: ProviderContext, timeoutMs: number) {
     );
 }
 
-async function resolveContext(request: Re3ArabiPlaybackRequest): Promise<ProviderContext> {
+async function resolveContext(request: Re3ArabiPlaybackRequest): Promise<ResolverContext> {
   const token = process.env.TMDB_API_READ_ACCESS_TOKEN?.trim();
   if (!token) throw new Error('TMDB_API_READ_ACCESS_TOKEN is not configured');
 
@@ -487,7 +489,7 @@ async function resolveContext(request: Re3ArabiPlaybackRequest): Promise<Provide
     seasonNumber: request.season,
     episodeNumber: request.episode,
     __isAnime: isAnime,
-  } as ProviderContext & { __isAnime: boolean };
+  };
 }
 
 export async function resolveRe3ArabiPlayback(
