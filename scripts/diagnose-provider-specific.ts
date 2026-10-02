@@ -101,7 +101,7 @@ for (const test of cases) {
       ),
     );
 
-    const providers = [...new Set(playable.map((source) => source.providerKey))];
+    const providers = [...new Set(playable.map((source) => source.provider))];
 
     console.log(
       JSON.stringify({
