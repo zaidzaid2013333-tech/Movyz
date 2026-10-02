@@ -283,6 +283,11 @@ function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
   return results.sort((a, b) => b.score - a.score).slice(0, 5);
 }
 
+function inferAkwamQuality(value: string) {
+  const match = String(value || '').match(/(?:^|[^0-9])(2160|1440|1080|720|576|480|360|240)(?:p)?(?=(?:[^0-9]|$))/i);
+  return match ? `${match[1]}p` : 'auto';
+}
+
 function qualityFromBlock(block: string) {
   const text = cleanText(block);
   const explicit = /(?:2160|1440|1080|720|576|480|360|240)\s*p?/i.exec(text)?.[0];
@@ -377,8 +382,8 @@ async function resolveDownload(
   const effectiveQuality =
     quality !== 'auto'
       ? quality
-      : inferQuality('', finalUrl) !== 'auto'
-        ? inferQuality('', finalUrl)
+      : inferAkwamQuality(finalUrl) !== 'auto'
+        ? inferAkwamQuality(finalUrl)
         : quality;
 
   const extracted = await resolveArProvExtractor(finalUrl, {
