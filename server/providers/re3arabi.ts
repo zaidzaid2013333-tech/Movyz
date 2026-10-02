@@ -218,10 +218,10 @@ function parseQualitySources(html: string, pageUrl: string, provider: SiteConfig
   const candidates: Candidate[] = [];
   const seen = new Set<string>();
 
-  const add = (rawUrl: string, qualityHint: string) => {
+  const add = (rawUrl: string, qualityHint: string, allowGenericDirect = false) => {
     const url = absolute(pageUrl, rawUrl);
     if (!url || seen.has(url)) return;
-    const classified = classifyUrl(url, qualityHint);
+    const classified = classifyUrl(url, qualityHint, allowGenericDirect);
     if (!classified) return;
     seen.add(url);
     candidates.push({
@@ -244,7 +244,7 @@ function parseQualitySources(html: string, pageUrl: string, provider: SiteConfig
   while ((match = sourceRe.exec(html))) {
     const tag = match[0];
     const hint = /\b(?:size|label|data-quality|data-resolution)=["']([^"']+)["']/i.exec(tag)?.[1] || '';
-    add(match[1], hint);
+    add(match[1], hint, true);
   }
 
   const videoRe = /<video\b[\s\S]*?<\/video>/gi;
