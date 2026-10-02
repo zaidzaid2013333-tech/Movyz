@@ -220,7 +220,13 @@ function qualityFromText(...values: unknown[]) {
     .map((value) => String(value))
     .join(' ');
   const match = text.match(/(?:^|[^0-9])(2160|1440|1080|720|576|480|360|240)\s*p?(?:\b|[^0-9])/i);
-  return match ? `${match[1]}p` : '';
+  if (match) return `${match[1]}p`;
+  if (/\b(?:4k|uhd)\b/i.test(text)) return '2160p';
+  if (/\b(?:2k|qhd)\b/i.test(text)) return '1440p';
+  if (/\bfhd\b/i.test(text)) return '1080p';
+  if (/\b(?:hd)\b/i.test(text)) return '720p';
+  if (/\bsd\b/i.test(text)) return '480p';
+  return '';
 }
 
 function labelForQuality(provider: SiteConfig, quality: string) {
@@ -437,6 +443,79 @@ function parseQualitySources(html: string, pageUrl: string, provider: SiteConfig
   return candidates;
 }
 
+const PACK_B62 = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+function intToBase62(value: number) {
+  if (value === 0) return '0';
+  let output = '';
+  let n = value;
+  while (n > 0) {
+    output = PACK_B62[n % 62] + output;
+    n = Math.floor(n / 62);
+  }
+  return output;
+}
+
+function unpackPackedScript(html: string): Array<{ url: string; quality: string }> {
+  const match = html.match(
+    /eval\(function\(p,a,c,k,e,d\)\{[\s\S]*?\}\((['"])([\s\S]*?)\1\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(['"])([\s\S]*?)\5\.split/
+  );
+  if (!match) return [];
+
+  const payload = match[2].replace(/\\'/g, "'");
+  const radix = Math.min(Number(match[3]) || 62, 62);
+  const count = Number(match[4]) || 0;
+  const dictionary = match[6].length ? match[6].split('|') : [];
+
+  const unpacked = payload.replace(/[0-9A-Za-z]+/g, (token) => {
+    const index = parseInt(token, radix);
+    if (!Number.isFinite(index) || index < 0 || index >= count) return token;
+    return dictionary[index] ?? token;
+  });
+
+  const files = [...unpacked.matchAll(/file\s*:\s*["'](https?:\/\/[^"']+)["']/gi)]
+    .map((entry) => entry[1]);
+  const labels = [...unpacked.matchAll(/label\s*:\s*["']([^"']+)["']/gi)]
+    .map((entry) => entry[1]);
+
+  return files
+    .map((url, index) => ({
+      url,
+      quality: qualityFromText(labels[index], url) || 'source',
+    }))
+    .filter((entry) =>
+      /\.(?:m3u8|mp4|m4v|webm)(?:[?#]|$)/i.test(entry.url) ||
+      /\/hls\d?\//i.test(entry.url),
+    );
+}
+
+function parsePackedPlaybackSources(
+  html: string,
+  pageUrl: string,
+  provider: SiteConfig,
+): Candidate[] {
+  return unpackPackedScript(html).flatMap((entry) => {
+    const url = absolute(pageUrl, entry.url);
+    if (!url || entry.quality === 'source') return [];
+
+    const classified = classifyUrl(url, entry.quality, true);
+    if (!classified || !PLAYABLE_TYPES.has(classified.type)) return [];
+
+    return [{
+      provider: provider.name,
+      providerKey: provider.key,
+      type: classified.type,
+      url,
+      providerReference: provider.key,
+      quality: entry.quality,
+      language: 'ar',
+      label: labelForQuality(provider, entry.quality),
+      expiresAt: undefined,
+      sourceUrl: pageUrl,
+    }];
+  });
+}
+
 function parseDirectMediaSources(
   html: string,
   pageUrl: string,
@@ -553,6 +632,9 @@ async function resolveNestedPlaybackLinks(
 
       try {
         const html = await getText(item.url, timeoutMs, item.referer || provider.base);
+        for (const source of parsePackedPlaybackSources(html, item.url, provider)) {
+          addMedia(source);
+        }
         for (const source of parseDirectMediaSources(html, item.url, provider, item.quality || 'source')) {
           addMedia(source);
         }
