@@ -22,7 +22,7 @@ const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
 function cachedRe3ArabiSourceDto(source: any) {
   const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-  const allowedProviders = new Set(['aflaam', 'cimaclub', 'anime4up']);
+  const allowedProviders = new Set(['akwam', 'anime4up']);
 
   return {
     id: source.id,
@@ -76,7 +76,7 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
     throw new Error('Unable to load ready cached playback sources: ' + error.message);
   }
 
-  const allowedProviders = new Set(['aflaam', 'cimaclub', 'anime4up']);
+  const allowedProviders = new Set(['akwam', 'anime4up']);
   const allowedTypes = new Set(['mp4', 'hls', 'dash', 'webm', 'direct']);
 
   return (data || [])
@@ -287,7 +287,7 @@ async function seriesDto(row: any, includePlaybackSources = false) {
         if (!episodeId) continue;
         const list = playbackByEpisode.get(episodeId) || [];
         const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-        if (!['aflaam', 'cimaclub', 'anime4up'].includes(providerReference)) continue;
+        if (!['akwam', 'anime4up'].includes(providerReference)) continue;
         const mapped = cachedRe3ArabiSourceDto(source);
         if (mapped.url && mapped.providerKey) list.push(mapped);
         playbackByEpisode.set(episodeId, list);
@@ -368,7 +368,7 @@ async function seriesWatchDto(row: any, seasonNumber: number) {
     } else {
       for (const source of playbackRows || []) {
         const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-        if (!['aflaam', 'cimaclub', 'anime4up'].includes(providerReference)) continue;
+        if (!['akwam', 'anime4up'].includes(providerReference)) continue;
         const mapped = cachedRe3ArabiSourceDto(source);
         if (!mapped.url || !mapped.providerKey) continue;
         const episodeId = String(source.content_id || '');
@@ -767,19 +767,6 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
 
     if (!sources.length) {
       try {
-        sources = await resolveDoodStreamPlayback({
-          tmdbId: Number(data.tmdb_id),
-          title: data.title_en || data.title_ar || data.original_title || undefined,
-          originalTitle: data.original_title || data.title_en || data.title_ar || undefined,
-        });
-      } catch (error) {
-        console.warn('[doodstream-movie]', error instanceof Error ? error.message : String(error));
-        sources = [];
-      }
-    }
-
-    if (!sources.length) {
-      try {
         sources = await resolveRe3ArabiPlayback({
           type: 'movie',
           tmdbId: Number(data.tmdb_id),
@@ -837,21 +824,6 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
     } catch (error) {
       console.warn('[arprov-episode]', error instanceof Error ? error.message : String(error));
       sources = [];
-    }
-
-    if (!sources.length) {
-      try {
-        sources = await resolveDoodStreamPlayback({
-          tmdbId: Number(series.tmdb_id),
-          title: series.title_en || series.title_ar || series.original_title || undefined,
-          originalTitle: series.original_title || series.title_en || series.title_ar || undefined,
-          seasonNumber: Number(season.season_number),
-          episodeNumber: Number(episode.episode_number),
-        });
-      } catch (error) {
-        console.warn('[doodstream-episode]', error instanceof Error ? error.message : String(error));
-        sources = [];
-      }
     }
 
     if (!sources.length) {
