@@ -4,6 +4,16 @@ on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'server/maintenance.ts'
+      - 'server/providers/**'
+      - 'bot/**'
+      - '.github/workflows/source-maintenance.yml'
+      - 'package.json'
+      - 'package-lock.json'
 
 concurrency:
   group: movyz-source-maintenance
