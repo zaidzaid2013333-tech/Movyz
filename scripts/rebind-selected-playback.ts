@@ -105,7 +105,6 @@ async function rebindMovies() {
         title: movie.title_en,
         providers: [...groups.keys()],
         sources: sources.length,
-        persisted: persistedCount,
       }));
     } catch (error) {
       summary.processed++;
@@ -140,7 +139,7 @@ async function persistExactEpisodeSources(
     ALLOWED_PROVIDER_KEYS.has(String(source?.providerKey || source?.providerReference || '').toLowerCase()) &&
     ALLOWED_TYPES.has(String(source?.type || '').toLowerCase()) &&
     ['mp4', 'hls', 'dash', 'webm', 'direct'].includes(String(source?.type || '').toLowerCase()) &&
-    /^https:///i.test(String(source?.url || '')) &&
+    /^https:\/\//i.test(String(source?.url || '')) &&
     !/movyz-api\.sameranede\.workers\.dev/i.test(String(source?.url || '')) &&
     !['auto', 'source'].includes(String(source?.quality || '').trim().toLowerCase())
   );
@@ -311,6 +310,7 @@ async function rebindEpisodes() {
         episodeId: episode.id,
         providers: [...groups.keys()],
         sources: sources.length,
+        persisted: persistedCount,
       }));
     } catch (error) {
       summary.processed++;
