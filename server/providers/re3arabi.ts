@@ -50,22 +50,20 @@ const PROVIDERS: readonly SiteConfig[] = [
   {
     key: 'cimaclub',
     name: 'CimaClub',
-    base: 'https://cimacub.com',
+    base: 'https://w.cimacub.com',
     kind: 'general',
     searchUrls: (q) => [
+      `https://w.cimacub.com/?s=${q}`,
       `https://cimacub.com/?s=${q}`,
     ],
   },
   {
     key: 'anime4up',
     name: 'Anime4Up',
-    base: 'https://anime4upp.cam',
+    base: 'https://w1.anime4up.rest',
     kind: 'anime',
     searchUrls: (q) => [
-      `https://anime4upp.cam/?s=${q}`,
-      `https://anime4upp.cam/search?q=${q}`,
       `https://w1.anime4up.rest/?s=${q}`,
-      `https://w1.anime4up.rest/search?q=${q}`,
     ],
   },
 ] as const;
@@ -1163,56 +1161,111 @@ async function resolveAnime3rbSources(
   return unique.sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality));
 }
 
+async function resolveAnime4upMegabox(
+  url: string,
+  referer: string,
+  provider: SiteConfig,
+  timeoutMs: number,
+): Promise<Candidate[]> {
+  try {
+    const html = await getText(url, timeoutMs, referer);
+    const appJson = html.match(/<script[^>]*data-page=["']app["'][^>]*>([\\s\\S]*?)<\\/script>/i)?.[1];
+    if (!appJson) return [];
+    let page: any;
+    try { page = JSON.parse(appJson); } catch { return []; }
+    const version = typeof page?.version === 'string' ? page.version : '';
+    if (!version) return [];
+
+    const response = await fetchWithTimeout(url, {
+      method: 'GET',
+      timeoutMs,
+      headers: {
+        Accept: 'application/json,text/plain,*/*',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/137 Safari/537.36',
+        Referer: referer,
+        'X-Inertia': 'true',
+        'X-Inertia-Partial-Component': 'files/mirror/video',
+        'X-Inertia-Partial-Data': 'streams',
+        'X-Inertia-Version': version,
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+    });
+    if (!response.ok) return [];
+    const payload = await response.json() as any;
+    const mirrors = payload?.props?.streams?.data || [];
+    const links: Array<{url:string; quality?:string; referer?:string}> = [];
+    for (const level of Array.isArray(mirrors) ? mirrors : []) {
+      const quality = String(level?.label || '');
+      for (const mirror of Array.isArray(level?.mirrors) ? level.mirrors : []) {
+        const link = typeof mirror?.link === 'string' ? mirror.link : '';
+        if (link) links.push({ url: link.startsWith('//') ? `https:${link}` : link, quality, referer: url });
+      }
+    }
+    return resolveNestedPlaybackLinks(links.slice(0, 8), provider, timeoutMs);
+  } catch {
+    return [];
+  }
+}
+
 async function resolveAnime4upSources(
   html: string,
   pageUrl: string,
   provider: SiteConfig,
+  timeoutMs: number,
 ): Promise<Candidate[]> {
-  const candidates: Candidate[] = [];
+  const links: Array<{ url: string; quality?: string; referer?: string }> = [];
   const seen = new Set<string>();
 
-  const add = (rawUrl: string, hint = '') => {
+  const addLink = (rawUrl: string, qualityHint = '', referer = pageUrl) => {
     const url = absolute(pageUrl, rawUrl);
-    if (!url || seen.has(url) || !/^https:\/\//i.test(url)) return;
-
-    const quality = qualityFromText(hint, rawUrl);
-    if (!quality) return;
-
-    const type = classifyUrl(url, hint, true)?.type;
-    if (!type || type === 'embed' || !PLAYABLE_TYPES.has(type)) return;
-
+    if (!url || seen.has(url)) return;
     seen.add(url);
-    candidates.push({
-      provider: provider.name,
-      providerKey: provider.key,
-      type,
+    links.push({
       url,
-      providerReference: provider.key,
-      quality,
-      language: 'ar',
-      label: labelForQuality(provider, quality),
-      expiresAt: undefined,
-      sourceUrl: pageUrl,
+      quality: qualityFromText(qualityHint, rawUrl) || 'source',
+      referer,
     });
   };
 
-  for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
+  // Match the Re-3Arabi Anime4Up plugin: every episode server is a data-watch URL.
+  for (const match of html.matchAll(/<li\\b[^>]*data-watch=["']([^"']+)["'][^>]*>/gi)) {
     const tag = match[0];
-    const href = match[1];
-    const text = stripTags(tag);
-    if (!/\b(?:تحميل|download)\b/i.test(text) && !/\/download(?:\/|\?|$)/i.test(href)) continue;
-    add(href, text);
+    addLink(match[1], qualityFromText(tag, match[1]) || 'source');
   }
 
-  for (const match of html.matchAll(/<(?:a|li|div|source|video)\b[^>]*(?:href|src|data-url|data-src)=["']([^"']+)["'][^>]*>/gi)) {
+  // And its explicit download list.
+  for (const match of html.matchAll(/<tr\\b[^>]*>[\\s\\S]*?<a\\b[^>]*href=["']([^"']+)["'][^>]*>[\\s\\S]*?<\\/a>[\\s\\S]*?<\\/tr>/gi)) {
     const tag = match[0];
-    const hint = stripTags(tag);
-    if (!/1080|720|480|fhd|hd|sd/i.test(hint)) continue;
-    add(match[1], hint);
+    if (!/td[-_]link|download/i.test(tag)) continue;
+    addLink(match[1], qualityFromText(tag, match[1]) || 'source');
   }
 
-  return candidates.sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality));
+  // Fallback for direct native media already embedded in the page.
+  if (!links.length) {
+    for (const match of html.matchAll(/<(?:source|video)\\b[^>]*(?:src|data-src)=["']([^"']+)["'][^>]*>/gi)) {
+      addLink(match[1], qualityFromText(match[0], match[1]) || 'source');
+    }
+  }
+
+  const all: Candidate[] = [];
+  const seenUrls = new Set<string>();
+
+  for (const item of links.slice(0, 8)) {
+    const isMega = /(?:share4max|megamax)/i.test(item.url);
+    const sources = isMega
+      ? await resolveAnime4upMegabox(item.url, item.referer || pageUrl, provider, timeoutMs)
+      : await resolveNestedPlaybackLinks([item], provider, timeoutMs);
+
+    for (const source of sources) {
+      if (seenUrls.has(source.url)) continue;
+      seenUrls.add(source.url);
+      all.push(source);
+    }
+  }
+
+  return all.sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality));
 }
+
 
 function cimaSeasonWord(season: number): string {
   const words = [
