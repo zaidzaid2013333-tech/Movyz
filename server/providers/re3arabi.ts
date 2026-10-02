@@ -1968,12 +1968,15 @@ export async function resolveRe3ArabiProvider(
   request: Re3ArabiPlaybackRequest,
   providerKey: string,
 ): Promise<Candidate[]> {
-  // The full selected-sites resolver is the proven path for exact episodes.
-  // Filter its results here instead of maintaining a second divergent
-  // provider-specific discovery implementation.
-  const sources = await resolveRe3ArabiPlayback(request);
-  return sources.filter((source) =>
-    String(source.providerKey || source.providerReference || '').trim().toLowerCase() === providerKey.toLowerCase(),
+  const context = await resolveContext(request);
+  const provider = PROVIDERS.find((item) => item.key === providerKey.toLowerCase());
+  if (!provider) return [];
+
+  const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
+  return withTimeout(
+    resolveProvider(provider, context, timeoutMs),
+    Math.min(timeoutMs + 4_000, 12_000),
+    `Provider ${providerKey} exceeded resolver budget`,
   );
 }
 
@@ -1989,19 +1992,14 @@ export async function resolveRe3ArabiProviderWithContext(
     episodeNumber: episode,
   };
 
-  // Use the same combined resolver path that is proven to return exact
-  // episode sources, then keep only the requested provider group. This avoids
-  // maintaining a second provider-specific discovery path that previously
-  // returned zero sources for every episode.
-  const timeoutMs = Math.max(8_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
-  const sources = await withTimeout(
-    resolveUncached(resolvedContext, timeoutMs),
-    Math.min(timeoutMs + 3_000, 18_000),
-    `Provider ${providerKey} exceeded resolver budget`,
-  );
+  const provider = PROVIDERS.find((item) => item.key === providerKey.toLowerCase());
+  if (!provider) return [];
 
-  return sources.filter((source) =>
-    String(source.providerKey || source.providerReference || '').trim().toLowerCase() === providerKey.toLowerCase(),
+  const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
+  return withTimeout(
+    resolveProvider(provider, resolvedContext, timeoutMs),
+    Math.min(timeoutMs + 4_000, 12_000),
+    `Provider ${providerKey} exceeded resolver budget`,
   );
 }
 
