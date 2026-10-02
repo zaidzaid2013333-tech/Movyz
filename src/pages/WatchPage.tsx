@@ -280,7 +280,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const storedPlaybackSource = [...storedPlaybackSources]
     .filter((source) => source.isWorking)
     .sort((a, b) => startupSourceRank(b) - startupSourceRank(a))
-    .find((source) => /720p/i.test(source.quality || source.labelEn || ''))
+    .find((source) => /1080p/i.test(source.quality || source.labelEn || ''))
     ?? [...storedPlaybackSources]
       .filter((source) => source.isWorking)
       .sort((a, b) => startupSourceRank(b) - startupSourceRank(a))[0]
@@ -704,18 +704,19 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     void attachPlayback();
 
-    // Watchdog only reports a real media initialization failure.
-    // It never changes source/quality automatically.
+    // Remote MP4 hosts can take 20–30s before exposing metadata.
+    // Keep the player in a loading state long enough for slow-but-valid sources
+    // instead of showing a false playback error while the browser is still waiting.
     startupGuardTimerRef.current = window.setTimeout(() => {
       if (cancelled) return;
       const currentVideo = videoRef.current;
       if (!currentVideo || currentVideo.readyState >= HTMLMediaElement.HAVE_METADATA) return;
       setPlaybackError(
         language === 'ar'
-          ? 'المصدر لم يرسل بيانات الفيديو بعد. يمكنك إعادة المحاولة يدويًا أو اختيار جودة أخرى.'
-          : 'The source has not provided video metadata yet. Retry manually or choose another quality.',
+          ? 'المصدر يتأخر في إرسال بيانات الفيديو. يمكنك الانتظار قليلًا أو تجربة جودة أخرى.'
+          : 'The source is taking longer than usual to send video metadata. You can wait a little longer or try another quality.',
       );
-    }, 15000);
+    }, 35000);
 
     return () => {
       cancelled = true;
@@ -796,6 +797,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       setPlayerPlaying(true);
       setPlayerReady(true);
       setPlaybackError(null);
+      runStartupWarmup(video, playbackUrl);
       syncTime();
       syncBuffered();
     };
@@ -1169,6 +1171,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onPlaying={() => {
                   playbackStartedRef.current = true;
                   setPlaybackError(null);
+                  runStartupWarmup(videoRef.current as HTMLVideoElement, playbackUrl);
                   rememberPlaybackHost(playbackSource, true);
                 }}
                 onError={() => {
