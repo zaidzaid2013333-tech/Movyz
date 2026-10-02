@@ -68,7 +68,7 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
     .eq('content_type', contentType)
     .eq('content_id', contentId)
     .eq('is_working', true)
-    .eq('providers.key', 're3arabi')
+    .eq('providers.key', 'arprov')
     .order('quality', { ascending: true });
 
   if (error) {
@@ -274,7 +274,7 @@ async function seriesDto(row: any, includePlaybackSources = false) {
       .eq('content_type', 'episode')
       .in('content_id', episodeIds)
       .eq('is_working', true)
-      .eq('providers.key', 're3arabi')
+      .eq('providers.key', 'arprov')
       .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
       .order('quality', { ascending: true });
 
@@ -358,7 +358,7 @@ async function seriesWatchDto(row: any, seasonNumber: number) {
       .eq('content_type', 'episode')
       .in('content_id', episodeIds)
       .eq('is_working', true)
-      .eq('providers.key', 're3arabi')
+      .eq('providers.key', 'arprov')
       .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
       .order('quality', { ascending: true });
 
