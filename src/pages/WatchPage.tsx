@@ -179,6 +179,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const startupWarmupUrlsRef = useRef<Set<string>>(new Set());
   const startupGuardTimerRef = useRef<number | null>(null);
+  const startupWarmupTimerRef = useRef<number | null>(null);
+  const startupWarmupDoneRef = useRef<Set<string>>(new Set());
+  const startupFailoverUsedRef = useRef(false);
   const progressSaveTimerRef = useRef<number | null>(null);
   const lastProgressSaveAtRef = useRef(0);
   const playbackEngineRef = useRef<{ destroy?: () => void; reset?: () => void } | null>(null);
@@ -208,6 +211,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         userPlayRequestedRef.current = false;
         playbackStartedRef.current = false;
         startupTriedUrlsRef.current.clear();
+        startupWarmupDoneRef.current.clear();
+        startupFailoverUsedRef.current = false;
 
         const legacyTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
         const response = mediaType === 'movie'
@@ -531,6 +536,38 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   // A failed source must remain stable so the player never enters a quality-switch loop.
   const markPlaybackSourceFailed = () => {
     rememberPlaybackHost(playbackSource, false);
+  };
+
+  const runStartupWarmup = (video: HTMLVideoElement, url: string) => {
+    if (startupWarmupDoneRef.current.has(url)) return;
+    if (!Number.isFinite(video.duration) || video.duration < 125) return;
+    if (video.currentTime > 1) return;
+
+    startupWarmupDoneRef.current.add(url);
+    const restorePosition = 0;
+    const wasPaused = video.paused;
+
+    try {
+      video.currentTime = Math.min(120, Math.max(0, video.duration - 1));
+      if (!wasPaused) void video.play().catch(() => undefined);
+    } catch {
+      return;
+    }
+
+    if (startupWarmupTimerRef.current !== null) {
+      window.clearTimeout(startupWarmupTimerRef.current);
+    }
+    startupWarmupTimerRef.current = window.setTimeout(() => {
+      startupWarmupTimerRef.current = null;
+      const active = videoRef.current;
+      if (!active || playbackUrl !== url) return;
+      try {
+        active.currentTime = restorePosition;
+        if (wasPaused) active.pause();
+      } catch {
+        // Some remote MP4 servers reject an immediate seek-back; playback can continue normally.
+      }
+    }, 1200);
   };
 
 
@@ -1045,6 +1082,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   }
                   setPlayerReady(true);
                   if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
+                  runStartupWarmup(video, playbackUrl);
 
                   const resumeTime = qualityResumeTimeRef.current;
                   if (resumeTime === null || !Number.isFinite(video.duration) || video.duration <= 0) return;
@@ -1134,6 +1172,26 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   if (!playbackUrl) return;
 
                   markPlaybackSourceFailed();
+
+                  // One bounded startup failover: never cycle between qualities.
+                  if (!startupFailoverUsedRef.current) {
+                    const next = availableSources.find(
+                      (source) =>
+                        source.url !== playbackUrl &&
+                        !startupTriedUrlsRef.current.has(source.url),
+                    );
+                    if (next) {
+                      startupFailoverUsedRef.current = true;
+                      startupTriedUrlsRef.current.add(next.url);
+                      qualityResumeTimeRef.current = 0;
+                      qualitySwitchPendingRef.current = false;
+                      resumeAfterQualitySwitchRef.current = false;
+                      setPlaybackError(null);
+                      setRemotePlaybackSource(next);
+                      return;
+                    }
+                  }
+
                   const mediaError = videoRef.current?.error;
                   const code = mediaError?.code;
                   const detail =
