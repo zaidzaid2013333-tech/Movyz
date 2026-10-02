@@ -286,6 +286,7 @@ async function resolveAkwam(pageUrl: string, body: string, site: Site) {
         url,
         quality: item.quality,
         referer: d.url,
+        direct: /(?:btn-loader|download)/i.test(url) || !inferPlaybackType(url),
       }));
     }),
   );
@@ -293,8 +294,24 @@ async function resolveAkwam(pageUrl: string, body: string, site: Site) {
   for (const result of results) {
     if (result.status !== 'fulfilled') continue;
     for (const media of result.value) {
+      const absolute = https(media.url, media.referer);
+      if (!absolute) continue;
+
+      if (media.direct) {
+        out.push({
+          provider: site.name,
+          type: inferPlaybackType(absolute) || 'direct',
+          url: absolute,
+          quality: media.quality || inferQuality('', absolute),
+          language: 'und',
+          label: site.name,
+          providerReference: site.key,
+        });
+        continue;
+      }
+
       try {
-        const resolved = await resolveLink(media.url, media.referer, site.name);
+        const resolved = await resolveLink(absolute, media.referer, site.name);
         out.push(...resolved.map(source => ({ ...source, quality: media.quality || source.quality })));
       } catch {}
     }
