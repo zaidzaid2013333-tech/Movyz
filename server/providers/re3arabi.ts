@@ -1304,6 +1304,60 @@ function cimaSeasonWord(season: number): string {
   return words[season] || String(season);
 }
 
+async function resolveCanonicalCimaClubMovie(
+  titles: string[],
+  context: ProviderContext,
+  provider: SiteConfig,
+  timeoutMs: number,
+): Promise<Candidate[]> {
+  if (provider.key !== 'cimaclub') return [];
+
+  const year = context.releaseYear;
+  const bases = ['https://cimacub.com', 'https://w.cimacub.com'];
+  const attempts: string[] = [];
+
+  for (const term of titles.slice(0, 3)) {
+    const slug = normalize(term).replace(/\s+/g, '-');
+    if (!slug) continue;
+
+    const yearParts = year ? [String(year), ''] : [''];
+    for (const yearPart of yearParts) {
+      const suffix = yearPart ? `-${yearPart}` : '';
+      const paths = [
+        `/مشاهدة-مشاهدة-فيلم-${slug}${suffix}-مترجم/`,
+        `/مشاهدة-فيلم-${slug}${suffix}-مترجم/`,
+        `/فيلم-${slug}${suffix}-مترجم/`,
+        `/مشاهدة-فيلم-${slug}${suffix}/`,
+      ];
+
+      for (const base of bases) {
+        for (const path of paths) attempts.push(new URL(path, base).toString());
+      }
+    }
+  }
+
+  const results = await Promise.allSettled(
+    [...new Set(attempts)].slice(0, 24).map(async (url) => {
+      const sources = await resolveCimaClubSources(
+        url,
+        provider,
+        Math.min(Math.max(timeoutMs, 3_000), 6_000),
+      );
+      return sources.filter((source) =>
+        PLAYABLE_TYPES.has(source.type) &&
+        source.quality !== 'auto' &&
+        source.quality !== 'source',
+      );
+    }),
+  );
+
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value.length) return result.value;
+  }
+
+  return [];
+}
+
 async function resolveCanonicalCimaClubEpisode(
   titles: string[],
   context: ProviderContext,
@@ -1415,6 +1469,11 @@ async function resolveProvider(
   // search ranking or a slow mirror.
   if (provider.key === 'cimaclub' && context.episodeNumber !== undefined) {
     const canonicalSources = await resolveCanonicalCimaClubEpisode(titles, context, provider, timeoutMs);
+    if (canonicalSources.length) return canonicalSources;
+  }
+
+  if (provider.key === 'cimaclub' && context.episodeNumber === undefined) {
+    const canonicalSources = await resolveCanonicalCimaClubMovie(titles, context, provider, timeoutMs);
     if (canonicalSources.length) return canonicalSources;
   }
 
