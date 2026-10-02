@@ -8,28 +8,16 @@ import {
 } from '../server/providers/re3arabi';
 
 const inceptionContext = await resolveRe3ArabiMovieContext(27205);
-const threeHundredContext = await resolveRe3ArabiMovieContext(1271);
 const breakingBadContext = await resolveRe3ArabiSeriesContext(1396);
-const darkMatterContext = await resolveRe3ArabiSeriesContext(196322);
 
 const cases = [
   {
-    provider: 'cimaclub' as const,
-    type: 'movie' as const,
-    context: threeHundredContext,
-  },
   {
     provider: 'aflaam' as const,
     type: 'movie' as const,
     context: inceptionContext,
   },
   {
-    provider: 'cimaclub' as const,
-    type: 'episode' as const,
-    context: darkMatterContext,
-    season: 2,
-    episode: 3,
-  },
   {
     provider: 'aflaam' as const,
     type: 'episode' as const,
@@ -48,7 +36,7 @@ const results = await Promise.all(
         ? await resolveRe3ArabiProvider(
             {
               type: 'movie',
-              tmdbId: test.provider === 'cimaclub' ? 1271 : 27205,
+              tmdbId: 27205,
             },
             test.provider,
           )
