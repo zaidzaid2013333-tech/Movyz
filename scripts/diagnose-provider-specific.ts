@@ -27,6 +27,9 @@ async function debugAflamBreakingBad() {
     'https://aflaam.com/sitemap_index.xml',
   ];
 
+  const anchorPattern = new RegExp('<a\\\\b[^>]*href=["\\']([^"\\']+)["\\'][^>]*>([\\\\s\\\\S]*?)</a>', 'gi');
+  const locPattern = new RegExp('<loc>\\\\s*(.*?)\\\\s*</loc>', 'gis');
+
   for (const url of urls) {
     try {
       const response = await fetch(url, {
@@ -37,15 +40,15 @@ async function debugAflamBreakingBad() {
         },
       });
       const body = await response.text();
-      const anchors = [...body.matchAll(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)]
+      const anchors = Array.from(body.matchAll(anchorPattern))
         .map((m) => ({
-          href: m[1],
-          text: m[2].replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim(),
+          href: String(m[1] || ''),
+          text: String(m[2] || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim(),
         }))
         .filter((x) => /breaking|episode|s0?1e0?[1-9]|الحلقة|الموسم/i.test(x.href + ' ' + x.text))
         .slice(0, 80);
 
-      const sitemapMatches = [...body.matchAll(/<loc>\\s*(.*?)\\s*<\\/loc>/gis)]
+      const sitemapMatches = Array.from(body.matchAll(locPattern))
         .map((m) => String(m[1] || '').trim())
         .filter((x) => /breaking|s0?1|episode|الحلقة/i.test(x))
         .slice(0, 80);
@@ -66,8 +69,6 @@ async function debugAflamBreakingBad() {
     }
   }
 }
-
-await debugAflamBreakingBad();
 
 const movieContext = await resolveRe3ArabiMovieContext(27205);
 const breakingBadContext = await resolveRe3ArabiSeriesContext(1396);
