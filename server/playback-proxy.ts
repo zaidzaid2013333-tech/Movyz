@@ -31,12 +31,21 @@ async function keyFor(secret: string) {
 }
 
 async function sign(payload: string, secret: string) {
-  const signature = await crypto.subtle.sign(
+  const signature = new Uint8Array(await crypto.subtle.sign(
     'HMAC',
     await keyFor(secret),
     new TextEncoder().encode(payload),
-  );
-  return base64UrlEncode(String.fromCharCode(...new Uint8Array(signature)));
+  ));
+  return [...signature].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function hexToBytes(value: string) {
+  if (!/^[0-9a-f]{64}$/i.test(value) || value.length % 2 !== 0) return null;
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
 }
 
 function secretFromEnv(env: Record<string, unknown>) {
@@ -79,10 +88,13 @@ async function verifyToken(token: string, env: Record<string, unknown>): Promise
   if (!encoded || !signature) return null;
 
   try {
+    const signatureBytes = hexToBytes(signature);
+    if (!signatureBytes) return null;
+
     const valid = await crypto.subtle.verify(
       'HMAC',
       await keyFor(secret),
-      Uint8Array.from(atob(signature.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (signature.length % 4)) % 4)), char => char.charCodeAt(0)),
+      signatureBytes,
       new TextEncoder().encode(encoded),
     );
     if (!valid) return null;
