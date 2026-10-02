@@ -273,7 +273,14 @@ async function resolveDownload(
     });
 
     if (extractor.length) {
-      output.push(...extractor.map(item => ({ ...item, quality: quality !== 'auto' ? quality : item.quality })));
+      output.push(...extractor.map(item => ({
+        ...item,
+        provider: 'Akwam',
+        providerReference: 'akwam',
+        quality: quality !== 'auto' ? quality : item.quality,
+        language: item.language || 'und',
+        label: item.label || `Akwam ${quality !== 'auto' ? quality : item.quality}`.trim(),
+      })));
       continue;
     }
 
@@ -342,7 +349,16 @@ function dedupe(values: NormalizedPlaybackSource[]) {
     if (!value.url) continue;
     map.set(value.type + '|' + value.url, value);
   }
-  return [...map.values()].sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality)).slice(0, 12);
+  return [...map.values()]
+    .map((value) => ({
+      ...value,
+      provider: value.provider || 'Akwam',
+      providerReference: 'akwam',
+      language: value.language || 'und',
+      label: value.label || `Akwam ${value.quality || ''}`.trim(),
+    }))
+    .sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality))
+    .slice(0, 12);
 }
 
 function qualityValue(value: unknown) {
