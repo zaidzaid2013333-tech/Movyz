@@ -45,8 +45,7 @@ function schedule(job: typeof JOBS[number]) {
     process.once('SIGINT', cleanup);
     process.once('SIGTERM', cleanup);
   }, job.initialDelayMs);
-
-  timer.unref();
+ 
 }
 
 async function main() {
@@ -86,7 +85,7 @@ async function main() {
 
   setInterval(() => {
     if (!shuttingDown) log('heartbeat', { activeRuns });
-  }, 60 * 60 * 1000).unref();
+  }, 60 * 60 * 1000);
 }
 
 main().catch((error) => {
