@@ -635,6 +635,23 @@ async function resolveProvider(
 
       if (context.episodeNumber !== undefined) {
         targetUrl = findEpisodeUrl(detail, hit.url, context.seasonNumber, context.episodeNumber) || '';
+
+        // Anime3rb exposes a stable canonical episode route even when the
+        // title page omits the episode anchors from the initial HTML.
+        if (!targetUrl && provider.key === 'anime3rb') {
+          try {
+            const titleSlug = new URL(hit.url).pathname.match(/^\/titles\/([^/]+)/i)?.[1];
+            if (titleSlug) {
+              const episodeUrl = `https://anime3rb.com/episode/${titleSlug}/${context.episodeNumber}`;
+              const episodeHtml = await getText(episodeUrl, timeoutMs, hit.url);
+              if (/(?:الحلقة|episode)/i.test(episodeHtml.slice(0, 12000))) {
+                targetUrl = episodeUrl;
+                detail = episodeHtml;
+              }
+            }
+          } catch {}
+        }
+
         if (!targetUrl) {
           // Some pages link the first episode from a separate panel; resolve
           // that page once and look for the requested episode there.
