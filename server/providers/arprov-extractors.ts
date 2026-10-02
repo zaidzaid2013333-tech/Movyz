@@ -41,7 +41,6 @@ function source(provider: string, url: string, pageUrl: string, quality?: string
     language: 'und',
     label: provider,
     expiresAt: undefined,
-    ...({ referer: pageUrl } as any),
   };
 }
 
@@ -208,12 +207,12 @@ const vidHd: ArProvExtractor = {
     const page = await fetchArProvPage(url, { referer: context.referer, browserBinding: context.browserBinding });
     if (!page) return [];
     const body = page.body;
-    const payload = body.substringAfter('||||');
+    const payload = body.includes('||||') ? body.split('||||').pop()! : '';
     const parts = payload.split('|');
     if (parts.length < 22) return [];
 
-    const images = payload.substringAfter('|image|').split('|');
-    const label = payload.substringAfter('|label|').split('|file|')[0];
+    const images = payload.includes('|image|') ? payload.split('|image|')[1].split('|') : [];
+    const label = payload.includes('|label|') ? payload.split('|label|')[1].split('|file|')[0] : '';
     const raw = `${parts[6]}://${parts[21]}.e-${parts[20]}-${parts[19]}.${parts[18]}`;
     const qualityA = images[0] ? inferQuality(images[0], raw) : 'auto';
     const urlA = absolute(raw + `/${images[1] || ''}/v.${label}`, page.url);
