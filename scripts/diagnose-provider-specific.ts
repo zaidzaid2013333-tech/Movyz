@@ -6,6 +6,9 @@ import {
   resolveRe3ArabiPlayback,
   resolveRe3ArabiPlaybackWithContext,
 } from '../server/providers/re3arabi';
+import { resolveArProvPlayback } from '../server/providers/arprov';
+
+} from '../server/providers/re3arabi';
 
 type DiagnosticCase =
   | {
@@ -30,37 +33,37 @@ const onePieceContext = await resolveRe3ArabiSeriesContext(37854);
 
 const cases: DiagnosticCase[] = [
   {
-    name: 'Inception movie (Aflam + CimaClub)',
+    name: 'Inception movie (Akwam)',
     type: 'movie',
     tmdbId: 27205,
-    expectedProviders: ['aflaam', 'cimaclub'],
+    expectedProviders: ['akwam'],
   },
   {
-    name: 'Breaking Bad S01E01 (Aflam + CimaClub)',
+    name: 'Breaking Bad S01E01 (Akwam)',
     type: 'episode',
     tmdbId: 1396,
     context: breakingBadContext,
     season: 1,
     episode: 1,
-    expectedProviders: ['aflaam', 'cimaclub'],
+    expectedProviders: ['akwam'],
   },
   {
-    name: 'Breaking Bad S01E07 (Aflam + CimaClub)',
+    name: 'Breaking Bad S01E07 (Akwam)',
     type: 'episode',
     tmdbId: 1396,
     context: breakingBadContext,
     season: 1,
     episode: 7,
-    expectedProviders: ['aflaam', 'cimaclub'],
+    expectedProviders: ['akwam'],
   },
   {
-    name: 'Breaking Bad S05E01 (Aflam + CimaClub)',
+    name: 'Breaking Bad S05E01 (Akwam)',
     type: 'episode',
     tmdbId: 1396,
     context: breakingBadContext,
     season: 5,
     episode: 1,
-    expectedProviders: ['aflaam', 'cimaclub'],
+    expectedProviders: ['akwam'],
   },
   {
     name: 'One Piece S01E01 (Anime4Up)',
@@ -78,12 +81,18 @@ for (const test of cases) {
   try {
     const sources =
       test.type === 'movie'
-        ? await resolveRe3ArabiPlayback({ type: 'movie', tmdbId: test.tmdbId })
-        : await resolveRe3ArabiPlaybackWithContext(
-            test.context,
-            test.season,
-            test.episode,
-          );
+        ? await resolveArProvPlayback(test.context)
+        : test.name.includes('(Akwam)')
+          ? await resolveArProvPlayback({
+              ...test.context,
+              seasonNumber: test.season,
+              episodeNumber: test.episode,
+            })
+          : await resolveRe3ArabiPlaybackWithContext(
+              test.context,
+              test.season,
+              test.episode,
+            );
 
     const playable = sources.filter((source) =>
       /^https:\/\//i.test(String(source.url || '')) &&
