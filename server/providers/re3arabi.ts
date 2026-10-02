@@ -48,14 +48,12 @@ const PROVIDERS: readonly SiteConfig[] = [
     ],
   },
   {
-    key: 'anime3rb',
-    name: 'Anime3rb',
-    base: 'https://anime3rb.com',
-    kind: 'anime',
+    key: 'cimaclub',
+    name: 'CimaClub',
+    base: 'https://cimacub.com',
+    kind: 'general',
     searchUrls: (q) => [
-      `https://anime3rb.com/?s=${q}`,
-      `https://anime3rb.com/search?q=${q}`,
-      `https://anime3rb.com/search?query=${q}`,
+      `https://cimacub.com/?s=${q}`,
     ],
   },
   {
@@ -1257,6 +1255,34 @@ async function resolveCanonicalAnime3rbEpisode(
   return [];
 }
 
+async function resolveCimaClubSources(
+  targetUrl: string,
+  provider: SiteConfig,
+  timeoutMs: number,
+): Promise<Candidate[]> {
+  const html = await postText(targetUrl, timeoutMs, targetUrl);
+  const links: Array<{ url: string; quality?: string; referer?: string }> = [];
+  const seen = new Set<string>();
+
+  for (const match of html.matchAll(/<li\\b[^>]*\\bdata-watch=["']([^"']+)["'][^>]*>/gi)) {
+    const url = absolute(targetUrl, match[1]);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    links.push({ url, quality: qualityFromText(match[0], url) || 'source', referer: targetUrl });
+  }
+
+  for (const match of html.matchAll(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>/gi)) {
+    const tag = match[0];
+    if (!/ServersList[^>]*Download|Download[^>]*ServersList/i.test(tag)) continue;
+    const url = absolute(targetUrl, match[1]);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    links.push({ url, quality: qualityFromText(tag, url) || 'source', referer: targetUrl });
+  }
+
+  return resolveNestedPlaybackLinks(links.slice(0, 10), provider, timeoutMs);
+}
+
 async function resolveProvider(
   provider: SiteConfig,
   context: ProviderContext,
@@ -1455,17 +1481,8 @@ async function resolveProvider(
         if (!sources.length) {
           sources = parseQualitySources(sourcePageHtml, targetUrl, provider);
         }
-      } else if (provider.key === 'anime3rb') {
-        const watchHtml =
-          targetUrl === hit.url
-            ? detail
-            : await getText(targetUrl, timeoutMs, hit.url);
-        sources = await resolveAnime3rbSources(
-          watchHtml,
-          targetUrl,
-          provider,
-          timeoutMs,
-        );
+      } else if (provider.key === 'cimaclub') {
+        sources = await resolveCimaClubSources(targetUrl, provider, timeoutMs);
       } else if (provider.key === 'anime4up') {
         const watchHtml =
           targetUrl === hit.url
@@ -1482,8 +1499,7 @@ async function resolveProvider(
 
       sources = (sources || []).filter((source) =>
         PLAYABLE_TYPES.has(source.type) &&
-        source.quality !== 'auto' &&
-        source.quality !== 'source',
+        source.quality !== 'auto',
       );
 
       if (
