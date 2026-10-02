@@ -506,11 +506,6 @@ function parseDirectMediaSources(
     }
   }
 
-  const sourceObjectRe = /["'](?:src|file|url)["']\s*[:=]\s*["']([^"']+)["']/gi;
-  while ((match = sourceObjectRe.exec(html))) {
-    add(match[1], '', true);
-  }
-
   return candidates;
 }
 
@@ -535,12 +530,13 @@ async function resolveNestedPlaybackLinks(
 
     for (const item of queue.splice(0, 12)) {
       const direct = classifyUrl(item.url, item.quality || '', false);
-      if (direct && PLAYABLE_TYPES.has(direct.type)) {
-        const quality = qualityFromText(item.quality, item.url) || (direct.type === 'hls' ? 'adaptive' : 'source');
+      const downloadLike = /\/download(?:\/|$)|[?&](?:download|file)=/i.test(item.url);
+      if (downloadLike || (direct && PLAYABLE_TYPES.has(direct.type))) {
+        const quality = qualityFromText(item.quality, item.url) || (direct?.type === 'hls' ? 'adaptive' : item.quality || 'source');
         addMedia({
           provider: provider.name,
           providerKey: provider.key,
-          type: direct.type,
+          type: direct?.type || 'direct',
           url: item.url,
           providerReference: provider.key,
           quality,
@@ -561,7 +557,7 @@ async function resolveNestedPlaybackLinks(
           addMedia(source);
         }
 
-        const nestedRe = /<(?:iframe|source|video|a|li)\b[^>]*(?:src|href|data-watch|data-player|data-src|data-url)=["']([^"']+)["'][^>]*>/gi;
+        const nestedRe = /<(?:iframe|source|video|li)\b[^>]*(?:src|data-watch|data-player|data-src|data-url)=["']([^"']+)["'][^>]*>/gi;
         let match: RegExpExecArray | null;
         while ((match = nestedRe.exec(html))) {
           const tag = match[0];
