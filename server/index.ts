@@ -9,6 +9,7 @@ import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolveRemotePlayback } from './providers/remote-resolver';
 import { resolvePlaybackSources } from './providers/resolver';
 import { fetchWithTimeout } from './providers/http';
+import type { PlaybackKind } from './providers/types';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -78,7 +79,7 @@ async function persistRemoteRe3ArabiSources(
   episode: number | undefined,
   sources: Array<{
     url: string;
-    type: 'hls' | 'mp4' | 'dash' | 'web' | 'embed';
+    type: PlaybackKind | 'web';
     quality: string;
     language: string;
     label: string;
