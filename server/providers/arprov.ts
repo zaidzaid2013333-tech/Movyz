@@ -16,10 +16,10 @@ const sites: Site[] = [
   {
     key: 'akwam',
     name: 'Akwam',
-    base: 'https://akwam.ss',
+    base: 'https://ak.sv',
     searches: q => [
-      'https://akwam.ss/search?q=' + encodeURIComponent(q),
-      'https://akwam.ss/?s=' + encodeURIComponent(q),
+      'https://ak.sv/search?q=' + encodeURIComponent(q),
+      'https://ak.sv/?s=' + encodeURIComponent(q),
     ],
   },
   {
@@ -108,7 +108,6 @@ function anchors(html: string, base: string) {
     const url = https(m[1], base);
     if (!url || seen.has(url)) continue;
     const text = clean(m[2] || '');
-    if (!text && !/(watch|download|مشاهدة|تحميل|episode|الحلقة)/i.test(url)) continue;
     seen.add(url);
     out.push({ url, text });
   }
@@ -265,9 +264,12 @@ function pageLinks(body: string, base: string) {
     out.push(u);
   };
 
-  const iframeRe = /<(?:iframe|embed)\\b[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
+  const mediaTagRe = /<(?:iframe|embed|source|video)\\b[^>]*>/gi;
   let m: RegExpExecArray | null;
-  while ((m = iframeRe.exec(body))) add(m[1]);
+  while ((m = mediaTagRe.exec(body))) {
+    const attr = m[0].match(/(?:src|data-src|data-url)\\s*=\\s*["']([^"']+)["']/i);
+    if (attr?.[1]) add(attr[1]);
+  }
 
   const dataRe = /(?:data-url|data-src|data-source|data-watch|data-embed|url)=["']([^"']+)["']/gi;
   while ((m = dataRe.exec(body))) add(m[1]);
@@ -345,7 +347,7 @@ export function createArProvAdapter() {
     async health() {
       const started = Date.now();
       try {
-        const r = await fetchWithTimeout('https://akwam.ss/', {
+        const r = await fetchWithTimeout('https://ak.sv/', {
           method: 'GET',
           timeoutMs: 5000,
           headers: { 'User-Agent': 'Movyz-ArProv/1.0' },
