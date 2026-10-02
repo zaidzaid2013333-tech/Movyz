@@ -556,7 +556,9 @@ async function resolveAnime3rbSources(
   const downloadRe = /<a\b[^>]*href=["']([^"']*\/download\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let match: RegExpExecArray | null;
   while ((match = downloadRe.exec(html))) {
-    const rawUrl = absolute(pageUrl, match[1]);
+    const rawHref = match[1];
+    if (!rawHref) continue;
+    const rawUrl = absolute(pageUrl, rawHref);
     if (!rawUrl) continue;
 
     // Keep Anime3rb's generated download URL external. The browser follows
@@ -636,7 +638,6 @@ async function resolveProvider(
               const episodeHtml = await getText(episodeUrl, timeoutMs, hit.url);
               if (/(?:الحلقة|episode)/i.test(episodeHtml.slice(0, 12000))) {
                 targetUrl = episodeUrl;
-                detail = episodeHtml;
               }
             }
           } catch {}
