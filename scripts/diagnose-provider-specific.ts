@@ -5,9 +5,8 @@ import {
   resolveRe3ArabiSeriesContext,
   resolveRe3ArabiPlayback,
   resolveRe3ArabiPlaybackWithContext,
-import { resolveArProvPlayback } from '../server/providers/arprov';
-
 } from '../server/providers/re3arabi';
+import { resolveArProvPlayback } from '../server/providers/arprov';
 
 type DiagnosticCase =
   | {
