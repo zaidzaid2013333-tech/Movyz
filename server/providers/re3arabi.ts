@@ -1476,6 +1476,39 @@ export async function diagnoseRe3ArabiPlayback(request: Re3ArabiPlaybackRequest)
   };
 }
 
+export async function resolveRe3ArabiSeriesContext(tmdbId: number): Promise<ResolverContext> {
+  return resolveContext({ type: 'series', tmdbId });
+}
+
+export async function resolveRe3ArabiPlaybackWithContext(
+  context: ResolverContext,
+  season: number,
+  episode: number,
+): Promise<Candidate[]> {
+  const resolvedContext: ResolverContext = {
+    ...context,
+    seasonNumber: season,
+    episodeNumber: episode,
+  };
+
+  const key = JSON.stringify({
+    type: 'series',
+    tmdbId: resolvedContext.tmdbId,
+    season,
+    episode,
+  });
+  const cached = cache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
+  const promise = resolveUncached(resolvedContext, timeoutMs);
+  cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, promise });
+  promise.catch(() => {
+    if (cache.get(key)?.promise === promise) cache.delete(key);
+  });
+  return promise;
+}
+
 export async function resolveRe3ArabiPlayback(
   request: Re3ArabiPlaybackRequest,
 ): Promise<Candidate[]> {
