@@ -1316,36 +1316,42 @@ function resolveCimaClubEpisodeUrl(
 ): string | null {
   if (episode === undefined) return null;
 
-  const candidates: Array<{ url: string; season?: number; episode?: number; score: number }> = [];
+  const candidates: Array<{ url: string; season?: number; score: number }> = [];
   const seen = new Set<string>();
 
   for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
     const tag = match[0];
     const href = decodeHtml(match[1]);
-    const text = stripTags(match[2]);
-    if (!/(?:episode|الحلقة|حلقه|حلقة|الموسم|season)/i.test(href + ' ' + text + ' ' + tag)) continue;
-
     const url = absolute(pageUrl, href);
     if (!url || seen.has(url)) continue;
 
-    const identity = parseSeasonEpisode([href, text, tag].join(' '));
-    const bareEpisode =
-      identity.episode ??
-      normalizeNumber(text.match(/(?:episode|الحلقة|حلقه|حلقة)[^0-9٠-٩]*([0-9٠-٩]+)/i)?.[1]) ??
-      normalizeNumber(text.match(/^\s*([0-9٠-٩]{1,3})\s*$/)?.[1]);
+    const epnumBlock = tag.match(/<[^>]*class=["'][^"']*\bepnum\b[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] || '';
+    const epOwnText = stripTags(epnumBlock).trim();
+    const number =
+      normalizeNumber(epOwnText.match(/[0-9٠-٩]{1,3}/)?.[0]) ??
+      parseSeasonEpisode([href, tag].join(' ')).episode ??
+      normalizeNumber(
+        stripTags(tag).match(/(?:episode|الحلقة|حلقه|حلقة)[^0-9٠-٩]*([0-9٠-٩]+)/i)?.[1],
+      );
+
+    if (number !== episode) continue;
+
+    const identity = parseSeasonEpisode([href, tag].join(' '));
     const explicitSeason =
       identity.season ??
-      normalizeNumber(text.match(/(?:الموسم|season|الجزء|part)[^0-9٠-٩]*([0-9٠-٩]+)/i)?.[1]);
+      normalizeNumber(
+        stripTags(tag).match(/(?:الموسم|season|الجزء|part)[^0-9٠-٩]*([0-9٠-٩]+)/i)?.[1],
+      );
 
-    if (bareEpisode !== episode) continue;
     if (season !== undefined && explicitSeason !== undefined && explicitSeason !== season) continue;
 
     let score = 100;
-    if (/allepcont|episode/i.test(tag)) score += 80;
+    if (/section[^>]*allepcont|allepcont/i.test(tag)) score += 100;
+    if (/epnum/i.test(tag)) score += 100;
     if (season !== undefined && explicitSeason === season) score += 80;
-    if (/(?:الحلقة|episode)/i.test(href + ' ' + text)) score += 40;
+    if (/(?:الحلقة|episode)/i.test(href + ' ' + stripTags(tag))) score += 30;
 
-    candidates.push({ url, season: explicitSeason, episode: bareEpisode, score });
+    candidates.push({ url, season: explicitSeason, score });
     seen.add(url);
   }
 
