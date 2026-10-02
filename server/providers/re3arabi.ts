@@ -906,11 +906,18 @@ async function resolveCimaClubEpisodeUrl(
     const url = absolute(pageUrl, match[1]);
     if (!url || !/allseasonss|Small--Box|epnum|الموسم/i.test(tag)) continue;
 
+    const plain = stripTags(tag);
+    const hintedSeason = /(?:season|الموسم)\s*[^0-9]*(\d{1,3})/i.exec(plain)?.[1];
+    const numericCandidates = [...plain.matchAll(/\b(\d{1,3})\b/g)]
+      .map((item) => Number(item[1]))
+      .filter((value) => value >= 1 && value <= 100);
+
     const seasonNumber =
       normalizeNumber(
         /class=["'][^"']*epnum[^"']*["'][^>]*>[\s\S]*?<span[^>]*>[\s\S]*?<\/span>\s*([^<]+)/i.exec(tag)?.[1],
       ) ??
-      parseSeasonEpisode(stripTags(tag)).season ??
+      (hintedSeason ? Number(hintedSeason) : undefined) ??
+      numericCandidates[0] ??
       parseSeasonEpisode(match[1]).season;
 
     if (season === undefined || seasonNumber === season) {
@@ -918,7 +925,7 @@ async function resolveCimaClubEpisodeUrl(
     }
   }
 
-  for (const candidate of candidates.slice(0, 12)) {
+  for (const candidate of candidates.slice(0, 4)) {
     const pageHtml = candidate.url === pageUrl
       ? html
       : await getText(candidate.url, timeoutMs, pageUrl).catch(() => '');
