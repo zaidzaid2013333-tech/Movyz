@@ -1502,12 +1502,12 @@ async function resolveUncached(context: ResolverContext, timeoutMs: number) {
 
   // Resolve both eligible sites in parallel and retain each non-empty
   // provider group separately; qualities are never mixed across sites.
-  const providerBudgetMs = Math.min(Math.max(timeoutMs + 2_000, 8_000), 12_000);
+  const providerBudgetMs = Math.min(Math.max(timeoutMs + 3_000, 10_000), 18_000);
   const groups = await Promise.all(
     providers.map(async (provider) => {
       try {
         const sources = await withTimeout(
-          resolveProvider(provider, context, Math.min(timeoutMs, 8_000)),
+          resolveProvider(provider, context, Math.min(timeoutMs, 12_000)),
           providerBudgetMs,
           `Provider ${provider.key} exceeded resolver budget`,
         );
