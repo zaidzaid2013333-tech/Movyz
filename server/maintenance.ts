@@ -146,7 +146,7 @@ async function persistTopSources(
     .map(normalizeSource)
     .filter((source): source is NonNullable<ReturnType<typeof normalizeSource>> => Boolean(source));
 
-  const best = [...normalized]
+  const ranked = [...normalized]
     .sort((a, b) => {
       const qualityDiff = qualityScore(b.quality) - qualityScore(a.quality);
       if (qualityDiff) return qualityDiff;
@@ -156,8 +156,32 @@ async function persistTopSources(
         - (b.providerKey === 'aflaam' ? 0 : b.providerKey === 'cimaclub' ? 1 : 2);
       return providerOrder;
     })
-    .filter((source, index, all) => all.findIndex((item) => item.url === source.url) === index)
-    .slice(0, 5);
+    .filter((source, index, all) => all.findIndex((item) => item.url === source.url) === index);
+
+  const hostnameOf = (url: string) => {
+    try { return new URL(url).hostname.toLowerCase(); } catch { return url; }
+  };
+
+  const best: typeof ranked = [];
+  const usedHosts = new Set<string>();
+
+  // Prefer the highest-quality source from each distinct media host first,
+  // then fill any remaining slots with the next highest-quality sources.
+  for (const source of ranked) {
+    const host = hostnameOf(source.url);
+    if (usedHosts.has(host)) continue;
+    usedHosts.add(host);
+    best.push(source);
+    if (best.length === 5) break;
+  }
+
+  if (best.length < 5) {
+    for (const source of ranked) {
+      if (best.some((item) => item.url === source.url)) continue;
+      best.push(source);
+      if (best.length === 5) break;
+    }
+  }
 
   await adminSupabase
     .from('playback_sources')
