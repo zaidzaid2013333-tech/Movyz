@@ -24,6 +24,13 @@ const cases = [
     season: 1,
     episode: 1,
   },
+  ...[2, 3, 4, 5, 6, 7].map((episode) => ({
+    provider: 'aflaam' as const,
+    type: 'episode' as const,
+    context: breakingBadContext,
+    season: 1,
+    episode,
+  })),
   {
     provider: 'aflaam' as const,
     type: 'episode' as const,
