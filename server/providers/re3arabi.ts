@@ -1552,12 +1552,12 @@ async function resolveUncached(context: ResolverContext, timeoutMs: number) {
 
   // Resolve both eligible sites in parallel and retain each non-empty
   // provider group separately; qualities are never mixed across sites.
-  const providerBudgetMs = Math.min(Math.max(timeoutMs + 3_000, 10_000), 18_000);
+  const providerBudgetMs = Math.min(Math.max(timeoutMs + 3_000, 15_000), 22_000);
   const groups = await Promise.all(
     providers.map(async (provider) => {
       try {
         const sources = await withTimeout(
-          resolveProvider(provider, context, Math.min(timeoutMs, 12_000)),
+          resolveProvider(provider, context, Math.min(timeoutMs, 18_000)),
           providerBudgetMs,
           `Provider ${provider.key} exceeded resolver budget`,
         );
@@ -1647,7 +1647,7 @@ export async function diagnoseRe3ArabiPlayback(request: Re3ArabiPlaybackRequest)
   const context = await resolveContext(request);
   const eligibleKind: SiteKind = context.__isAnime ? 'anime' : 'general';
   const providers = PROVIDERS.filter((provider) => provider.kind === eligibleKind);
-  const timeoutMs = Math.max(3_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 8_000));
+  const timeoutMs = Math.max(5_000, Number(process.env.RE3ARABI_TIMEOUT_MS || 15_000));
 
   const results = await Promise.all(providers.map(async (provider) => {
     try {
@@ -1778,7 +1778,7 @@ export async function resolveRe3ArabiPlayback(
 export function createRe3ArabiAdapter() {
   return {
     key: 're3arabi',
-    name: 'Aflam / Anime3rb / Anime4Up',
+    name: 'Aflam / CimaClub / Anime4Up',
     enabled: true,
     async resolveMovie(context: ProviderContext) {
       return resolveRe3ArabiPlayback({
