@@ -86,6 +86,30 @@ async function loadEpisodes(ids: string[]) {
   }));
 }
 
+async function hasFreshProviderSource(
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  providerKeys: string[],
+) {
+  const { data, error } = await adminSupabase
+    .from('playback_sources')
+    .select('id,provider_reference,expires_at,last_checked_at')
+    .eq('content_type', contentType)
+    .eq('content_id', contentId)
+    .eq('is_working', true)
+    .in('provider_reference', providerKeys)
+    .limit(12);
+
+  if (error) throw new Error('source health lookup failed: ' + error.message);
+
+  const freshCutoff = Date.now() - 24 * 60 * 60 * 1000;
+  return (data || []).some((row: any) => {
+    const checkedAt = row.last_checked_at ? Date.parse(row.last_checked_at) : 0;
+    const expiresAt = row.expires_at ? Date.parse(row.expires_at) : Number.POSITIVE_INFINITY;
+    return checkedAt >= freshCutoff && expiresAt > Date.now() + 2 * 60 * 60 * 1000;
+  });
+}
+
 async function processJob(
   job: Job,
   movies: Map<string, any>,
@@ -111,18 +135,45 @@ async function processJob(
       }
 
       const context = await resolveRe3ArabiMovieContext(Number(movie.tmdb_id));
-      const providerKey = providerForLane(job.provider_lane, !!context.__isAnime);
-      const sources = await resolveRe3ArabiProvider(
-        { type: 'movie', tmdbId: Number(movie.tmdb_id) },
-        providerKey,
+      const isAnime = !!context.__isAnime;
+      const primaryProvider = providerForLane('primary', isAnime);
+      const secondaryProvider = providerForLane('secondary', isAnime);
+
+      const targetProviders = job.provider_lane === 'primary'
+        ? [primaryProvider, secondaryProvider]
+        : [secondaryProvider];
+
+      const alreadyFresh = await hasFreshProviderSource(
+        'movie',
+        String(movie.id),
+        targetProviders,
       );
+      if (alreadyFresh) {
+        await adminSupabase.rpc('mark_playback_source_job_success', {
+          p_job_id: job.id,
+          p_source_count: 1,
+          p_next_check_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+          p_details: { worker: WORKER_ID, lane: job.provider_lane, skipped: true },
+        });
+        return;
+      }
+
+      let sources: any[] = [];
+      if (job.provider_lane === 'primary') {
+        sources = await importSourcesForMovie(Number(movie.tmdb_id));
+      } else {
+        sources = await resolveRe3ArabiProvider(
+          { type: 'movie', tmdbId: Number(movie.tmdb_id) },
+          secondaryProvider,
+        );
+      }
 
       const persisted = await persistEvergreenMovieSources(String(movie.id), sources);
 
       if (!persisted.persisted) {
         await adminSupabase.rpc('mark_playback_source_job_retry', {
           p_job_id: job.id,
-          p_error: `no usable source from ${providerForLane(job.provider_lane, false)}`,
+          p_error: `no usable source from ${targetProviders.join(',')}`,
           p_delay_seconds: retryDelay(job.attempts),
           p_source_count: 0,
         });
@@ -136,7 +187,7 @@ async function processJob(
         p_details: {
           worker: WORKER_ID,
           lane: job.provider_lane,
-          provider: providerKey,
+          providers: targetProviders,
         },
       });
       return;
@@ -161,21 +212,50 @@ async function processJob(
     }
 
     const context = await contextPromise;
-    const providerKeyForEpisode = providerForLane(job.provider_lane, !!context.__isAnime);
+    const isAnime = !!context.__isAnime;
+    const primaryProvider = providerForLane('primary', isAnime);
+    const secondaryProvider = providerForLane('secondary', isAnime);
+    const targetProviders = job.provider_lane === 'primary'
+      ? [primaryProvider, secondaryProvider]
+      : [secondaryProvider];
 
-    const sources = await resolveRe3ArabiProviderWithContext(
-      context,
-      Number(episode.seasonNumber),
-      Number(episode.episode_number),
-      providerKeyForEpisode,
+    const alreadyFresh = await hasFreshProviderSource(
+      'episode',
+      String(episode.id),
+      targetProviders,
     );
+    if (alreadyFresh) {
+      await adminSupabase.rpc('mark_playback_source_job_success', {
+        p_job_id: job.id,
+        p_source_count: 1,
+        p_next_check_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+        p_details: { worker: WORKER_ID, lane: job.provider_lane, skipped: true },
+      });
+      return;
+    }
+
+    let sources: any[] = [];
+    if (job.provider_lane === 'primary') {
+      sources = await resolveRe3ArabiPlaybackWithContext(
+        context,
+        Number(episode.seasonNumber),
+        Number(episode.episode_number),
+      );
+    } else {
+      sources = await resolveRe3ArabiProviderWithContext(
+        context,
+        Number(episode.seasonNumber),
+        Number(episode.episode_number),
+        secondaryProvider,
+      );
+    }
 
     const persisted = await persistEvergreenEpisodeSources(String(episode.id), sources);
 
     if (!persisted.persisted) {
       await adminSupabase.rpc('mark_playback_source_job_retry', {
         p_job_id: job.id,
-        p_error: `no usable source from ${providerKeyForEpisode}`,
+        p_error: `no usable source from ${targetProviders.join(',')}`,
         p_delay_seconds: retryDelay(job.attempts),
         p_source_count: 0,
       });
@@ -189,7 +269,7 @@ async function processJob(
       p_details: {
         worker: WORKER_ID,
         lane: job.provider_lane,
-        provider: providerKeyForEpisode,
+        providers: targetProviders,
         seriesTmdbId: episode.seriesTmdbId,
         season: episode.seasonNumber,
         episode: episode.episode_number,
