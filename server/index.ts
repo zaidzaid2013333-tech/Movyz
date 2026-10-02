@@ -7,7 +7,6 @@ import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolveRe3ArabiPlayback } from './providers/re3arabi';
-import { resolveDoodStreamPlayback } from './providers/dood';
 import { resolveArProvPlayback } from './providers/arprov';
 
 export const app = new MiniApp();
