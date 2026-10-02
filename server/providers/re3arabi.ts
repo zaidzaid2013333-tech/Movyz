@@ -1146,6 +1146,13 @@ async function resolveProvider(
 
   const searchResults: SearchHit[] = [];
 
+  // CimaClub exposes deterministic episode routes. Try the current canonical
+  // route first so episode prewarming does not pay the full search crawl cost.
+  if (provider.key === 'cimaclub' && context.episodeNumber !== undefined) {
+    const canonicalSources = await resolveCanonicalCimaClubEpisode(titles, context, provider, Math.min(timeoutMs, 6_000));
+    if (canonicalSources.length) return canonicalSources;
+  }
+
   // Anime3rb has stable canonical title pages; prefer them before generic search.
   if (provider.key === 'anime3rb') {
     const titleResults = await Promise.allSettled(
