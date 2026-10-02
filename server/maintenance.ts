@@ -3,6 +3,7 @@ import {
   resolveRe3ArabiProvider,
   resolveRe3ArabiProviderWithContext,
   resolveRe3ArabiSeriesContext,
+  resolveRe3ArabiMovieContext,
 } from './providers/re3arabi';
 
 type MaintenanceJob = 'primary_sources' | 'secondary_sources' | 'repair_sources';
