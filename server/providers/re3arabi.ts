@@ -1658,12 +1658,12 @@ export async function resolveRe3ArabiProvider(
   request: Re3ArabiPlaybackRequest,
   providerKey: string,
 ): Promise<Candidate[]> {
-  const context = await resolveContext(request);
-  return resolveRe3ArabiProviderWithContext(
-    context,
-    request.season || 1,
-    request.episode || 1,
-    providerKey,
+  // The full selected-sites resolver is the proven path for exact episodes.
+  // Filter its results here instead of maintaining a second divergent
+  // provider-specific discovery implementation.
+  const sources = await resolveRe3ArabiPlayback(request);
+  return sources.filter((source) =>
+    String(source.providerKey || source.providerReference || '').trim().toLowerCase() === providerKey.toLowerCase(),
   );
 }
 
