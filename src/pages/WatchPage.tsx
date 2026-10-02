@@ -537,6 +537,21 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }, [playbackUrl]);
 
   useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const onEnter = () => setPlayerPictureInPicture(true);
+    const onLeave = () => setPlayerPictureInPicture(false);
+    video.addEventListener('enterpictureinpicture', onEnter);
+    video.addEventListener('leavepictureinpicture', onLeave);
+
+    return () => {
+      video.removeEventListener('enterpictureinpicture', onEnter);
+      video.removeEventListener('leavepictureinpicture', onLeave);
+    };
+  });
+
+  useEffect(() => {
     if (typeof document === 'undefined') return;
 
     const previousRobots = document.head.querySelector('meta[data-movyz-watch-robots]');
@@ -1037,8 +1052,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   setPlayerVolume(video.volume);
                   setPlayerMuted(video.muted);
                 }}
-                onEnterPictureInPicture={() => setPlayerPictureInPicture(true)}
-                onLeavePictureInPicture={() => setPlayerPictureInPicture(false)}
                 onCanPlay={() => {
                   const video = videoRef.current;
                   if (!video) return;
