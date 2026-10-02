@@ -463,6 +463,106 @@ function parseJsonSearchHits(payload: string, base: string): SearchHit[] {
   return hits;
 }
 
+async function resolveCimaClubSitemapSearch(
+  terms: string[],
+  year: number | undefined,
+  context: ResolverContext,
+  timeoutMs: number,
+): Promise<SearchHit[]> {
+  const bases = ['https://w.cimacub.com', 'https://cimacub.com'];
+  const sitemapSeeds = [
+    '/wp-sitemap.xml',
+    '/sitemap_index.xml',
+    '/sitemap.xml',
+  ];
+  const sitemapUrls = new Set<string>();
+  const directUrls = new Set<string>();
+
+  const collectLocs = (text: string) => {
+    for (const match of text.matchAll(/<loc>\s*(.*?)\s*<\/loc>/gis)) {
+      const value = decodeHtml(String(match[1] || '').trim());
+      if (/^https?:\/\//i.test(value)) sitemapUrls.add(value);
+    }
+  };
+
+  for (const base of bases) {
+    for (const seed of sitemapSeeds) {
+      try {
+        const xml = await getText(new URL(seed, base).toString(), Math.min(timeoutMs, 4_000), base);
+        collectLocs(xml);
+      } catch {}
+    }
+  }
+
+  const firstLevel = [...sitemapUrls].slice(0, 12);
+  for (const url of firstLevel) {
+    if (/\.xml(?:$|[?#])/i.test(url)) {
+      try {
+        const xml = await getText(url, Math.min(timeoutMs, 4_000), url);
+        collectLocs(xml);
+      } catch {}
+    } else {
+      directUrls.add(url);
+    }
+  }
+
+  // Avoid exploding the request count. Keep a representative slice of URL
+  // entries from the discovered sitemap sets and score the paths locally.
+  for (const url of sitemapUrls) {
+    if (!/\.xml(?:$|[?#])/i.test(url)) directUrls.add(url);
+  }
+
+  const wanted = terms.map(normalize).filter(Boolean);
+  const scored: SearchHit[] = [];
+
+  for (const url of [...directUrls].slice(0, 6000)) {
+    let pathText = url;
+    try {
+      pathText = decodeURIComponent(new URL(url).pathname);
+    } catch {}
+
+    const normalizedPath = normalize(pathText);
+    const tokenMatches = wanted.map((title) => {
+      const parts = title.split(' ').filter((part) => part.length > 2);
+      if (!parts.length) return 0;
+      return parts.filter((part) => normalizedPath.includes(part)).length / parts.length;
+    });
+
+    const bestTokenScore = Math.max(0, ...tokenMatches);
+    if (bestTokenScore < 0.45) continue;
+
+    const yearMatch = year !== undefined && normalizedPath.includes(String(year));
+    const episodeMatch = context.episodeNumber !== undefined
+      ? new RegExp('(?:episode|الحلقه|الحلقة)[- _]?' + context.episodeNumber + '(?:\\D|$)', 'i').test(pathText)
+      : false;
+    const seasonMatch = context.seasonNumber !== undefined
+      ? new RegExp('(?:season|الموسم|الجزء)[- _]?(?:' + context.seasonNumber + '|الاول|الأول|الثاني|الثالث|الرابع|الخامس|السادس|السابع|الثامن|التاسع|العاشر)', 'i').test(pathText)
+      : false;
+
+    const score =
+      bestTokenScore * 1000 +
+      (yearMatch ? 180 : 0) +
+      (episodeMatch ? 260 : 0) +
+      (seasonMatch ? 180 : 0);
+
+    scored.push({
+      title: pathText.replace(/[\/_-]+/g, ' ').trim(),
+      url,
+      year: yearMatch ? year : undefined,
+    });
+
+    (scored[scored.length - 1] as any).__score = score;
+  }
+
+  return scored
+    .sort((a: any, b: any) => Number(b.__score || 0) - Number(a.__score || 0))
+    .slice(0, 12)
+    .map((item: any) => {
+      const clean = { title: item.title, url: item.url, year: item.year };
+      return clean;
+    });
+}
+
 function parseAflamSearchHits(html: string, base: string): SearchHit[] {
   const hits: SearchHit[] = [];
   const seen = new Set<string>();
@@ -1540,6 +1640,17 @@ async function resolveProvider(
 
   if (!searchResults.length && provider.key === 'cimaclub') {
     searchResults.push(...await resolveCimaClubRestSearch(searchTerms, timeoutMs));
+  }
+
+  if (!searchResults.length && provider.key === 'cimaclub') {
+    searchResults.push(
+      ...await resolveCimaClubSitemapSearch(
+        searchTerms,
+        context.releaseYear,
+        context,
+        timeoutMs,
+      ),
+    );
   }
 
   const hits = rankHits(searchResults, titles, context.releaseYear);
