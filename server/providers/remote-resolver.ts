@@ -1,5 +1,6 @@
 import type { WorkerEnvironment } from '../mini-http';
 import { resolveRe3ArabiPlayback } from './re3arabi';
+import type { PlaybackKind } from './types';
 
 export type RemotePlaybackRequest = {
   type: 'movie' | 'series';
@@ -11,7 +12,7 @@ export type RemotePlaybackRequest = {
 
 export type RemotePlaybackSource = {
   id: string;
-  type: 'hls' | 'mp4' | 'dash' | 'embed' | 'web';
+  type: PlaybackKind | 'web';
   quality: string;
   language: string;
   label: string;
