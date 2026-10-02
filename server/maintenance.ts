@@ -363,42 +363,53 @@ async function runQueueBatch(
   let skipped = 0;
   let failed = 0;
 
-  while (claimed < limit) {
-    const lane = lanes.length === 1 ? lanes[0] : undefined;
-    const job = await claimJob(lane);
-    if (!job) break;
+  const concurrency = Math.min(
+    Number(process.env.PLAYBACK_QUEUE_CONCURRENCY || 8),
+    limit,
+  );
 
-    claimed += 1;
-    try {
-      const result = await resolveJob(job);
-      if (result.skipped) {
-        skipped += 1;
-        await finishJob(job, { status: 'succeeded', sourceCount: result.sourceCount });
-      } else if (result.sourceCount > 0) {
-        succeeded += 1;
-        await finishJob(job, { status: 'succeeded', sourceCount: result.sourceCount });
-      } else {
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (true) {
+      const slot = claimed++;
+      if (slot >= limit) return;
+
+      const lane = lanes.length === 1 ? lanes[0] : undefined;
+      const job = await claimJob(lane);
+      if (!job) return;
+
+      try {
+        const result = await resolveJob(job);
+        if (result.skipped) {
+          skipped += 1;
+          await finishJob(job, { status: 'succeeded', sourceCount: result.sourceCount });
+        } else if (result.sourceCount > 0) {
+          succeeded += 1;
+          await finishJob(job, { status: 'succeeded', sourceCount: result.sourceCount });
+        } else {
+          failed += 1;
+          await finishJob(job, {
+            status: 'pending',
+            sourceCount: 0,
+            error: 'No verified playable source returned',
+            retryAfterMs: RETRY_AFTER_MS,
+          });
+        }
+      } catch (error) {
         failed += 1;
+        const message = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
         await finishJob(job, {
           status: 'pending',
           sourceCount: 0,
-          error: 'No verified playable source returned',
+          error: message,
           retryAfterMs: RETRY_AFTER_MS,
         });
       }
-    } catch (error) {
-      failed += 1;
-      const message = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
-      await finishJob(job, {
-        status: 'pending',
-        sourceCount: 0,
-        error: message,
-        retryAfterMs: RETRY_AFTER_MS,
-      });
     }
-  }
+  });
 
-  const stats = { worker: WORKER_ID, lanes, claimed, succeeded, skipped, failed };
+  await Promise.all(workers);
+
+  const stats = { worker: WORKER_ID, lanes, claimed, succeeded, skipped, failed, concurrency };
   console.log('[movyz-queue-maintenance]', JSON.stringify(stats));
   return { skipped: false, jobKey: lanes.join(','), stats };
 }
