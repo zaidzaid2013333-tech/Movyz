@@ -19,7 +19,7 @@ const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
 function cachedRe3ArabiSourceDto(source: any) {
   const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-  const allowedProviders = new Set(['aflaam', 'anime3rb', 'anime4up']);
+  const allowedProviders = new Set(['aflaam', 'cimaclub', 'anime4up']);
 
   return {
     id: source.id,
@@ -73,7 +73,7 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
     throw new Error('Unable to load ready cached playback sources: ' + error.message);
   }
 
-  const allowedProviders = new Set(['aflaam', 'anime3rb', 'anime4up']);
+  const allowedProviders = new Set(['aflaam', 'cimaclub', 'anime4up']);
   const allowedTypes = new Set(['mp4', 'hls', 'dash', 'webm', 'direct']);
 
   return (data || [])
@@ -81,15 +81,14 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
     .filter((source: any) => allowedTypes.has(String(source.source_type || '').trim().toLowerCase()))
     .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
     .filter((source: any) => String(source.quality || '').trim().toLowerCase() !== 'auto')
-    .filter((source: any) => String(source.quality || '').trim().toLowerCase() !== 'source')
-    .map(cachedRe3ArabiSourceDto)
+        .map(cachedRe3ArabiSourceDto)
     .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
     .sort((a: any, b: any) => {
       const qualityDiff = playbackQualityScore(b.quality) - playbackQualityScore(a.quality);
       if (qualityDiff) return qualityDiff;
       return playbackTypeScore(b.type) - playbackTypeScore(a.type);
     })
-    .slice(0, 12);
+    .slice(0, 5);
 }
 
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
@@ -285,7 +284,7 @@ async function seriesDto(row: any, includePlaybackSources = false) {
         if (!episodeId) continue;
         const list = playbackByEpisode.get(episodeId) || [];
         const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-        if (!['aflaam', 'anime3rb', 'anime4up'].includes(providerReference)) continue;
+        if (!['aflaam', 'cimaclub', 'anime4up'].includes(providerReference)) continue;
         const mapped = cachedRe3ArabiSourceDto(source);
         if (mapped.url && mapped.providerKey) list.push(mapped);
         playbackByEpisode.set(episodeId, list);
@@ -366,7 +365,7 @@ async function seriesWatchDto(row: any, seasonNumber: number) {
     } else {
       for (const source of playbackRows || []) {
         const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-        if (!['aflaam', 'anime3rb', 'anime4up'].includes(providerReference)) continue;
+        if (!['aflaam', 'cimaclub', 'anime4up'].includes(providerReference)) continue;
         const mapped = cachedRe3ArabiSourceDto(source);
         if (!mapped.url || !mapped.providerKey) continue;
         const episodeId = String(source.content_id || '');
