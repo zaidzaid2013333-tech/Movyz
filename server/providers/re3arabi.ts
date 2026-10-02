@@ -369,6 +369,74 @@ function parseSearchHits(html: string, base: string, allowEpisodeLinks = false):
   return hits;
 }
 
+async function resolveCimaClubRestSearch(
+  terms: string[],
+  timeoutMs: number,
+): Promise<SearchHit[]> {
+  const hits: SearchHit[] = [];
+  const bases = ['https://cimacub.com', 'https://w.cimacub.com'];
+  const seen = new Set<string>();
+  const addHits = (items: SearchHit[]) => {
+    for (const hit of items) {
+      if (!seen.has(hit.url)) {
+        seen.add(hit.url);
+        hits.push(hit);
+      }
+    }
+  };
+
+  for (const base of bases) {
+    for (const term of terms.slice(0, 2)) {
+      const q = encodeURIComponent(term);
+
+      const endpoints = [
+        `${base}/wp-json/wp/v2/search?search=${q}&per_page=20`,
+        `${base}/wp-json/wp/v2/search?search=${q}&per_page=20&subtype=post`,
+        `${base}/wp-json/wp/v2/posts?search=${q}&per_page=20`,
+      ];
+
+      for (const endpoint of endpoints) {
+        try {
+          const payload = await getText(endpoint, Math.min(timeoutMs, 5_000), base);
+          addHits(parseJsonSearchHits(payload, base));
+        } catch {}
+      }
+
+      // Some CimaClub installs expose movies/series as custom WordPress post
+      // types. Discover their REST bases and search them without hardcoding a
+      // specific custom post type name.
+      try {
+        const typesPayload = await getText(`${base}/wp-json/wp/v2/types`, Math.min(timeoutMs, 5_000), base);
+        const types = JSON.parse(typesPayload);
+        if (types && typeof types === 'object') {
+          const restBases = Object.values(types)
+            .map((value: any) => String(value?.rest_base || '').trim())
+            .filter((value) =>
+              value &&
+              !['attachment', 'nav_menu_item', 'wp_block', 'wp_template', 'wp_template_part'].includes(value),
+            )
+            .slice(0, 12);
+
+          for (const restBase of restBases) {
+            try {
+              const payload = await getText(
+                `${base}/wp-json/wp/v2/${encodeURIComponent(restBase)}?search=${q}&per_page=20`,
+                Math.min(timeoutMs, 5_000),
+                base,
+              );
+              addHits(parseJsonSearchHits(payload, base));
+            } catch {}
+          }
+        }
+      } catch {}
+
+      if (hits.length) return hits;
+    }
+  }
+
+  return hits;
+}
+
 function parseJsonSearchHits(payload: string, base: string): SearchHit[] {
   const hits: SearchHit[] = [];
   try {
@@ -1399,20 +1467,7 @@ async function resolveProvider(
   }
 
   if (!searchResults.length && provider.key === 'cimaclub') {
-    for (const term of searchTerms.slice(0, 2)) {
-      const q = encodeURIComponent(term);
-      for (const apiUrl of [
-        `https://cimacub.com/wp-json/wp/v2/search?search=${q}&per_page=20`,
-        `https://cimacub.com/wp-json/wp/v2/posts?search=${q}&per_page=20`,
-      ]) {
-        try {
-          const payload = await getText(apiUrl, timeoutMs, provider.base);
-          searchResults.push(...parseJsonSearchHits(payload, provider.base));
-        } catch {}
-        if (searchResults.length) break;
-      }
-      if (searchResults.length) break;
-    }
+    searchResults.push(...await resolveCimaClubRestSearch(searchTerms, timeoutMs));
   }
 
   const hits = rankHits(searchResults, titles, context.releaseYear);
