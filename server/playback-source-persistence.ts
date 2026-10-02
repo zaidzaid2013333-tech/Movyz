@@ -31,7 +31,7 @@ async function getProviderId() {
       const existing = await adminSupabase
         .from('providers')
         .select('id')
-        .eq('key', 're3arabi')
+        .eq('key', 'arprov')
         .maybeSingle();
 
       if (existing.data?.id) return existing.data.id as string;
@@ -39,9 +39,9 @@ async function getProviderId() {
       const created = await adminSupabase
         .from('providers')
         .upsert({
-          key: 're3arabi',
-          name: 're-3arabi',
-          adapter_name: 're3arabi',
+          key: 'arprov',
+          name: 'ArProv',
+          adapter_name: 'arprov',
           enabled: true,
           status: 'healthy',
         }, { onConflict: 'key' })
