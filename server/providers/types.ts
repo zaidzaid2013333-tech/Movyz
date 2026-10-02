@@ -9,6 +9,7 @@ export interface ProviderContext {
   providerId?: string;
   seasonNumber?: number;
   episodeNumber?: number;
+  episodeTitle?: string;
 }
 
 export interface NormalizedPlaybackSource {
