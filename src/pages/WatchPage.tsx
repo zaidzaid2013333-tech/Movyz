@@ -63,6 +63,23 @@ const playbackQualityRank = (source: PlaybackSource) => {
 const sortPlaybackSources = (sources: PlaybackSource[]) =>
   [...sources].sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
 
+const collapseProviderQualityDuplicates = (sources: PlaybackSource[]) => {
+  const selected = new Map<string, PlaybackSource>();
+  const priority: Record<string, number> = { hls: 50, mp4: 45, dash: 40, webm: 35, direct: 30 };
+
+  for (const source of sortPlaybackSources(sources)) {
+    const provider = String(source.providerKey || source.providerReference || source.provider || '').trim().toLowerCase();
+    const quality = String(source.quality || '').trim().toLowerCase();
+    const key = `${provider}|${quality}`;
+    const current = selected.get(key);
+    if (!current || (priority[String(source.type || '').toLowerCase()] || 0) > (priority[String(current.type || '').toLowerCase()] || 0)) {
+      selected.set(key, source);
+    }
+  }
+
+  return [...selected.values()].sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
+};
+
 const providerDisplayName = (key: string, fallback: string, language: 'ar' | 'en') => {
   const normalized = key.trim().toLowerCase();
   const names: Record<string, [string, string]> = {
@@ -70,6 +87,7 @@ const providerDisplayName = (key: string, fallback: string, language: 'ar' | 'en
     anime4up: ['أنمي فور أب', 'Anime4Up'],
     cimaclub: ['سيما كلوب', 'CimaClub'],
     doodstream: ['DoodStream', 'DoodStream'],
+    akwam: ['أكوام', 'Akwam'],
   };
   return names[normalized]?.[language === 'ar' ? 0 : 1] || fallback;
 };
@@ -257,11 +275,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     let mounted = true;
 
     const applyReadySources = (sources: PlaybackSource[]) => {
-      const ready = sortPlaybackSources(
+      const ready = collapseProviderQualityDuplicates(
         sources
           .filter(isPlayableHttpSource)
           .filter((source) => source.isWorking !== false)
-          .slice(0, 12),
+          .slice(0, 20),
       );
 
       if (!ready.length) return false;
@@ -438,7 +456,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               : undefined;
   const availableSources = useMemo(
     () =>
-      sortPlaybackSources(
+      collapseProviderQualityDuplicates(
         [...storedPlaybackSources, ...remotePlaybackSources].filter(
           (source, index, all) =>
             index === all.findIndex((candidate) => candidate.url === source.url),
