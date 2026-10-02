@@ -89,6 +89,20 @@ export const MovyzaApi = {
   getSeriesByTmdbId: (tmdbId: number) =>
     request<{ series: Series; similar: Series[] }>(`/series/tmdb/${encodeURIComponent(String(tmdbId))}`, {}, { skipAuth: true }),
 
+  getSeriesWatchByTmdbId: (tmdbId: number, season: number, episode: number) =>
+    request<{ series: Series; currentSeason: import('../types').Season }>(
+      `/series/tmdb/${encodeURIComponent(String(tmdbId))}/watch/${season}/${episode}`,
+      {},
+      { skipAuth: true },
+    ),
+
+  getSeriesWatchById: (id: string, season: number, episode: number) =>
+    request<{ series: Series; currentSeason: import('../types').Season }>(
+      `/series/${encodeURIComponent(id)}/watch/${season}/${episode}`,
+      {},
+      { skipAuth: true },
+    ),
+
   searchCatalog: (search: string) =>
     request<{
       movies: Movie[];
