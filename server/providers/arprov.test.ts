@@ -129,3 +129,43 @@ test('ArProv follows the current Akwam quality/link/download flow', async () => 
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test('ArProv accepts an Akwam loader URL without a file extension as a direct video source', async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+
+    if (url.startsWith('https://ak.sv/search') || url.startsWith('https://ak.sv/?s=')) {
+      return mockResponse('<div class="entry-box"><a class="box" href="https://ak.sv/movie/direct-loader">Demo</a></div>');
+    }
+
+    if (url === 'https://ak.sv/movie/direct-loader') {
+      return mockResponse('<div class="tab-content quality" id="quality-5"><a href="https://ak.sv/link/direct-loader">تحميل 1080p</a></div>');
+    }
+
+    if (url === 'https://ak.sv/download/direct-loader/movie/direct-loader') {
+      return mockResponse('<div class="btn-loader"><a href="https://stream.example.test/play/abc123?token=xyz">تحميل</a></div>');
+    }
+
+    return mockResponse('', 404);
+  }) as typeof fetch;
+
+  try {
+    const sources = await resolveArProvPlayback({
+      tmdbId: 27205,
+      title: 'Demo',
+      originalTitle: 'Demo',
+    });
+
+    assert.equal(sources.some(source =>
+      source.provider === 'Akwam' &&
+      source.type === 'direct' &&
+      source.quality === '1080p' &&
+      source.url === 'https://stream.example.test/play/abc123?token=xyz'
+    ), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
