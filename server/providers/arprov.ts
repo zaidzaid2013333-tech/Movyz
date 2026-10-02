@@ -255,15 +255,62 @@ async function resolveAkwam(pageUrl: string, body: string, site: Site) {
   return out;
 }
 
+function pageLinks(body: string, base: string) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (raw: string) => {
+    const u = https(raw, base);
+    if (!u || seen.has(u)) return;
+    seen.add(u);
+    out.push(u);
+  };
+
+  const iframeRe = /<(?:iframe|embed)\\b[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = iframeRe.exec(body))) add(m[1]);
+
+  const dataRe = /(?:data-url|data-src|data-source|data-watch|data-embed|url)=["']([^"']+)["']/gi;
+  while ((m = dataRe.exec(body))) add(m[1]);
+
+  for (const link of anchors(body, base)) {
+    if (/(watch|embed|download|server|\u0633\u064a\u0631\u0641\u0631|تحميل|مشاهدة|dood|filemoon|streamtape|mixdrop|voe)/i.test(link.url + ' ' + link.text)) {
+      add(link.url);
+    }
+  }
+
+  return out.slice(0, 12);
+}
+
 async function resolveSite(site: Site, ctx: ProviderContext) {
   const pages = await search(site, ctx);
   for (const p of pages) {
     try {
       const page = await html(p.url);
-      const sources = site.key === 'akwam'
-        ? await resolveAkwam(page.url, page.body, site)
-        : await resolveLink(p.url, page.url, site.name);
-      if (sources.length) return sources;
+
+      if (site.key === 'akwam') {
+        const sources = await resolveAkwam(page.url, page.body, site);
+        if (sources.length) return sources;
+        continue;
+      }
+
+      const output: NormalizedPlaybackSource[] = [];
+      for (const directUrl of direct(page.body, page.url).slice(0, 6)) {
+        output.push(...await resolveLink(directUrl, page.url, site.name));
+      }
+
+      const links = pageLinks(page.body, page.url);
+      for (const link of links) {
+        try {
+          output.push(...await resolveLink(link, page.url, site.name));
+        } catch {}
+        if (output.length >= 12) break;
+      }
+
+      const unique = new Map<string, NormalizedPlaybackSource>();
+      for (const source of output) {
+        if (source.url) unique.set(source.type + '|' + source.url, source);
+      }
+      if (unique.size) return [...unique.values()];
     } catch {}
   }
   return [];
