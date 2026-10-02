@@ -9,6 +9,7 @@ import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolveRe3ArabiPlayback } from './providers/re3arabi';
 import { resolveArProvPlayback } from './providers/arprov';
 import { createPlaybackProxyUrl, handlePlaybackProxy } from './playback-proxy';
+import { persistEvergreenEpisodeSources, persistEvergreenMovieSources } from './playback-source-persistence';
 
 export const app = new MiniApp();
 const api = '/api/v1';
