@@ -579,30 +579,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlayerUnlocked(true);
   };
 
-  const tryNextStartupSource = () => {
-    const video = videoRef.current;
-    if (!video || availableSources.length < 2) return false;
-
-    const candidates = availableSources
-      .filter((candidate) => candidate.url !== playbackUrl && /^https?:\/\//i.test(candidate.url))
-      .filter((candidate) => !startupTriedUrlsRef.current.has(candidate.url))
-      .sort((a, b) => startupSourceRank(b) - startupSourceRank(a));
-
-    const next = candidates[0];
-    if (!next) return false;
-
-    startupTriedUrlsRef.current.add(next.url);
-    qualityResumeTimeRef.current =
-      Number.isFinite(video.currentTime) && video.currentTime > 0.5
-        ? video.currentTime
-        : 0;
-    resumeAfterQualitySwitchRef.current = userPlayRequestedRef.current || !video.paused;
-    qualitySwitchPendingRef.current = true;
-    setPlaybackError(null);
+  // Automatic source failover is intentionally disabled.
+  // A failed source must remain stable so the player never enters a quality-switch loop.
+  const markPlaybackSourceFailed = () => {
     rememberPlaybackHost(playbackSource, false);
-    setRemotePlaybackSource(next);
-    return true;
   };
+
 
   const handleSelectPlaybackSource = (source: PlaybackSource) => {
     if (source.url === playbackUrl) return;
@@ -649,15 +631,20 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     let cancelled = false;
 
+    const resetMediaElement = () => {
+      video.pause();
+      video.removeAttribute('src');
+      try { video.srcObject = null; } catch {}
+      video.load();
+      videoReadyReset();
+    };
+
     const attachNative = () => {
       playbackEngineRef.current?.destroy?.();
       playbackEngineRef.current = null;
-      video.pause();
-      video.removeAttribute('src');
-      video.load();
+      resetMediaElement();
       video.src = playbackUrl;
       video.preload = 'auto';
-      videoReadyReset();
       video.load();
     };
 
@@ -673,6 +660,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
       if (engine === 'hls') {
         if (Hls.isSupported()) {
+          resetMediaElement();
           const hls = new Hls({
             enableWorker: true,
             lowLatencyMode: false,
@@ -712,6 +700,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
       if (engine === 'dash') {
         try {
+          resetMediaElement();
           const module = await import('dashjs');
           if (cancelled) return;
           const dash = (module as any).default ?? module;
@@ -730,17 +719,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     void attachPlayback();
 
+    // Watchdog only reports a real media initialization failure.
+    // It never changes source/quality automatically.
     startupGuardTimerRef.current = window.setTimeout(() => {
       if (cancelled) return;
       const currentVideo = videoRef.current;
       if (!currentVideo || currentVideo.readyState >= HTMLMediaElement.HAVE_METADATA) return;
-      if (tryNextStartupSource()) return;
       setPlaybackError(
         language === 'ar'
-          ? 'المصدر لم يرسل بيانات الفيديو في الوقت المحدد. جرّب مصدرًا آخر.'
-          : 'The source did not provide video data in time. Try another source.',
+          ? 'المصدر لم يرسل بيانات الفيديو بعد. يمكنك إعادة المحاولة يدويًا أو اختيار جودة أخرى.'
+          : 'The source has not provided video metadata yet. Retry manually or choose another quality.',
       );
-    }, 10000);
+    }, 15000);
 
     return () => {
       cancelled = true;
@@ -753,6 +743,33 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       video.pause();
     };
   }, [playbackUrl, playbackSource?.type, language]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !playbackUrl) return;
+
+    const sync = () => {
+      const duration = video.duration;
+      const currentTime = video.currentTime;
+      if (Number.isFinite(duration) && duration > 0) setPlayerDuration(duration);
+      if (Number.isFinite(currentTime) && currentTime >= 0) setPlayerCurrentTime(currentTime);
+      if (video.buffered.length) {
+        try {
+          setPlayerBufferedEnd(video.buffered.end(video.buffered.length - 1));
+        } catch {}
+      }
+      if (video.readyState >= HTMLMediaElement.HAVE_METADATA) setPlayerReady(true);
+    };
+
+    sync();
+    const interval = window.setInterval(sync, 250);
+    const stop = window.setTimeout(() => window.clearInterval(interval), 12000);
+
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(stop);
+    };
+  }, [playbackUrl, playbackSource?.type]);
 
   // Mirror the native media element state directly. React's media events are
   // supplemented with native listeners so duration/currentTime/buffering cannot
@@ -1037,10 +1054,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       startupTriedUrlsRef.current.delete(playbackUrl);
                       retriedPlaybackUrlsRef.current.delete(playbackUrl);
                       const video = videoRef.current;
-                      if (video) {
-                        video.preload = 'auto';
-                        video.load();
-                      }
+                      if (!video) return;
+                      playbackEngineRef.current?.destroy?.();
+                      playbackEngineRef.current = null;
+                      video.pause();
+                      video.removeAttribute('src');
+                      video.load();
+                      video.src = playbackUrl;
+                      video.preload = 'auto';
+                      video.load();
                     }}
                     onGoHome={() => onNavigate('/')}
                   />
@@ -1160,33 +1182,21 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   rememberPlaybackHost(playbackSource, true);
                 }}
                 onError={() => {
-                  const wasPlaying = playbackStartedRef.current;
                   playbackStartedRef.current = false;
                   if (!playbackUrl) return;
 
-                  rememberPlaybackHost(playbackSource, false);
-
-                  const video = videoRef.current;
-                  if (!video) return;
-
-                  if (wasPlaying) {
-                    if (retriedPlaybackUrlsRef.current.has(playbackUrl)) return;
-                    retriedPlaybackUrlsRef.current.add(playbackUrl);
-                    window.setTimeout(() => {
-                      if (videoRef.current !== video) return;
-                      video.preload = 'auto';
-                      video.load();
-                    }, 400);
-                    return;
-                  }
-
-                  if (tryNextStartupSource()) return;
-
-                  setPlaybackError(
-                    language === 'ar'
-                      ? 'تعذر تشغيل المصدر الحالي.'
-                      : 'The current playback source could not start.',
-                  );
+                  markPlaybackSourceFailed();
+                  const mediaError = videoRef.current?.error;
+                  const code = mediaError?.code;
+                  const detail =
+                    code === MediaError.MEDIA_ERR_ABORTED
+                      ? (language === 'ar' ? 'تم إيقاف تحميل المصدر.' : 'The source load was aborted.')
+                      : code === MediaError.MEDIA_ERR_NETWORK
+                        ? (language === 'ar' ? 'انقطع تحميل المصدر.' : 'The source network request failed.')
+                        : code === MediaError.MEDIA_ERR_DECODE
+                          ? (language === 'ar' ? 'تعذر فك ترميز الفيديو.' : 'The browser could not decode this video.')
+                          : (language === 'ar' ? 'تعذر تشغيل المصدر الحالي.' : 'The current playback source could not start.');
+                  setPlaybackError(detail);
                 }}
               >
                 {playbackUrl ? null : null}
