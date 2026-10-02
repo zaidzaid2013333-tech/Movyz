@@ -37,7 +37,8 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       REBIND_MODE: episodes
-      REBIND_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.episode_limit || '1000' }}
+      REBIND_PROVIDER: primary
+      REBIND_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.episode_limit || '1500' }}
       REBIND_CONCURRENCY: "16"
       RE3ARABI_TIMEOUT_MS: "7000"
     steps:
