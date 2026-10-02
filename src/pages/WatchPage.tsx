@@ -94,50 +94,7 @@ const groupPlaybackSources = (sources: PlaybackSource[], language: 'ar' | 'en') 
   return [...groups.values()];
 };
 
-const PLAYBACK_HOST_HEALTH_KEY = 'movyz:playback-host-health:v1';
-
-function playbackHost(source: PlaybackSource | null | undefined) {
-  if (!source?.url) return '';
-  try { return new URL(source.url).hostname.toLowerCase(); } catch { return ''; }
-}
-
-function playbackHostScores() {
-  try {
-    const raw = window.localStorage.getItem(PLAYBACK_HOST_HEALTH_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' ? parsed as Record<string, { success: number; failure: number }> : {};
-  } catch {
-    return {};
-  }
-}
-
-function playbackHostScore(source: PlaybackSource | null | undefined) {
-  const host = playbackHost(source);
-  if (!host) return 0;
-  const entry = playbackHostScores()[host];
-  if (!entry) return 0;
-  return (Number(entry.success) || 0) * 3 - (Number(entry.failure) || 0) * 2;
-}
-
-function rememberPlaybackHost(source: PlaybackSource | null | undefined, success: boolean) {
-  const host = playbackHost(source);
-  if (!host) return;
-  try {
-    const scores = playbackHostScores();
-    const current = scores[host] || { success: 0, failure: 0 };
-    scores[host] = {
-      success: Math.min(20, Math.max(0, current.success + (success ? 1 : 0))),
-      failure: Math.min(20, Math.max(0, current.failure + (success ? 0 : 1))),
-    };
-    window.localStorage.setItem(PLAYBACK_HOST_HEALTH_KEY, JSON.stringify(scores));
-  } catch {
-    // Ignore storage restrictions.
-  }
-}
-
-function startupSourceRank(source: PlaybackSource) {
-  return playbackHostScore(source) * 100 + (10 - playbackQualityRank(source));
-}
+const startupSourceRank = (source: PlaybackSource) => -playbackQualityRank(source);
 
 export const WatchPage: React.FC<WatchPageProps> = ({
   mediaType,
@@ -278,12 +235,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     [content, currentEpisode],
   );
   const storedPlaybackSource = [...storedPlaybackSources]
-    .filter((source) => source.isWorking)
-    .sort((a, b) => startupSourceRank(b) - startupSourceRank(a))
+    .filter((source) => source.isWorking !== false)
+    .sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b))
     .find((source) => /1080p/i.test(source.quality || source.labelEn || ''))
     ?? [...storedPlaybackSources]
-      .filter((source) => source.isWorking)
-      .sort((a, b) => startupSourceRank(b) - startupSourceRank(a))[0]
+      .filter((source) => source.isWorking !== false)
+      .sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b))[0]
     ?? storedPlaybackSources[0]
     ?? null;
   useEffect(() => {
@@ -977,7 +934,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           <div className="flex items-center gap-2 text-slate-500">
             <span className="text-amber-400/90 font-bold">{playbackSource?.provider || 'MOVYZ SOURCE'}</span>
             <span>·</span>
-            <span>{language === 'ar' ? 'مشغل مضمّن مباشرة' : 'Direct embedded player'}</span>
+            <span>{language === 'ar' ? 'رابط مباشر من Re3Arabi' : 'Direct Re3Arabi link'}</span>
           </div>
         </div>
       </div>
@@ -990,8 +947,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         {availableSourceGroups.length > 0 && (
           <div dir={direction} className="space-y-2 px-1 pb-2">
             <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono">
-              <span>{language === 'ar' ? 'مصادر التشغيل:' : 'Playback sources:'}</span>
-              <span className="text-amber-400/70">{availableSourceGroups.length}/2</span>
+              <span>{language === 'ar' ? 'روابط التشغيل المباشرة:' : 'Direct playback links:'}</span>
+              <span className="text-amber-400/70">{availableSourceGroups.length}</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
