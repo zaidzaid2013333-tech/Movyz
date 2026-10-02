@@ -160,18 +160,21 @@ async function persistRemoteRe3ArabiSources(
   }
 }
 function cachedRe3ArabiSourceDto(source: any) {
+  const providerReference = String(source.provider_reference || '').trim().toLowerCase();
+  const allowedProviders = new Set(['aflaam', 'cimaclub', 'anime3rb', 'anime4up']);
+
   return {
     id: source.id,
     type: source.source_type,
     quality: source.quality || 'auto',
     language: source.language || 'und',
-    label: source.label_ar || 're-3arabi',
-    labelEn: source.label_en || source.label_ar || 're-3arabi',
+    label: source.label_ar || source.providers?.name || 'Selected Playback Site',
+    labelEn: source.label_en || source.providers?.name || 'Selected Playback Site',
     url: source.url || '',
     isWorking: source.is_working === true,
-    provider: source.providers?.name || 're-3arabi',
-    providerKey: source.providers?.key || 're3arabi',
-    providerReference: source.provider_reference || undefined,
+    provider: providerReference || source.providers?.name || 'Selected Playback Site',
+    providerKey: allowedProviders.has(providerReference) ? providerReference : undefined,
+    providerReference: allowedProviders.has(providerReference) ? providerReference : undefined,
   };
 }
 
@@ -186,18 +189,28 @@ async function getFreshRe3ArabiSourcesForContent(contentType: 'movie' | 'episode
     .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
     .order('quality', { ascending: true });
 
-  if (error) throw new Error('Unable to load cached re-3arabi playback sources: ' + error.message);
+  if (error) throw new Error('Unable to load cached selected playback sources: ' + error.message);
+
+  const allowedProviders = new Set(['aflaam', 'cimaclub', 'anime3rb', 'anime4up']);
+  const allowedTypes = new Set(['mp4', 'hls', 'dash', 'webm', 'direct', 'embed']);
 
   return (data || [])
-    .filter((source: any) => ['mp4', 'hls', 'dash'].includes(String(source.source_type || '').toLowerCase()))
+    .filter((source: any) => {
+      const providerReference = String(source.provider_reference || '').trim().toLowerCase();
+      return allowedProviders.has(providerReference);
+    })
+    .filter((source: any) => allowedTypes.has(String(source.source_type || '').toLowerCase()))
     .filter((source: any) => String(source.quality || '').toLowerCase() !== 'auto')
     .filter((source: any) => {
       const url = typeof source.url === 'string' ? source.url.trim() : '';
       const type = String(source.source_type || '').toLowerCase();
       if (!/^https:\/\//i.test(url)) return false;
-      if (type === 'mp4') return /\.mp4(?:$|[?#])/i.test(url);
+      if (type === 'embed') return true;
+      if (type === 'mp4') return /\.(?:mp4|m4v)(?:$|[?#])/i.test(url);
+      if (type === 'webm') return /\.webm(?:$|[?#])/i.test(url);
       if (type === 'hls') return /\.m3u8(?:$|[?#])/i.test(url);
       if (type === 'dash') return /\.mpd(?:$|[?#])/i.test(url);
+      if (type === 'direct') return /\.(?:mov|mkv|avi|mpeg|mpg|ogg|ogv|ts|m2ts|flv|3gp|3g2)(?:$|[?#])/i.test(url);
       return false;
     })
     .map(cachedRe3ArabiSourceDto);
