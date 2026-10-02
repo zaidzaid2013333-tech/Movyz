@@ -558,23 +558,13 @@ async function resolveAnime3rbSources(
   while ((match = downloadRe.exec(html))) {
     const rawUrl = absolute(pageUrl, match[1]);
     if (!rawUrl) continue;
-    const hint = stripTags(html.slice(Math.max(0, match.index - 300), Math.min(html.length, match.index + 700)));
-    try {
-      const response = await fetchWithTimeout(rawUrl, {
-        method: "HEAD",
-        redirect: "follow",
-        timeoutMs,
-        headers: {
-          Accept: "*/*",
-          Referer: pageUrl,
-          "User-Agent": "Mozilla/5.0 (compatible; Movyz/1.0; +https://movyza.app)",
-        },
-      });
-      const contentType = (response.headers.get("content-type") || "").toLowerCase();
-      const finalUrl = response.url || rawUrl;
-      const finalType = classifyUrl(finalUrl, hint, false);
-      if (contentType.startsWith("video/") || finalType) add(finalUrl, hint);
-    } catch {}
+
+    // Keep Anime3rb's generated download URL external. The browser follows
+    // its redirect to the media; Movyz does not fetch/proxy the video bytes.
+    const hint = stripTags(
+      html.slice(Math.max(0, match.index - 300), Math.min(html.length, match.index + 700)),
+    );
+    add(rawUrl, hint);
   }
 
   return output.sort((a, b) => qualityValue(b.quality) - qualityValue(a.quality));
