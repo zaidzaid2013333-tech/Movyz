@@ -99,3 +99,57 @@ test('ArProv follows iframe sources from provider pages', async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test('ArProv follows a series page to the requested episode before extracting media', async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+
+    if (url.startsWith('https://cfu.cam/?s=Breaking%20Bad') || url.startsWith('https://cfu.cam/search/?s=Breaking%20Bad')) {
+      return new Response('<a href="https://cfu.cam/series/breaking-bad">Breaking Bad</a>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+
+    if (url === 'https://cfu.cam/series/breaking-bad') {
+      return new Response('<a href="https://cfu.cam/episode/breaking-bad-s01e01">الحلقة 1</a>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+
+    if (url === 'https://cfu.cam/episode/breaking-bad-s01e01') {
+      return new Response('<iframe src="https://cdn.example.test/bb/s01e01/720.mp4"></iframe>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+
+    if (url.includes('ak.sv') || url.includes('ciimaclub.us')) {
+      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
+    }
+
+    return new Response('', { status: 404, headers: { 'content-type': 'text/html' } });
+  }) as typeof fetch;
+
+  try {
+    const sources = await resolveArProvPlayback({
+      tmdbId: 1396,
+      title: 'Breaking Bad',
+      originalTitle: 'Breaking Bad',
+      seasonNumber: 1,
+      episodeNumber: 1,
+    });
+
+    assert.equal(sources.some(source =>
+      source.provider === 'Cima4U' &&
+      source.type === 'mp4' &&
+      source.url === 'https://cdn.example.test/bb/s01e01/720.mp4'
+    ), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
