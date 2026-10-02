@@ -53,7 +53,7 @@ function decodeUrl(raw: string, base: string) {
 }
 
 function anchors(body: string, base: string) {
-  const output: Array<{ url: string; text: string; tag: string }> = [];
+  const output: Array<{ url: string; text: string; tag: string; index: number }> = [];
   const seen = new Set<string>();
 
   for (const match of body.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
@@ -64,6 +64,7 @@ function anchors(body: string, base: string) {
       url,
       text: cleanText(match[2] || ''),
       tag: match[0],
+      index: match.index ?? 0,
     });
   }
   return output;
@@ -343,26 +344,25 @@ async function resolveDownload(
 
 async function resolvePage(page: { body: string; url: string }, ctx: ProviderContext, runtime: AkwamRuntime) {
   const output: NormalizedPlaybackSource[] = [];
+  const pageAnchors = anchors(page.body, page.url);
 
-  const blocks = [...page.body.matchAll(/<div\b[^>]*class=["'][^"']*tab-content[^"']*quality[^"']*["'][^>]*>[\s\S]*?<\/div>/gi)]
-    .map(match => match[0]);
+  for (const anchor of pageAnchors) {
+    if (!/تحميل|download|\/download|\/link/i.test(anchor.text + ' ' + anchor.url)) continue;
 
-  for (const block of blocks) {
-    const quality = qualityFromBlock(block);
-    for (const anchor of anchors(block, page.url)) {
-      if (!/تحميل|download|\/download|\/link/i.test(anchor.text + ' ' + anchor.url)) continue;
-      const target = downloadTarget(page.url, anchor.url, new URL(page.url).origin) || anchor.url;
-      if (!/^https:\/\//i.test(target)) continue;
-      output.push(...await resolveDownload(target, quality, page.url, runtime));
-    }
-  }
+    const prefix = page.body.slice(Math.max(0, anchor.index - 12_000), anchor.index);
+    const qualityMarkers = [
+      ...prefix.matchAll(/<div\b[^>]*class=["'][^"']*tab-content[^"']*quality[^"']*["'][^>]*>/gi),
+    ];
+    const latestQualityMarker = qualityMarkers.at(-1)?.[0] || '';
+    const quality =
+      latestQualityMarker
+        ? qualityFromBlock(latestQualityMarker)
+        : qualityFromBlock(anchor.text + ' ' + anchor.tag);
 
-  if (!output.length) {
-    for (const anchor of anchors(page.body, page.url)) {
-      if (!/\/download(?:\/|$)|\/link(?:\/|$)|تحميل/i.test(anchor.url + ' ' + anchor.text)) continue;
-      const target = downloadTarget(page.url, anchor.url, new URL(page.url).origin) || anchor.url;
-      output.push(...await resolveDownload(target, qualityFromBlock(anchor.text + anchor.tag), page.url, runtime));
-    }
+    const target = downloadTarget(page.url, anchor.url, new URL(page.url).origin) || anchor.url;
+    if (!/^https:\/\//i.test(target)) continue;
+
+    output.push(...await resolveDownload(target, quality, page.url, runtime));
   }
 
   return dedupe(output);
