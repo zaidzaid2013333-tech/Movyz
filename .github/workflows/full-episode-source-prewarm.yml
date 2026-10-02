@@ -2,22 +2,7 @@ name: Movyz full episode source prewarm
 # Resumable sweep: stale UUID state is validated by rebind-selected-playback.ts
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - ".github/workflows/full-episode-source-prewarm.yml"
-      - "scripts/rebind-selected-playback.ts"
-      - "server/providers/re3arabi.ts"
-  schedule:
-    - cron: "17 * * * *"
   workflow_dispatch:
-    inputs:
-      episode_limit:
-        description: "Episode source rebuild batch size"
-        required: true
-        default: "2000"
-        type: choice
-        options: ["500","1000","1500","2000"]
 
 permissions:
   contents: read
