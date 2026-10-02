@@ -194,20 +194,29 @@ async function resolveLink(url: string, referer: string, provider: string) {
 }
 
 async function search(site: Site, ctx: ProviderContext) {
-  const q = (ctx.title || ctx.originalTitle || '').trim();
-  if (!q) return [];
-  const queries = [q];
-  if (ctx.episodeNumber !== undefined) {
-    queries.unshift(
-      q + ' S' + String(ctx.seasonNumber || 1).padStart(2, '0') + 'E' + String(ctx.episodeNumber).padStart(2, '0'),
-      q + ' الحلقة ' + ctx.episodeNumber,
-    );
+  const titles = [ctx.title, ...(ctx.alternateTitles || []), ctx.originalTitle]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .map(value => value.trim())
+    .filter((value, index, list) => list.indexOf(value) === index)
+    .slice(0, 3);
+
+  if (!titles.length) return [];
+
+  const queries: string[] = [];
+  for (const title of titles) {
+    if (ctx.episodeNumber !== undefined) {
+      queries.push(
+        title + ' S' + String(ctx.seasonNumber || 1).padStart(2, '0') + 'E' + String(ctx.episodeNumber).padStart(2, '0'),
+        title + ' الحلقة ' + ctx.episodeNumber,
+      );
+    }
+    queries.push(title);
   }
 
   const candidates: Array<{url: string; score: number}> = [];
   const seen = new Set<string>();
 
-  for (const query of queries.slice(0, 3)) {
+  for (const query of queries.slice(0, 8)) {
     for (const searchUrl of site.searches(query)) {
       try {
         const page = await html(searchUrl);
