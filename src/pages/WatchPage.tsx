@@ -164,7 +164,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [playerVolume, setPlayerVolume] = useState(1);
   const [playerMuted, setPlayerMuted] = useState(false);
   const [playerFullscreen, setPlayerFullscreen] = useState(false);
+  const [playerPictureInPicture, setPlayerPictureInPicture] = useState(false);
   const [playerSpeed, setPlayerSpeed] = useState(1);
+  const [playerBufferedEnd, setPlayerBufferedEnd] = useState(0);
+  const [playerReady, setPlayerReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
   const qualityResumeTimeRef = useRef<number | null>(null);
@@ -176,6 +179,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const startupWarmupUrlsRef = useRef<Set<string>>(new Set());
   const startupGuardTimerRef = useRef<number | null>(null);
+  const progressSaveTimerRef = useRef<number | null>(null);
+  const lastProgressSaveAtRef = useRef(0);
   const playbackEngineRef = useRef<{ destroy?: () => void; reset?: () => void } | null>(null);
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
@@ -195,6 +200,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setResolverLoading(false);
         setPlayerUnlocked(false);
         setPlaybackError(null);
+        setPlayerReady(false);
+        setPlayerCurrentTime(0);
+        setPlayerDuration(0);
+        setPlayerBufferedEnd(0);
+        setPlayerPictureInPicture(false);
         userPlayRequestedRef.current = false;
         playbackStartedRef.current = false;
         startupTriedUrlsRef.current.clear();
@@ -452,6 +462,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     } catch {}
   };
 
+  const togglePlayerPictureInPicture = async () => {
+    const video = videoRef.current;
+    if (!video || !document.pictureInPictureEnabled || typeof video.requestPictureInPicture !== 'function') return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await video.requestPictureInPicture();
+      }
+    } catch {}
+  };
 
   const playbackMimeType = /\.mp4(?:$|[?#])/i.test(playbackUrl)
     ? 'video/mp4'
@@ -618,9 +639,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current = null;
       video.pause();
       video.removeAttribute('src');
+      video.load();
       video.src = playbackUrl;
       video.preload = 'auto';
+      videoReadyReset();
       video.load();
+    };
+
+    const videoReadyReset = () => {
+      setPlayerReady(false);
+      setPlayerCurrentTime(0);
+      setPlayerDuration(0);
+      setPlayerBufferedEnd(0);
     };
 
     const attachPlayback = async () => {
@@ -673,16 +703,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           const player = dash.MediaPlayer().create();
           playbackEngineRef.current = player;
           player.initialize(video, playbackUrl, false);
-          player.on?.((dash.MediaPlayer as any).events?.ERROR ?? 'error', (event: any) => {
-            if (cancelled || !event) return;
-            if (event.error) {
-              setPlaybackError(
-                language === 'ar'
-                  ? 'تعذر تهيئة بث DASH من المصدر الحالي.'
-                  : 'The current DASH source could not be initialized.',
-              );
-            }
-          });
+          setPlayerReady(false);
         } catch {
           attachNative();
         }
@@ -713,13 +734,38 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         startupGuardTimerRef.current = null;
       }
       playbackEngineRef.current?.destroy?.();
-      playbackEngineRef.current?.reset?.();
       playbackEngineRef.current = null;
       video.pause();
-      video.removeAttribute('src');
-      video.load();
     };
   }, [playbackUrl, playbackSource?.type, playerUnlocked, language]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!videoRef.current || !playerShellRef.current) return;
+      const target = event.target as HTMLElement | null;
+      if (target && ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(target.tagName)) return;
+
+      if (event.code === 'Space') {
+        event.preventDefault();
+        togglePlayerPlayback();
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        seekPlayerBy(-10);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        seekPlayerBy(10);
+      } else if (event.key.toLowerCase() === 'm') {
+        event.preventDefault();
+        togglePlayerMute();
+      } else if (event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        void togglePlayerFullscreen();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
 
   if (loading) {
     return (
@@ -941,10 +987,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     window.clearTimeout(startupGuardTimerRef.current);
                     startupGuardTimerRef.current = null;
                   }
-                  if (Number.isFinite(video.duration)) setPlayerDuration(video.duration);
+                  setPlayerReady(true);
+                  if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
 
                   const resumeTime = qualityResumeTimeRef.current;
-                  if (resumeTime === null || !Number.isFinite(video.duration)) return;
+                  if (resumeTime === null || !Number.isFinite(video.duration) || video.duration <= 0) return;
 
                   qualityResumeTimeRef.current = null;
                   try {
@@ -955,18 +1002,33 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 }}
                 onDurationChange={() => {
                   const video = videoRef.current;
-                  if (video && Number.isFinite(video.duration)) setPlayerDuration(video.duration);
+                  if (video && Number.isFinite(video.duration) && video.duration > 0) {
+                    setPlayerDuration(video.duration);
+                  }
+                }}
+                onProgress={() => {
+                  const video = videoRef.current;
+                  if (!video || video.buffered.length === 0) return;
+                  try {
+                    setPlayerBufferedEnd(video.buffered.end(video.buffered.length - 1));
+                  } catch {}
                 }}
                 onTimeUpdate={() => {
                   const video = videoRef.current;
                   if (!video) return;
                   setPlayerCurrentTime(video.currentTime || 0);
-                  if (Number.isFinite(video.duration)) setPlayerDuration(video.duration);
+                  if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
+                  if (video.buffered.length > 0) {
+                    try {
+                      setPlayerBufferedEnd(video.buffered.end(video.buffered.length - 1));
+                    } catch {}
+                  }
                 }}
                 onLoadedData={() => {
                   const video = videoRef.current;
                   if (!video) return;
-                  if (Number.isFinite(video.duration)) setPlayerDuration(video.duration);
+                  setPlayerReady(true);
+                  if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
                   setPlayerCurrentTime(video.currentTime || 0);
                 }}
                 onVolumeChange={() => {
@@ -975,6 +1037,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   setPlayerVolume(video.volume);
                   setPlayerMuted(video.muted);
                 }}
+                onEnterPictureInPicture={() => setPlayerPictureInPicture(true)}
+                onLeavePictureInPicture={() => setPlayerPictureInPicture(false)}
                 onCanPlay={() => {
                   const video = videoRef.current;
                   if (!video) return;
@@ -983,32 +1047,38 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     window.clearTimeout(startupGuardTimerRef.current);
                     startupGuardTimerRef.current = null;
                   }
-                  if (Number.isFinite(video.duration)) setPlayerDuration(video.duration);
+                  setPlayerReady(true);
+                  if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
 
-                  // Warm the media pipeline by briefly seeking forward before the
-                  // first user play. This is only attempted once per URL and only
-                  // for finite on-demand native media.
+                  // Warm long native files once before the first play. Only seek when
+                  // the media exposes an actual seekable range so unsupported range
+                  // servers do not leave the player stuck at 00:00.
                   if (
                     playbackUrl &&
                     playbackEngineFor(playbackSource) === 'native' &&
                     !userPlayRequestedRef.current &&
                     !startupWarmupUrlsRef.current.has(playbackUrl) &&
                     Number.isFinite(video.duration) &&
-                    video.duration > 150
+                    video.duration > 150 &&
+                    video.seekable.length > 0
                   ) {
                     startupWarmupUrlsRef.current.add(playbackUrl);
                     const originalTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
-                    const warmupTime = Math.min(120, Math.max(0, video.duration - 1));
-                    try {
-                      video.currentTime = warmupTime;
-                      window.setTimeout(() => {
-                        const current = videoRef.current;
-                        if (!current || userPlayRequestedRef.current) return;
-                        try {
-                          current.currentTime = Math.min(originalTime, Math.max(0, current.duration - 0.5));
-                        } catch {}
-                      }, 650);
-                    } catch {}
+                    const seekEnd = video.seekable.end(video.seekable.length - 1);
+                    const warmupTime = Math.min(120, Math.max(0, seekEnd - 1));
+                    if (warmupTime > 8) {
+                      try {
+                        video.currentTime = warmupTime;
+                        window.setTimeout(() => {
+                          const current = videoRef.current;
+                          if (!current || userPlayRequestedRef.current) return;
+                          try {
+                            const target = Math.min(originalTime, Math.max(0, current.duration - 0.5));
+                            current.currentTime = target;
+                          } catch {}
+                        }, 1200);
+                      } catch {}
+                    }
                   }
 
                   if (qualitySwitchPendingRef.current) {
@@ -1021,6 +1091,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 }}
                 onWaiting={() => {
                   if (!playbackStartedRef.current) setPlaybackError(null);
+                }}
+                onStalled={() => {
+                  if (!playbackStartedRef.current) setPlaybackError(null);
+                }}
+                onClick={() => {
+                  togglePlayerPlayback();
+                }}
+                onDoubleClick={() => {
+                  void togglePlayerFullscreen();
                 }}
                 onPlaying={() => {
                   playbackStartedRef.current = true;
@@ -1064,21 +1143,33 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               </video>
  
               
+              {!playbackError && !playerReady ? (
+                <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center">
+                  <div className="h-10 w-10 rounded-full border-2 border-white/15 border-t-amber-400 animate-spin" />
+                </div>
+              ) : null}
+
               <div
                 className="pointer-events-none absolute inset-0 z-10"
               >
                 <div className="pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent pt-16 pb-3 px-3 sm:px-4">
                   <div className="flex flex-col gap-2">
-                    <input
-                      aria-label={language === 'ar' ? 'موضع الفيديو' : 'Video position'}
-                      type="range"
-                      min={0}
-                      max={Math.max(playerDuration, 0)}
-                      step="0.1"
-                      value={Math.min(playerCurrentTime, Math.max(playerDuration, 0))}
-                      onChange={(event) => setPlayerProgress(Number(event.target.value))}
-                      className="w-full accent-amber-400 cursor-pointer"
-                    />
+                    <div className="relative">
+                      <div
+                        className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-white/15 pointer-events-none"
+                        style={{ width: playerDuration > 0 ? `${Math.min(100, Math.max(0, playerBufferedEnd / playerDuration * 100))}%` : '0%' }}
+                      />
+                      <input
+                        aria-label={language === 'ar' ? 'موضع الفيديو' : 'Video position'}
+                        type="range"
+                        min={0}
+                        max={Math.max(playerDuration, 0)}
+                        step="0.1"
+                        value={Math.min(playerCurrentTime, Math.max(playerDuration, 0))}
+                        onChange={(event) => setPlayerProgress(Number(event.target.value))}
+                        className="relative z-10 w-full accent-amber-400 cursor-pointer"
+                      />
+                    </div>
                     <div className="flex items-center gap-2 text-white">
                       <button
                         type="button"
@@ -1144,6 +1235,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                           ))}
                         </select>
                       </label>
+                      {document.pictureInPictureEnabled && typeof videoRef.current?.requestPictureInPicture === 'function' ? (
+                        <button
+                          type="button"
+                          onClick={() => void togglePlayerPictureInPicture()}
+                          className="h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition text-[10px] font-bold"
+                          aria-label={playerPictureInPicture ? (language === 'ar' ? 'الخروج من صورة داخل صورة' : 'Exit picture in picture') : (language === 'ar' ? 'صورة داخل صورة' : 'Picture in picture')}
+                        >
+                          PiP
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => void togglePlayerFullscreen()}
