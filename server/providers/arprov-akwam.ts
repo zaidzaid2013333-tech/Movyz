@@ -424,7 +424,7 @@ async function resolvePage(page: { body: string; url: string }, ctx: ProviderCon
     const target = downloadTarget(page.url, anchor.url, new URL(page.url).origin) || anchor.url;
     if (!/^https:\/\//i.test(target)) continue;
 
-    output.push(...await resolveDownload(target, quality, page.url, runtime));
+    output.push(...await resolveDownload(target, quality, new URL(page.url).origin, page.url, runtime));
   }
 
   return dedupe(output);
