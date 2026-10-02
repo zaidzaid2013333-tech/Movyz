@@ -178,8 +178,8 @@ function parseSearchHits(html: string, base: string): SearchHit[] {
     const url = absolute(base, match[1]);
     const windowHtml = html.slice(match.index, Math.min(html.length, match.index + 2600));
     const title = stripTags(match[2]) ||
-      stripTags(/<h3\\b[^>]*class=["'][^"']*\\bentry-title\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/h3>/i.exec(windowHtml)?.[1] || '') ||
-      stripTags(/<h2\\b[^>]*>([\\s\\S]*?)<\\/h2>/i.exec(windowHtml)?.[1] || '');
+      stripTags(/<h3\b[^>]*class=["'][^"']*\bentry-title\b[^"']*["'][^>]*>([\s\S]*?)<\/h3>/i.exec(windowHtml)?.[1] || '') ||
+      stripTags(/<h2\b[^>]*>([\s\S]*?)<\/h2>/i.exec(windowHtml)?.[1] || '');
     if (!url || !title || isNavigationLink(url, title) || seen.has(url)) continue;
     if (isLikelyEpisodeLink(url, title)) continue;
     seen.add(url);
@@ -376,8 +376,8 @@ async function resolveCimaClubSources(
     });
   };
 
-  for (const match of html.matchAll(/<li\\b[^>]*data-watch=["']([^"']+)["'][^>]*>/gi)) add(match[1], 'embed');
-  for (const match of html.matchAll(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>/gi)) {
+  for (const match of html.matchAll(/<li\b[^>]*data-watch=["']([^"']+)["'][^>]*>//gi)) add(match[1], 'embed');
+  for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi)) {
     const tag = match[0];
     if (/ServersList|Download|download/i.test(tag)) add(match[1], 'embed');
   }
