@@ -758,7 +758,7 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
         title: data.title_en || data.title_ar || data.original_title || undefined,
         originalTitle: data.original_title || data.title_en || data.title_ar || undefined,
         alternateTitles: [data.title_ar, data.title_en, data.original_title].filter(Boolean).filter((value, index, list) => list.indexOf(value) === index),
-      });
+      }, { browserBinding: req.env?.BROWSER });
     } catch (error) {
       console.warn('[arprov-movie]', error instanceof Error ? error.message : String(error));
       sources = [];
@@ -819,7 +819,7 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
         alternateTitles: [series.title_ar, series.title_en, series.original_title].filter(Boolean).filter((value, index, list) => list.indexOf(value) === index),
         seasonNumber: Number(season.season_number),
         episodeNumber: Number(episode.episode_number),
-      });
+      }, { browserBinding: req.env?.BROWSER });
     } catch (error) {
       console.warn('[arprov-episode]', error instanceof Error ? error.message : String(error));
       sources = [];
