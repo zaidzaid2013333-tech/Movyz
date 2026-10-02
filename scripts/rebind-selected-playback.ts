@@ -165,10 +165,13 @@ async function rebindMovies() {
 
   await mapWithConcurrency(data || [], async (movie: any) => {
     try {
-      const providerKeysForMovie =
-        REBIND_PROVIDER === 'secondary'
-          ? []
-          : ['aflaam'];
+      let providerKeysForMovie: string[];
+      if (REBIND_PROVIDER === 'secondary') {
+        const context = await resolveRe3ArabiMovieContext(Number(movie.tmdb_id));
+        providerKeysForMovie = context.__isAnime ? ['anime4up'] : [];
+      } else {
+        providerKeysForMovie = ['aflaam'];
+      }
 
       const providerResults = await Promise.all(
         providerKeysForMovie.map(async (providerKey) => {
