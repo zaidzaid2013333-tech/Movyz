@@ -298,9 +298,21 @@ async function resolveAflamQualitySources(
   provider: SiteConfig,
   timeoutMs: number,
 ): Promise<Candidate[]> {
-  const watchUrls = [...html.matchAll(/<a\\b[^>]*class=["'][^"']*\\blink-show\\b[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>/gi)]
-    .map((m) => absolute(pageUrl, m[1]))
-    .filter((value): value is string => !!value);
+  const watchUrls: string[] = [];
+  const anchorRe = /<a\\b[^>]*>/gi;
+  for (const match of html.matchAll(anchorRe)) {
+    const tag = match[0];
+    const classValue =
+      /\\bclass=["']([^"']*)["']/i.exec(tag)?.[1] ||
+      /\\bclass=([^\\s>]+)/i.exec(tag)?.[1] ||
+      '';
+    if (!/\\blink-show\\b/i.test(classValue)) continue;
+    const href = /\\bhref=["']([^"']+)["']/i.exec(tag)?.[1] ||
+      /\\bhref=([^\\s>]+)/i.exec(tag)?.[1] ||
+      '';
+    const url = absolute(pageUrl, href);
+    if (url) watchUrls.push(url);
+  }
 
   const results: Candidate[] = [];
   for (const watchUrl of watchUrls.slice(0, 8)) {
