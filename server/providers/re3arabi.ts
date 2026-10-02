@@ -520,7 +520,7 @@ async function resolveNestedPlaybackLinks(
   let queue = links.slice(0, 12);
 
   const addMedia = (source: Candidate) => {
-    if (seenMedia.has(source.url)) return;
+    if (!source.url || seenMedia.has(source.url)) return;
     seenMedia.add(source.url);
     output.push(source);
   };
