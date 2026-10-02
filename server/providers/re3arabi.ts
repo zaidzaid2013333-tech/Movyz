@@ -376,7 +376,7 @@ async function resolveCimaClubSources(
     });
   };
 
-  for (const match of html.matchAll(/<li\b[^>]*data-watch=["']([^"']+)["'][^>]*>//gi)) add(match[1], 'embed');
+  for (const match of html.matchAll(/<li\b[^>]*data-watch=["']([^"']+)["'][^>]*>/gi)) add(match[1], 'embed');
   for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi)) {
     const tag = match[0];
     if (/ServersList|Download|download/i.test(tag)) add(match[1], 'embed');
