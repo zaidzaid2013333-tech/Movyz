@@ -787,7 +787,7 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
   }
 
   const output = (sources || [])
-    .filter((source: any) => /^https:\/\/i.test(String(source?.url || '').trim()))
+    .filter((source: any) => String(source?.url || '').trim().startsWith('https://'))
     .map((source: any) => ({
       id: crypto.randomUUID(),
       type: source.type,
