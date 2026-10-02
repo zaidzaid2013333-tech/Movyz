@@ -1,0 +1,52 @@
+name: Movyz full episode source prewarm
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/full-episode-source-prewarm.yml"
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      episode_limit:
+        description: "Episode source rebuild batch size"
+        required: true
+        default: "2000"
+        type: choice
+        options: ["500","1000","1500","2000"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-tmdb-and-playback-sync
+  cancel-in-progress: true
+
+jobs:
+  prewarm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      REBIND_MODE: episodes
+      REBIND_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.episode_limit || '2000' }}
+      REBIND_CONCURRENCY: "16"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Rebuild the next complete episode-source batch
+        run: npx tsx scripts/rebind-selected-playback.ts
+
+      - name: Verify catalog integrity
+        run: npx tsx scripts/verify-tmdb-sync.ts
