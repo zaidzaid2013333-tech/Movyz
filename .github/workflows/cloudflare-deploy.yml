@@ -275,6 +275,7 @@ jobs:
               if not sources:
                   raise SystemExit(f"{label}: resolver returned zero sources")
 
+              qualities = set()
               for source in sources[:5]:
                   provider = str(source.get("providerKey") or "").lower()
                   quality = str(source.get("quality") or "").lower()
@@ -290,9 +291,33 @@ jobs:
                   if not url.startswith("https://"):
                       raise SystemExit(f"{label}: non-HTTPS playback URL")
                   if "movyz-api.sameranede.workers.dev" in url:
-                      raise SystemExit(f"{label}: Movyz is proxying playback")
+                      if "/api/v1/playback/stream?token=" not in url:
+                          raise SystemExit(f"{label}: unexpected Movyz playback URL")
+                      range_request = urllib.request.Request(
+                          url,
+                          method="GET",
+                          headers={
+                              "Range": "bytes=0-1",
+                              "Accept": "*/*",
+                              "User-Agent": "Movyz-CI/1.0",
+                          },
+                      )
+                      try:
+                          with urllib.request.urlopen(range_request, timeout=30) as stream_response:
+                              status = getattr(stream_response, "status", stream_response.getcode())
+                              content_type = str(stream_response.headers.get("Content-Type") or "").lower()
+                              if status not in {200, 206}:
+                                  raise SystemExit(f"{label}: proxy returned HTTP {status}")
+                              if content_type and not (content_type.startswith("video/") or "mpegurl" in content_type or "dash" in content_type):
+                                  raise SystemExit(f"{label}: proxy returned unexpected content type {content_type!r}")
+                      except Exception as exc:
+                          raise SystemExit(f"{label}: playback proxy failed: {exc!r}") from exc
 
+                  qualities.add(quality)
                   print("  ", provider, quality, source_type)
+
+              if len(qualities) != len(sources):
+                  raise SystemExit(f"{label}: duplicate quality sources returned")
 
           print("On-demand resolver smoke test complete.")
           PY
