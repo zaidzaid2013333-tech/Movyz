@@ -1,0 +1,60 @@
+name: Movyz evergreen playback source maintenance
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - "Movyz rolling catalog + selected playback sync"
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: movyz-evergreen-source-maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintain:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 52
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      EVERGREEN_CLAIM_BATCH: "250"
+      EVERGREEN_MAX_JOBS: "5000"
+      EVERGREEN_CONCURRENCY: "24"
+      RE3ARABI_TIMEOUT_MS: "6500"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Run evergreen self-healing source worker
+        run: npx tsx scripts/evergreen-source-worker.ts
+
+      - name: Verify catalog integrity
+        run: npx tsx scripts/verify-tmdb-sync.ts
+
+      - name: Check ready queue
+        id: queue
+        run: |
+          ready=$(npx tsx scripts/evergreen-source-status.ts)
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: Continue the evergreen queue
+        if: steps.queue.outputs.ready != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run "Movyz evergreen playback source maintenance" --ref main
