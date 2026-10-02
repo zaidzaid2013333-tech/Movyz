@@ -1,8 +1,8 @@
 import 'dotenv/config';
 import { adminSupabase } from './supabase';
 import {
-  resolveRe3ArabiProvider,
-  resolveRe3ArabiProviderWithContext,
+  resolveRe3ArabiPlayback,
+  resolveRe3ArabiPlaybackWithContext,
   resolveRe3ArabiSeriesContext,
 } from './providers/re3arabi';
 
@@ -60,16 +60,17 @@ function typeScore(value: unknown) {
   }
 }
 
-function normalizeSource(source: PlaybackSource, providerKey: string) {
+function normalizeSource(source: PlaybackSource) {
   const url = String(source.url || '').trim();
   const type = String(source.type || '').trim().toLowerCase();
-  const quality = String(source.quality || '').trim();
+  const quality = String(source.quality || '').trim() || 'source';
+  const providerKey = String(source.providerKey || source.providerReference || '').trim().toLowerCase();
 
   if (!/^https:\/\//i.test(url)) return null;
   if (!new Set(['hls', 'mp4', 'dash', 'webm', 'direct']).has(type)) return null;
-  if (['auto', 'source'].includes(quality.toLowerCase())) return null;
+  if (quality.toLowerCase() === 'auto') return null;
+  if (!new Set(['aflaam', 'cimaclub', 'anime4up']).has(providerKey)) return null;
   if (/movyz-api\.sameranede\.workers\.dev/i.test(url)) return null;
-  if (String(source.providerKey || source.providerReference || '').trim().toLowerCase() !== providerKey) return null;
 
   return {
     url,
@@ -78,6 +79,7 @@ function normalizeSource(source: PlaybackSource, providerKey: string) {
     language: String(source.language || 'ar'),
     labelAr: String(source.label || providerKey),
     labelEn: String(source.labelEn || source.label || providerKey),
+    providerKey,
     expiresAt: source.expiresAt,
   };
 }
@@ -132,53 +134,56 @@ async function finishJob(
     .eq('id', job.id);
 }
 
-async function persistVerifiedSources(
+async function persistTopSources(
   contentType: 'movie' | 'episode',
   contentId: string,
-  providerKey: string,
   rawSources: PlaybackSource[],
 ) {
   const providerId = await getProviderId();
   if (!providerId) throw new Error('re3arabi provider is missing');
 
   const normalized = rawSources
-    .map((source) => normalizeSource(source, providerKey))
+    .map(normalizeSource)
     .filter((source): source is NonNullable<ReturnType<typeof normalizeSource>> => Boolean(source));
 
-  // Re3Arabi already returns direct playback links.
-  // Do not probe them server-side: a provider may reject HEAD/range probes
-  // while the same URL remains browser-playable.
-  const rows = normalized.slice(0, 12)
-    .sort((a, b) => (qualityScore(b.quality) + typeScore(b.type)) - (qualityScore(a.quality) + typeScore(a.type)))
-    .slice(0, 8)
-    .map((source) => ({
-      provider_id: providerId,
-      content_type: contentType,
-      content_id: contentId,
-      source_type: source.type,
-      url: source.url,
-      provider_reference: providerKey,
-      quality: source.quality,
-      language: source.language,
-      label_ar: source.labelAr,
-      label_en: source.labelEn,
-      expires_at: null,
-      is_working: true,
-      last_checked_at: nowIso(),
-      failure_count: 0,
-    }));
+  const best = [...normalized]
+    .sort((a, b) => {
+      const qualityDiff = qualityScore(b.quality) - qualityScore(a.quality);
+      if (qualityDiff) return qualityDiff;
+      const typeDiff = typeScore(b.type) - typeScore(a.type);
+      if (typeDiff) return typeDiff;
+      const providerOrder = (a.providerKey === 'aflaam' ? 0 : a.providerKey === 'cimaclub' ? 1 : 2)
+        - (b.providerKey === 'aflaam' ? 0 : b.providerKey === 'cimaclub' ? 1 : 2);
+      return providerOrder;
+    })
+    .filter((source, index, all) => all.findIndex((item) => item.url === source.url) === index)
+    .slice(0, 5);
 
-  if (!rows.length) return 0;
-
-  const { error: deleteError } = await adminSupabase
+  await adminSupabase
     .from('playback_sources')
     .delete()
     .eq('provider_id', providerId)
     .eq('content_type', contentType)
-    .eq('content_id', contentId)
-    .eq('provider_reference', providerKey);
+    .eq('content_id', contentId);
 
-  if (deleteError) throw new Error('source cleanup failed: ' + deleteError.message);
+  if (!best.length) return 0;
+
+  const rows = best.map((source) => ({
+    provider_id: providerId,
+    content_type: contentType,
+    content_id: contentId,
+    source_type: source.type,
+    url: source.url,
+    provider_reference: source.providerKey,
+    quality: source.quality,
+    language: source.language,
+    label_ar: source.labelAr,
+    label_en: source.labelEn,
+    expires_at: null,
+    is_working: true,
+    last_checked_at: nowIso(),
+    failure_count: 0,
+  }));
 
   const { error } = await adminSupabase
     .from('playback_sources')
@@ -222,45 +227,40 @@ async function loadEpisodeContext(episodeId: string) {
 }
 
 async function resolveJob(job: PlaybackJob) {
-  if (job.content_type === 'movie') {
-    if (job.provider_lane !== 'primary') return { skipped: true, sourceCount: 0 };
+  if (job.provider_lane !== 'primary') {
+    return { skipped: true, sourceCount: 0 };
+  }
 
+  if (job.content_type === 'movie') {
     const { data: movie, error } = await adminSupabase
       .from('movies')
       .select('id,tmdb_id,status')
       .eq('id', job.content_id)
       .maybeSingle();
+
     if (error || !movie?.tmdb_id || movie.status !== 'published') {
       return { skipped: true, sourceCount: 0 };
     }
 
-    const sources = await resolveRe3ArabiProvider(
-      { type: 'movie', tmdbId: Number(movie.tmdb_id) },
-      'aflaam',
-    );
+    const sources = await resolveRe3ArabiPlayback({
+      type: 'movie',
+      tmdbId: Number(movie.tmdb_id),
+    });
 
-    const sourceCount = await persistVerifiedSources('movie', String(movie.id), 'aflaam', sources as PlaybackSource[]);
+    const sourceCount = await persistTopSources('movie', String(movie.id), sources as PlaybackSource[]);
     return { skipped: false, sourceCount };
   }
 
   const info = await loadEpisodeContext(job.content_id);
-  const providerKey = job.provider_lane === 'secondary'
-    ? (info.isAnime ? 'anime4up' : null)
-    : (info.isAnime ? 'anime3rb' : 'aflaam');
-
-  if (!providerKey) return { skipped: true, sourceCount: 0 };
-
-  const sources = await resolveRe3ArabiProviderWithContext(
+  const sources = await resolveRe3ArabiPlaybackWithContext(
     info.context,
     info.season,
     info.episode,
-    providerKey,
   );
 
-  const sourceCount = await persistVerifiedSources(
+  const sourceCount = await persistTopSources(
     'episode',
     job.content_id,
-    providerKey,
     sources as PlaybackSource[],
   );
 
