@@ -51,6 +51,8 @@ const PROVIDERS: readonly SiteConfig[] = [
     base: 'https://cimacub.com',
     kind: 'general',
     searchUrls: (q) => [
+      `https://w.cimacub.com/?s=${q}`,
+      `https://w.cimacub.com/search?q=${q}`,
       `https://cimacub.com/?s=${q}`,
     ],
   },
@@ -68,9 +70,11 @@ const PROVIDERS: readonly SiteConfig[] = [
   {
     key: 'anime4up',
     name: 'Anime4Up',
-    base: 'https://w1.anime4up.rest',
+    base: 'https://anime4upp.cam',
     kind: 'anime',
     searchUrls: (q) => [
+      `https://anime4upp.cam/?s=${q}`,
+      `https://anime4upp.cam/search?q=${q}`,
       `https://w1.anime4up.rest/?s=${q}`,
       `https://w1.anime4up.rest/search?q=${q}`,
     ],
@@ -787,18 +791,32 @@ async function resolveUncached(context: ResolverContext, timeoutMs: number) {
     .sort((a, b) => groupScore(b.sources) - groupScore(a.sources));
 
   if (!usable.length) {
-    throw new Error(`No ${eligibleKind} playback source returned by Aflam/CimaClub or Anime3rb/Anime4Up`);
+    throw new Error(`No ${eligibleKind} playback source returned by the selected sites`);
   }
 
-  return usable[0].sources
-    .sort((a, b) => {
+  // Keep both selected provider groups when available. Each group is kept
+  // internally intact so the UI can show:
+  //   Aflam -> 1080p / 720p / 480p
+  //   CimaClub -> quality list
+  // without mixing sources across sites.
+  const merged: Candidate[] = [];
+  for (const group of usable) {
+    const ordered = [...group.sources].sort((a, b) => {
       const qualityDiff = qualityValue(b.quality) - qualityValue(a.quality);
       if (qualityDiff) return qualityDiff;
       return a.type === 'embed' ? 1 : -1;
-    })
-    .filter((source, index, all) =>
-      all.findIndex((item) => item.quality === source.quality && item.url === source.url) === index,
+    });
+
+    const unique = ordered.filter((source, index, all) =>
+      all.findIndex((item) => item.url === source.url) === index,
     );
+
+    // Maximum six qualities/servers per provider group prevents noisy result
+    // sets while preserving all normal 1080p/720p/480p variants.
+    merged.push(...unique.slice(0, 6));
+  }
+
+  return merged;
 }
 
 async function resolveContext(request: Re3ArabiPlaybackRequest): Promise<ResolverContext> {
