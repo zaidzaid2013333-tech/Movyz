@@ -72,6 +72,15 @@ const providerDisplayName = (key: string, fallback: string, language: 'ar' | 'en
   return names[normalized]?.[language === 'ar' ? 0 : 1] || fallback;
 };
 
+const playbackHostLabel = (url?: string) => {
+  if (!url) return 'server';
+  try {
+    return new URL(url).hostname.replace(/^www\\./i, '');
+  } catch {
+    return 'server';
+  }
+};
+
 const groupPlaybackSources = (sources: PlaybackSource[], language: 'ar' | 'en') => {
   const groups = new Map<string, { key: string; label: string; sources: PlaybackSource[] }>();
 
@@ -977,7 +986,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                               : 'bg-[#11151d] text-slate-300 border-white/5 hover:border-amber-500/30 hover:text-white')
                           }
                         >
-                          {source.quality || source.labelEn || 'Auto'}
+                          <span>{source.quality || source.labelEn || 'Auto'}</span>
+                          <span className="text-[9px] opacity-60 truncate max-w-[140px]">
+                            · {playbackHostLabel(source.url)}
+                          </span>
                         </button>
                       );
                     })}
