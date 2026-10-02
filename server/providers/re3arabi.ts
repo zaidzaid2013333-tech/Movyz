@@ -462,12 +462,12 @@ async function resolveProvider(
   if (provider.key === 'anime3rb') {
     for (const term of titles.slice(0, 2)) {
       try {
-        const titleSlug = normalize(term).replace(/\\s+/g, '-');
+        const titleSlug = normalize(term).replace(/\s+/g, '-');
         const titleUrl = `https://anime3rb.com/titles/${titleSlug}`;
         const titleHtml = await getText(titleUrl, timeoutMs, provider.base);
-        const marker = /<title[^>]*>([\\s\\S]*?)<\\/title>/i.exec(titleHtml)?.[1];
+        const marker = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(titleHtml)?.[1];
         searchResults.push({
-          title: stripTags(marker || term).replace(/\\s*[-|].*$/, '').trim() || term,
+          title: stripTags(marker || term).replace(/\s*[-|].*$/, '').trim() || term,
           url: titleUrl,
           year: extractYear(titleHtml.slice(0, 5000)),
         });
