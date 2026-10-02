@@ -633,7 +633,7 @@ async function resolveNestedPlaybackLinks(
   const output: Candidate[] = [];
   const seenMedia = new Set<string>();
   const seenPages = new Set<string>();
-  let queue = links.slice(0, 12);
+  let queue = links.slice(0, 6);
 
   const addMedia = (source: Candidate) => {
     if (!source.url || seenMedia.has(source.url)) return;
@@ -641,10 +641,10 @@ async function resolveNestedPlaybackLinks(
     output.push(source);
   };
 
-  for (let depth = 0; depth < 3 && queue.length; depth += 1) {
+  for (let depth = 0; depth < 2 && queue.length; depth += 1) {
     const next: Array<{ url: string; quality?: string; referer?: string }> = [];
 
-    for (const item of queue.splice(0, 12)) {
+    for (const item of queue.splice(0, 6)) {
       const direct = classifyUrl(item.url, item.quality || '', false);
       const downloadLike = /\/download(?:\/|$)|[?&](?:download|file)=/i.test(item.url);
       if (downloadLike || (direct && PLAYABLE_TYPES.has(direct.type))) {
@@ -737,7 +737,7 @@ async function resolveAflamQualitySources(
     });
   }
 
-  const nested = await resolveNestedPlaybackLinks(watchLinks.slice(0, 8), provider, timeoutMs);
+  const nested = await resolveNestedPlaybackLinks(watchLinks.slice(0, 4), provider, timeoutMs);
   if (nested.length) return nested;
 
   return parseDirectMediaSources(html, pageUrl, provider);
@@ -1002,39 +1002,31 @@ async function resolveCanonicalCimaClubEpisode(
 
   const season = context.seasonNumber ?? 1;
   const episode = context.episodeNumber;
-  const paths = new Set<string>();
 
-  for (const term of titles.slice(0, 3)) {
+  for (const term of titles.slice(0, 2)) {
     const slug = normalize(term).replace(/\s+/g, '-');
     if (!slug) continue;
 
-    const variants = [
-      `/مشاهدة-مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}/`,
-      `/مشاهدة-مسلسل-${slug}-الجزء-${season === 1 ? 'الاول' : season}-الحلقة-${episode}/`,
-      `/مسلسل-${slug}-الموسم-${season}-الحلقة-${episode}/`,
-      `/مسلسل-${slug}-الحلقة-${episode}/`,
+    const paths = [
       `/${slug}-الموسم-${season}-الحلقة-${episode}/`,
       `/${slug}-الحلقة-${episode}/`,
     ];
 
-    for (const path of variants) paths.add(path);
-  }
+    for (const path of paths) {
+      const episodeUrl = new URL(path, provider.base).toString();
+      try {
+        const html = await getText(episodeUrl, Math.min(timeoutMs, 4_000), provider.base);
+        if (!/(?:الحلقة|episode)/i.test(html.slice(0, 12000))) continue;
 
-  for (const path of paths) {
-    const episodeUrl = new URL(path, provider.base).toString();
-    try {
-      const html = await getText(episodeUrl, timeoutMs, provider.base);
-      if (!/(?:الحلقة|episode)/i.test(html.slice(0, 20000))) continue;
-
-      const sources = await resolveCimaClubSources(episodeUrl, provider, timeoutMs);
-      const usable = sources.filter((source) =>
-        PLAYABLE_TYPES.has(source.type) &&
-        source.quality !== 'auto' &&
-        source.quality !== 'source',
-      );
-
-      if (usable.length) return usable;
-    } catch {}
+        const sources = await resolveCimaClubSources(episodeUrl, provider, Math.min(timeoutMs, 4_000));
+        const usable = sources.filter((source) =>
+          PLAYABLE_TYPES.has(source.type) &&
+          source.quality !== 'auto' &&
+          source.quality !== 'source',
+        );
+        if (usable.length) return usable;
+      } catch {}
+    }
   }
 
   return [];
@@ -1095,11 +1087,6 @@ async function resolveProvider(
 
   if (!titles.length) return [];
 
-  if (context.episodeNumber !== undefined && provider.key === 'cimaclub') {
-    const canonicalSources = await resolveCanonicalCimaClubEpisode(titles, context, provider, timeoutMs);
-    if (canonicalSources.length) return canonicalSources;
-  }
-
   if (provider.key === 'anime3rb' && context.episodeNumber !== undefined) {
     const canonicalSources = await resolveCanonicalAnime3rbEpisode(titles, context, provider, timeoutMs);
     if (canonicalSources.length) return canonicalSources;
@@ -1125,21 +1112,9 @@ async function resolveProvider(
   }
 
   // Search each known title through the site's supported URL shapes.
-  for (const term of searchTerms.slice(0, 5)) {
+  for (const term of searchTerms.slice(0, 2)) {
     const q = encodeURIComponent(term);
-    if (provider.key === 'cimaclub') {
-      for (const apiUrl of [
-        `https://cimacub.com/wp-json/wp/v2/search?search=${q}&per_page=20`,
-        `https://cimacub.com/wp-json/wp/v2/posts?search=${q}&per_page=20`,
-      ]) {
-        try {
-          const payload = await getText(apiUrl, timeoutMs, provider.base);
-          searchResults.push(...parseJsonSearchHits(payload, provider.base));
-        } catch {}
-      }
-    }
-
-    for (const searchUrl of provider.searchUrls(q)) {
+    for (const searchUrl of provider.searchUrls(q).slice(0, 1)) {
       try {
         const html = await getText(searchUrl, timeoutMs, provider.base);
         if (provider.key === 'aflaam') searchResults.push(...parseAflamSearchHits(html, provider.base));
@@ -1151,8 +1126,31 @@ async function resolveProvider(
     }
   }
 
+  if (!searchResults.length && provider.key === 'cimaclub') {
+    for (const term of searchTerms.slice(0, 2)) {
+      const q = encodeURIComponent(term);
+      for (const apiUrl of [
+        `https://cimacub.com/wp-json/wp/v2/search?search=${q}&per_page=20`,
+        `https://cimacub.com/wp-json/wp/v2/posts?search=${q}&per_page=20`,
+      ]) {
+        try {
+          const payload = await getText(apiUrl, timeoutMs, provider.base);
+          searchResults.push(...parseJsonSearchHits(payload, provider.base));
+        } catch {}
+        if (searchResults.length) break;
+      }
+      if (searchResults.length) break;
+    }
+  }
+
   const hits = rankHits(searchResults, titles, context.releaseYear);
-  if (!hits.length) return [];
+  if (!hits.length) {
+    if (context.episodeNumber !== undefined && provider.key === 'cimaclub') {
+      const canonicalSources = await resolveCanonicalCimaClubEpisode(titles, context, provider, timeoutMs);
+      if (canonicalSources.length) return canonicalSources;
+    }
+    return [];
+  }
 
   for (const hit of hits) {
     try {
@@ -1288,10 +1286,15 @@ async function resolveUncached(context: ResolverContext, timeoutMs: number) {
 
   // Resolve both eligible sites in parallel and retain each non-empty
   // provider group separately; qualities are never mixed across sites.
+  const providerBudgetMs = Math.min(Math.max(timeoutMs + 2_000, 8_000), 12_000);
   const groups = await Promise.all(
     providers.map(async (provider) => {
       try {
-        const sources = await resolveProvider(provider, context, timeoutMs);
+        const sources = await withTimeout(
+          resolveProvider(provider, context, Math.min(timeoutMs, 8_000)),
+          providerBudgetMs,
+          `Provider ${provider.key} exceeded resolver budget`,
+        );
         return { provider, sources };
       } catch {
         return { provider, sources: [] as Candidate[] };
