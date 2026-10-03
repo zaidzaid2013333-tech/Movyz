@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { adminSupabase } from '../server/supabase';
 
