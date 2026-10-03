@@ -15,7 +15,7 @@ function expectedContentType(type: string) {
 
 export async function validatePreparedMediaSource(
   source: NormalizedPlaybackSource,
-): Promise<NormalizedPlaybackSource | null> {
+): Promise<(NormalizedPlaybackSource & { url: string }) | null> {
   const url = String(source.url || '').trim();
   const type = String(source.type || '').trim().toLowerCase();
   const quality = String(source.quality || '').trim().toLowerCase();
