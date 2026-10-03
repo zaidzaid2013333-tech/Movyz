@@ -819,5 +819,11 @@ try {
     }, { onConflict: 'job_key' });
   } catch {}
   console.error('[movyz-groq-agent]', message);
-  process.exitCode = 1;
+  if (/Groq HTTP 429|rate_limit_exceeded|Rate limit reached/i.test(message)) {
+    // Groq is an optional repair brain; rate limiting must not block deterministic
+    // preparation jobs or turn an otherwise healthy bulk run red.
+    process.exitCode = 0;
+  } else {
+    process.exitCode = 1;
+  }
 }
