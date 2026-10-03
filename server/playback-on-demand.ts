@@ -93,7 +93,7 @@ function normalizeSources(sources: NormalizedPlaybackSource[]): CachedSource[] {
       const q = qualityScore(b.quality) - qualityScore(a.quality);
       return q || typeScore(b.type) - typeScore(a.type);
     })
-    .slice(0, 6);
+    .slice(0, 4);
 }
 
 function filterFresh(sources: CachedSource[]) {
