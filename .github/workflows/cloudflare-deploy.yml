@@ -16,13 +16,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ contains(github.event.head_commit.message, 'emergency playback deploy') && format('movyz-cloudflare-emergency-{0}', github.sha) || format('movyz-akwam-robot-Movyz Akwam Preparation Robot-{0}', github.ref) }}
-  cancel-in-progress: true
-
+  group: movyz-production-${{ github.sha }}
+  cancel-in-progress: false
 jobs:
   deploy:
     if: ${{ !contains(github.event.head_commit.message, '[episode-fill-only]') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
