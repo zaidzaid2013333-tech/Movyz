@@ -343,6 +343,10 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
       if (anchorHost && anchorHost !== pageHost && anchorHost !== baseHost) continue;
       const anchorPath = new URL(anchor.url).pathname.toLowerCase();
       if (/\/(?:games|programs)(?:\/|$)/i.test(anchorPath)) continue;
+      // Episode discovery must never rank movie/legacy pages just because
+      // their title contains the series name. Akwam's current TV pages use
+      // /series/... and /episode/... paths.
+      if (ctx.episodeNumber !== undefined && !/\/(?:series|episode)(?:\/|$)/i.test(anchorPath)) continue;
       // Never treat search/index pages as content candidates. Query URLs such
       // as /old/search/Breaking%20Bad%20S01E01 contain S01E01 themselves and
       // can otherwise score higher than the real episode page.
