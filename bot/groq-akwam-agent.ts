@@ -273,6 +273,48 @@ async function inspectAkwamPage(url: string) {
   };
 }
 
+async function getPriorityQueue() {
+  const tmdbIds = (process.env.AKWAM_PRIORITY_TMDB_IDS || '1396')
+    .split(',')
+    .map(value => Number(value.trim()))
+    .filter(value => Number.isFinite(value) && value > 0)
+    .slice(0, 10);
+
+  if (!tmdbIds.length) return [];
+
+  const { data: episodes, error } = await adminSupabase
+    .from('episodes')
+    .select('id,episode_number,name_ar,name_en,seasons!inner(season_number,series:series_id!inner(tmdb_id,title_ar,title_en,original_title,status))')
+    .eq('seasons.series.status', 'published')
+    .in('seasons.series.tmdb_id', tmdbIds)
+    .order('episode_number')
+    .limit(40);
+
+  if (error || !episodes?.length) return [];
+
+  const ids = episodes.map((row: any) => String(row.id));
+  const { data: sources } = await adminSupabase
+    .from('playback_sources')
+    .select('content_id')
+    .eq('provider_reference', 'akwam')
+    .eq('content_type', 'episode')
+    .eq('is_working', true)
+    .in('content_id', ids);
+
+  const ready = new Set((sources || []).map((row: any) => String(row.content_id)));
+  return episodes
+    .filter((row: any) => !ready.has(String(row.id)))
+    .slice(0, 12)
+    .map((row: any) => ({
+      contentId: row.id,
+      tmdbId: row.seasons?.series?.tmdb_id,
+      title: row.seasons?.series?.title_ar || row.seasons?.series?.title_en || row.seasons?.series?.original_title,
+      seasonNumber: row.seasons?.season_number,
+      episodeNumber: row.episode_number,
+      episodeTitle: row.name_ar || row.name_en || null,
+    }));
+}
+
 async function getStatus() {
   const [movies, episodes, failures, states] = await Promise.all([
     adminSupabase.from('playback_sources').select('id', { count: 'exact', head: true }).eq('provider_reference', 'akwam').eq('content_type', 'movie').eq('is_working', true),
@@ -281,11 +323,13 @@ async function getStatus() {
     adminSupabase.from('maintenance_state').select('job_key,last_run_at,last_success_at,last_error,stats').ilike('job_key', '%akwam%').order('updated_at', { ascending: false }).limit(10),
   ]);
 
+  const priorityQueue = await getPriorityQueue();
   return {
     workingMovieSources: movies.count ?? 0,
     workingEpisodeSources: episodes.count ?? 0,
     failures: failures.data || [],
     states: states.data || [],
+    priorityQueue,
   };
 }
 
@@ -483,6 +527,8 @@ async function main() {
     '',
     'First inspect the failures and states. Then take only the minimum useful actions.',
     'Prioritize missing or recently failing episodes before broad batches.',
+    'If priorityQueue is non-empty, perform at least one prepare_episode action from it in the first two turns.',
+    'Use get_content_details only when the queue item lacks enough metadata.',
     'For a failure id, call get_content_details before acting unless the metadata is already explicit.',
     'For difficult episodes, prefer series-level discovery plus exact season/episode matching; reject /old/search and movie pages.',
     'Akwam may express seasons with Arabic ordinals such as الموسم الأول; use the exact requested season.',
