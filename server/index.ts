@@ -91,7 +91,7 @@ async function getFreshArProvSourcesForContent(
     if (!allowedProviders.has(provider) || !allowedTypes.has(type) || !/^https:\/\//i.test(storedUrl)) return null;
     if (!/^\d{3,4}p$/i.test(quality)) return null;
 
-    const isStoredProxy = /\/api\/v1\/playback\/stream(?:\\?|$)/i.test(storedUrl);
+    const isStoredProxy = /\/api\/v1\/playback\/stream(?:\?|$)/i.test(storedUrl);
     if (isStoredProxy && requestUrl && env) {
       const refreshedUrl = await refreshStoredPlaybackProxyUrl(storedUrl, requestUrl, env);
       if (refreshedUrl) {
