@@ -24,9 +24,9 @@ on:
       mode:
         description: "Preparation lane"
         required: false
-        default: "both"
+        default: "movies"
         type: choice
-        options: [movies, episodes, both]
+        options: [movies]
       episodeSeasonLimit:
         description: "Missing seasons processed per episode shard"
         required: false
@@ -43,7 +43,7 @@ concurrency:
 jobs:
   groq-agent:
     if: ${{ always() }}
-    needs: [movies, episodes]
+    needs: [movies]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -135,42 +135,3 @@ jobs:
         run: npm install --legacy-peer-deps --prefer-offline --no-audit --no-fund --ignore-scripts
       - name: Diagnose Breaking Bad S01E01
         run: npx tsx scripts/debug-breaking-bad-akwam.ts
-
-  episodes:
-    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.mode != 'movies' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
-      AKWAM_ROBOT_MODE: "episodes"
-      AKWAM_EPISODE_SHARD_INDEX: ${{ matrix.shard }}
-      AKWAM_EPISODE_SHARD_COUNT: "8"
-      EPISODE_SEASON_LIMIT: ${{ github.event.inputs.episodeSeasonLimit || '160' }}
-      AKWAM_PRIORITY_TMDB_IDS: "1396"
-      EPISODE_CONCURRENCY: "8"
-      VALIDATION_CONCURRENCY: "12"
-      DELETE_CONCURRENCY: "6"
-      SEASON_CONCURRENCY: "2"
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Cache npm downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node22-npm-${{ hashFiles('package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node22-npm-
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps --prefer-offline --no-audit --no-fund --ignore-scripts
-      - name: Run Movyz Akwam episode robot
-        run: npm run bot:akwam
