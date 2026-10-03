@@ -26,8 +26,8 @@ jobs:
       - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
       - name: Resolve Interstellar without persisting
         run: |
-          node --input-type=module <<'NODE'
-          const { resolveAkwamPlayback } = await import('./server/providers/arprov-akwam.ts');
+          npx tsx -e "
+          import { resolveAkwamPlayback } from './server/providers/arprov-akwam';
           const context = {
             tmdbId: 157336,
             title: 'Interstellar',
@@ -43,4 +43,4 @@ jobs:
             count: sources.length,
             sources,
           }, null, 2));
-          NODE
+          "
