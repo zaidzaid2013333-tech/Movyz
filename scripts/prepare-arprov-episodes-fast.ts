@@ -218,11 +218,23 @@ async function prepareSeason(
     seasonNumber: season.season_number,
   };
 
-  const index = await discoverAkwamSeasonEpisodes({
-    ...contextBase,
-    episodeNumber: first.episode_number,
-    episodeTitle: first.name_ar || first.name_en || undefined,
-  }, {});
+  let index: Awaited<ReturnType<typeof discoverAkwamSeasonEpisodes>> = [];
+  try {
+    index = await discoverAkwamSeasonEpisodes({
+      ...contextBase,
+      episodeNumber: first.episode_number,
+      episodeTitle: first.name_ar || first.name_en || undefined,
+    }, {});
+  } catch (error) {
+    console.warn(JSON.stringify({
+      ok: false,
+      stage: 'season-discovery',
+      seasonId: season.id,
+      seasonNumber: season.season_number,
+      series: season.series.title_en || season.series.title_ar,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+  }
 
   const byEpisode = new Map<number, { url: string; season?: number }>();
   for (const item of index) {
@@ -234,6 +246,7 @@ async function prepareSeason(
 
   const targets = seasonEpisodes.filter((episode) => !ONLY_MISSING || !readyIds.has(episode.id));
   let fallback = 0;
+  let failed = 0;
 
   const results = await mapLimit(targets, EPISODE_CONCURRENCY, async (episode) => {
     const mapped = byEpisode.get(episode.episode_number);
@@ -244,8 +257,21 @@ async function prepareSeason(
     };
 
     if (mapped?.url) {
-      const sources = await resolveAkwamEpisodePage(mapped.url, context, {});
-      return { episodeId: episode.id, sources, fallback: false };
+      try {
+        const sources = await resolveAkwamEpisodePage(mapped.url, context, {});
+        return { episodeId: episode.id, sources, fallback: false };
+      } catch (error) {
+        failed++;
+        console.warn(JSON.stringify({
+          ok: false,
+          stage: 'episode-resolve',
+          episodeId: episode.id,
+          episodeNumber: episode.episode_number,
+          seasonId: season.id,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+        return { episodeId: episode.id, sources: [], fallback: false };
+      }
     }
 
     fallback++;
@@ -268,6 +294,7 @@ async function prepareSeason(
     episodes: targets.length,
     prepared,
     fallback,
+    failed,
   };
 }
 
