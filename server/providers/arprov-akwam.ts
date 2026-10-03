@@ -815,7 +815,14 @@ function indexEpisodeCandidates(body: string, base: string, requestedSeason?: nu
       Math.min(body.length, anchor.index + 500),
     );
     const hay = normalize(anchor.url + ' ' + anchor.text + ' ' + neighborhood);
-    const identity = extractSeasonEpisode(hay);
+    const parsed = extractSeasonEpisode(hay);
+    const explicitEpisode = /class=["'][^"']*text-white[^"']*["']/i.test(anchor.tag)
+      ? /^\s*(?:الحلقة|episode|ep)?\s*([0-9٠-٩]{1,3})\s*$/i.exec(cleanText(anchor.text))?.[1]
+      : undefined;
+    const identity = {
+      season: parsed.season,
+      episode: parsed.episode ?? (explicitEpisode ? Number(explicitEpisode.replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))) : undefined),
+    };
     if (identity.episode === undefined) continue;
 
     let score = 0;
