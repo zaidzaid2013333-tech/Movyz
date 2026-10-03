@@ -346,13 +346,6 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
   }
 
   const queryList = [...queries].slice(0, 3);
-  // Current Akwam.ss exposes its working search index under /old/search/<query>.
-  // Keep the legacy/query forms as fallbacks because individual pages can still live on the new routes.
-  const searchRequestUrls = queryList.flatMap(query => [
-    `${base}/search?q=${encodeURIComponent(query)}&section=series`,
-    `${base}/search?q=${encodeURIComponent(query)}`,
-    `${base}/old/search/${encodeURIComponent(query)}`,
-  ]);
   const candidates: SearchCandidate[] = [];
   const seen = new Set<string>();
 
@@ -398,14 +391,26 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
     }
   };
 
-  let pages = await Promise.allSettled(
-    searchRequestUrls.map(url => fetchArProvPage(url, {
-      browserBinding: runtime.browserBinding,
-      timeoutMs: 9_000,
-    })),
-  );
-  for (const page of pages) {
-    if (page.status === 'fulfilled') collect(page.value);
+  const searchForms = [
+    (query: string) => `${base}/old/search/${encodeURIComponent(query)}`,
+    (query: string) => `${base}/search?q=${encodeURIComponent(query)}`,
+    (query: string) => `${base}/search?q=${encodeURIComponent(query)}&section=series`,
+    (query: string) => `${base}/search/${encodeURIComponent(query)}`,
+  ];
+
+  let pages: PromiseSettledResult<any>[] = [];
+  for (const makeUrl of searchForms) {
+    const urls = queryList.map(makeUrl);
+    pages = await Promise.allSettled(
+      urls.map(url => fetchArProvPage(url, {
+        browserBinding: runtime.browserBinding,
+        timeoutMs: 9_000,
+      })),
+    );
+    for (const page of pages) {
+      if (page.status === 'fulfilled') collect(page.value);
+    }
+    if (candidates.length) break;
   }
 
   if (!candidates.length) {
@@ -483,8 +488,9 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
   }
 
   if (!candidates.length && runtime.browserBinding) {
+    const browserUrls = searchForms.flatMap(makeUrl => queryList.map(makeUrl));
     const browserPages = await Promise.allSettled(
-      searchRequestUrls.map(url => fetchArProvPage(url, {
+      browserUrls.map(url => fetchArProvPage(url, {
         browserBinding: runtime.browserBinding,
         timeoutMs: 11_000,
         forceBrowser: true,
