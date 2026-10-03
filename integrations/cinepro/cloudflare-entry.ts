@@ -50,7 +50,7 @@ if (!tmdbApiKey) {
 }
 
 // Fastify/find-my-way uses new Function() while registering routes.
-// Workers permits this during startup, but not during a request; keep route compilation out of fetch. The memory cache
+// Production CI uses a standard hosted runner; compile all CinePro routes during Worker startup. The memory cache
 // cleanup timer is not essential for correctness because cache reads enforce TTL,
 // so suppress only that timer while the server graph is constructed.
 const nativeSetInterval = globalThis.setInterval;
