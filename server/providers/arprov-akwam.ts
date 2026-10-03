@@ -30,13 +30,38 @@ function cleanText(value: string) {
 }
 
 function normalize(value: string) {
-  return cleanText(value)
+  let decoded = String(value || '');
+  try {
+    decoded = decodeURIComponent(decoded.replace(/\\+/g, ' '));
+  } catch {
+    // Keep the original value when it is not valid URI encoding.
+  }
+
+  return cleanText(decoded)
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function isAkwamContentUrl(value: string) {
+  try {
+    const path = new URL(value).pathname.toLowerCase();
+    return /\/(?:movie|series|episode|show|shows)(?:\/|$)/i.test(path);
+  } catch {
+    return false;
+  }
+}
+
+function anchorSearchText(anchor: { text: string; tag: string; url: string }) {
+  const attributes = [
+    /(?:alt|title)=["']([^"']+)["']/i.exec(anchor.tag)?.[1],
+    /class=["'][^"']*entry-title[^"']*["'][^>]*>([\\s\\S]*?)<\\/[^>]+>/i.exec(anchor.tag)?.[1],
+  ].filter((value): value is string => Boolean(value));
+
+  return cleanText([anchor.text, ...attributes, anchor.url].join(' '));
 }
 
 async function enrichAkwamTitles(context: ProviderContext): Promise<ProviderContext> {
@@ -175,9 +200,11 @@ function extractSeasonEpisode(value: string) {
 }
 
 function searchUrls(base: string, query: string) {
+  const encoded = encodeURIComponent(query);
   return [
-    `${base}/search?q=${encodeURIComponent(query)}`,
-    `${base}/?s=${encodeURIComponent(query)}`,
+    `${base}/search?q=${encoded}`,
+    `${base}/?s=${encoded}`,
+    `${base}/search/${encoded}`,
   ];
 }
 
@@ -229,17 +256,36 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
       let anchorHost = '';
       try { anchorHost = new URL(anchor.url).hostname; } catch {}
       if (anchorHost && anchorHost !== pageHost && anchorHost !== baseHost) continue;
-      if (!/class=["'][^"']*\bbox\b[^"']*["']/i.test(anchor.tag)) continue;
+      if (!isAkwamContentUrl(anchor.url)) continue;
       if (seen.has(anchor.url)) continue;
-      const score = titleScore(anchor, ctx);
-      if (score < 100) continue;
+
+      const text = anchorSearchText(anchor);
+      const score = titleScore({ ...anchor, text }, ctx);
+
+      // Prefer exact content-card links, but do not require a specific HTML class.
+      const cardHint = /\\b(?:entry-box|box|entry-title|watch|details)\\b/i.test(anchor.tag) ? 150 : 0;
+      const finalScore = score + cardHint;
+      if (finalScore < 100) continue;
+
       seen.add(anchor.url);
-      candidates.push({ url: anchor.url, title: anchor.text, score });
+      candidates.push({ url: anchor.url, title: text, score: finalScore });
     }
   };
 
   for (const page of pages) {
     if (page.status === 'fulfilled') collect(page.value);
+  }
+
+  if (!candidates.length) {
+    console.warn(JSON.stringify({
+      provider: 'akwam',
+      stage: 'search-empty',
+      base,
+      queries: [...queries].slice(0, 8),
+      pages: pages.map((page) => page.status === 'fulfilled'
+        ? { ok: true, url: page.value.url, status: page.value.status, bytes: page.value.body.length }
+        : { ok: false, reason: page.reason instanceof Error ? page.reason.message : String(page.reason) }),
+    }));
   }
 
   if (!candidates.length && runtime.browserBinding) {
