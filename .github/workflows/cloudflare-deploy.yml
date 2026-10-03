@@ -16,8 +16,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyz-production-${{ github.sha }}
-  cancel-in-progress: false
+  # Keep exactly one production verification/deploy active.
+  group: movyz-production
+  cancel-in-progress: true
 jobs:
   deploy:
     if: ${{ !contains(github.event.head_commit.message, '[episode-fill-only]') }}
