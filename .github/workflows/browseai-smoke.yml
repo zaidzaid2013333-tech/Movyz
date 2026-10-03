@@ -1,5 +1,7 @@
 name: Browse AI API smoke
 
+# API-backed robot discovery; updating this workflow triggers a fresh sync.
+
 on:
   workflow_dispatch:
   push:
