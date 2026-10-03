@@ -258,14 +258,19 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
       if (/\/(?:games|programs)(?:\/|$)/i.test(new URL(anchor.url).pathname)) continue;
       if (seen.has(anchor.url)) continue;
 
+      const imageAlt = /<img\\b[^>]*(?:alt)=["']([^"']+)["'][^>]*>/i.exec(anchor.tag)?.[1] || '';
       const text = anchorSearchText(anchor);
-      const score = titleScore({ ...anchor, text }, ctx);
-      const cardHint = /\b(?:entry-box|box|entry-title|watch|details)\b/i.test(anchor.tag) ? 150 : 0;
+      const searchableText = cleanText([text, imageAlt].filter(Boolean).join(' '));
+      const score = titleScore({ ...anchor, text: searchableText }, ctx);
+      const cardHint =
+        /class=["'][^"']*\\bbox\\b[^"']*["']/i.test(anchor.tag) ? 300 :
+        /class=["'][^"']*\\bentry-box\\b[^"']*["']/i.test(anchor.tag) ? 200 :
+        /\\b(?:entry-title|watch|details)\\b/i.test(anchor.tag) ? 100 : 0;
       const finalScore = score + cardHint;
 
-      // Match ArProv's original behavior: search results are entry cards
-      // and their URLs are accepted without relying on a hard-coded route shape.
-      if (finalScore < 80) continue;
+      // Mirror Akwam/ArProv's actual search card contract: entry-box -> a.box.
+      // The visible title can live only in the nested poster's alt attribute.
+      if (finalScore < 40) continue;
 
       seen.add(anchor.url);
       candidates.push({ url: anchor.url, title: text, score: finalScore });
