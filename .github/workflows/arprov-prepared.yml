@@ -23,7 +23,7 @@ on:
         default: "0"
 
 concurrency:
-  group: movyz-arprov-prepared
+  group: movyz-arprov-refresh
   cancel-in-progress: true
 
 jobs:
