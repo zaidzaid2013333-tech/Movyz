@@ -373,7 +373,7 @@ async function seriesDto(row: any, includePlaybackSources = false, requestUrl?: 
   } as any;
 }
 
-async function seriesWatchDto(row: any, seasonNumber: number, requestUrl?: string, env?: Record<string, unknown>) {
+async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: number, requestUrl?: string, env?: Record<string, unknown>) {
   const [genres, cast, seasonResult] = await Promise.all([
     adminSupabase.from('series_genres').select('genres(id,name_ar,name_en,slug)').eq('series_id', row.id),
     adminSupabase.from('series_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('series_id', row.id).order('cast_order'),
@@ -622,7 +622,7 @@ app.get(`${api}/series/tmdb/:tmdbId/watch/:season/:episode`, asyncRoute(async (r
     .eq('tmdb_id', tmdbId).eq('status', 'published').maybeSingle();
   if (error) return fail(res, 500, 'SERIES_QUERY_FAILED', 'Unable to load series');
   if (!data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
-  const series = await seriesWatchDto(data, seasonNumber, req.url, req.env || {});
+  const series = await seriesWatchDto(data, seasonNumber, episodeNumber, req.url, req.env || {});
   if (!series) return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
   if (!series.seasons[0].episodes.some((item: any) => item.episodeNumber === episodeNumber)) {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
