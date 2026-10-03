@@ -7,7 +7,7 @@ import { resolveAkwamPlayback } from '../server/providers/arprov-akwam';
 import type { ProviderContext, NormalizedPlaybackSource } from '../server/providers/types';
 import { validatePreparedMediaSource } from '../scripts/validate-prepared-source';
 
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+// [akwam-robot] full-cycle trigger with Groq supervisor\nconst GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 const MAX_TURNS = Math.max(1, Math.min(6, Number.parseInt(process.env.GROQ_AGENT_MAX_TURNS || '5', 10) || 5));
 const MAX_ACTIONS = Math.max(1, Math.min(4, Number.parseInt(process.env.GROQ_AGENT_MAX_ACTIONS || '3', 10) || 3));
