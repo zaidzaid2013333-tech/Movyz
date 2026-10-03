@@ -2,6 +2,14 @@ name: Browse AI API smoke
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/browseai-smoke.yml"
+    paths-ignore:
+      - ".github/browseai/robots.json"
+
+permissions:
+  contents: write
 
 jobs:
   browseai:
@@ -9,24 +17,20 @@ jobs:
     env:
       BROWSEAI_API_KEY: ${{ secrets.BROWSEAI_API_KEY }}
     steps:
-      - name: Verify Browse AI API credentials and list approved robots
+      - uses: actions/checkout@v4
+
+      - name: Verify Browse AI API and discover approved robots
         shell: bash
         run: |
           set -euo pipefail
           test -n "${BROWSEAI_API_KEY}" || { echo "::error::Missing BROWSEAI_API_KEY repository secret"; exit 1; }
 
-          status_json="$(curl -fsS --retry 2 --connect-timeout 10 --max-time 30 \
-            -H "Authorization: Bearer ${BROWSEAI_API_KEY}" \
-            -H "Accept: application/json" \
-            "https://api.browse.ai/v2/status")"
+          status_json="$(curl -fsS --retry 2 --connect-timeout 10 --max-time 30             -H "Authorization: Bearer ${BROWSEAI_API_KEY}"             -H "Accept: application/json"             "https://api.browse.ai/v2/status")"
 
           echo "Browse AI status:"
           echo "${status_json}" | jq '{statusCode,messageCode,tasksQueueStatus}'
 
-          robots_json="$(curl -fsS --retry 2 --connect-timeout 10 --max-time 30 \
-            -H "Authorization: Bearer ${BROWSEAI_API_KEY}" \
-            -H "Accept: application/json" \
-            "https://api.browse.ai/v2/robots")"
+          robots_json="$(curl -fsS --retry 2 --connect-timeout 10 --max-time 30             -H "Authorization: Bearer ${BROWSEAI_API_KEY}"             -H "Accept: application/json"             "https://api.browse.ai/v2/robots")"
 
           echo "Approved robots:"
           echo "${robots_json}" | jq '
@@ -34,6 +38,31 @@ jobs:
             map({
               id,
               name,
-              inputParameters: ([.inputParameters[]?.name] // [])
+              inputParameters: ([.inputParameters[]? | {name,type,required}] // [])
             })
-          '
+          ' | tee /tmp/browseai-robots.json
+
+          mkdir -p .github/browseai
+          jq '{
+            syncedAt: (now | todateiso8601),
+            totalCount: (.robots.totalCount // 0),
+            robots: (
+              .robots.items // [] |
+              map({
+                id,
+                name,
+                inputParameters: ([.inputParameters[]? | {name,type,required}] // [])
+              })
+            )
+          }' <<< "${robots_json}" > .github/browseai/robots.json
+
+      - name: Commit discovered robot metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/browseai/robots.json
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: sync Browse AI robot metadata"
+          git push
