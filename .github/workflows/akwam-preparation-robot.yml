@@ -11,6 +11,8 @@ on:
       - "scripts/prepare-arprov-episodes-fast.ts"
       - "scripts/validate-prepared-source.ts"
       - "bot/groq-akwam-agent.ts"
+      - "scripts/train-akwam-agent.ts"
+      - "docs/AKWAM-EXTRACTION-PLAYBOOK.md"
       - "package.json"
       - ".github/workflows/akwam-preparation-robot.yml"
   schedule:
