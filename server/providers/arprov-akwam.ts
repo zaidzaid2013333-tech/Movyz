@@ -1038,7 +1038,7 @@ function indexEpisodeCandidates(body: string, base: string, requestedSeason?: nu
     let score = 0;
     if (/class=["'][^"']*text-white[^"']*["']/i.test(anchor.tag)) score += 100;
     if (requestedSeason !== undefined && identity.season === requestedSeason) score += 500;
-    if (/(episode|ep|الحلقة|حلقه|حلقة)/i.test(hay)) score += 50;
+    if (/(episode|ep|الحلقة|حلقه|حلقة)/i.test(localHay)) score += 50;
 
     const key = (identity.season === undefined ? '' : String(identity.season) + ':') + identity.episode;
     const current = values.get(key);
