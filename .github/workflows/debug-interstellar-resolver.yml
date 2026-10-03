@@ -1,4 +1,4 @@
-name: Movyz Akwam old-page parser diagnostic
+name: Movyz Akwam download-page diagnostic
 
 on:
   push:
@@ -19,28 +19,26 @@ jobs:
         with:
           node-version: 22
       - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-      - name: Inspect legacy movie page anchors
+      - name: Inspect Akwam download pages
         run: |
           npx tsx -e "
           (async () => {
             const urls = [
-              'https://akwam.ss/old/54108/%D9%81%D9%8A%D9%84%D9%85-Inception-2010-%D9%85%D8%AA%D8%B1%D8%AC%D9%85',
-              'https://akwam.ss/old/57273/%D9%81%D9%8A%D9%84%D9%85-Fight-Club-1999-%D9%85%D8%AA%D8%B1%D8%AC%D9%85'
+              'https://akwam.ss/old/download/8b8a42e56071/Inception-720p-BluRay-akoam-net-mkv',
+              'https://akwam.ss/old/download/24b6c7c86025/Fight-Club-1999-1080p-BluRay-akoam-net-mkv'
             ];
             for (const url of urls) {
               const response = await fetch(url, { headers: { 'User-Agent': 'Movyz-Diagnostics/1.0', 'Accept': 'text/html' } });
               const html = await response.text();
-              console.log('PAGE', url, 'STATUS', response.status, 'BYTES', html.length);
-              const matches = [...html.matchAll(/<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)<\\/a>/gi)];
-              const interesting = matches
-                .map(m => ({ href: m[1], html: m[0].slice(0, 800) }))
-                .filter(x => /(تحميل|download|link|مشاهدة|watch|جودة|quality)/i.test(x.href + ' ' + x.html))
-                .slice(0, 80);
-              console.log(JSON.stringify({interesting}, null, 2));
-              const media = [...html.matchAll(/<(?:video|source|iframe|embed)\b[^>]*(?:src|data-src)=[\"']([^\"']+)[\"'][^>]*>/gi)]
-                .map(m => ({url: m[1], tag: m[0].slice(0, 500)}))
-                .slice(0, 40);
-              console.log('MEDIA', JSON.stringify(media, null, 2));
+              console.log('PAGE', url, 'STATUS', response.status, 'FINAL', response.url, 'BYTES', html.length);
+              const anchors = [...html.matchAll(/<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)<\\/a>/gi)]
+                .map(m => ({href:m[1], html:m[0].slice(0,1200)}))
+                .filter(x => /(?:download|btn-loader|تحميل|mp4|mkv|downet|stream|watch)/i.test(x.href + ' ' + x.html))
+                .slice(0,120);
+              console.log(JSON.stringify({anchors}, null, 2));
+              const scripts = [...html.matchAll(/<(?:script|input|video|source)\b[^>]*(?:src|value|data-src|href)=[\"']([^\"']+)[\"'][^>]*>/gi)]
+                .map(m => m[1]).filter(v=>/(?:mp4|mkv|downet|stream|download|file|source)/i.test(v)).slice(0,120);
+              console.log('VALUES', JSON.stringify(scripts, null, 2));
             }
           })();
           "
