@@ -292,7 +292,7 @@ async function movieDto(row: any, includePlaybackSources = false, requestUrl?: s
   } as any;
 }
 
-async function seriesDto(row: any, includePlaybackSources = false) {
+async function seriesDto(row: any, includePlaybackSources = false, requestUrl?: string, env?: Record<string, unknown>) {
   const [genres, cast, seasons] = await Promise.all([
     adminSupabase.from('series_genres').select('genres(id,name_ar,name_en,slug)').eq('series_id', row.id),
     adminSupabase.from('series_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('series_id', row.id).order('cast_order'),
@@ -315,7 +315,7 @@ async function seriesDto(row: any, includePlaybackSources = false) {
         try {
           return {
             episodeId,
-            sources: await getFreshArProvSourcesForContent('episode', String(episodeId)),
+            sources: await getFreshArProvSourcesForContent('episode', String(episodeId), requestUrl, env),
           };
         } catch (playbackError) {
           console.warn(
