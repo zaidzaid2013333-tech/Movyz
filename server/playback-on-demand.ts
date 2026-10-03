@@ -295,9 +295,14 @@ async function loadContext(
 async function resolveAndValidate(
   contentType: PlaybackContentType,
   contentId: string,
+  env: Record<string, unknown>,
 ): Promise<CachedSource[]> {
   const context = await loadContext(contentType, contentId);
-  const resolved = normalizeSources(await resolveAkwamPlayback(context, {}));
+  const tmdbApiToken = String(env.TMDB_API_READ_ACCESS_TOKEN || '').trim();
+  const resolved = normalizeSources(await resolveAkwamPlayback(
+    context,
+    tmdbApiToken ? { tmdbApiToken } : {},
+  ));
   if (!resolved.length) return [];
 
   const validated = await Promise.all(resolved.map(validateDirectSource));
@@ -310,12 +315,13 @@ async function resolveAndValidate(
 async function resolveCached(
   contentType: PlaybackContentType,
   contentId: string,
+  env: Record<string, unknown>,
 ): Promise<CachedSource[]> {
   const key = `${contentType}:${contentId}`;
   const existing = inFlight.get(key);
   if (existing) return existing;
 
-  const promise = resolveAndValidate(contentType, contentId).finally(() => {
+  const promise = resolveAndValidate(contentType, contentId, env).finally(() => {
     inFlight.delete(key);
   });
 
@@ -391,7 +397,7 @@ export async function getOnDemandAkwamSources(
   let sources = await readEdgeCache(requestUrl, contentType, contentId);
 
   if (!sources) {
-    sources = await resolveCached(contentType, contentId);
+    sources = await resolveCached(contentType, contentId, env);
     await writeEdgeCache(requestUrl, contentType, contentId, sources);
   }
 
