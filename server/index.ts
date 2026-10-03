@@ -19,6 +19,16 @@ app.disable('x-powered-by');
 // Production diagnostics for the selected playback-sites path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
+const playbackQualityScore = (quality: unknown) => {
+  const value = Number.parseInt(String(quality || ''), 10);
+  return Number.isFinite(value) ? value : 0;
+};
+
+const playbackTypeScore = (type: unknown) => {
+  const scores: Record<string, number> = { hls: 4, dash: 3, mp4: 2, webm: 1, direct: 0 };
+  return scores[String(type || '').toLowerCase()] ?? 0;
+};
+
 async function cachedPlaybackSourceDto(
   source: any,
   requestUrl: string,
@@ -106,7 +116,7 @@ async function getFreshPlaybackSourcesForContent(
 
       return cachedPlaybackSourceDto(source, requestUrl || '', env || {});
     }),
-  )).filter((source): source is Record<string, unknown> => Boolean(source));
+  )).filter((source) => source !== null);
 
   return [...akwamSources, ...prepared]
     .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
