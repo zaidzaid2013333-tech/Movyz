@@ -198,7 +198,7 @@ async function saveBatch(rows: Array<{ episodeId: string; sources: NormalizedPla
       const checked = await validatePreparedMediaSource({
         provider: 'Akwam',
         providerReference: 'akwam',
-        type: row.source_type,
+        type: row.source_type as NormalizedPlaybackSource['type'],
         url: row.url,
         quality: row.quality,
         language: row.language,
