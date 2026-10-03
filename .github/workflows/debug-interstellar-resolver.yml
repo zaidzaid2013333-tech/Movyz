@@ -1,4 +1,4 @@
-name: Movyz movie resolver diagnostics
+name: Movyz Akwam resolver trace
 
 on:
   push:
@@ -24,43 +24,27 @@ jobs:
         with:
           node-version: 22
       - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-      - name: Resolve four movie anchors without persisting
+      - name: Trace failing movie searches
         run: |
           npx tsx -e "
           (async () => {
-            const { resolveAkwamPlayback } = await import('./server/providers/arprov-akwam');
+            const { debugAkwamEpisode } = await import('./server/providers/arprov-akwam');
             const checks = [
-              { label: 'Interstellar', tmdbId: 157336, releaseYear: 2014 },
               { label: 'Inception', tmdbId: 27205, releaseYear: 2010 },
               { label: 'Fight Club', tmdbId: 550, releaseYear: 1999 },
-              { label: 'The Shawshank Redemption', tmdbId: 278, releaseYear: 1994 },
             ];
             for (const item of checks) {
-              const started = Date.now();
-              try {
-                const sources = await resolveAkwamPlayback({
-                  tmdbId: item.tmdbId,
-                  title: item.label,
-                  originalTitle: item.label,
-                  releaseYear: item.releaseYear,
-                }, {
-                  tmdbApiToken: process.env.TMDB_API_READ_ACCESS_TOKEN,
-                });
-                console.log(JSON.stringify({
-                  label: item.label,
-                  tmdbId: item.tmdbId,
-                  elapsedMs: Date.now() - started,
-                  count: sources.length,
-                  sources,
-                }, null, 2));
-              } catch (error) {
-                console.log(JSON.stringify({
-                  label: item.label,
-                  tmdbId: item.tmdbId,
-                  elapsedMs: Date.now() - started,
-                  error: error instanceof Error ? error.message : String(error),
-                }, null, 2));
-              }
+              const trace = await debugAkwamEpisode({
+                tmdbId: item.tmdbId,
+                title: item.label,
+                originalTitle: item.label,
+                releaseYear: item.releaseYear,
+              }, {
+                tmdbApiToken: process.env.TMDB_API_READ_ACCESS_TOKEN,
+              });
+              console.log('TRACE_START', item.label);
+              console.log(JSON.stringify(trace, null, 2));
+              console.log('TRACE_END', item.label);
             }
           })();
           "
