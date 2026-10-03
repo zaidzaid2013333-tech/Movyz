@@ -136,8 +136,15 @@ jobs:
               (f"{api_base}/api/v1/series/tmdb/65733", "series", 65733),
           ]
 
+          headers = {
+              "Accept": "application/json",
+              "User-Agent": "Movyz-CI/1.0",
+              "Cache-Control": "no-cache",
+          }
+
           for url, expected_type, expected_tmdb in api_checks:
-              with urllib.request.urlopen(url, timeout=20) as response:
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
                   payload = json.load(response)
               if payload.get("success") is not True:
                   raise SystemExit(f"{url}: API success=false")
@@ -149,7 +156,8 @@ jobs:
               print(f"API OK: {expected_type} TMDB {actual}")
 
           watch_url = f"{api_base}/api/v1/series/tmdb/1396/watch/1/1"
-          with urllib.request.urlopen(watch_url, timeout=20) as response:
+          watch_request = urllib.request.Request(watch_url, headers=headers)
+          with urllib.request.urlopen(watch_request, timeout=20) as response:
               watch_payload = json.load(response)
           watch_series = watch_payload.get("data", {}).get("series")
           if watch_payload.get("success") is not True:
