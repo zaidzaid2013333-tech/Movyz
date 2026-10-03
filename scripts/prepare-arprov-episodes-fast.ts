@@ -128,10 +128,11 @@ async function fetchSeasons() {
   return output;
 }
 
-async function readyEpisodeIds(ids: string[]) {
+async function readyEpisodeIds() {
   const ready = new Set<string>();
-  for (let offset = 0; offset < ids.length; offset += 500) {
-    const chunk = ids.slice(offset, offset + 500);
+  const pageSize = 1000;
+
+  for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await adminSupabase
       .from('playback_sources')
       .select('content_id')
@@ -140,10 +141,14 @@ async function readyEpisodeIds(ids: string[]) {
       .eq('is_working', true)
       .not('url', 'is', null)
       .is('expires_at', null)
-      .in('content_id', chunk);
+      .order('content_id')
+      .range(offset, offset + pageSize - 1);
+
     if (error) throw error;
     for (const row of data || []) ready.add(String(row.content_id));
+    if (!data || data.length < pageSize) break;
   }
+
   return ready;
 }
 
@@ -276,8 +281,7 @@ async function main() {
   if (!provider?.id) throw new Error('ArProv provider row not found');
 
   const [episodes, seasons] = await Promise.all([fetchAllEpisodes(), fetchSeasons()]);
-  const episodeIds = episodes.map((episode) => episode.id);
-  const readyIds = ONLY_MISSING ? await readyEpisodeIds(episodeIds) : new Set<string>();
+  const readyIds = ONLY_MISSING ? await readyEpisodeIds() : new Set<string>();
 
   const assigned = seasons.filter((_, index) => index % SHARD_COUNT === SHARD_INDEX);
   let prepared = 0;
