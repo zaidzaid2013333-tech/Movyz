@@ -35,6 +35,8 @@ export interface PlaybackSource {
   label: string; // e.g., 'سيرفر سريع (Akamai CDN)'
   labelEn: string; // e.g., 'Fast CDN (Primary)'
   url: string;
+  directUrl?: string;
+  fallbackUrl?: string;
   isWorking: boolean;
   provider: string; // e.g. 'AbdoBest', 'StreamProvider', 'TMDB Embed'
   providerKey?: string;
