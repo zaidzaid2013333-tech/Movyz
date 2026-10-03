@@ -33,8 +33,17 @@ interface WatchPageProps {
   onNavigate: (path: string) => void;
 }
 
-const isPlayableHttpSource = (source: PlaybackSource) =>
-  /^https?:\/\//i.test(source.url?.trim() || '');
+const isPlayableHttpSource = (source: PlaybackSource) => {
+  const url = source.url?.trim() || '';
+  if (!/^https?:\/\//i.test(url)) return false;
+  try {
+    const pathname = new URL(url).pathname;
+    if (/\/download(?:\/|$)/i.test(pathname)) return false;
+  } catch {
+    return false;
+  }
+  return true;
+};
 
 function playbackEngineFor(source: PlaybackSource | null | undefined) {
   const type = String(source?.type || '').toLowerCase();
