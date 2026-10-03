@@ -676,7 +676,7 @@ export async function debugAkwamEpisode(
       return (b.score + score(b)) - (a.score + score(a));
     });
 
-    for (const candidate of prioritizedCandidates.slice(0, 8))
+    for (const candidate of prioritizedCandidates.slice(0, 8)) {
       let detail = await fetchArProvPage(candidate.url, {
         browserBinding: runtime.browserBinding,
         timeoutMs: 10_000,
