@@ -176,7 +176,7 @@ async function batchSeriesGenres(ids: string[]) {
 
 async function movieDto(row: any, includePlaybackSources = false, requestUrl?: string, env?: Record<string, unknown>) {
   const playbackPromise = includePlaybackSources
-    ? getFreshPlaybackSourcesForContent('movie', row.id, requestUrl, env).catch((error) => {
+    ? getFreshPlaybackSourcesForContent('movie', row.id).catch((error) => {
         console.warn('[movie-playback-cache]', error instanceof Error ? error.message : String(error));
         return [];
       })
@@ -287,12 +287,7 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
 
   if (currentEpisode?.id) {
     try {
-      const prepared = await getFreshPlaybackSourcesForContent(
-        'episode',
-        String(currentEpisode.id),
-        requestUrl,
-        env,
-      );
+      const prepared = await getFreshPlaybackSourcesForContent('episode', String(currentEpisode.id));
       playbackByEpisode.set(String(currentEpisode.id), prepared);
     } catch (playbackError) {
       console.warn(
@@ -683,7 +678,7 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
   }
 
-  const playbackSources = await getFreshPlaybackSourcesForContent('episode', String(episode.id), req.url, req.env || {})
+  const playbackSources = await getFreshPlaybackSourcesForContent('episode', String(episode.id))
     .catch((sourceError) => {
       console.warn('[episode-playback-cache]', sourceError instanceof Error ? sourceError.message : String(sourceError));
       return [];
