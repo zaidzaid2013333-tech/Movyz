@@ -61,8 +61,11 @@ function anchorSearchText(anchor: { text: string; tag: string; url: string }) {
   return cleanText([anchor.text, altOrTitle || '', anchor.url].join(' '));
 }
 
-async function enrichAkwamTitles(context: ProviderContext): Promise<ProviderContext> {
-  if (!context.tmdbId) return context;
+async function enrichAkwamTitles(
+  context: ProviderContext,
+  allowSeriesWithoutEpisode = false,
+): Promise<ProviderContext> {
+  if (!context.tmdbId || (context.episodeNumber === undefined && !allowSeriesWithoutEpisode)) return context;
 
   const token = process.env.TMDB_API_READ_ACCESS_TOKEN?.trim();
   if (!token) return context;
@@ -930,7 +933,7 @@ export async function discoverAkwamSeasonEpisodes(
   // Primary lane: search the series title and index its episode cards.
   // Fallback lane: if the series page is not indexed, find an individual
   // episode page and walk its next/previous links to rebuild the season index.
-  const enrichedContext = await enrichAkwamTitles(context);
+  const enrichedContext = await enrichAkwamTitles(context, true);
   const seriesSearchContext: ProviderContext = {
     ...enrichedContext,
     episodeNumber: undefined,
