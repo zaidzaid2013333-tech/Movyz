@@ -1,4 +1,4 @@
-name: Movyz Akwam session fix diagnostic
+name: Movyz Akwam exact POST diagnostic
 
 on:
   push:
@@ -19,17 +19,49 @@ jobs:
         with:
           node-version: 22
       - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-      - name: Resolve Inception after session-cookie fix
+      - name: Inspect Akwam location hash and session POST
         run: |
           npx tsx -e "
           (async () => {
-            const { resolveAkwamPlayback } = await import('./server/providers/arprov-akwam');
-            const result = await resolveAkwamPlayback({
-              tmdbId: 27205,
-              title: 'Inception',
-              originalTitle: 'Inception',
-              releaseYear: 2010,
-            }, {});
-            console.log(JSON.stringify({count: result.length, sources: result}, null, 2));
+            const target='https://akwam.ss/old/download/8b8a42e56071/Inception-720p-BluRay-akoam-net-mkv';
+            const get=await fetch(target,{
+              headers:{Accept:'text/html,*/*;q=0.8','User-Agent':'Movyza/1.0'}
+            });
+            const html=await get.text();
+            const setCookie=get.headers.get('set-cookie')||'';
+            const cookie=setCookie.match(/^[^;]+/)?.[0]||'';
+            const samples=[];
+            for(const needle of ['location.hash','hash =','location.hash =','location.href','#'+target,'downloadUrl','file_token']){
+              const i=html.indexOf(needle);
+              if(i>=0) samples.push({needle,snippet:html.slice(Math.max(0,i-1200),Math.min(html.length,i+2200))});
+            }
+            const refs=[
+              target,
+              target.replace('/old/download/','/old/download/#'),
+              target+'#'+target,
+              '#'+target
+            ];
+            const results=[];
+            for(const url of refs){
+              try{
+                const u=url.startsWith('#')?target+url:url;
+                const resp=await fetch(u,{
+                  method:'POST',
+                  headers:{
+                    Accept:'application/json, text/javascript, */*; q=0.01',
+                    'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
+                    'User-Agent':'Movyza/1.0',
+                    'X-Requested-With':'XMLHttpRequest',
+                    Referer:get.url,
+                    Origin:new URL(get.url).origin,
+                    ...(cookie?{Cookie:cookie}:{}),
+                  },
+                  body:''
+                });
+                const body=await resp.text();
+                results.push({url,status:resp.status,contentType:resp.headers.get('content-type'),body:body.slice(0,3000)});
+              }catch(error){results.push({url,error:String(error)})}
+            }
+            console.log(JSON.stringify({finalUrl:get.url,cookie:!!cookie,samples,results},null,2));
           })();
           "
