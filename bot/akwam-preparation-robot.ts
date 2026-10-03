@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 
 type RobotMode = 'movies' | 'episodes' | 'both';
+const ROBOT_VERSION = '1.0.1';
 
 const mode = (process.env.AKWAM_ROBOT_MODE || 'both') as RobotMode;
 const movieShardIndex = Number.parseInt(process.env.AKWAM_MOVIE_SHARD_INDEX || '0', 10) || 0;
@@ -31,6 +32,7 @@ function run(script: string, env: Record<string, string>) {
 async function main() {
   console.log(JSON.stringify({
     robot: 'movyz-akwam-preparation',
+    version: ROBOT_VERSION,
     mode,
     playbackDiscovery: 'background-only',
     origin: 'https://akwam.ss/',
