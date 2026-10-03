@@ -79,8 +79,9 @@ export async function createPlaybackProxyUrl(
 
   const sourceExpiry = source.expiresAt ? Date.parse(source.expiresAt) : Number.POSITIVE_INFINITY;
   const requestedTtl = Math.max(30_000, ttlMs);
+  if (Number.isFinite(sourceExpiry) && sourceExpiry <= Date.now() + 30_000) return '';
   const boundedTtl = Number.isFinite(sourceExpiry)
-    ? Math.max(30_000, Math.min(requestedTtl, sourceExpiry - Date.now()))
+    ? Math.min(requestedTtl, sourceExpiry - Date.now())
     : requestedTtl;
 
   const payload: ProxyPayload = {
