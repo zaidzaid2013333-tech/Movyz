@@ -6,6 +6,7 @@ import {
   resolveAkwamEpisodePage,
 } from '../server/providers/arprov-akwam';
 import type { ProviderContext, NormalizedPlaybackSource } from '../server/providers/types';
+import { validatePreparedMediaSource } from './validate-prepared-source';
 
 const SHARD_INDEX = Math.max(0, Number.parseInt(process.env.EPISODE_SHARD_INDEX || '0', 10) || 0);
 const SHARD_COUNT = Math.max(1, Number.parseInt(process.env.EPISODE_SHARD_COUNT || '4', 10) || 4);
@@ -184,27 +185,50 @@ async function saveBatch(rows: Array<{ episodeId: string; sources: NormalizedPla
       const normalized = item.sources
         .map(normalizeSource)
         .filter((x): x is NonNullable<ReturnType<typeof normalizeSource>> => Boolean(x));
-      const deduped = [...new Map(normalized.map((x) => [x.quality + '|' + x.source_type + '|' + x.url, x])).values()];
-      return { episodeId: item.episodeId, sources: deduped };
+      return { episodeId: item.episodeId, normalized };
     })
-    .filter((item) => item.sources.length > 0);
+    .filter((item) => item.normalized.length > 0);
 
   if (!successful.length) return 0;
 
-  const ids = successful.map((item) => item.episodeId);
-  for (let i = 0; i < ids.length; i += 100) {
-    const chunk = ids.slice(i, i + 100);
+  const validated = [];
+  for (const item of successful) {
+    const sources = [];
+    for (const row of item.normalized) {
+      const checked = await validatePreparedMediaSource({
+        provider: 'Akwam',
+        providerReference: 'akwam',
+        type: row.source_type,
+        url: row.url,
+        quality: row.quality,
+        language: row.language,
+        label: row.label_ar,
+        referer: 'https://akwam.ss/',
+      });
+      if (checked) sources.push({ ...row, url: checked.url });
+    }
+    const deduped = [...new Map(sources.map((x) => [x.quality + '|' + x.source_type + '|' + x.url, x])).values()];
+    if (deduped.length) validated.push({ episodeId: item.episodeId, sources: deduped });
+  }
+
+  if (!validated.length) return 0;
+
+  // Refresh only the qualities that were actually validated for each episode.
+  // Never delete the episode's other prepared qualities.
+  for (const item of validated) {
+    const qualities = [...new Set(item.sources.map((source) => source.quality))];
     const { error } = await adminSupabase
       .from('playback_sources')
       .delete()
       .eq('provider_id', providerId)
       .eq('content_type', 'episode')
       .eq('provider_reference', 'akwam')
-      .in('content_id', chunk);
+      .eq('content_id', item.episodeId)
+      .in('quality', qualities);
     if (error) throw error;
   }
 
-  const payload = successful.flatMap((item) =>
+  const payload = validated.flatMap((item) =>
     item.sources.map((source) => ({
       provider_id: providerId,
       content_type: 'episode',
@@ -219,7 +243,7 @@ async function saveBatch(rows: Array<{ episodeId: string; sources: NormalizedPla
     if (error) throw error;
   }
 
-  return successful.length;
+  return validated.length;
 }
 
 async function prepareSeason(
