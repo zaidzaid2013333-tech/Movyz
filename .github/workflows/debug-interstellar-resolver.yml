@@ -1,4 +1,4 @@
-name: Movyz Akwam legacy watching playback diagnostic
+name: Movyz current Akwam resolver raw output
 
 on:
   push:
@@ -12,53 +12,44 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-      - name: Inspect Akwam watching endpoint
+      - name: Resolve current legacy movies
         run: |
           npx tsx -e "
           (async () => {
-            const download = 'https://akwam.ss/old/download/8b8a42e56071/Inception-720p-BluRay-akoam-net-mkv';
-            const get = await fetch(download, { headers: { 'User-Agent': 'Movyz-Diagnostics/1.0', 'Accept': 'text/html' } });
-            const html = await get.text();
-            const h1 = /<div[^>]*class=[\"'][^\"']*sub_download_title[^\"']*[\"'][^>]*>[\\s\\S]*?<h1[^>]*>([\\s\\S]*?)<\\/h1>/i.exec(html)?.[1]?.replace(/<[^>]+>/g,' ').replace(/\\s+/g,' ').trim() || '';
-            const post = await fetch(download, {
-              method: 'POST',
-              headers: {
-                'User-Agent': 'Movyz-Diagnostics/1.0',
-                'Accept': 'application/json, text/plain, */*',
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'X-Requested-With': 'XMLHttpRequest',
-                'Referer': download,
-              },
-              body: '',
-            });
-            const payload = await post.json();
-            console.log('H1', h1);
-            console.log('POST', JSON.stringify(payload, null, 2));
-            const watchUrl = 'https://akwam.ss/old/watching/' + encodeURIComponent(payload.hash_data || '') + '/' + encodeURIComponent(h1);
-            console.log('WATCH_URL', watchUrl);
-            const watch = await fetch(watchUrl, {
-              headers: {
-                'User-Agent': 'Movyz-Diagnostics/1.0',
-                'Accept': 'text/html, video/*, application/json, */*',
-                'Referer': download,
-              },
-              redirect: 'follow',
-            });
-            const body = await watch.text();
-            console.log('WATCH_RESPONSE', JSON.stringify({
-              status: watch.status,
-              finalUrl: watch.url,
-              contentType: watch.headers.get('content-type'),
-              bytes: body.length,
-              sources: [...body.matchAll(/<(?:video|source)\\b[^>]*(?:src|data-src)=[\"']([^\"']+)[\"'][^>]*>/gi)].map(m=>m[1]).slice(0,20),
-              scripts: [...body.matchAll(/(?:file|source|src|url)\\s*[:=]\\s*[\"']([^\"']+)[\"']/gi)].map(m=>m[1]).filter(x=>/https?:/i.test(x)).slice(0,20),
-            }, null, 2));
+            const { resolveAkwamPlayback } = await import('./server/providers/arprov-akwam');
+            for (const item of [
+              {label:'Inception',tmdbId:27205,releaseYear:2010},
+              {label:'Fight Club',tmdbId:550,releaseYear:1999},
+            ]) {
+              const started = Date.now();
+              try {
+                const sources = await resolveAkwamPlayback({
+                  tmdbId:item.tmdbId,
+                  title:item.label,
+                  originalTitle:item.label,
+                  releaseYear:item.releaseYear,
+                }, { tmdbApiToken:process.env.TMDB_API_READ_ACCESS_TOKEN });
+                console.log(JSON.stringify({
+                  label:item.label,
+                  elapsedMs:Date.now()-started,
+                  count:sources.length,
+                  sources
+                },null,2));
+              } catch(error) {
+                console.log(JSON.stringify({
+                  label:item.label,
+                  error:error instanceof Error?error.message:String(error)
+                },null,2));
+              }
+            }
           })();
           "
