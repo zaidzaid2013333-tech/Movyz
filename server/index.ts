@@ -6,7 +6,8 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
-import { createPlaybackProxyUrl, handlePlaybackProxy, refreshStoredPlaybackProxyUrl } from './playback-proxy';
+import { handlePlaybackProxy } from './playback-proxy';
+import { getOnDemandAkwamSources } from './playback-on-demand';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -66,73 +67,62 @@ async function getFreshArProvSourcesForContent(
   requestUrl?: string,
   env?: Record<string, unknown>,
 ) {
-  const { data, error } = await adminSupabase
+  const akwamPromise = requestUrl && env
+    ? getOnDemandAkwamSources(contentType, contentId, requestUrl, env).catch((error) => {
+        console.warn(
+          '[akwam-on-demand]',
+          error instanceof Error ? error.message : String(error),
+        );
+        return [];
+      })
+    : Promise.resolve([]);
+
+  const storedPromise = adminSupabase
     .from('playback_sources')
     .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name)')
     .eq('content_type', contentType)
     .eq('content_id', contentId)
     .eq('is_working', true)
     .eq('providers.key', 'arprov')
+    .neq('provider_reference', 'akwam')
     .order('quality', { ascending: true });
 
-  if (error) {
-    throw new Error('Unable to load ready cached playback sources: ' + error.message);
+  const [akwamSources, storedResult] = await Promise.all([akwamPromise, storedPromise]);
+  if (storedResult.error) {
+    console.warn('[stored-playback-sources]', storedResult.error.message);
   }
 
-  const allowedProviders = new Set(['akwam', 'anime4up']);
+  const allowedProviders = new Set(['anime4up']);
   const allowedTypes = new Set(['mp4', 'hls', 'dash', 'webm', 'direct']);
   const now = Date.now();
 
-  const prepared = await Promise.all((data || []).map(async (source: any) => {
+  const prepared = (storedResult.data || []).map((source: any) => {
     const provider = String(source.provider_reference || '').trim().toLowerCase();
     const type = String(source.source_type || '').trim().toLowerCase();
     const storedUrl = String(source.url || '').trim();
     const quality = String(source.quality || '').trim().toLowerCase();
-    if (!allowedProviders.has(provider) || !allowedTypes.has(type) || !/^https:\/\//i.test(storedUrl)) return null;
-    if (!/^\d{3,4}p$/i.test(quality)) return null;
 
-    const isStoredProxy = /\/api\/v1\/playback\/stream(?:\?|$)/i.test(storedUrl);
-    if (isStoredProxy && requestUrl && env) {
-      const refreshedUrl = await refreshStoredPlaybackProxyUrl(storedUrl, requestUrl, env);
-      if (refreshedUrl) {
-        return { ...cachedArProvSourceDto(source), url: refreshedUrl, isWorking: true };
-      }
-    }
+    if (!allowedProviders.has(provider) || !allowedTypes.has(type)) return null;
+    if (!/^https:\/\//i.test(storedUrl) || !/^\d{3,4}p$/i.test(quality)) return null;
 
     const expiresAt = source.expires_at ? Date.parse(String(source.expires_at)) : Number.POSITIVE_INFINITY;
     if (Number.isFinite(expiresAt) && expiresAt <= now) return null;
 
-    const mapped = cachedArProvSourceDto(source);
-    if (provider === 'akwam') {
-      if (!requestUrl || !env) return null;
+    return {
+      ...cachedArProvSourceDto(source),
+      url: storedUrl,
+      isWorking: true,
+    };
+  }).filter((source: any): source is Record<string, unknown> => Boolean(source));
 
-      const proxiedUrl = await createPlaybackProxyUrl({
-        provider: 'arprov',
-        type: mapped.type as any,
-        url: storedUrl,
-        providerReference: 'akwam',
-        quality: mapped.quality,
-        language: mapped.language,
-        label: mapped.label,
-        referer: 'https://akwam.ss/',
-      }, requestUrl, env);
-
-      if (!/^https:\/\/[^/]+\/api\/v1\/playback\/stream\?token=/i.test(proxiedUrl)) return null;
-      return { ...mapped, url: proxiedUrl, isWorking: true };
-    }
-
-    return mapped;
-  }));
-
-  return prepared
-    .filter((source: any): source is Record<string, unknown> => Boolean(source))
+  return [...akwamSources, ...prepared]
     .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
     .sort((a: any, b: any) => {
       const qualityDiff = playbackQualityScore(b.quality) - playbackQualityScore(a.quality);
       if (qualityDiff) return qualityDiff;
       return playbackTypeScore(b.type) - playbackTypeScore(a.type);
     })
-    .slice(0, 5);
+    .slice(0, 6);
 }
 
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
@@ -309,29 +299,8 @@ async function seriesDto(row: any, includePlaybackSources = false, requestUrl?: 
   const episodeIds = episodeRows.map((episode: any) => episode.id);
   const playbackByEpisode = new Map<string, any[]>();
 
-  if (includePlaybackSources && episodeIds.length) {
-    const preparedEntries = await Promise.all(
-      episodeIds.map(async (episodeId: string) => {
-        try {
-          return {
-            episodeId,
-            sources: await getFreshArProvSourcesForContent('episode', String(episodeId), requestUrl, env),
-          };
-        } catch (playbackError) {
-          console.warn(
-            '[series-playback-cache]',
-            playbackError instanceof Error ? playbackError.message : String(playbackError),
-          );
-          return { episodeId, sources: [] };
-        }
-      }),
-    );
-
-    for (const entry of preparedEntries) {
-      playbackByEpisode.set(entry.episodeId, entry.sources);
-    }
-  }
-
+  // Sources are resolved only for the selected watch request. Resolving every
+  // episode while rendering a series detail page creates an N+1 resolver storm.
   const seasonDtos = seasonRows.map((s: any) => ({
     id: s.id, seriesId: row.id, seasonNumber: s.season_number,
     name: s.name_ar || s.name_en || `الموسم ${s.season_number}`,
