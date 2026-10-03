@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { spawn } from 'node:child_process';
 import { adminSupabase } from '../server/supabase';
 import { fetchArProvPage } from '../server/providers/arprov-runtime';
-import { resolveAkwamPlayback } from '../server/providers/arprov-akwam';
+import { resolveAkwamPlayback, resolveAkwamEpisodeFromSeriesPage } from '../server/providers/arprov-akwam';
 import type { ProviderContext, NormalizedPlaybackSource } from '../server/providers/types';
 import { validatePreparedMediaSource } from '../scripts/validate-prepared-source';
 
@@ -262,6 +262,32 @@ async function searchAkwam(query: string) {
   return { ok: true, query, pages: out };
 }
 
+async function searchAkwamSeries(query: string) {
+  const encoded = encodeURIComponent(query.trim());
+  const urls = [
+    'https://akwam.ss/search?q=' + encoded + '&section=series',
+    'https://akwam.ss/search?q=' + encoded,
+  ];
+  const byUrl = new Map<string, { url: string; title: string }>();
+
+  for (const url of urls) {
+    const page = await fetchArProvPage(url, { timeoutMs: 12_000 });
+    if (!page) continue;
+    for (const match of page.body.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      let href: string;
+      try { href = new URL(match[1], page.url).toString(); } catch { continue; }
+      if (!/^https:\/\/akwam\.ss\/series\//i.test(href)) continue;
+      const text = String(match[2] || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
+      const current = byUrl.get(href);
+      if (!current || text.length > current.title.length) {
+        byUrl.set(href, { url: href, title: text.slice(0, 180) });
+      }
+    }
+  }
+
+  return [...byUrl.values()].slice(0, 12);
+}
+
 async function inspectAkwamPage(url: string) {
   if (state.count >= MAX_ACTIONS) return { ok: false, blocked: 'action-budget' };
   let parsed: URL;
@@ -502,13 +528,11 @@ const tools = [
   },
 ];
 
-async function callGroq(messages: any[]) {
+async function callGroqDecision(context: unknown) {
   const key = process.env.GROQ_API_KEY?.trim();
   if (!key) throw new Error('Missing GROQ_API_KEY');
 
-  let lastError = '';
-  for (let attempt = 0; attempt <= GROQ_RETRIES; attempt++) {
-    const response = await fetch(GROQ_URL, {
+  const response = await fetch(GROQ_URL, {
     method: 'POST',
     headers: {
       Authorization: 'Bearer ' + key,
@@ -516,32 +540,43 @@ async function callGroq(messages: any[]) {
     },
     body: JSON.stringify({
       model: MODEL,
-      temperature: 0.1,
-      max_tokens: 1200,
-      reasoning_effort: 'medium',
-      parallel_tool_calls: false,
-      messages,
-      tools,
-      tool_choice: 'auto',
+      temperature: 0,
+      max_tokens: 650,
+      reasoning_effort: 'low',
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are the Movyz preparation repair brain.',
+            'Choose one safe deterministic repair action from the supplied candidates.',
+            'Never invent URLs.',
+            'Prefer exact series + season matches.',
+            'Return JSON only:',
+            '{"candidateUrl":"https://akwam.ss/series/... or null","titleVariant":"... or null","retryQuery":"... or null","reason":"brief"}',
+          ].join(' '),
+        },
+        {
+          role: 'user',
+          content: JSON.stringify(context).slice(0, 4200),
+        },
+      ],
     }),
-    signal: AbortSignal.timeout(60_000),
+    signal: AbortSignal.timeout(45_000),
   });
 
-    const body = await response.text();
-    if (response.ok) {
-      const payload = JSON.parse(body);
-      return payload.choices?.[0]?.message;
-    }
-
-    lastError = 'Groq HTTP ' + response.status + ': ' + body.slice(0, 600);
-    if (response.status !== 429 || attempt >= GROQ_RETRIES) break;
-
-    const retryAfter = Number.parseFloat(response.headers.get('retry-after') || '15');
-    const delayMs = Math.max(10_000, Math.min(30_000, Number.isFinite(retryAfter) ? retryAfter * 1000 + 500 : 15_000));
-    await sleep(delayMs);
+  const body = await response.text();
+  if (!response.ok) throw new Error('Groq HTTP ' + response.status + ': ' + body.slice(0, 700));
+  const payload = JSON.parse(body);
+  const content = String(payload.choices?.[0]?.message?.content || '{}');
+  try {
+    return JSON.parse(content);
+  } catch {
+    const start = content.indexOf('{');
+    const end = content.lastIndexOf('}');
+    if (start >= 0 && end > start) return JSON.parse(content.slice(start, end + 1));
+    throw new Error('Groq returned non-JSON decision');
   }
-
-  throw new Error(lastError || 'Groq request failed');
 }
 
 function toolArgs(raw: string | undefined) {
@@ -609,67 +644,116 @@ async function main() {
     'Finish with a concise machine-readable summary in plain text.',
   ].join('\n');
 
-  let preflight: unknown = null;
   const firstPriority = initial.priorityQueue?.[0];
-  if (firstPriority && state.count < MAX_ACTIONS) {
+  let preflight: unknown = null;
+  let groqDecision: unknown = null;
+  let chosenCandidate: { url: string; title: string } | null = null;
+  let repair: unknown = null;
+
+  if (firstPriority) {
     preflight = await prepareEpisode(
       String(firstPriority.contentId),
       typeof firstPriority.title === 'string' ? firstPriority.title : undefined,
     );
+
+    const preflightOk = Boolean((preflight as any)?.ok);
+    if (!preflightOk) {
+      const queries = [
+        String(firstPriority.title || '').trim(),
+        String((firstPriority as any).originalTitle || '').trim(),
+      ].filter(Boolean);
+
+      const candidates = [];
+      for (const query of queries.slice(0, 2)) {
+        candidates.push(...await searchAkwamSeries(query));
+      }
+      const deduped = [...new Map(candidates.map(item => [item.url, item])).values()].slice(0, 12);
+
+      const decisionInput = {
+        failedPreparation: {
+          contentId: firstPriority.contentId,
+          tmdbId: firstPriority.tmdbId,
+          title: firstPriority.title,
+          seasonNumber: firstPriority.seasonNumber,
+          episodeNumber: firstPriority.episodeNumber,
+          episodeTitle: firstPriority.episodeTitle,
+          result: preflight,
+        },
+        candidates: deduped,
+      };
+
+      groqDecision = await callGroqDecision(decisionInput);
+      const chosenUrl = typeof (groqDecision as any)?.candidateUrl === 'string'
+        ? String((groqDecision as any).candidateUrl)
+        : '';
+      const chosen = deduped.find(item => item.url === chosenUrl) || null;
+      chosenCandidate = chosen;
+
+      if (chosenCandidate) {
+        if (state.count < MAX_ACTIONS) {
+          state.count++;
+          const row = await fetchEpisodeRow(String(firstPriority.contentId));
+          const context = buildEpisodeContext(row, (groqDecision as any)?.titleVariant || chosenCandidate.title);
+          const resolved = await resolveAkwamEpisodeFromSeriesPage(chosenCandidate.url, context, {});
+          const providerId = await getProviderId();
+          const saved = await saveValidatedSources('episode', String(firstPriority.contentId), resolved.sources, providerId);
+          repair = {
+            ok: saved.saved > 0,
+            action: 'prepare_episode_from_series_url',
+            seriesUrl: chosenCandidate.url,
+            episodeUrl: resolved.episodeUrl,
+            indexed: resolved.indexed.slice(0, 8),
+            discovered: resolved.sources.length,
+            saved: saved.saved,
+            qualities: saved.qualities,
+          };
+        }
+      }
+
+      if (!(repair as any)?.ok && state.count < MAX_ACTIONS && typeof (groqDecision as any)?.retryQuery === 'string' && String((groqDecision as any).retryQuery).trim()) {
+        const retryCandidates = await searchAkwamSeries(String((groqDecision as any).retryQuery).trim());
+        const retry = retryCandidates.find(item => item.url !== chosenCandidate?.url);
+        if (retry) {
+          state.count++;
+          const row = await fetchEpisodeRow(String(firstPriority.contentId));
+          const context = buildEpisodeContext(row, (groqDecision as any)?.titleVariant || retry.title);
+          const resolved = await resolveAkwamEpisodeFromSeriesPage(retry.url, context, {});
+          const providerId = await getProviderId();
+          const saved = await saveValidatedSources('episode', String(firstPriority.contentId), resolved.sources, providerId);
+          repair = {
+            ok: saved.saved > 0,
+            action: 'prepare_episode_from_retry_series_url',
+            seriesUrl: retry.url,
+            episodeUrl: resolved.episodeUrl,
+            indexed: resolved.indexed.slice(0, 8),
+            discovered: resolved.sources.length,
+            saved: saved.saved,
+            qualities: saved.qualities,
+          };
+        }
+      }
+    }
   }
 
-  const messages: any[] = [
-    { role: 'system', content: system },
-    {
-      role: 'user',
-      content: [
-        prompt,
-        '',
-        'Deterministic preflight (already executed) for the first priority item:',
-        JSON.stringify(preflight),
-        'You must now react to that result. If it failed, investigate the exact Akwam search contract and retry with a better verified route/title. Do not spend turns re-reading unrelated metadata.',
-      ].join('\\n'),
-    },
-  ];
-
-  const trace: any[] = [];
-  let finalMessage = '';
-
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const message = await callGroq(messages);
-    messages.push(message);
-    trace.push({ turn, role: 'assistant', toolCalls: message?.tool_calls?.map((c: any) => ({ name: c.function?.name, arguments: c.function?.arguments })) || [], content: String(message?.content || '').slice(0, 1800) });
-
-    const calls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
-    if (!calls.length) {
-      finalMessage = String(message?.content || '');
-      break;
-    }
-
-    for (const call of calls.slice(0, 2)) {
-      const name = String(call?.function?.name || '');
-      const args = toolArgs(call?.function?.arguments);
-      const result = await executeTool(name, args);
-      trace.push({ turn, tool: name, result: result && typeof result === 'object' ? result : String(result) });
-      messages.push({
-        role: 'tool',
-        tool_call_id: call.id,
-        name,
-        content: JSON.stringify(result).slice(0, 10000),
-      });
-      if (state.count >= MAX_ACTIONS) break;
-    }
-
-    if (state.count >= MAX_ACTIONS) break;
-  }
-
+  console.log(JSON.stringify({
+    agent: 'movyz-groq-akwam',
+    model: MODEL,
+    firstPriority,
+    preflight,
+    groqDecision,
+    chosenCandidate,
+    repair,
+    actions: state.count,
+  }));
   await persistState({
     state: 'success',
     model: MODEL,
-    turns: trace.filter(x => x.role === 'assistant').length,
+    turns: groqDecision ? 1 : 0,
     actions: state.count,
-    trace,
-    finalMessage: finalMessage.slice(0, 3000),
+    preflight,
+    groqDecision,
+    chosenCandidate,
+    repair,
     completedAt: new Date().toISOString(),
   });
 
