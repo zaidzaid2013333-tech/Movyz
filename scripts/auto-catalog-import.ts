@@ -2,8 +2,6 @@ import 'dotenv/config';
 
 import { adminSupabase } from '../server/supabase';
 import { syncMovieCandidate, syncSeriesCandidate } from '../server/tmdb';
-import { resolvePlaybackSources } from '../server/providers/resolver';
-
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const RUN_PAGES = Math.min(Math.max(Number(process.env.CATALOG_PAGES_PER_RUN || 3), 1), 6);
 const MOVIE_DAILY_CAP = Math.min(Math.max(Number(process.env.MOVIE_DAILY_CAP || 240), 1), 1000);
@@ -150,12 +148,6 @@ async function finishJob(jobId: string, status: 'succeeded' | 'failed', counts: 
     .eq('id', jobId);
 }
 
-async function linkMoviePlayback(movieId: string) {
-  const sources = await resolvePlaybackSources('movie', movieId);
-  if (!sources.length) throw new Error('Selected playback sites returned no sources');
-  return sources.length;
-}
-
 function getPageNumbers() {
   const now = new Date();
   const dayIndex = Math.floor(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 86_400_000);
@@ -186,8 +178,6 @@ async function main() {
   const jobId = await startJob();
   if (!jobId) return;
   const counts: Counts = { movies: 0, series: 0, seasons: 0, episodes: 0 };
-  let moviesPlaybackLinked = 0;
-  let moviesPlaybackFailed = 0;
 
   try {
     const usage = await readDailyUsage();
@@ -221,21 +211,11 @@ async function main() {
             counts.movies++;
             movieBudget--;
             existing.add(tmdbId);
-            try {
-              const linkedSources = await linkMoviePlayback(movieId);
-              moviesPlaybackLinked++;
-              console.log('AUTO_IMPORTED_MOVIE', JSON.stringify({
-                tmdbId,
-                title: enMovie.title || arMovie.title,
-                selectedSiteSources: linkedSources,
-              }));
-            } catch (sourceError) {
-              moviesPlaybackFailed++;
-              console.warn('AUTO_MOVIE_PLAYBACK_LINK_FAILED', JSON.stringify({
-                tmdbId,
-                error: sourceError instanceof Error ? sourceError.message : String(sourceError),
-              }));
-            }
+            console.log('AUTO_IMPORTED_MOVIE', JSON.stringify({
+              tmdbId,
+              title: enMovie.title || arMovie.title,
+              playback: 'cinepro-on-demand',
+            }));
           }
         }
       }
@@ -274,7 +254,6 @@ async function main() {
     await finishJob(jobId, 'succeeded', counts);
     console.log(JSON.stringify({
       imported: counts,
-      playback: { moviesLinked: moviesPlaybackLinked, moviesFailed: moviesPlaybackFailed },
       remainingToday: { movies: movieBudget, series: seriesBudget },
       pages,
       caps: { movies: MOVIE_DAILY_CAP, series: SERIES_DAILY_CAP },
