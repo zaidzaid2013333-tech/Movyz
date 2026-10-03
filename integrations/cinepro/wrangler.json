@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "movyz-cinepro",
   "main": "cloudflare-entry.ts",
-  "compatibility_date": "2026-10-04",
+  "compatibility_date": "2026-10-03",
   "workers_dev": true,
   "observability": {
     "enabled": true
