@@ -18,7 +18,8 @@
     "bot": "npm run bot:akwam",
     "bot:once": "tsx bot/run-maintenance-once.ts",
     "bot:episodes-fast": "tsx scripts/prepare-arprov-episodes-fast.ts",
-    "bot:akwam": "tsx bot/akwam-preparation-robot.ts"
+    "bot:akwam": "tsx bot/akwam-preparation-robot.ts",
+    "bot:groq-agent": "tsx bot/groq-akwam-agent.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
