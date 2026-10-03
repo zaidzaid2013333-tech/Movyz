@@ -23,7 +23,7 @@ on:
       episodeSeasonLimit:
         description: "Missing seasons processed per episode shard"
         required: false
-        default: "20"
+        default: "80"
         type: string
 
 permissions:
@@ -84,7 +84,7 @@ jobs:
       AKWAM_ROBOT_MODE: "episodes"
       AKWAM_EPISODE_SHARD_INDEX: ${{ matrix.shard }}
       AKWAM_EPISODE_SHARD_COUNT: "2"
-      EPISODE_SEASON_LIMIT: ${{ github.event.inputs.episodeSeasonLimit || '20' }}
+      EPISODE_SEASON_LIMIT: ${{ github.event.inputs.episodeSeasonLimit || '80' }}
       EPISODE_CONCURRENCY: "8"
       SEASON_CONCURRENCY: "1"
     steps:
