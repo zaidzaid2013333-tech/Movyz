@@ -5,10 +5,10 @@ import { resolveArProvExtractor } from './arprov-extractors';
 import { resolveUniversalSource } from './universal-resolver';
 
 const AKWAM_BASES = [
-  'https://ak.sv',
-  'https://akwam.it',
   'https://akwam.ss',
+  'https://ak.sv',
   'https://akwam.net',
+  'https://akwam.it',
 ] as const;
 
 type AkwamRuntime = {
