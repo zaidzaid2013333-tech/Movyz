@@ -310,29 +310,25 @@ async function seriesDto(row: any, includePlaybackSources = false) {
   const playbackByEpisode = new Map<string, any[]>();
 
   if (includePlaybackSources && episodeIds.length) {
-    const { data: playbackRows, error: playbackError } = await adminSupabase
-      .from('playback_sources')
-      .select('id,content_id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name)')
-      .eq('content_type', 'episode')
-      .in('content_id', episodeIds)
-      .eq('is_working', true)
-      .eq('providers.key', 'arprov')
-      .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
-      .order('quality', { ascending: true });
+    const preparedEntries = await Promise.all(
+      episodeIds.map(async (episodeId: string) => {
+        try {
+          return {
+            episodeId,
+            sources: await getFreshArProvSourcesForContent('episode', String(episodeId)),
+          };
+        } catch (playbackError) {
+          console.warn(
+            '[series-playback-cache]',
+            playbackError instanceof Error ? playbackError.message : String(playbackError),
+          );
+          return { episodeId, sources: [] };
+        }
+      }),
+    );
 
-    if (playbackError) {
-      console.warn('[series-playback-cache]', playbackError.message);
-    } else {
-      for (const source of playbackRows || []) {
-        const episodeId = String(source.content_id || '');
-        if (!episodeId) continue;
-        const list = playbackByEpisode.get(episodeId) || [];
-        const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-        if (!['akwam', 'anime4up'].includes(providerReference)) continue;
-        const mapped = cachedArProvSourceDto(source);
-        if (mapped.url && mapped.providerKey) list.push(mapped);
-        playbackByEpisode.set(episodeId, list);
-      }
+    for (const entry of preparedEntries) {
+      playbackByEpisode.set(entry.episodeId, entry.sources);
     }
   }
 
