@@ -1,20 +1,7 @@
 name: Prepare ArProv Episodes Fast
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - "scripts/prepare-arprov-episodes-fast.ts"
-      - "server/providers/arprov-akwam.ts"
-      - "package.json"
-      - "server/providers/arprov.ts"
-      - "ops/episode-fill.trigger"
-      - ".github/workflows/arprov-episodes-fast.yml"
   workflow_dispatch:
-
-concurrency:
-  group: movyz-arprov-episodes-fast-v4
-  cancel-in-progress: true
 
 jobs:
   prepare:
