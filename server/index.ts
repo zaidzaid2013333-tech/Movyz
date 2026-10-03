@@ -296,8 +296,6 @@ async function seriesDto(row: any, includePlaybackSources = false, requestUrl?: 
     : { data: [] as any[] };
 
   const episodeRows = episodes.data || [];
-  const episodeIds = episodeRows.map((episode: any) => episode.id);
-  const playbackByEpisode = new Map<string, any[]>();
 
   // Sources are resolved only for the selected watch request. Resolving every
   // episode while rendering a series detail page creates an N+1 resolver storm.
@@ -313,7 +311,7 @@ async function seriesDto(row: any, includePlaybackSources = false, requestUrl?: 
       titleEn: e.name_en || e.name_ar || `Episode ${e.episode_number}`,
       overview: e.overview_ar || '', overviewEn: e.overview_en || e.overview_ar || '',
       stillUrl: e.still_url || '', duration: Number(e.runtime_minutes || 0), airDate: e.air_date || '',
-      sources: includePlaybackSources ? (playbackByEpisode.get(e.id) || []) : [],
+      sources: [],
     })),
   }));
 
@@ -743,8 +741,9 @@ app.post(`${api}/playback/prepared`, asyncRoute(async (req, res) => {
     return fail(res, 400, 'INVALID_PLAYBACK_REQUEST', 'Invalid playback request');
   }
 
-  // Playback is cache-only in production. No provider resolver, no Browser Run,
-  // and no upstream discovery is allowed during user playback.
+  // On-demand playback: resolve through the HTTP-only Akwam gateway, cache the
+  // short-lived result at the edge, then return signed redirect URLs. No
+  // Browser Run and no video proxying are used.
   const sources = await getFreshArProvSourcesForContent(
     body.data.contentType,
     body.data.contentId,
