@@ -861,10 +861,15 @@ async function resolvePage(page: { body: string; url: string }, ctx: ProviderCon
     const qualityContext = latestQualityMarker
       ? prefix.slice(latestQualityMarker.index || 0) + ' ' + page.body.slice(anchor.index, anchor.index + 2_000)
       : anchor.text + ' ' + anchor.tag;
-    const quality = qualityFromBlock(qualityContext);
-
+    const detectedQuality = qualityFromBlock(qualityContext);
     const target = downloadTarget(page.url, anchor.url, new URL(page.url).origin) || anchor.url;
     if (!/^https:\/\//i.test(target)) continue;
+
+    // Legacy Akwam download anchors often carry the only reliable
+    // resolution marker in the target filename (e.g. 720p/1080p).
+    const quality = detectedQuality === 'auto'
+      ? inferAkwamQuality(target)
+      : detectedQuality;
 
     output.push(...await resolveDownload(target, quality, new URL(page.url).origin, page.url, runtime));
   }
