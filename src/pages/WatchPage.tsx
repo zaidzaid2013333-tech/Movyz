@@ -305,7 +305,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         const targetId = mediaType === 'movie' ? content?.id : currentEpisode?.id;
         if (!targetId) throw new Error('Missing playback target');
 
-        const resolved = await MovyzaApi.resolvePlaybackSources(
+        const resolved = await MovyzaApi.getPreparedPlaybackSources(
           mediaType === 'movie' ? 'movie' : 'episode',
           targetId,
         );

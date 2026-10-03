@@ -736,7 +736,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req) => {
   );
 }));
 
-app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
+app.post(`${api}/playback/prepared`, asyncRoute(async (req, res) => {
   const body = z.object({
     contentType: z.enum(['movie', 'episode']),
     contentId: z.string().uuid(),
