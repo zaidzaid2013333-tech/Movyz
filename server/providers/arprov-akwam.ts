@@ -527,7 +527,7 @@ export async function debugAkwamEpisode(
       });
 
       if (looksBlocked(detail) && runtime.browserBinding) {
-        detail = await fetchArProvPage(candidate.anchor.url, {
+        detail = await fetchArProvPage(candidate.url, {
           browserBinding: runtime.browserBinding,
           timeoutMs: 12_000,
           forceBrowser: true,
@@ -552,7 +552,8 @@ export async function debugAkwamEpisode(
       const episodeUrls = episodeCandidates(detail.body, detail.url, context);
       trace.push({ stage: 'episode-candidates', count: episodeUrls.length, urls: episodeUrls.slice(0, 5) });
 
-      for (const episodeUrl of episodeUrls.slice(0, 3)) {
+      for (const episodeItem of episodeUrls.slice(0, 3)) {
+        const episodeUrl = episodeItem.url;
         let episodePage = await fetchArProvPage(episodeUrl, {
           referer: detail.url,
           browserBinding: runtime.browserBinding,
