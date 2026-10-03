@@ -5,7 +5,7 @@ type PersistableSource = NormalizedPlaybackSource & {
   providerKey?: string;
 };
 
-const SELECTED_PROVIDERS = new Set(['akwam', 'anime4up']);
+const SELECTED_PROVIDERS = new Set(['anime4up']);
 const NATIVE_TYPES = new Set<PlaybackKind>(['hls', 'mp4', 'dash', 'webm', 'direct']);
 
 let providerIdPromise: Promise<string | null> | null = null;
@@ -60,6 +60,9 @@ async function getProviderId() {
 }
 
 function normalizeSources(sources: PersistableSource[]) {
+  // Akwam is intentionally on-demand and redirect-only. Never persist its
+  // resolved media URL in playback_sources, even when another worker calls
+  // this shared persistence layer.
   return sources
     .map((source) => ({
       ...source,
