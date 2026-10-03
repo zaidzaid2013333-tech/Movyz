@@ -60,8 +60,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Cache npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node22-npm-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node22-npm-
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
+        run: npm install --legacy-peer-deps --prefer-offline --no-audit --no-fund --ignore-scripts
       - name: Train Akwam robot + Groq continual memory
         run: npx tsx scripts/train-akwam-agent.ts
 
@@ -92,8 +99,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Cache npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node22-npm-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node22-npm-
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
+        run: npm install --legacy-peer-deps --prefer-offline --no-audit --no-fund --ignore-scripts
       - name: Run Movyz Akwam movie robot
         run: npm run bot:akwam
 
@@ -110,10 +124,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Cache npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node22-npm-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node22-npm-
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
+        run: npm install --legacy-peer-deps --prefer-offline --no-audit --no-fund --ignore-scripts
       - name: Diagnose Breaking Bad S01E01
-        continue-on-error: true
         run: npx tsx scripts/debug-breaking-bad-akwam.ts
 
   episodes:
@@ -143,7 +163,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Cache npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node22-npm-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node22-npm-
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
+        run: npm install --legacy-peer-deps --prefer-offline --no-audit --no-fund --ignore-scripts
       - name: Run Movyz Akwam episode robot
         run: npm run bot:akwam
