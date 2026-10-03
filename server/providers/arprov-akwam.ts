@@ -776,6 +776,7 @@ async function resolveRe3ArabiStyleSourcePage(
 
   let watchPage = await fetchArProvPage(rawWatchUrl, {
     referer: page.url,
+    cookie: page.cookie,
     browserBinding: runtime.browserBinding,
     timeoutMs: 10_000,
   });
@@ -785,6 +786,7 @@ async function resolveRe3ArabiStyleSourcePage(
   if (looksBlocked(watchPage) && runtime.browserBinding) {
     watchPage = await fetchArProvPage(rawWatchUrl, {
       referer: page.url,
+      cookie: page.cookie,
       browserBinding: runtime.browserBinding,
       timeoutMs: 12_000,
       forceBrowser: true,
