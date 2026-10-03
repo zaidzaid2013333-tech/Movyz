@@ -285,7 +285,7 @@ async function inspectAkwamPage(url: string) {
   const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(body)?.[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || '';
   const downloadLinks = [...body.matchAll(/href=["']([^"']*\/(?:download|link)\/[^"']+)["']/gi)]
     .map(m => m[1])
-    .slice(0, 30);
+    .slice(0, 12);
 
   const allAnchors = [...body.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
     .map(match => ({
@@ -296,7 +296,7 @@ async function inspectAkwamPage(url: string) {
 
   const seriesLinks = allAnchors
     .filter(item => /\/series\//i.test(item.href) || /\/episode\//i.test(item.href))
-    .slice(0, 120);
+    .slice(0, 24);
 
   const forms = [...body.matchAll(/<form\b[^>]*>([\s\S]*?)<\/form>/gi)]
     .slice(0, 12)
@@ -307,7 +307,7 @@ async function inspectAkwamPage(url: string) {
 
   const scriptSources = [...body.matchAll(/<script\b[^>]*src=["']([^"']+)["'][^>]*>/gi)]
     .map(match => match[1])
-    .slice(0, 80);
+    .slice(0, 24);
 
   return {
     ok: true,
