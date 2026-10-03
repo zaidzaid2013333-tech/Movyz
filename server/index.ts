@@ -7,6 +7,7 @@ import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { createPlaybackProxyUrl, handlePlaybackProxy, refreshStoredPlaybackProxyUrl } from './playback-proxy';
+import { getOnDemandAkwamSources } from './playback-on-demand';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -788,6 +789,34 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req) => {
   );
 }));
 
+app.get(`${api}/playback/on-demand`, asyncRoute(async (req, res) => {
+  const contentType = z.enum(["movie", "episode"]).safeParse(req.query.type);
+  const contentId = z.string().uuid().safeParse(req.query.id);
+
+  if (!contentType.success || !contentId.success) {
+    return fail(res, 400, "INVALID_PLAYBACK_REQUEST", "Invalid playback request");
+  }
+
+  try {
+    const sources = await getOnDemandAkwamSources(
+      contentType.data,
+      contentId.data,
+      req.url,
+      req.env || {},
+    );
+
+    res.setHeader("Cache-Control", "no-store");
+    return ok(res, sources);
+  } catch (error) {
+    console.warn("[playback-on-demand]", error instanceof Error ? error.message : String(error));
+    return fail(
+      res,
+      502,
+      "PLAYBACK_RESOLUTION_FAILED",
+      "Unable to resolve a playable Akwam source right now",
+    );
+  }
+}));
 app.post(`${api}/playback/prepared`, asyncRoute(async (req, res) => {
   const body = z.object({
     contentType: z.enum(['movie', 'episode']),
