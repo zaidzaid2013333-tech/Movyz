@@ -11,6 +11,7 @@ const AKWAM_BASES = ['https://akwam.ss'] as const;
 
 type AkwamRuntime = {
   browserBinding?: ArProvBrowserBinding;
+  tmdbApiToken?: string;
 };
 
 type SearchCandidate = {
@@ -66,10 +67,11 @@ function anchorSearchText(anchor: { text: string; tag: string; url: string }) {
 async function enrichAkwamTitles(
   context: ProviderContext,
   allowSeriesWithoutEpisode = false,
+  tmdbApiToken?: string,
 ): Promise<ProviderContext> {
   if (!context.tmdbId || (context.episodeNumber === undefined && !allowSeriesWithoutEpisode)) return context;
 
-  const token = process.env.TMDB_API_READ_ACCESS_TOKEN?.trim();
+  const token = (tmdbApiToken || process.env.TMDB_API_READ_ACCESS_TOKEN || '').trim();
   if (!token) return context;
 
   try {
@@ -1181,7 +1183,7 @@ export async function discoverAkwamSeasonEpisodes(
   // Primary lane: search the series title and index its episode cards.
   // Fallback lane: if the series page is not indexed, find an individual
   // episode page and walk its next/previous links to rebuild the season index.
-  const enrichedContext = await enrichAkwamTitles(context, true);
+  const enrichedContext = await enrichAkwamTitles(context, true, runtime.tmdbApiToken);
   const seriesSearchContext: ProviderContext = {
     ...enrichedContext,
     episodeNumber: undefined,
@@ -1340,7 +1342,7 @@ export async function resolveAkwamPlayback(
     }
 
     if (!candidates.length && searchContext === context) {
-      searchContext = await enrichAkwamTitles(context);
+      searchContext = await enrichAkwamTitles(context, false, runtime.tmdbApiToken);
       if (searchContext !== context) {
         candidates = await search(base, searchContext, runtime);
       }
