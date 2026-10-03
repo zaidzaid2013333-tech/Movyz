@@ -62,7 +62,7 @@ function anchorSearchText(anchor: { text: string; tag: string; url: string }) {
 }
 
 async function enrichAkwamTitles(context: ProviderContext): Promise<ProviderContext> {
-  if (context.episodeNumber === undefined || !context.tmdbId) return context;
+  if (!context.tmdbId) return context;
 
   const token = process.env.TMDB_API_READ_ACCESS_TOKEN?.trim();
   if (!token) return context;
@@ -224,11 +224,16 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
   if (ctx.episodeNumber !== undefined) {
     const season = String(ctx.seasonNumber ?? 1).padStart(2, '0');
     const episode = String(ctx.episodeNumber).padStart(2, '0');
-    for (const title of titles.slice(0, 2)) {
+    const numericEpisode = String(ctx.episodeNumber);
+    for (const title of titles.slice(0, 3)) {
       queries.add(`${title} S${season}E${episode}`);
-    }
-    if (ctx.episodeNumber !== undefined && ctx.title) {
-      queries.add(`${ctx.title} الحلقة ${ctx.episodeNumber}`);
+      queries.add(`${title} S${season} E${episode}`);
+      queries.add(`${title} episode ${numericEpisode}`);
+      queries.add(`${title} الحلقة ${numericEpisode}`);
+      queries.add(`${title} ${numericEpisode}`);
+      if (ctx.episodeTitle?.trim()) {
+        queries.add(`${title} ${ctx.episodeTitle.trim()}`);
+      }
     }
   } else {
     for (const title of titles) queries.add(title);
@@ -861,23 +866,81 @@ function indexEpisodeCandidates(body: string, base: string, requestedSeason?: nu
     .map(({ score: _score, ...item }) => item);
 }
 
+async function crawlAkwamEpisodeChain(
+  startUrls: string[],
+  context: ProviderContext,
+  runtime: AkwamRuntime,
+) {
+  const queue = [...startUrls];
+  const visited = new Set<string>();
+  const results = new Map<string, AkwamIndexedEpisode>();
+  const maxPages = 160;
+
+  while (queue.length && visited.size < maxPages) {
+    const url = queue.shift()!;
+    if (visited.has(url)) continue;
+    visited.add(url);
+
+    const page = await fetchArProvPage(url, {
+      browserBinding: runtime.browserBinding,
+      timeoutMs: 10_000,
+    });
+    if (!page) continue;
+
+    const identity = extractSeasonEpisode(cleanText(page.body.slice(0, 30_000)));
+    if (
+      identity.episode !== undefined &&
+      (identity.season === undefined || context.seasonNumber === undefined || identity.season === context.seasonNumber)
+    ) {
+      results.set(page.url, {
+        url: page.url,
+        episode: identity.episode,
+        season: identity.season ?? context.seasonNumber,
+      });
+    }
+
+    for (const anchor of anchors(page.body, page.url)) {
+      if (!/\/episode(?:\/|$)/i.test(new URL(anchor.url).pathname)) continue;
+
+      const neighborhood = page.body.slice(
+        Math.max(0, anchor.index - 500),
+        Math.min(page.body.length, anchor.index + 500),
+      );
+      const navText = normalize(anchor.text + ' ' + anchor.tag + ' ' + neighborhood);
+      const isNavigation =
+        /(?:الحلقة التالية|الحلقة السابقة|التالي|السابق|next|previous)/i.test(navText) ||
+        /(?:episode|ep)\b/i.test(navText);
+
+      if (isNavigation && !visited.has(anchor.url) && !queue.includes(anchor.url)) {
+        queue.push(anchor.url);
+      }
+    }
+  }
+
+  return [...results.values()].sort((a, b) => {
+    if ((a.season ?? 0) !== (b.season ?? 0)) return (a.season ?? 0) - (b.season ?? 0);
+    return a.episode - b.episode;
+  });
+}
+
 export async function discoverAkwamSeasonEpisodes(
   context: ProviderContext,
   runtime: AkwamRuntime = {},
 ): Promise<AkwamIndexedEpisode[]> {
-  // Bulk episode preparation should follow ArProv's native flow:
-  // search the series title, open the series page, then index its episode cards.
-  // Episode-specific search queries add latency and often return an individual
-  // episode page instead of the season index.
+  // Primary lane: search the series title and index its episode cards.
+  // Fallback lane: if the series page is not indexed, find an individual
+  // episode page and walk its next/previous links to rebuild the season index.
+  const enrichedContext = await enrichAkwamTitles(context);
   const seriesSearchContext: ProviderContext = {
-    ...context,
+    ...enrichedContext,
     episodeNumber: undefined,
     episodeTitle: undefined,
   };
 
   for (const base of AKWAM_BASES) {
     const candidates = await search(base, seriesSearchContext, runtime);
-    for (const candidate of candidates.slice(0, 3)) {
+
+    for (const candidate of candidates.slice(0, 5)) {
       let detail = await fetchArProvPage(candidate.url, {
         browserBinding: runtime.browserBinding,
         timeoutMs: 10_000,
@@ -896,6 +959,24 @@ export async function discoverAkwamSeasonEpisodes(
       if (indexed.length) {
         return indexed;
       }
+
+      if (/\/episode(?:\/|$)/i.test(new URL(candidate.url).pathname)) {
+        const walked = await crawlAkwamEpisodeChain([candidate.url], context, runtime);
+        if (walked.length) return walked;
+      }
+    }
+
+    // Last fallback: search for the first requested episode using its actual
+    // episode title/number, then walk the neighboring episode links.
+    const seedCandidates = await search(base, enrichedContext, runtime);
+    const episodeStarts = seedCandidates
+      .filter((candidate) => /\/episode(?:\/|$)/i.test(new URL(candidate.url).pathname))
+      .slice(0, 6)
+      .map((candidate) => candidate.url);
+
+    if (episodeStarts.length) {
+      const walked = await crawlAkwamEpisodeChain(episodeStarts, context, runtime);
+      if (walked.length) return walked;
     }
   }
 
