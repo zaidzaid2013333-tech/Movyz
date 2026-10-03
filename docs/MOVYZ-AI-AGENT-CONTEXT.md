@@ -121,6 +121,16 @@ Root parser bug discovered:
 - Interstellar was the reference success pattern: prepared final source -> proxy -> native MP4 -> 2:00 warmup -> prepared-source failover.
 - These playback mitigations should be shared across movies and episodes.
 
+## Current verified state — 2026-10-03 15:55+
+- Latest provider fix commit: 64060572621b529c1eaf54b4127f469f8eb53883.
+- Akwam search is now staged: known /old/search/<query> first, then /search?q, /search?q&section=series, then /search/<query>; each form is tried only if the previous form produced no candidates. This avoids bursty parallel search requests.
+- Current Supabase counts: movies 338, series 110, seasons 1240, episodes 107159, playback_sources 349.
+- Current prepared Akwam rows are stored under provider key arprov with provider_reference=akwam: 349 HTTPS/prepared sources.
+- Breaking Bad TMDB 1396 S01 currently has 7 episodes in Supabase, but source counts remain 0/7.
+- Latest debug before commit 6406057: search stage returned 0 candidates; no episode page/download target was reached.
+- Latest Groq state before commit 6406057: no-repair on a Breaking Bad S02 candidate, with 0 discovered/saved sources.
+- Do not claim the new search fix succeeded until a post-6406057 robot run writes verified source rows to Supabase.
+
 ## Next steps
 1. Verify the latest workflow run after the final parser fix.
 2. Check Groq/agent output.
