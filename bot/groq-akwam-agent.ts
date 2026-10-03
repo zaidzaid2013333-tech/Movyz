@@ -260,6 +260,28 @@ async function inspectAkwamPage(url: string) {
     .map(m => m[1])
     .slice(0, 30);
 
+  const allAnchors = [...body.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+    .map(match => ({
+      href: match[1],
+      text: String(match[2] || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 220),
+    }))
+    .filter(item => /^https:\/\/akwam\.ss(?:\/|$)/i.test(item.href));
+
+  const seriesLinks = allAnchors
+    .filter(item => /\/series\//i.test(item.href) || /\/episode\//i.test(item.href))
+    .slice(0, 120);
+
+  const forms = [...body.matchAll(/<form\b[^>]*>([\s\S]*?)<\/form>/gi)]
+    .slice(0, 12)
+    .map(match => ({
+      tag: match[0].slice(0, 2400),
+      inputs: [...match[1].matchAll(/<(?:input|textarea|select)\b[^>]*>/gi)].map(x => x[0].slice(0, 500)).slice(0, 30),
+    }));
+
+  const scriptSources = [...body.matchAll(/<script\b[^>]*src=["']([^"']+)["'][^>]*>/gi)]
+    .map(match => match[1])
+    .slice(0, 80);
+
   return {
     ok: true,
     finalUrl: page.url,
@@ -267,6 +289,9 @@ async function inspectAkwamPage(url: string) {
     title: title.slice(0, 300),
     bytes: body.length,
     anchors,
+    seriesLinks,
+    forms,
+    scriptSources,
     downloadLinks,
     hasQualityMarkers: /1080|720|480|360/.test(body),
     hasEpisodeMarkers: /episode|الحلقة|الموسم|season|S\d{1,2}E\d{1,3}/i.test(body),
