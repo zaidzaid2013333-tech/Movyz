@@ -32,6 +32,8 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       DOODSTREAM_API_KEY: ${{ secrets.DOODSTREAM_API_KEY }}
+      CINEPRO_URL: ${{ secrets.CINEPRO_URL }}
+      CINEPRO_API_KEY: ${{ secrets.CINEPRO_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -72,6 +74,8 @@ jobs:
             printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
             printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
           printf 'DOODSTREAM_API_KEY=%s\n' "$DOODSTREAM_API_KEY"
+          printf 'CINEPRO_URL=%s\n' "$CINEPRO_URL"
+          printf 'CINEPRO_API_KEY=%s\n' "$CINEPRO_API_KEY"
           } > .env.production
 
       - name: Deploy Movyz
