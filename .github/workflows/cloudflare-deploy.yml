@@ -86,6 +86,11 @@ jobs:
 
       - name: Smoke test CinePro Core
         run: |
+          set +e
+          rm -f /tmp/cinepro-tail.log
+          (npx wrangler tail movyz-cinepro --format json --status error --sampling-rate 1 > /tmp/cinepro-tail.log 2>&1) &
+          TAIL_PID=$!
+          sleep 4
           python - <<'PY'
           import json
           import urllib.request
@@ -107,6 +112,14 @@ jobs:
               raise SystemExit("CinePro returned no playable sources for Interstellar")
           print("CinePro Core OK: Interstellar sources=", len(sources))
           PY
+          REQUEST_EXIT=$?
+          sleep 5
+          kill "$TAIL_PID" 2>/dev/null || true
+          echo "===== CinePro Worker tail ====="
+          cat /tmp/cinepro-tail.log || true
+          echo "===== End CinePro Worker tail ====="
+          exit "$REQUEST_EXIT"
+
       - name: Deploy Movyz
         uses: cloudflare/wrangler-action@v4
         with:
