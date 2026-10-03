@@ -166,7 +166,6 @@ jobs:
           print("Playback provider checks skipped: production player is now resolved from Movyz API playback sources.")
 
       - name: Smoke test on-demand Akwam redirect playback
-        continue-on-error: true
         run: |
           python - <<'PY'
           import json
