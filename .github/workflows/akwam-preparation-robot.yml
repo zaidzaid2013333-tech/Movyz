@@ -32,12 +32,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyz-akwam-robot-${{ github.workflow }}-${{ github.ref }}
+  group: movyz-akwam-robot-${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
   groq-agent:
-    if: ${{ always() }}
+    if: ${{ false }}
     needs: [movies, episodes]
     runs-on: ubuntu-latest
     timeout-minutes: 25
