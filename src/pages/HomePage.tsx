@@ -49,6 +49,57 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
 
   useEffect(() => { fetchHomeData(); }, []);
 
+  useEffect(() => {
+    if (loading || !hero) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+
+      const candidates = [hero, ...trending, ...popularMovies, ...featuredSeries, ...recentAdded];
+      const seen = new Set<string>();
+      const unique = candidates.filter((item) => {
+        const key = `${item.type}:${item.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      // Warm the most likely first clicks immediately after the home UI paints.
+      // Only a small bounded set is prefetched so landing on Movyz does not
+      // create a resolver storm.
+      unique
+        .filter((item): item is Movie => item.type === 'movie')
+        .slice(0, 4)
+        .forEach((movie) => {
+          MovyzaApi.prefetchOnDemandAkwamSources('movie', movie.id);
+        });
+
+      // Series cards do not contain episode IDs on the catalog response.
+      // Warm S01E01 for the first featured/trending series so opening it can
+      // reuse the shared browser cache immediately.
+      const firstSeries = unique.find((item): item is Series => item.type === 'series');
+      if (firstSeries) {
+        void MovyzaApi.getSeriesWatchById(firstSeries.id, 1, 1)
+          .then((response) => {
+            if (cancelled) return;
+            const season = response.data.currentSeason;
+            const episode = season?.episodes?.find((item) => item.episodeNumber === 1) || season?.episodes?.[0];
+            if (episode) {
+              MovyzaApi.prefetchOnDemandAkwamSources('episode', episode.id);
+            }
+          })
+          .catch(() => undefined);
+      }
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [loading, hero, trending, popularMovies, featuredSeries, recentAdded]);
+
+
   if (loading) {
     return (
       <div className="space-y-8 max-w-7xl mx-auto px-4 py-8 movyza-enter">
