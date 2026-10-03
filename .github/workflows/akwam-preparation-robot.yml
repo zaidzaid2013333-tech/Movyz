@@ -146,7 +146,6 @@ jobs:
         run: npm run bot:episodes-fast
   debug-breaking-bad:
     if: ${{ false }}
-    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
