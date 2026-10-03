@@ -235,6 +235,33 @@ async function prepareMovie(contentId: string, titleVariant?: string) {
   };
 }
 
+async function searchAkwam(query: string) {
+  if (state.count >= MAX_ACTIONS) return { ok: false, blocked: 'action-budget' };
+  state.count++;
+  const encoded = encodeURIComponent(query.trim());
+  const urls = [
+    'https://akwam.ss/search?q=' + encoded,
+    'https://akwam.ss/?s=' + encoded,
+    'https://akwam.ss/series?search=' + encoded,
+  ];
+  const out: any[] = [];
+  for (const url of urls) {
+    const page = await fetchArProvPage(url, { timeoutMs: 12000 });
+    if (!page) continue;
+    const body = page.body;
+    const links = [...body.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+      .map(m => ({
+        href: new URL(m[1], page.url).toString(),
+        text: String(m[2] || '').replace(/<[^>]+>/g,' ').replace(/&nbsp;/gi,' ').replace(/\s+/g,' ').trim().slice(0,160),
+      }))
+      .filter(x => /^https:\/\/akwam\.ss(?:\/|$)/i.test(x.href))
+      .filter(x => /\/series\//i.test(x.href) || /\/episode\//i.test(x.href))
+      .slice(0,80);
+    out.push({ url: page.url, status: page.status, bytes: body.length, links });
+  }
+  return { ok: true, query, pages: out };
+}
+
 async function inspectAkwamPage(url: string) {
   if (state.count >= MAX_ACTIONS) return { ok: false, blocked: 'action-budget' };
   let parsed: URL;
@@ -402,6 +429,19 @@ const tools = [
   {
     type: 'function',
     function: {
+      name: 'search_akwam',
+      description: 'Search Akwam in the background using the site search contract and return only matching series/episode links plus the form/API hints. Only https://akwam.ss is allowed.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string' } },
+        required: ['query'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'inspect_akwam_page',
       description: 'Inspect one already-known Akwam page in the background. Only https://akwam.ss is allowed. Never use browser automation. Returns titles, relevant anchors, quality markers and download/link candidates.',
       parameters: {
@@ -509,6 +549,7 @@ function toolArgs(raw: string | undefined) {
 }
 
 async function executeTool(name: string, args: any) {
+  if (name === 'search_akwam') return searchAkwam(String(args.query || ''));
   if (name === 'get_content_details') return getContentDetails(args.contentType === 'episode' ? 'episode' : 'movie', String(args.contentId || ''));
   if (name === 'inspect_akwam_page') return inspectAkwamPage(String(args.url || ''));
   if (name === 'prepare_episode') return prepareEpisode(String(args.contentId || ''), args.titleVariant ? String(args.titleVariant) : undefined);
@@ -548,14 +589,20 @@ async function main() {
 
   const prompt = [
     'Current Movyz state:',
-    JSON.stringify(initial).slice(0, 10000),
+    JSON.stringify({
+      workingMovieSources: initial.workingMovieSources,
+      workingEpisodeSources: initial.workingEpisodeSources,
+      priorityQueue: initial.priorityQueue?.slice(0, 8),
+      failures: initial.failures?.slice(0, 5),
+      states: initial.states?.slice(0, 5),
+    }),
     '',
     'First inspect the failures and states. Then take only the minimum useful actions.',
     'Prioritize missing or recently failing episodes before broad batches.',
     'If priorityQueue is non-empty, perform at least one prepare_episode action from it in the first two turns.',
     'Use get_content_details only when the queue item lacks enough metadata.',
     'For a failure id, call get_content_details before acting unless the metadata is already explicit.',
-    'For difficult episodes, prefer series-level discovery plus exact season/episode matching; reject /old/search and movie pages.',
+    'For difficult episodes, use search_akwam first to obtain real /series/ or /episode/ links, then inspect the best link, then prepare.',
     'Akwam may express seasons with Arabic ordinals such as الموسم الأول; use the exact requested season.',
     'For a difficult episode, inspect a relevant Akwam page and then retry preparation with a verified title variant if needed.',
     'Do not repeatedly retry the exact same failed action.',
