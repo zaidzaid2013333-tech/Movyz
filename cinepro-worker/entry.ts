@@ -7,17 +7,14 @@ import { TulnexProvider } from './core/src/providers/tulnex/tulnex.js';
 import { VidApiProvider } from './core/src/providers/vidapi/vidapi.js';
 import { FsharetvProvider } from './core/src/providers/fshare/fshare.js';
 import { PoprProvider } from './core/src/providers/popr/popr.js';
-import { AnyEmbed } from './core/src/providers/anyembed/anyembed.js';
 import { VidSrcProvider } from './core/src/providers/vidsrc/vidsrc.js';
 import { VidZeeProvider } from './core/src/providers/vidzee/vidzee.js';
 import { VidRockProvider } from './core/src/providers/vidrock/vidrock.js';
 import { VidNestProvider } from './core/src/providers/vidnest/vidnest.js';
-import { Fmovies4U } from './core/src/providers/fmovies4u/fmovies4u.js';
 import { VideasyProvider } from './core/src/providers/videasy/videasy.js';
 import { VixSrcProvider } from './core/src/providers/vixsrc/vixsrc.js';
 import { PeachifyProvider } from './core/src/providers/peachify/peachify.js';
 import { StreamMafiaProvider } from './core/src/providers/streammafia/streammafia.js';
-import { MovieDownloader } from './core/src/providers/02moviedownloader/02moviedownloader.js';
 
 const cinepro = new OMSSServer({
   name: 'Movyz CinePro',
