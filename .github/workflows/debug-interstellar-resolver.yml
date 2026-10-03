@@ -37,7 +37,7 @@ jobs:
                 'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
                 'User-Agent':'Movyza/1.0',
                 'X-Requested-With':'XMLHttpRequest',
-                Referer:'https://akwam.ss/old/54108/فيلم-Inception-2010-مترجم',
+                Referer:'https://akwam.ss/old/54108/%D9%81%D9%8A%D9%84%D9%85-Inception-2010-%D9%85%D8%AA%D8%B1%D8%AC%D9%85',
               },
               body:''
             });
