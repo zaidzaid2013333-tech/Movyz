@@ -933,6 +933,26 @@ export async function resolveAkwamPlayback(
 
   for (const base of bases) {
     let candidates = await search(base, searchContext, runtime);
+
+    // Episode pages are often not indexed by the exact SxxEyy query on Akwam.
+    // Always add a series-level search lane for episodes instead of trusting the
+    // first matching episode query result.
+    if (context.episodeNumber !== undefined) {
+      const seriesSearchContext: ProviderContext = {
+        ...searchContext,
+        episodeNumber: undefined,
+        episodeTitle: undefined,
+      };
+      const seriesCandidates = await search(base, seriesSearchContext, runtime);
+      const mergedCandidates = [...candidates, ...seriesCandidates];
+      const seen = new Set<string>();
+      candidates = mergedCandidates.filter((candidate) => {
+        if (seen.has(candidate.url)) return false;
+        seen.add(candidate.url);
+        return true;
+      });
+    }
+
     if (!candidates.length && searchContext === context) {
       searchContext = await enrichAkwamTitles(context);
       if (searchContext !== context) {
@@ -942,7 +962,7 @@ export async function resolveAkwamPlayback(
     if (!candidates.length) continue;
 
     const detailResults = await Promise.allSettled(
-      candidates.slice(0, 3).map(async candidate => {
+      candidates.slice(0, context.episodeNumber !== undefined ? 6 : 3).map(async candidate => {
         let detail = await fetchArProvPage(candidate.url, {
           browserBinding: runtime.browserBinding,
           timeoutMs: 10_000,
