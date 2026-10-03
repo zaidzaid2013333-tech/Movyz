@@ -80,6 +80,38 @@ async function fetchMovieRow(contentId: string) {
   return data;
 }
 
+async function getContentDetails(contentType: 'movie' | 'episode', contentId: string) {
+  if (contentType === 'episode') {
+    const row = await fetchEpisodeRow(contentId);
+    const context = buildEpisodeContext(row);
+    return {
+      ok: true,
+      contentType,
+      contentId,
+      tmdbId: context.tmdbId,
+      title: context.title,
+      originalTitle: context.originalTitle,
+      alternateTitles: context.alternateTitles || [],
+      seasonNumber: context.seasonNumber,
+      episodeNumber: context.episodeNumber,
+      episodeTitle: context.episodeTitle || null,
+    };
+  }
+
+  const row = await fetchMovieRow(contentId);
+  const context = buildMovieContext(row);
+  return {
+    ok: true,
+    contentType,
+    contentId,
+    tmdbId: context.tmdbId,
+    title: context.title,
+    originalTitle: context.originalTitle,
+    alternateTitles: context.alternateTitles || [],
+    releaseYear: context.releaseYear || null,
+  };
+}
+
 async function saveValidatedSources(
   contentType: 'movie' | 'episode',
   contentId: string,
@@ -283,6 +315,22 @@ const tools = [
   {
     type: 'function',
     function: {
+      name: 'get_content_details',
+      description: 'Load safe Movyz metadata for one failed movie or episode so the agent can identify the exact title, TMDB id, season and episode before retrying.',
+      parameters: {
+        type: 'object',
+        properties: {
+          contentType: { type: 'string', enum: ['movie', 'episode'] },
+          contentId: { type: 'string' },
+        },
+        required: ['contentType', 'contentId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'inspect_akwam_page',
       description: 'Inspect one already-known Akwam page in the background. Only https://akwam.ss is allowed. Never use browser automation. Returns titles, relevant anchors, quality markers and download/link candidates.',
       parameters: {
@@ -376,6 +424,7 @@ function toolArgs(raw: string | undefined) {
 }
 
 async function executeTool(name: string, args: any) {
+  if (name === 'get_content_details') return getContentDetails(args.contentType === 'episode' ? 'episode' : 'movie', String(args.contentId || ''));
   if (name === 'inspect_akwam_page') return inspectAkwamPage(String(args.url || ''));
   if (name === 'prepare_episode') return prepareEpisode(String(args.contentId || ''), args.titleVariant ? String(args.titleVariant) : undefined);
   if (name === 'prepare_movie') return prepareMovie(String(args.contentId || ''), args.titleVariant ? String(args.titleVariant) : undefined);
@@ -418,7 +467,10 @@ async function main() {
     '',
     'First inspect the failures and states. Then take only the minimum useful actions.',
     'Prioritize missing or recently failing episodes before broad batches.',
-    'For a difficult episode, inspect a relevant Akwam page and then retry preparation with a verified title variant if needed.',
+    'For a failure id, call get_content_details before acting unless the metadata is already explicit.',
+    'For difficult episodes, prefer series-level discovery plus exact season/episode matching; reject /old/search and movie pages.',
+    'Akwam may express seasons with Arabic ordinals such as الموسم الأول; use the exact requested season.',
+    'For a difficult episode, inspect a relevant Akwam page and then retry preparation with a verified title variant if needed.'
     'Do not repeatedly retry the exact same failed action.',
     'Finish with a concise machine-readable summary in plain text.',
   ].join('\n');
