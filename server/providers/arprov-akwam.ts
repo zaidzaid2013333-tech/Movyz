@@ -347,6 +347,7 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
       // their title contains the series name. Akwam's current TV pages use
       // /series/... and /episode/... paths.
       if (ctx.episodeNumber !== undefined && !/\/(?:series|episode)(?:\/|$)/i.test(anchorPath)) continue;
+      if (ctx.episodeNumber === undefined && ctx.seasonNumber !== undefined && !/\/series(?:\/|$)/i.test(anchorPath)) continue;
       // Never treat search/index pages as content candidates. Query URLs such
       // as /old/search/Breaking%20Bad%20S01E01 contain S01E01 themselves and
       // can otherwise score higher than the real episode page.
@@ -483,7 +484,11 @@ function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
   for (const anchor of anchors(body, base)) {
     let pathname = '';
     try { pathname = new URL(anchor.url).pathname.toLowerCase(); } catch { continue; }
-    if (!/\/episode(?:\/|$)/i.test(pathname)) continue;
+    const isEpisodeAnchor =
+      /\/episode(?:\/|$)/i.test(pathname) ||
+      /class=["'][^"']*text-white[^"']*["']/i.test(anchor.tag);
+    if (!isEpisodeAnchor) continue;
+    if (/\/(?:old\/)?(?:search|advanced-search)(?:\/|$)/i.test(pathname)) continue;
 
     const neighborhood = body.slice(
       Math.max(0, anchor.index - 1_600),
@@ -491,13 +496,20 @@ function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
     );
     const hay = normalize(anchor.text + ' ' + anchor.url + ' ' + neighborhood);
     const id = extractSeasonEpisode(hay);
+    const explicitEpisode = /(?:^|\s)(?:الحلقة|episode|ep)?\s*([0-9٠-٩]{1,3})\s*$/i.exec(cleanText(anchor.text || ''));
+    const normalizedId = {
+      season: id.season,
+      episode: id.episode ?? (explicitEpisode
+        ? Number(String(explicitEpisode[1]).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))))
+        : undefined),
+    };
 
     let score = 0;
-    if (id.season !== undefined && id.season !== requestedSeason) continue;
+    if (normalizedId.season !== undefined && normalizedId.season !== requestedSeason) continue;
     if (/class=["'][^"']*text-white[^"']*["']/i.test(anchor.tag)) score += 200;
-    if (id.episode === requestedEpisode) score += 1_000;
-    if (id.season === requestedSeason) score += 600;
-    if (id.episode !== undefined && id.episode !== requestedEpisode) score -= 2_000;
+    if (normalizedId.episode === requestedEpisode) score += 1_000;
+    if (normalizedId.season === requestedSeason) score += 600;
+    if (normalizedId.episode !== undefined && normalizedId.episode !== requestedEpisode) score -= 2_000;
     if (/(episode|ep|الحلقة|حلقه|حلقة)/i.test(hay)) score += 120;
 
     if (score <= 0 || seen.has(anchor.url)) continue;
@@ -933,7 +945,11 @@ function indexEpisodeCandidates(body: string, base: string, requestedSeason?: nu
   for (const anchor of anchors(body, base)) {
     let pathname = '';
     try { pathname = new URL(anchor.url).pathname.toLowerCase(); } catch { continue; }
-    if (!/\/episode(?:\/|$)/i.test(pathname)) continue;
+    const isEpisodeAnchor =
+      /\/episode(?:\/|$)/i.test(pathname) ||
+      /class=["'][^"']*text-white[^"']*["']/i.test(anchor.tag);
+    if (!isEpisodeAnchor) continue;
+    if (/\/(?:old\/)?(?:search|advanced-search)(?:\/|$)/i.test(pathname)) continue;
 
     // ArProv's original Akwam provider reads the episode number from the
     // containing episode card, not from the "مشاهدة" anchor text itself.
