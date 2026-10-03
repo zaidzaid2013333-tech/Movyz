@@ -4,12 +4,7 @@ import { fetchArProvPage, type ArProvBrowserBinding } from './arprov-runtime';
 import { resolveArProvExtractor } from './arprov-extractors';
 import { resolveUniversalSource } from './universal-resolver';
 
-const AKWAM_BASES = [
-  'https://akwam.ss',
-  'https://ak.sv',
-  'https://akwam.net',
-  'https://akwam.it',
-] as const;
+const AKWAM_BASES = ['https://akwam.ss'] as const;
 
 type AkwamRuntime = {
   browserBinding?: ArProvBrowserBinding;

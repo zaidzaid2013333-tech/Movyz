@@ -24,7 +24,7 @@ export function createArProvAdapter() {
     resolveEpisode: (ctx: ProviderContext) => resolveArProvPlayback(ctx),
     async health() {
       const started = Date.now();
-      const bases = ['https://akwam.ss/', 'https://ak.sv/', 'https://akwam.net/', 'https://akwam.it/'];
+      const bases = ['https://akwam.ss/'];
 
       for (const base of bases) {
         try {
