@@ -1,7 +1,7 @@
 import 'dotenv/config';
 
 import { adminSupabase } from '../server/supabase';
-import { resolveAkwamPlayback } from '../server/providers/arprov-akwam';
+import { debugAkwamEpisode, resolveAkwamPlayback } from '../server/providers/arprov-akwam';
 import type { NormalizedPlaybackSource, ProviderContext } from '../server/providers/types';
 import { validatePreparedMediaSource } from './validate-prepared-source';
 
@@ -151,6 +151,14 @@ async function main() {
     try {
       const sources = await resolveAkwamPlayback(context, {});
       const saved = await saveEpisode(episode.id, sources, provider.id);
+      const trace = sources.length || episode.episode_number !== 1
+        ? []
+        : (await debugAkwamEpisode(context, {})).slice(0, 30).map((item) => {
+            const copy = { ...item };
+            if (typeof copy.excerpt === 'string') copy.excerpt = copy.excerpt.slice(0, 1000);
+            return copy;
+          });
+
       results.push({
         episode: episode.episode_number,
         title: episode.name_en || episode.name_ar,
@@ -161,15 +169,25 @@ async function main() {
           type: source.type,
           label: source.label,
         })).slice(0, 8),
+        trace,
         saved,
       });
       console.log(JSON.stringify({ ok: saved > 0, ...results.at(-1) }));
     } catch (error) {
+      const trace = episode.episode_number === 1
+        ? (await debugAkwamEpisode(context, {})).slice(0, 30).map((item) => {
+            const copy = { ...item };
+            if (typeof copy.excerpt === 'string') copy.excerpt = copy.excerpt.slice(0, 1000);
+            return copy;
+          })
+        : [];
+
       results.push({
         episode: episode.episode_number,
         title: episode.name_en || episode.name_ar,
         discovered: 0,
         rawSources: [],
+        trace,
         saved: 0,
         error: error instanceof Error ? error.message : String(error),
       });
