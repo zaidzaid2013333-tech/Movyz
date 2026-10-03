@@ -3,7 +3,6 @@
 // CI trigger: production smoke verification follows workflow-only fixes
 import { app } from './server/index';
 import { getCineProSources } from './server/cinepro-adapter';
-import { ok, fail } from './server/http';
 import { z } from 'zod';
 import type { WorkerEnvironment } from './server/mini-http';
 
@@ -56,10 +55,7 @@ export default {
               env,
             );
             if (sources.length) {
-              return ok(
-                { status: 200, headers: new Headers(), body: null } as any,
-                sources,
-              ) as any;
+              return new Response(JSON.stringify({ success: true, data: sources }), {\n                status: 200,\n                headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },\n              });
             }
           } catch (error) {
             console.warn('[cinepro-playback]', error instanceof Error ? error.message : String(error));
