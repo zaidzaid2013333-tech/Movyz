@@ -13,6 +13,7 @@ const SHARD_COUNT = Math.max(1, Number.parseInt(process.env.EPISODE_SHARD_COUNT 
 const SEASON_CONCURRENCY = Math.max(1, Math.min(2, Number.parseInt(process.env.SEASON_CONCURRENCY || '1', 10) || 1));
 const EPISODE_CONCURRENCY = Math.max(1, Math.min(16, Number.parseInt(process.env.EPISODE_CONCURRENCY || '12', 10) || 12));
 const ONLY_MISSING = !/^(0|false|no)$/i.test(process.env.PREPARE_ONLY_MISSING || 'true');
+const SEASON_LIMIT = Math.max(1, Number.parseInt(process.env.EPISODE_SEASON_LIMIT || '20', 10) || 20);
 
 type EpisodeRow = {
   id: string;
@@ -373,10 +374,20 @@ async function main() {
     ? await readyEpisodeIds(assignedEpisodes.map((episode) => episode.id))
     : new Set<string>();
 
+  // Progressive robot behavior: select only seasons that still contain missing
+  // episodes, then take a bounded batch. Once a season is complete it drops out
+  // automatically and the next run advances to the next missing seasons.
+  const pendingSeasons = assigned
+    .filter((season) => {
+      const episodes = episodesBySeason.get(season.id) || [];
+      return !ONLY_MISSING || episodes.some((episode) => !readyIds.has(episode.id));
+    })
+    .slice(0, SEASON_LIMIT);
+
   let prepared = 0;
   let scanned = 0;
 
-  await mapLimit(assigned, SEASON_CONCURRENCY, async (season) => {
+  await mapLimit(pendingSeasons, SEASON_CONCURRENCY, async (season) => {
     const result = await prepareSeason(
       season,
       episodesBySeason.get(season.id) || [],
@@ -392,11 +403,13 @@ async function main() {
     mode: 'episodes-fast',
     shard: SHARD_INDEX,
     shards: SHARD_COUNT,
-    seasons: assigned.length,
+    seasons: pendingSeasons.length,
+    pendingSeasons: pendingSeasons.length,
     scanned,
     prepared,
     totalEpisodesLoaded: assignedEpisodes.length,
     onlyMissing: ONLY_MISSING,
+    seasonLimit: SEASON_LIMIT,
   }));
 }
 
