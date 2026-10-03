@@ -1,4 +1,4 @@
-name: Movyz Akwam movie download trace
+name: Movyz Akwam direct-link universal diagnostic
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     env:
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
     steps:
@@ -21,23 +21,39 @@ jobs:
         with:
           node-version: 22
       - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-      - name: Trace Inception movie download resolution
+      - name: Inspect direct link and universal resolver
         run: |
           npx tsx -e "
           (async () => {
-            const { debugAkwamMovie } = await import('./server/providers/arprov-akwam');
-            const trace = await debugAkwamMovie({
-              tmdbId:27205,
-              title:'Inception',
-              originalTitle:'Inception',
-              releaseYear:2010,
-            }, { tmdbApiToken:process.env.TMDB_API_READ_ACCESS_TOKEN });
-            console.log(JSON.stringify(trace,null,2));
+            const { resolveUniversalSource } = await import('./server/providers/universal-resolver');
+            const { inferPlaybackType } = await import('./server/providers/http');
+            const { fetchWithTimeout } = await import('./server/providers/http');
+            const target='https://akwam.ss/old/download/8b8a42e56071/Inception-720p-BluRay-akoam-net-mkv';
+            const response=await fetchWithTimeout(target,{
+              method:'POST',
+              timeoutMs:10000,
+              headers:{
+                Accept:'application/json, text/plain, */*',
+                'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
+                'User-Agent':'Movyza/1.0',
+                'X-Requested-With':'XMLHttpRequest',
+                Referer:'https://akwam.ss/old/54108/فيلم-Inception-2010-مترجم',
+              },
+              body:''
+            });
+            const body=await response.text();
+            let parsed={};
+            try{parsed=JSON.parse(body)}catch{}
+            const raw=String(parsed.direct_link||'');
+            const httpsRaw=raw.replace(/^http:\/\//i,'https://');
+            const universal=httpsRaw?await resolveUniversalSource(httpsRaw,{timeoutMs:10000,maxDepth:2,maxHtmlBytes:1000000}):null;
+            console.log(JSON.stringify({
+              status:response.status,
+              contentType:response.headers.get('content-type'),
+              rawDirectLink:raw,
+              httpsDirectLink:httpsRaw,
+              inferredType:httpsRaw?inferPlaybackType(httpsRaw):null,
+              universal
+            },null,2));
           })();
           "
-
-# retrigger diagnostic after regex fix
-
-# trace current resolver after quality fallback
-
-# rerun with production quality fallback in trace
