@@ -642,6 +642,40 @@ async function resolveDownload(
     }
   }
 
+  // Legacy /old/download pages no longer render the direct URL in the GET
+  // response. Their own JavaScript POSTs the same URL and receives JSON with
+  // direct_link/hash_data. Reproduce that lightweight request without a
+  // browser; this keeps the resolver fast and works for the old movie pages.
+  if (!raw && /\/old\/download(?:\/|$)/i.test(target)) {
+    try {
+      const response = await fetchWithTimeout(target, {
+        method: 'POST',
+        timeoutMs: 10_000,
+        headers: {
+          Accept: 'application/json, text/plain, */*',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'User-Agent': 'Movyza/1.0',
+          'X-Requested-With': 'XMLHttpRequest',
+          Referer: pageUrl,
+        },
+        body: '',
+      });
+      if (response.ok) {
+        const payload = await response.text();
+        try {
+          const parsed = JSON.parse(payload) as Record<string, unknown>;
+          if (typeof parsed.direct_link === 'string' && parsed.direct_link.trim()) {
+            raw = parsed.direct_link.trim().replace(/^http:\/\//i, 'https://');
+          }
+        } catch {
+          // Some legacy Akwam responses advertise text/html while returning JSON.
+        }
+      }
+    } catch {
+      // Keep the normal extraction fallbacks below.
+    }
+  }
+
   if (!raw) return [];
 
   const finalUrl = decodeUrl(raw, page.url);
