@@ -73,12 +73,84 @@ async function cachedPlaybackSourceDto(
   };
 }
 
+async function getCineProPlaybackSources(
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  env?: Record<string, unknown>,
+) {
+  const rawBase = String(env?.CINEPRO_BASE_URL ?? process.env.CINEPRO_BASE_URL ?? '').trim();
+  const baseUrl = rawBase.replace(/\/+$/, '');
+  if (!baseUrl) return [];
+
+  try {
+    let endpoint = '';
+    if (contentType === 'movie') {
+      const { data, error } = await adminSupabase.from('movies').select('tmdb_id').eq('id', contentId).maybeSingle();
+      if (error || !data?.tmdb_id) return [];
+      endpoint = baseUrl + '/v1/movies/' + Number(data.tmdb_id);
+    } else {
+      const { data: episode, error: episodeError } = await adminSupabase.from('episodes').select('tmdb_id,episode_number,season_id').eq('id', contentId).maybeSingle();
+      if (episodeError || !episode?.tmdb_id || !episode?.season_id) return [];
+      const { data: season, error: seasonError } = await adminSupabase.from('seasons').select('season_number,series_id').eq('id', episode.season_id).maybeSingle();
+      if (seasonError || !season?.season_number || !season?.series_id) return [];
+      const { data: series, error: seriesError } = await adminSupabase.from('series').select('tmdb_id').eq('id', season.series_id).maybeSingle();
+      if (seriesError || !series?.tmdb_id) return [];
+      endpoint = baseUrl + '/v1/tv/' + Number(series.tmdb_id) + '/seasons/' + Number(season.season_number) + '/episodes/' + Number(episode.episode_number);
+    }
+
+    const response = await fetch(endpoint, {
+      headers: { Accept: 'application/json', 'User-Agent': 'Movyz-CinePro-Bridge/1.0', 'Cache-Control': 'no-cache' },
+      signal: AbortSignal.timeout(25000),
+    });
+    if (!response.ok) return [];
+
+    const payload = await response.json() as {
+      sources?: Array<{
+        url?: string; type?: string; quality?: string | number;
+        provider?: { name?: string; id?: string };
+        audioTracks?: Array<{ language?: string; label?: string }>;
+      }>;
+    };
+
+    const sources = Array.isArray(payload.sources) ? payload.sources : [];
+    return sources.map((source, index) => {
+      const rawUrl = String(source.url || '').trim();
+      if (!rawUrl) return null;
+      let url = rawUrl;
+      try { url = new URL(rawUrl, baseUrl).toString(); } catch { return null; }
+      if (!/^https:\\/\\//i.test(url)) return null;
+      const sourceType = String(source.type || '').trim().toLowerCase();
+      const normalizedType = ['hls', 'dash', 'mp4', 'webm'].includes(sourceType)
+        ? sourceType : sourceType === 'mkv' ? 'direct' : 'direct';
+      const rawQuality = String(source.quality ?? '').trim();
+      const qualityMatch = rawQuality.match(/(2160|1440|1080|720|576|480|360|240)/);
+      const quality = qualityMatch ? qualityMatch[1] + 'p' : '720p';
+      const providerName = String(source.provider?.name || source.provider?.id || 'CinePro').trim();
+      const track = Array.isArray(source.audioTracks) ? source.audioTracks[0] : undefined;
+      return {
+        id: 'cinepro-' + contentType + '-' + contentId + '-' + index,
+        type: normalizedType, quality, language: String(track?.language || 'und').trim(),
+        label: 'CinePro • ' + providerName, labelEn: 'CinePro • ' + providerName,
+        url, isWorking: true, provider: providerName,
+        providerKey: String(source.provider?.id || providerName).trim(),
+        providerReference: 'cinepro', expiresAt: null,
+      };
+    }).filter((source): source is NonNullable<typeof source> => source !== null);
+  } catch (error) {
+    console.warn('[cinepro-bridge]', error instanceof Error ? error.message : String(error));
+    return [];
+  }
+}
 async function getFreshPlaybackSourcesForContent(
   contentType: 'movie' | 'episode',
   contentId: string,
   requestUrl?: string,
   env?: Record<string, unknown>,
 ) {
+  const cineProPromise = getCineProPlaybackSources(contentType, contentId, env).catch((error) => {
+    console.warn('[cinepro-playback]', error instanceof Error ? error.message : String(error));
+    return [];
+  });
   const akwamPromise = requestUrl && env
     ? getOnDemandAkwamSources(contentType, contentId, requestUrl, env).catch((error) => {
         console.warn(
@@ -99,7 +171,11 @@ async function getFreshPlaybackSourcesForContent(
     .neq('provider_reference', 'akwam')
     .order('quality', { ascending: true });
 
-  const [akwamSources, storedResult] = await Promise.all([akwamPromise, storedPromise]);
+  const [cineProSources, akwamSources, storedResult] = await Promise.all([
+    cineProPromise,
+    akwamPromise,
+    storedPromise,
+  ]);
   if (storedResult.error) {
     console.warn('[stored-playback-sources]', storedResult.error.message);
   }
@@ -118,7 +194,7 @@ async function getFreshPlaybackSourcesForContent(
     }),
   )).filter((source) => source !== null);
 
-  return [...akwamSources, ...prepared]
+  return [...cineProSources, ...akwamSources, ...prepared]
     .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
     .sort((a: any, b: any) => {
       const qualityDiff = playbackQualityScore(b.quality) - playbackQualityScore(a.quality);

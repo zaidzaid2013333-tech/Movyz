@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "movyz-cinepro",
+  "main": "entry.ts",
+  "compatibility_date": "2026-09-26",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "nodejs_compat_populate_process_env"
+  ],
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "HOST": "0.0.0.0",
+    "PORT": "8787",
+    "NODE_ENV": "production",
+    "CACHE_TYPE": "memory",
+    "STREMIO_ADDON": "false",
+    "CORS_ORIGIN": "*",
+    "MCP_ENABLED": "false",
+    "INTERNAL_DEBUG": "false",
+    "PUBLIC_URL": "https://movyz-cinepro.sameranede.workers.dev"
+  },
+  "secrets": {
+    "required": ["TMDB_API_KEY"]
+  }
+}
