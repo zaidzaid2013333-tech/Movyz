@@ -1,4 +1,4 @@
-name: Movyz Interstellar resolver diagnostic
+name: Movyz movie resolver diagnostics
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -24,25 +24,43 @@ jobs:
         with:
           node-version: 22
       - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-      - name: Resolve Interstellar without persisting
+      - name: Resolve four movie anchors without persisting
         run: |
           npx tsx -e "
           (async () => {
             const { resolveAkwamPlayback } = await import('./server/providers/arprov-akwam');
-            const context = {
-              tmdbId: 157336,
-              title: 'Interstellar',
-              originalTitle: 'Interstellar',
-              releaseYear: 2014,
-            };
-            const started = Date.now();
-            const sources = await resolveAkwamPlayback(context, {
-              tmdbApiToken: process.env.TMDB_API_READ_ACCESS_TOKEN,
-            });
-            console.log(JSON.stringify({
-              elapsedMs: Date.now() - started,
-              count: sources.length,
-              sources,
-            }, null, 2));
+            const checks = [
+              { label: 'Interstellar', tmdbId: 157336, releaseYear: 2014 },
+              { label: 'Inception', tmdbId: 27205, releaseYear: 2010 },
+              { label: 'Fight Club', tmdbId: 550, releaseYear: 1999 },
+              { label: 'The Shawshank Redemption', tmdbId: 278, releaseYear: 1994 },
+            ];
+            for (const item of checks) {
+              const started = Date.now();
+              try {
+                const sources = await resolveAkwamPlayback({
+                  tmdbId: item.tmdbId,
+                  title: item.label,
+                  originalTitle: item.label,
+                  releaseYear: item.releaseYear,
+                }, {
+                  tmdbApiToken: process.env.TMDB_API_READ_ACCESS_TOKEN,
+                });
+                console.log(JSON.stringify({
+                  label: item.label,
+                  tmdbId: item.tmdbId,
+                  elapsedMs: Date.now() - started,
+                  count: sources.length,
+                  sources,
+                }, null, 2));
+              } catch (error) {
+                console.log(JSON.stringify({
+                  label: item.label,
+                  tmdbId: item.tmdbId,
+                  elapsedMs: Date.now() - started,
+                  error: error instanceof Error ? error.message : String(error),
+                }, null, 2));
+              }
+            }
           })();
           "
