@@ -525,19 +525,49 @@ async function resolveDownload(
       language: source.language || 'und',
       label: source.label || `Akwam ${effectiveQuality !== 'auto' ? effectiveQuality : source.quality || ''}`.trim(),
       referer: source.referer || referer,
-    }));
+    })).filter((source) => /^https:\/\//i.test(source.url) && !/\/download(?:\/|$)/i.test(source.url));
   }
 
-  return [{
-    provider: 'Akwam',
-    providerReference: 'akwam',
-    type: inferPlaybackType(finalUrl) || 'direct',
-    url: finalUrl,
-    quality: effectiveQuality,
-    language: 'und',
-    label: `Akwam ${effectiveQuality !== 'auto' ? effectiveQuality : ''}`.trim(),
-    referer,
-  }];
+  // ArProv's CloudStream provider passes the btn-loader URL to its extractor
+  // layer. Never persist the intermediate /download/ page itself as a
+  // playback source. Try the shared universal resolver during PREPARATION
+  // so the DB stores only a real media URL (mp4/hls/dash/webm/direct).
+  const resolved = await resolveUniversalSource(finalUrl, {
+    timeoutMs: 10_000,
+    maxDepth: 2,
+    maxHtmlBytes: 1_000_000,
+  }).catch(() => null);
+
+  if (resolved && resolved.type !== 'embed' && /^https:\/\//i.test(resolved.url) && !/\/download(?:\/|$)/i.test(resolved.url)) {
+    return [{
+      provider: 'Akwam',
+      providerReference: 'akwam',
+      type: resolved.type,
+      url: resolved.url,
+      quality: effectiveQuality !== 'auto' && effectiveQuality !== 'source'
+        ? effectiveQuality
+        : (resolved.quality || inferQuality('', resolved.url)),
+      language: 'und',
+      label: `Akwam ${effectiveQuality !== 'auto' ? effectiveQuality : resolved.quality || ''}`.trim(),
+      referer,
+    }];
+  }
+
+  const directType = inferPlaybackType(finalUrl);
+  if (directType && !/\/download(?:\/|$)/i.test(finalUrl)) {
+    return [{
+      provider: 'Akwam',
+      providerReference: 'akwam',
+      type: directType,
+      url: finalUrl,
+      quality: effectiveQuality,
+      language: 'und',
+      label: `Akwam ${effectiveQuality !== 'auto' ? effectiveQuality : ''}`.trim(),
+      referer,
+    }];
+  }
+
+  return [];
 }
 
 async function resolvePage(page: { body: string; url: string }, ctx: ProviderContext, runtime: AkwamRuntime) {
@@ -631,7 +661,22 @@ export async function debugAkwamEpisode(
       candidates: candidates.slice(0, 5).map(item => ({ url: item.url, title: item.title, score: item.score })),
     });
 
-    for (const candidate of candidates.slice(0, 3)) {
+    const prioritizedCandidates = [...candidates].sort((a, b) => {
+      const score = (item: SearchCandidate) => {
+        try {
+          const path = new URL(item.url).pathname.toLowerCase();
+          let bonus = 0;
+          if (/(?:^|\/)series(?:\/|$)|(?:^|\/)shows?(?:\/|$)/i.test(path)) bonus += 900;
+          if (/\/(?:movies?|film)(?:\/|$)/i.test(path)) bonus -= 300;
+          return bonus;
+        } catch {
+          return 0;
+        }
+      };
+      return (b.score + score(b)) - (a.score + score(a));
+    });
+
+    for (const candidate of prioritizedCandidates.slice(0, 8))
       let detail = await fetchArProvPage(candidate.url, {
         browserBinding: runtime.browserBinding,
         timeoutMs: 10_000,
