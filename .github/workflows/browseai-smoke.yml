@@ -1,0 +1,39 @@
+name: Browse AI API smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  browseai:
+    runs-on: ubuntu-latest
+    env:
+      BROWSEAI_API_KEY: ${{ secrets.BROWSEAI_API_KEY }}
+    steps:
+      - name: Verify Browse AI API credentials and list approved robots
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${BROWSEAI_API_KEY}" || { echo "::error::Missing BROWSEAI_API_KEY repository secret"; exit 1; }
+
+          status_json="$(curl -fsS --retry 2 --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer ${BROWSEAI_API_KEY}" \
+            -H "Accept: application/json" \
+            "https://api.browse.ai/v2/status")"
+
+          echo "Browse AI status:"
+          echo "${status_json}" | jq '{statusCode,messageCode,tasksQueueStatus}'
+
+          robots_json="$(curl -fsS --retry 2 --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer ${BROWSEAI_API_KEY}" \
+            -H "Accept: application/json" \
+            "https://api.browse.ai/v2/robots")"
+
+          echo "Approved robots:"
+          echo "${robots_json}" | jq '
+            .robots.items // [] |
+            map({
+              id,
+              name,
+              inputParameters: ([.inputParameters[]?.name] // [])
+            })
+          '
