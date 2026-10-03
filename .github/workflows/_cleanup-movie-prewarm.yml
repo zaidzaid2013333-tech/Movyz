@@ -1,0 +1,13 @@
+name: Movyz full movie source prewarm
+on:
+  push:
+    branches: ["main"]
+concurrency:
+  group: movyz-full-movie-source-prewarm
+  cancel-in-progress: true
+jobs:
+  cleanup:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: exit 0
