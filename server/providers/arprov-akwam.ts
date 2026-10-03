@@ -286,6 +286,25 @@ function looksBlocked(page: { body: string; status: number } | null) {
     /just a moment|verify you are human|access denied|captcha|cf-chl-|challenge-platform/i.test(body);
 }
 
+function pageBodiesForFallback(pages: PromiseSettledResult<any>[]) {
+  return pages
+    .filter((page): page is PromiseFulfilledResult<any> => page.status === 'fulfilled' && Boolean(page.value))
+    .map(page => page.value as { body: string; url: string });
+}
+
+function extractRawContentCandidates(body: string, base: string) {
+  const out: Array<{ url: string; text: string }> = [];
+  const seen = new Set<string>();
+  for (const match of body.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)) {
+    const url = decodeUrl(match[1], base);
+    if (!url || seen.has(url)) continue;
+    if (!/\/(?:series|episode)(?:\/|$)/i.test(new URL(url).pathname)) continue;
+    seen.add(url);
+    out.push({ url, text: cleanText(match[0]).slice(0, 240) });
+  }
+  return out;
+}
+
 async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime) {
   const titles = [...new Set([
     ctx.originalTitle,
@@ -387,6 +406,21 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
   );
   for (const page of pages) {
     if (page.status === 'fulfilled') collect(page.value);
+  }
+
+  if (!candidates.length) {
+    const contentLinks = [...pageBodiesForFallback(pages)].flatMap(page => extractRawContentCandidates(page.body, page.url));
+    for (const item of contentLinks) {
+      if (seen.has(item.url)) continue;
+      const anchorPath = (() => { try { return new URL(item.url).pathname.toLowerCase(); } catch { return ''; } })();
+      if (ctx.episodeNumber !== undefined && !/\/(?:series|episode)(?:\/|$)/i.test(anchorPath)) continue;
+      if (ctx.episodeNumber === undefined && ctx.seasonNumber !== undefined && !/\/series(?:\/|$)/i.test(anchorPath)) continue;
+      const searchableText = cleanText(item.url);
+      const score = titleScore({ text: searchableText, url: item.url }, ctx);
+      if (score < 40) continue;
+      seen.add(item.url);
+      candidates.push({ url: item.url, title: searchableText.slice(0, 240), score });
+    }
   }
 
   // Akwam's legacy query form is only a fallback; avoid firing it alongside the primary search.
