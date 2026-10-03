@@ -166,7 +166,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const startupGuardTimerRef = useRef<number | null>(null);
   const startupWarmupTimerRef = useRef<number | null>(null);
   const startupWarmupDoneRef = useRef<Set<string>>(new Set());
-  const startupFailoverUsedRef = useRef(false);
   const progressSaveTimerRef = useRef<number | null>(null);
   const lastProgressSaveAtRef = useRef(0);
   const playbackEngineRef = useRef<{ destroy?: () => void; reset?: () => void } | null>(null);
@@ -197,7 +196,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         playbackStartedRef.current = false;
         startupTriedUrlsRef.current.clear();
         startupWarmupDoneRef.current.clear();
-        startupFailoverUsedRef.current = false;
 
         const legacyTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
         const response = mediaType === 'movie'
@@ -553,6 +551,28 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   };
 
 
+  const tryNextStartupSource = (currentUrl: string) => {
+    const next = availableSources.find(
+      (source) =>
+        source.url !== currentUrl &&
+        !startupTriedUrlsRef.current.has(source.url),
+    );
+    if (!next) return false;
+
+    startupTriedUrlsRef.current.add(next.url);
+    qualityResumeTimeRef.current = 0;
+    qualitySwitchPendingRef.current = false;
+    resumeAfterQualitySwitchRef.current = false;
+    playbackStartedRef.current = false;
+    setPlaybackError(null);
+    setPlayerReady(false);
+    setPlayerCurrentTime(0);
+    setPlayerDuration(0);
+    setPlayerBufferedEnd(0);
+    setRemotePlaybackSource(next);
+    return true;
+  };
+
   const handleSelectPlaybackSource = (source: PlaybackSource) => {
     if (source.url === playbackUrl) return;
 
@@ -692,17 +712,22 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     void attachPlayback();
 
-    // Remote MP4 hosts can take 20–30s before exposing metadata.
-    // Keep the player in a loading state long enough for slow-but-valid sources
-    // instead of showing a false playback error while the browser is still waiting.
+    // Give a slow MP4 source a bounded startup window. If metadata still has
+    // not arrived, automatically try the next prepared quality instead of
+    // leaving the player in a permanent spinner.
     startupGuardTimerRef.current = window.setTimeout(() => {
       if (cancelled) return;
       const currentVideo = videoRef.current;
       if (!currentVideo || currentVideo.readyState >= HTMLMediaElement.HAVE_METADATA) return;
+
+      if (tryNextStartupSource(playbackUrl)) {
+        return;
+      }
+
       setPlaybackError(
         language === 'ar'
-          ? 'المصدر يتأخر في إرسال بيانات الفيديو. يمكنك الانتظار قليلًا أو تجربة جودة أخرى.'
-          : 'The source is taking longer than usual to send video metadata. You can wait a little longer or try another quality.',
+          ? 'تعذر تحميل المصدر بعد تجربة المصادر الجاهزة. جرّب إعادة المحاولة أو جودة أخرى.'
+          : 'The prepared sources could not be loaded. Retry or try another quality.',
       );
     }, 35000);
 
@@ -720,7 +745,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current = null;
       video.pause();
     };
-  }, [playbackUrl, playbackSource?.type, language]);
+  }, [playbackUrl, playbackSource?.type, language, availableSources]);
 
   useEffect(() => {
     if (isEmbedPlayback) {
@@ -1189,23 +1214,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
                   markPlaybackSourceFailed();
 
-                  // One bounded startup failover: never cycle between qualities.
-                  if (!startupFailoverUsedRef.current) {
-                    const next = availableSources.find(
-                      (source) =>
-                        source.url !== playbackUrl &&
-                        !startupTriedUrlsRef.current.has(source.url),
-                    );
-                    if (next) {
-                      startupFailoverUsedRef.current = true;
-                      startupTriedUrlsRef.current.add(next.url);
-                      qualityResumeTimeRef.current = 0;
-                      qualitySwitchPendingRef.current = false;
-                      resumeAfterQualitySwitchRef.current = false;
-                      setPlaybackError(null);
-                      setRemotePlaybackSource(next);
-                      return;
-                    }
+                  // Sequential bounded failover: never revisit a URL, and never
+                  // loop between qualities.
+                  if (tryNextStartupSource(playbackUrl)) {
+                    return;
                   }
 
                   const mediaError = videoRef.current?.error;
