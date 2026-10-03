@@ -525,7 +525,7 @@ async function resolveDownload(
       language: source.language || 'und',
       label: source.label || `Akwam ${effectiveQuality !== 'auto' ? effectiveQuality : source.quality || ''}`.trim(),
       referer: source.referer || referer,
-    })).filter((source) => /^https:\/\//i.test(source.url) && !/\/download(?:\/|$)/i.test(source.url));
+    })).filter((source) => /^https:\/\//i.test(source.url));
   }
 
   // ArProv's CloudStream provider passes the btn-loader URL to its extractor
@@ -538,7 +538,7 @@ async function resolveDownload(
     maxHtmlBytes: 1_000_000,
   }).catch(() => null);
 
-  if (resolved && resolved.type !== 'embed' && /^https:\/\//i.test(resolved.url) && !/\/download(?:\/|$)/i.test(resolved.url)) {
+  if (resolved && resolved.type !== 'embed' && /^https:\/\//i.test(resolved.url)) {
     return [{
       provider: 'Akwam',
       providerReference: 'akwam',
@@ -554,7 +554,7 @@ async function resolveDownload(
   }
 
   const directType = inferPlaybackType(finalUrl);
-  if (directType && !/\/download(?:\/|$)/i.test(finalUrl)) {
+  if (directType) {
     return [{
       provider: 'Akwam',
       providerReference: 'akwam',
