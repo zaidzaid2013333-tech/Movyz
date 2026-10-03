@@ -1,6 +1,5 @@
-// General playback transport: all playable providers use the same signed redirect path; Akwam remains on-demand.
-// Smoke coverage order: Interstellar -> Inception -> Fight Club -> The Shawshank Redemption.
-// CI trigger: production smoke verification follows workflow-only fixes
+// CinePro Core is the only playback source backend; Movyz only bridges catalog metadata to it.
+// CI smoke coverage: Interstellar -> Inception -> Fight Club -> The Shawshank Redemption -> Breaking Bad S01E01.
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
 
