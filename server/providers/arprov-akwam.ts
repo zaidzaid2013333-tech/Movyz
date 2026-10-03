@@ -657,6 +657,8 @@ async function resolveDownload(
           'User-Agent': 'Movyza/1.0',
           'X-Requested-With': 'XMLHttpRequest',
           Referer: pageUrl,
+          ...(page.cookie ? { Cookie: page.cookie } : {}),
+          Origin: new URL(page.url).origin,
         },
         body: '',
       });
