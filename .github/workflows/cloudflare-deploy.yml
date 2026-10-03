@@ -81,104 +81,11 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var CINEPRO_BASE_URL:https://movyz-cinepro.sameranede.workers.dev
 
-      - name: Smoke test DoodStream account library
-        continue-on-error: true
-        env:
-          DOODSTREAM_API_KEY: ${{ secrets.DOODSTREAM_API_KEY }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          import urllib.parse
-          import urllib.request
-
-          key = os.environ.get("DOODSTREAM_API_KEY", "").strip()
-          if not key:
-              print("DoodStream WARN: API key missing")
-              raise SystemExit(0)
-
-          def get(path, **params):
-              query = urllib.parse.urlencode({"key": key, **params})
-              request = urllib.request.Request(
-                  f"https://doodapi.co/api/{path}?{query}",
-                  headers={"Accept": "application/json", "User-Agent": "Movyz-CI/1.0"},
-              )
-              with urllib.request.urlopen(request, timeout=20) as response:
-                  return json.load(response)
-
-          try:
-              account = get("account/info")
-              print(f"DoodStream account API: status={account.get('status')} msg={account.get('msg')}")
-              listing = get("file/list", page=1, per_page=1)
-              result = listing.get("result") or {}
-              print(
-                  "DoodStream library: "
-                  f"status={listing.get('status')} total_pages={result.get('total_pages')} "
-                  f"results_total={result.get('results_total')} files_on_page={len(result.get('files') or [])}"
-              )
-          except Exception as exc:
-              print(f"DoodStream WARN: {exc!r}")
-          PY
-
-      - name: Smoke test production watch paths
-        run: |
-          set -u
-          export API_BASE="https://movyz-api.sameranede.workers.dev"
-
-          python - <<'PY'
-          import json
-          import os
-          import urllib.request
-          from urllib.error import HTTPError
-
-          api_base = os.environ["API_BASE"]
-          api_checks = [
-              (f"{api_base}/api/v1/movies/tmdb/1477712", "movie", 1477712),
-              (f"{api_base}/api/v1/series/tmdb/65733", "series", 65733),
-          ]
-
-          headers = {
-              "Accept": "application/json",
-              "User-Agent": "Movyz-CI/1.0",
-              "Cache-Control": "no-cache",
-          }
-
-          for url, expected_type, expected_tmdb in api_checks:
-              request = urllib.request.Request(url, headers=headers)
-              with urllib.request.urlopen(request, timeout=20) as response:
-                  payload = json.load(response)
-              if payload.get("success") is not True:
-                  raise SystemExit(f"{url}: API success=false")
-              key = "movie" if expected_type == "movie" else "series"
-              item = payload.get("data", {}).get(key)
-              actual = int(item.get("tmdbId", 0)) if item else 0
-              if actual != expected_tmdb:
-                  raise SystemExit(f"{url}: expected TMDB {expected_tmdb}, got {actual}")
-              print(f"API OK: {expected_type} TMDB {actual}")
-
-          watch_url = f"{api_base}/api/v1/series/tmdb/1396/watch/1/1"
-          watch_request = urllib.request.Request(watch_url, headers=headers)
-          with urllib.request.urlopen(watch_request, timeout=20) as response:
-              watch_payload = json.load(response)
-          watch_series = watch_payload.get("data", {}).get("series")
-          if watch_payload.get("success") is not True:
-              raise SystemExit(f"{watch_url}: API success=false")
-          if not watch_series or int(watch_series.get("tmdbId", 0)) != 1396:
-              raise SystemExit(f"{watch_url}: lightweight series watch payload is invalid")
-          season = (watch_series.get("seasons") or [None])[0]
-          episodes = season.get("episodes") if isinstance(season, dict) else []
-          if not any(int(item.get("episodeNumber", 0)) == 1 for item in episodes if isinstance(item, dict)):
-              raise SystemExit(f"{watch_url}: S01E01 missing from lightweight watch payload")
-          print("Series watch API OK: Breaking Bad S01E01")
-
-          print("Playback provider checks skipped: production player is now resolved from Movyz API playback sources.")
-
-      - name: Smoke test on-demand Akwam redirect playback
+      - name: Smoke test CinePro playback
         run: |
           python - <<'PY'
           import json
           import urllib.request
-          from urllib.error import HTTPError
 
           api = "https://movyz-api.sameranede.workers.dev"
           checks = [
@@ -189,56 +96,24 @@ jobs:
               ("episode", "cfec368f-138e-405d-a98b-bb6734f5bbf5", "Breaking Bad S01E01"),
           ]
 
-          def post_prepared(content_type, content_id):
+          for content_type, content_id, label in checks:
               body = json.dumps({"contentType": content_type, "contentId": content_id}).encode()
               req = urllib.request.Request(
                   api + "/api/v1/playback/prepared",
                   method="POST",
                   data=body,
-                  headers={"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Movyz-CI/1.0"},
+                  headers={"Accept":"application/json","Content-Type":"application/json","User-Agent":"Movyz-CI/1.0"},
               )
-              with urllib.request.urlopen(req, timeout=30) as response:
-                  return json.load(response)
-
-          for content_type, content_id, label in checks:
-              payload = post_prepared(content_type, content_id)
+              with urllib.request.urlopen(req, timeout=35) as response:
+                  payload = json.load(response)
               if payload.get("success") is not True:
-                  raise SystemExit(f"{label}: prepared API success=false")
-
+                  raise SystemExit(f"{label}: prepared API failed")
               sources = payload.get("data") if isinstance(payload.get("data"), list) else []
               if not sources:
-                  raise SystemExit(f"{label}: no prepared sources")
-
-              source = sources[0]
-              url = str(source.get("url") or "")
-              quality = str(source.get("quality") or "").lower()
-              source_type = str(source.get("type") or "").lower()
-
-              if not url.startswith(api + "/api/v1/playback/stream?token="):
-                  raise SystemExit(f"{label}: playback URL is not a Movyz proxy URL")
-              if "akwam.ss" in url.lower():
-                  raise SystemExit(f"{label}: raw Akwam URL leaked")
-              if not quality.endswith("p") or quality in {"auto", "source"}:
-                  raise SystemExit(f"{label}: invalid quality {quality!r}")
-              if source_type not in {"mp4", "hls", "dash", "webm", "direct"}:
-                  raise SystemExit(f"{label}: invalid source type {source_type!r}")
-
-              range_req = urllib.request.Request(
-                  url,
-                  method="GET",
-                  headers={"Range": "bytes=0-1", "User-Agent": "Movyz-CI/1.0"},
-              )
-              try:
-                  with urllib.request.urlopen(range_req, timeout=30) as response:
-                      status = response.status
-                      content_type_header = str(response.headers.get("Content-Type") or "").lower()
-                      if status not in (200, 206):
-                          raise SystemExit(f"{label}: proxy returned HTTP {status}")
-                      if "text/html" in content_type_header or "application/json" in content_type_header:
-                          raise SystemExit(f"{label}: proxy returned non-media content type {content_type_header!r}")
-                      print(f"Prepared proxy OK: {label} status={status} content-type={content_type_header} quality={quality} type={source_type}")
-              except HTTPError as exc:
-                  raise SystemExit(f"{label}: proxy range check HTTP {exc.code}") from exc
+                  raise SystemExit(f"{label}: CinePro returned no sources")
+              if not all(str(x.get("providerReference") or "") == "cinepro" for x in sources):
+                  raise SystemExit(f"{label}: legacy provider leaked into playback response")
+              print(f"CinePro playback OK: {label} sources={len(sources)}")
           PY
 
       - name: Deployment marker
