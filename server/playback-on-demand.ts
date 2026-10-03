@@ -19,7 +19,7 @@ type CachedSource = {
 
 const SOURCE_TTL_MS = 5 * 60 * 1000;
 const NEGATIVE_TTL_MS = 20 * 1000;
-const PROXY_TOKEN_TTL_MS = 20 * 60 * 1000;
+const REDIRECT_TOKEN_TTL_MS = 10 * 60 * 1000;
 const inFlight = new Map<string, Promise<CachedSource[]>>();
 
 function edgeCache(): Cache | null {
@@ -37,6 +37,23 @@ function cacheKey(requestUrl: string, contentType: PlaybackContentType, contentI
   );
 }
 
+function qualityScore(value: string) {
+  return /2160|4k/.test(value) ? 4000 :
+    /1440/.test(value) ? 3000 :
+    /1080/.test(value) ? 2000 :
+    /720/.test(value) ? 1500 :
+    /576/.test(value) ? 1200 :
+    /480/.test(value) ? 1000 :
+    /360/.test(value) ? 800 : 600;
+}
+
+function typeScore(value: string) {
+  return value === 'mp4' ? 50 :
+    value === 'hls' ? 45 :
+    value === 'dash' ? 40 :
+    value === 'webm' ? 35 : 30;
+}
+
 function normalizeSources(sources: NormalizedPlaybackSource[]): CachedSource[] {
   const allowedTypes = new Set(['mp4', 'hls', 'dash', 'webm', 'direct']);
   const byQuality = new Map<string, CachedSource>();
@@ -50,7 +67,8 @@ function normalizeSources(sources: NormalizedPlaybackSource[]): CachedSource[] {
     if (providerReference !== 'akwam') continue;
     if (!/^https:\/\//i.test(url)) continue;
     if (!allowedTypes.has(type)) continue;
-    if (!quality || quality === 'auto' || quality === 'source') continue;
+    if (!/^\d{3,4}p$/i.test(quality)) continue;
+    if (/\/\/(?:[^/]+\.)?akwam\.(?:com|to|live|tv)(?:\/|$)/i.test(url) && !/^https:\/\/akwam\.ss\//i.test(url)) continue;
 
     const item: CachedSource = {
       type,
@@ -65,33 +83,101 @@ function normalizeSources(sources: NormalizedPlaybackSource[]): CachedSource[] {
     };
 
     const current = byQuality.get(quality);
-    if (!current) {
+    if (!current || typeScore(item.type) > typeScore(current.type)) {
       byQuality.set(quality, item);
-      continue;
     }
-
-    const priority = (value: string) =>
-      value === 'mp4' ? 50 :
-      value === 'hls' ? 45 :
-      value === 'dash' ? 40 :
-      value === 'webm' ? 35 : 30;
-
-    if (priority(item.type) > priority(current.type)) byQuality.set(quality, item);
   }
 
   return [...byQuality.values()]
     .sort((a, b) => {
-      const score = (value: string) =>
-        /2160|4k/.test(value) ? 4000 :
-        /1440/.test(value) ? 3000 :
-        /1080/.test(value) ? 2000 :
-        /720/.test(value) ? 1500 :
-        /576/.test(value) ? 1200 :
-        /480/.test(value) ? 1000 :
-        /360/.test(value) ? 800 : 0;
-      return score(b.quality) - score(a.quality);
+      const q = qualityScore(b.quality) - qualityScore(a.quality);
+      return q || typeScore(b.type) - typeScore(a.type);
     })
-    .slice(0, 4);
+    .slice(0, 6);
+}
+
+function filterFresh(sources: CachedSource[]) {
+  const now = Date.now();
+  return sources.filter((source) => {
+    if (!source.expiresAt) return true;
+    const expires = Date.parse(source.expiresAt);
+    return !Number.isFinite(expires) || expires > now + 15_000;
+  });
+}
+
+function expectedContentType(type: string) {
+  switch (type) {
+    case 'mp4': return /^(?:video\/(?:mp4|mpeg|quicktime)|application\/mp4|application\/octet-stream)/i;
+    case 'webm': return /^(?:video\/webm|application\/octet-stream)/i;
+    case 'hls': return /^(?:application\/(?:vnd\.apple\.mpegurl|x-mpegurl)|audio\/mpegurl|text\/plain|application\/octet-stream)/i;
+    case 'dash': return /^(?:application\/dash\+xml|text\/xml|application\/octet-stream)/i;
+    case 'direct': return /^video\//i;
+    default: return null;
+  }
+}
+
+async function validateDirectSource(source: CachedSource): Promise<CachedSource | null> {
+  let parsed: URL;
+  try {
+    parsed = new URL(source.url);
+  } catch {
+    return null;
+  }
+
+  if (parsed.protocol !== 'https:') return null;
+  if (parsed.hostname !== 'akwam.ss') {
+    // The page resolver may legitimately expose Akwam-hosted CDN media.
+    // Only enforce HTTPS here; never synthesize a host.
+  }
+  if (/\/(?:embed|iframe|download|link)(?:\/|$)/i.test(parsed.pathname)) return null;
+
+  const headers: Record<string, string> = {
+    Accept: '*/*',
+    Range: 'bytes=0-2048',
+    'User-Agent': 'Movyz-Akwam-Resolver/1.0',
+  };
+  if (source.referer) headers.Referer = source.referer;
+
+  try {
+    const response = await fetch(source.url, {
+      method: 'GET',
+      redirect: 'follow',
+      headers,
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    const status = response.status;
+    const finalUrl = response.url || source.url;
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    const finalPath = (() => {
+      try { return new URL(finalUrl).pathname.toLowerCase(); } catch { return parsed.pathname.toLowerCase(); }
+    })();
+
+    if (status !== 200 && status !== 206) {
+      try { await response.body?.cancel(); } catch {}
+      return null;
+    }
+
+    const body = await response.text();
+    if (!body) return null;
+    if (/text\/html|application\/json|text\/json/i.test(contentType)) return null;
+    if (/just a moment|captcha|verify you are human|challenge-platform|access denied/i.test(body.slice(0, 5000))) return null;
+
+    const looksLikeMediaPath = /\.(?:mp4|webm|m3u8|mpd|m4v|mov|mpeg|mpg|ts|m2ts|flv|3gp|3g2)(?:$|[?#])/i.test(finalPath);
+    const typeMatches = expectedContentType(source.type)?.test(contentType) ?? false;
+
+    if (source.type === 'hls' && !typeMatches) {
+      if (!/\.(?:m3u8)(?:$|[?#])/i.test(finalPath) || !/^#EXTM3U\b/i.test(body.trim())) return null;
+    } else if (source.type === 'dash' && !typeMatches) {
+      if (!/\.(?:mpd)(?:$|[?#])/i.test(finalPath) || !/<(?:MPD|mpd)\b/i.test(body)) return null;
+    } else if (!typeMatches && !(contentType === 'application/octet-stream' && looksLikeMediaPath)) {
+      return null;
+    }
+
+    return { ...source, url: finalUrl };
+  } catch {
+    return null;
+  }
 }
 
 async function loadContext(
@@ -167,6 +253,21 @@ async function loadContext(
   };
 }
 
+async function resolveAndValidate(
+  contentType: PlaybackContentType,
+  contentId: string,
+): Promise<CachedSource[]> {
+  const context = await loadContext(contentType, contentId);
+  const resolved = normalizeSources(await resolveAkwamPlayback(context, {}));
+  if (!resolved.length) return [];
+
+  const validated = await Promise.all(resolved.map(validateDirectSource));
+  return validated
+    .filter((source): source is CachedSource => Boolean(source))
+    .sort((a, b) => qualityScore(b.quality) - qualityScore(a.quality))
+    .slice(0, 6);
+}
+
 async function resolveCached(
   contentType: PlaybackContentType,
   contentId: string,
@@ -175,11 +276,7 @@ async function resolveCached(
   const existing = inFlight.get(key);
   if (existing) return existing;
 
-  const promise = (async () => {
-    const context = await loadContext(contentType, contentId);
-    const resolved = await resolveAkwamPlayback(context, {});
-    return normalizeSources(resolved);
-  })().finally(() => {
+  const promise = resolveAndValidate(contentType, contentId).finally(() => {
     inFlight.delete(key);
   });
 
@@ -200,7 +297,9 @@ async function readEdgeCache(
     if (!response) return null;
     const payload = await response.json() as { expiresAt: number; sources: CachedSource[] };
     if (!payload || !Number.isFinite(payload.expiresAt) || payload.expiresAt <= Date.now()) return null;
-    return Array.isArray(payload.sources) ? payload.sources : [];
+
+    const sources = filterFresh(Array.isArray(payload.sources) ? payload.sources : []);
+    return sources.length ? sources : null;
   } catch {
     return null;
   }
@@ -255,9 +354,11 @@ export async function getOnDemandAkwamSources(
     await writeEdgeCache(requestUrl, contentType, contentId, sources);
   }
 
-  const proxied = [];
-  for (const source of sources) {
-    const fallbackUrl = await createPlaybackProxyUrl(
+  if (!sources.length) return [];
+
+  const output = [];
+  for (const source of filterFresh(sources)) {
+    const redirectUrl = await createPlaybackProxyUrl(
       {
         provider: 'Akwam',
         providerReference: 'akwam',
@@ -272,31 +373,28 @@ export async function getOnDemandAkwamSources(
       },
       requestUrl,
       env,
-      PROXY_TOKEN_TTL_MS,
+      REDIRECT_TOKEN_TTL_MS,
     );
 
-    if (!fallbackUrl || fallbackUrl === source.url) {
-      throw new Error('Playback proxy secret is not configured');
+    if (!redirectUrl || redirectUrl === source.url) {
+      throw new Error('Playback redirect secret is not configured');
     }
 
-    // FastPath: expose the already-resolved media URL for direct playback first.
-    // Keep a Movyz proxy URL beside it for sources that require the Akwam Referer/CORS path.
-    proxied.push({
+    output.push({
       id: `ondemand:${contentType}:${contentId}:${source.quality}:${source.type}`,
       type: source.type,
       quality: source.quality,
       language: source.language,
       label: source.label,
       labelEn: source.label,
-      url: source.url,
-      directUrl: source.url,
-      fallbackUrl,
+      url: redirectUrl,
       isWorking: true,
       provider: 'Akwam',
       providerKey: 'akwam',
       providerReference: 'akwam',
+      expiresAt: source.expiresAt || null,
     });
   }
 
-  return proxied;
+  return output;
 }
