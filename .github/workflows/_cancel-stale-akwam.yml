@@ -1,0 +1,19 @@
+name: Cancel stale Akwam robot run
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-akwam-robot-Movyz Akwam Preparation Robot-refs/heads/main
+  cancel-in-progress: true
+
+jobs:
+  cancel-stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retire stale Akwam queue
+        run: echo "Stale Akwam run cancellation carrier."
