@@ -1,4 +1,4 @@
-name: Movyz Akwam exact POST diagnostic
+name: Movyz Akwam final resolver diagnostic
 
 on:
   push:
@@ -19,49 +19,26 @@ jobs:
         with:
           node-version: 22
       - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-      - name: Inspect Akwam location hash and session POST
+      - name: Resolve four movie anchors
         run: |
           npx tsx -e "
           (async () => {
-            const target='https://akwam.ss/old/download/8b8a42e56071/Inception-720p-BluRay-akoam-net-mkv';
-            const get=await fetch(target,{
-              headers:{Accept:'text/html,*/*;q=0.8','User-Agent':'Movyza/1.0'}
-            });
-            const html=await get.text();
-            const setCookie=get.headers.get('set-cookie')||'';
-            const cookie=setCookie.match(/^[^;]+/)?.[0]||'';
-            const samples=[];
-            for(const needle of ['location.hash','hash =','location.hash =','location.href','#'+target,'downloadUrl','file_token']){
-              const i=html.indexOf(needle);
-              if(i>=0) samples.push({needle,snippet:html.slice(Math.max(0,i-1200),Math.min(html.length,i+2200))});
-            }
-            const refs=[
-              target,
-              target.replace('/old/download/','/old/download/#'),
-              target+'#'+target,
-              '#'+target
+            const { resolveAkwamPlayback } = await import('./server/providers/arprov-akwam');
+            const checks = [
+              { label:'Interstellar',tmdbId:157336,releaseYear:2014 },
+              { label:'Inception',tmdbId:27205,releaseYear:2010 },
+              { label:'Fight Club',tmdbId:550,releaseYear:1999 },
+              { label:'The Shawshank Redemption',tmdbId:278,releaseYear:1994 },
             ];
-            const results=[];
-            for(const url of refs){
-              try{
-                const u=url.startsWith('#')?target+url:url;
-                const resp=await fetch(u,{
-                  method:'POST',
-                  headers:{
-                    Accept:'application/json, text/javascript, */*; q=0.01',
-                    'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
-                    'User-Agent':'Movyza/1.0',
-                    'X-Requested-With':'XMLHttpRequest',
-                    Referer:get.url,
-                    Origin:new URL(get.url).origin,
-                    ...(cookie?{Cookie:cookie}:{}),
-                  },
-                  body:''
-                });
-                const body=await resp.text();
-                results.push({url,status:resp.status,contentType:resp.headers.get('content-type'),body:body.slice(0,3000)});
-              }catch(error){results.push({url,error:String(error)})}
+            for (const item of checks) {
+              const sources = await resolveAkwamPlayback({
+                tmdbId:item.tmdbId,
+                title:item.label,
+                originalTitle:item.label,
+                releaseYear:item.releaseYear,
+              }, {});
+              console.log(item.label, JSON.stringify({count:sources.length,sources},null,2));
+              if (!sources.length) process.exitCode=1;
             }
-            console.log(JSON.stringify({finalUrl:get.url,cookie:!!cookie,samples,results},null,2));
           })();
           "
