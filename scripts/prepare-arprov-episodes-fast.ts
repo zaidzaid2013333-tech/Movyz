@@ -14,6 +14,12 @@ const SEASON_CONCURRENCY = Math.max(1, Math.min(2, Number.parseInt(process.env.S
 const EPISODE_CONCURRENCY = Math.max(1, Math.min(16, Number.parseInt(process.env.EPISODE_CONCURRENCY || '12', 10) || 12));
 const ONLY_MISSING = !/^(0|false|no)$/i.test(process.env.PREPARE_ONLY_MISSING || 'true');
 const SEASON_LIMIT = Math.max(1, Number.parseInt(process.env.EPISODE_SEASON_LIMIT || '80', 10) || 80);
+const PRIORITY_TMDB_IDS = new Set(
+  (process.env.AKWAM_PRIORITY_TMDB_IDS || '')
+    .split(',')
+    .map((value) => Number.parseInt(value.trim(), 10))
+    .filter((value) => Number.isFinite(value) && value > 0),
+);
 
 type EpisodeRow = {
   id: string;
@@ -328,16 +334,28 @@ async function prepareSeason(
             seasonId: season.id,
             error: error instanceof Error ? error.message : String(error),
           }));
-          return { episodeId: episode.id, sources: [], fallback: false };
         }
       }
 
+      // If the season index did not yield a concrete episode URL, fall back to
+      // the provider's episode-aware search/resolution path. This still runs
+      // only in the background preparation job; playback never performs it.
       fallback++;
-      return {
-        episodeId: episode.id,
-        sources: [],
-        fallback: true,
-      };
+      try {
+        const sources = await resolveAkwamPlayback(context, {});
+        return { episodeId: episode.id, sources, fallback: true };
+      } catch (error) {
+        failed++;
+        console.warn(JSON.stringify({
+          ok: false,
+          stage: 'episode-fallback-resolve',
+          episodeId: episode.id,
+          episodeNumber: episode.episode_number,
+          seasonId: season.id,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+        return { episodeId: episode.id, sources: [], fallback: true };
+      }
     });
 
     prepared += await saveBatch(
@@ -381,6 +399,11 @@ async function main() {
     .filter((season) => {
       const episodes = episodesBySeason.get(season.id) || [];
       return !ONLY_MISSING || episodes.some((episode) => !readyIds.has(episode.id));
+    })
+    .sort((a, b) => {
+      const aPriority = PRIORITY_TMDB_IDS.has(Number(a.series.tmdb_id || 0)) ? 0 : 1;
+      const bPriority = PRIORITY_TMDB_IDS.has(Number(b.series.tmdb_id || 0)) ? 0 : 1;
+      return aPriority - bPriority;
     })
     .slice(0, SEASON_LIMIT);
 
