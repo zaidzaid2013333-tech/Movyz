@@ -372,8 +372,12 @@ function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
   const seen = new Set<string>();
 
   for (const anchor of anchors(body, base)) {
-    const id = extractSeasonEpisode(anchor.url + ' ' + anchor.text);
-    const hay = normalize(anchor.text + ' ' + anchor.url);
+    const neighborhood = body.slice(
+      Math.max(0, anchor.index - 1_600),
+      Math.min(body.length, anchor.index + 500),
+    );
+    const hay = normalize(anchor.text + ' ' + anchor.url + ' ' + neighborhood);
+    const id = extractSeasonEpisode(hay);
 
     let score = 0;
     if (/class=["'][^"']*text-white[^"']*["']/i.test(anchor.tag)) score += 200;
@@ -759,14 +763,21 @@ function indexEpisodeCandidates(body: string, base: string, requestedSeason?: nu
   const values = new Map<string, AkwamIndexedEpisode & { score: number }>();
 
   for (const anchor of anchors(body, base)) {
-    const identity = extractSeasonEpisode(anchor.url + ' ' + anchor.text);
+    // ArProv's original Akwam provider reads the episode number from the
+    // containing episode card, not from the "مشاهدة" anchor text itself.
+    const neighborhood = body.slice(
+      Math.max(0, anchor.index - 1_600),
+      Math.min(body.length, anchor.index + 500),
+    );
+    const hay = normalize(anchor.url + ' ' + anchor.text + ' ' + neighborhood);
+    const identity = extractSeasonEpisode(hay);
     if (identity.episode === undefined) continue;
 
     let score = 0;
     if (/class=["'][^"']*text-white[^"']*["']/i.test(anchor.tag)) score += 100;
     if (requestedSeason !== undefined && identity.season === requestedSeason) score += 500;
     if (requestedSeason !== undefined && identity.season !== undefined && identity.season !== requestedSeason) score -= 800;
-    if (/(episode|ep|الحلقة|حلقه|حلقة)/i.test(normalize(anchor.text + ' ' + anchor.url))) score += 50;
+    if (/(episode|ep|الحلقة|حلقه|حلقة)/i.test(hay)) score += 50;
 
     const key = (identity.season === undefined ? '' : String(identity.season) + ':') + identity.episode;
     const current = values.get(key);
