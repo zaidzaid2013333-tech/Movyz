@@ -128,6 +128,17 @@ async function getCineProPlaybackSources(
       const quality = qualityMatch ? qualityMatch[1] + 'p' : '720p';
       const providerName = String(source.provider?.name || source.provider?.id || 'CinePro').trim();
       const track = Array.isArray(source.audioTracks) ? source.audioTracks[0] : undefined;
+      if (!requestUrl || !env) return null;
+      const signedUrl = await createPlaybackProxyUrl({
+        provider: 'CinePro',
+        type: normalizedType as any,
+        url,
+        providerReference: 'cinepro',
+        quality,
+        language: String(track?.language || 'und').trim(),
+        label: 'CinePro • ' + providerName,
+      }, requestUrl, env);
+      if (!signedUrl) return null;
       return {
         id: 'cinepro-' + contentType + '-' + contentId + '-' + index,
         type: normalizedType, quality, language: String(track?.language || 'und').trim(),
