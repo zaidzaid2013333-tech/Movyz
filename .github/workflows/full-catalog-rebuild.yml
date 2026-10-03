@@ -52,18 +52,5 @@ jobs:
       - name: Delete and rebuild the complete catalog
         run: npx tsx scripts/full-catalog-rebuild.ts
 
-      - name: Rebuild every movie source mapping
-        env:
-          REBIND_MODE: movies
-          REBIND_LIMIT: "240"
-          REBIND_OFFSET: "0"
-        run: npx tsx scripts/rebind-selected-playback.ts
-
-      - name: Begin resumable full episode source rebuild
-        env:
-          REBIND_MODE: episodes
-          REBIND_LIMIT: ${{ env.REBIND_EPISODE_LIMIT }}
-        run: npx tsx scripts/rebind-selected-playback.ts
-
       - name: Verify rebuilt catalog
         run: npx tsx scripts/verify-tmdb-sync.ts
