@@ -51,7 +51,7 @@ async function savePrepared(contentType: 'movie' | 'episode', contentId: string,
     const checked = await validatePreparedMediaSource({
       provider: 'Akwam',
       providerReference: 'akwam',
-      type: row.source_type,
+      type: row.source_type as NormalizedPlaybackSource['type'],
       url: row.url,
       quality: row.quality,
       language: row.language,
