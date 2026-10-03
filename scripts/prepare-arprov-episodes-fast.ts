@@ -88,22 +88,29 @@ async function mapLimit<T, R>(items: T[], concurrency: number, fn: (item: T) => 
 
 async function fetchEpisodesBySeason(seasonIds: string[]) {
   const output = new Map<string, EpisodeRow[]>();
-  const chunkSize = 50;
+  const seasonChunkSize = 10;
+  const pageSize = 1000;
 
-  for (let i = 0; i < seasonIds.length; i += chunkSize) {
-    const chunk = seasonIds.slice(i, i + chunkSize);
-    const { data, error } = await adminSupabase
-      .from('episodes')
-      .select('id,episode_number,name_ar,name_en,season_id')
-      .in('season_id', chunk)
-      .order('season_id')
-      .order('episode_number');
-    if (error) throw error;
+  for (let i = 0; i < seasonIds.length; i += seasonChunkSize) {
+    const chunk = seasonIds.slice(i, i + seasonChunkSize);
 
-    for (const row of data || []) {
-      const current = output.get(String(row.season_id)) || [];
-      current.push(row as EpisodeRow);
-      output.set(String(row.season_id), current);
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await adminSupabase
+        .from('episodes')
+        .select('id,episode_number,name_ar,name_en,season_id')
+        .in('season_id', chunk)
+        .order('season_id')
+        .order('episode_number')
+        .range(offset, offset + pageSize - 1);
+      if (error) throw error;
+
+      for (const row of data || []) {
+        const current = output.get(String(row.season_id)) || [];
+        current.push(row as EpisodeRow);
+        output.set(String(row.season_id), current);
+      }
+
+      if (!data || data.length < pageSize) break;
     }
   }
 
@@ -137,7 +144,7 @@ async function fetchSeasons() {
 
 async function readyEpisodeIds(episodeIds: string[]) {
   const ready = new Set<string>();
-  const chunkSize = 500;
+  const chunkSize = 100;
 
   for (let i = 0; i < episodeIds.length; i += chunkSize) {
     const chunk = episodeIds.slice(i, i + chunkSize);
