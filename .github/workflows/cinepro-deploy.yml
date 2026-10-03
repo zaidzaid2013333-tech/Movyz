@@ -22,7 +22,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY || secrets.TMDB_API_READ_ACCESS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -42,9 +42,13 @@ jobs:
         working-directory: cinepro-worker
         run: npm install --no-audit --no-fund
 
+      - name: Patch CinePro runtime compatibility
+        working-directory: cinepro-worker
+        run: node patch-core.mjs
+
       - name: Validate CinePro adapter
         working-directory: cinepro-worker
-        run: npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck entry.ts
+        run: npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck entry.ts cloudflare-node.d.ts
 
       - name: Validate Wrangler bundle
         working-directory: cinepro-worker
