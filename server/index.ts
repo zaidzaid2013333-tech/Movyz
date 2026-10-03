@@ -6,11 +6,6 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
-import { resolveRe3ArabiPlayback } from './providers/re3arabi';
-import { resolveArProvPlayback } from './providers/arprov';
-import { debugAkwamEpisode } from './providers/arprov-akwam';
-import { createPlaybackProxyUrl, handlePlaybackProxy } from './playback-proxy';
-import { persistEvergreenEpisodeSources, persistEvergreenMovieSources } from './playback-source-persistence';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -72,6 +67,7 @@ async function getFreshArProvSourcesForContent(contentType: 'movie' | 'episode',
     .eq('content_id', contentId)
     .eq('is_working', true)
     .eq('providers.key', 'arprov')
+    .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
     .order('quality', { ascending: true });
 
   if (error) {
@@ -732,29 +728,6 @@ app.get(`${api}/episodes/:id`, asyncRoute(async (req, res) => {
   });
 }));
 
-app.post(`${api}/debug/arprov-episode`, asyncRoute(async (req, res) => {
-  const debugKey = String(req.env?.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  if (!debugKey || req.headers.get('x-debug-key') !== debugKey) {
-    return fail(res, 404, 'NOT_FOUND', 'Not found');
-  }
-
-  const body = z.object({
-    tmdbId: z.number(),
-    title: z.string(),
-    originalTitle: z.string().optional(),
-    episodeTitle: z.string().optional(),
-    seasonNumber: z.number(),
-    episodeNumber: z.number(),
-  }).safeParse(req.body);
-
-  if (!body.success) {
-    return fail(res, 400, 'INVALID_DEBUG_REQUEST', 'Invalid debug request');
-  }
-
-  const trace = await debugAkwamEpisode(body.data, { browserBinding: req.env?.BROWSER });
-  return ok(res, trace);
-}));
-
 app.get(`${api}/playback/stream`, asyncRoute(async (req) => {
   return handlePlaybackProxy(
     new Request(req.url, { method: req.method, headers: req.headers }),
@@ -772,169 +745,20 @@ app.post(`${api}/playback/resolve`, asyncRoute(async (req, res) => {
     return fail(res, 400, 'INVALID_PLAYBACK_REQUEST', 'Invalid playback request');
   }
 
-  let sources: any[] = [];
+  // Playback is cache-only in production. No provider resolver, no Browser Run,
+  // and no upstream discovery is allowed during user playback.
+  const sources = await getFreshArProvSourcesForContent(
+    body.data.contentType,
+    body.data.contentId,
+  );
 
-  if (body.data.contentType === 'movie') {
-    const { data, error } = await adminSupabase
-      .from('movies')
-      .select('tmdb_id,status,title_ar,title_en,original_title')
-      .eq('id', body.data.contentId)
-      .maybeSingle();
-
-    if (error || !data || data.status !== 'published' || !data.tmdb_id) {
-      return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
-    }
-
-    try {
-      sources = await resolveArProvPlayback({
-        tmdbId: Number(data.tmdb_id),
-        title: data.title_en || data.title_ar || data.original_title || undefined,
-        originalTitle: data.original_title || data.title_en || data.title_ar || undefined,
-        alternateTitles: [data.title_ar, data.title_en, data.original_title].filter(Boolean).filter((value, index, list) => list.indexOf(value) === index),
-      }, { browserBinding: req.env?.BROWSER });
-    } catch (error) {
-      console.warn('[arprov-movie]', error instanceof Error ? error.message : String(error));
-      sources = [];
-    }
-
-    if (!sources.length) {
-      try {
-        const animeContext = await import('./providers/re3arabi').then(({ resolveRe3ArabiMovieContext }) =>
-          resolveRe3ArabiMovieContext(Number(data.tmdb_id))
-        );
-        if (animeContext.__isAnime) {
-          sources = await resolveRe3ArabiPlayback({
-            type: 'movie',
-            tmdbId: Number(data.tmdb_id),
-          });
-        }
-      } catch (error) {
-        console.warn('[anime-playback-movie]', error instanceof Error ? error.message : String(error));
-      }
-    }
-  } else {
-    const { data: episode, error: episodeError } = await adminSupabase
-      .from('episodes')
-      .select('id,episode_number,season_id,name_ar,name_en')
-      .eq('id', body.data.contentId)
-      .maybeSingle();
-
-    if (episodeError || !episode || !episode.season_id || !episode.episode_number) {
-      return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
-    }
-
-    const { data: season, error: seasonError } = await adminSupabase
-      .from('seasons')
-      .select('season_number,series_id')
-      .eq('id', episode.season_id)
-      .maybeSingle();
-
-    if (seasonError || !season || !season.series_id || !season.season_number) {
-      return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
-    }
-
-    const { data: series, error: seriesError } = await adminSupabase
-      .from('series')
-      .select('tmdb_id,status,title_ar,title_en,original_title')
-      .eq('id', season.series_id)
-      .maybeSingle();
-
-    if (
-      seriesError ||
-      !series ||
-      series.status !== 'published' ||
-      !series.tmdb_id
-    ) {
-      return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
-    }
-
-    try {
-      sources = await resolveArProvPlayback({
-        tmdbId: Number(series.tmdb_id),
-        title: series.title_en || series.title_ar || series.original_title || undefined,
-        originalTitle: series.original_title || series.title_en || series.title_ar || undefined,
-        alternateTitles: [series.title_ar, series.title_en, series.original_title].filter(Boolean).filter((value, index, list) => list.indexOf(value) === index),
-        seasonNumber: Number(season.season_number),
-        episodeNumber: Number(episode.episode_number),
-        episodeTitle: [episode.name_en, episode.name_ar].filter(Boolean).find((value) => String(value).trim()) as string | undefined,
-      }, { browserBinding: req.env?.BROWSER });
-    } catch (error) {
-      console.warn('[arprov-episode]', error instanceof Error ? error.message : String(error));
-      sources = [];
-    }
-
-    if (!sources.length) {
-      try {
-        const animeContext = await import('./providers/re3arabi').then(({ resolveRe3ArabiSeriesContext }) =>
-          resolveRe3ArabiSeriesContext(Number(series.tmdb_id))
-        );
-        if (animeContext.__isAnime) {
-          sources = await resolveRe3ArabiPlayback({
-            type: 'series',
-            tmdbId: Number(series.tmdb_id),
-            season: Number(season.season_number),
-            episode: Number(episode.episode_number),
-          });
-        }
-      } catch (error) {
-        console.warn('[anime-playback-episode]', error instanceof Error ? error.message : String(error));
-      }
-    }
-  }
-  let publicSources = sources || [];
-  try {
-    publicSources = await Promise.all(
-      publicSources.map(async (source: any) => ({
-        ...source,
-        url: await createPlaybackProxyUrl(source, req.url, req.env || {}),
-      })),
-    );
-  } catch (error) {
-    console.warn('[playback-proxy-mint]', error instanceof Error ? error.message : String(error));
-  }
-
-  if (publicSources.length) {
-    try {
-      if (body.data.contentType === 'movie') {
-        await persistEvergreenMovieSources(String(body.data.contentId), publicSources);
-      } else {
-        await persistEvergreenEpisodeSources(String(body.data.contentId), publicSources);
-      }
-    } catch (error) {
-      console.warn('[playback-cache]', error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  const output = publicSources
-    .filter((source: any) => String(source?.url || '').trim().startsWith('https://'))
-    .map((source: any) => ({
-      id: crypto.randomUUID(),
-      type: source.type,
-      quality: source.quality || 'auto',
-      language: source.language || 'ar',
-      label: source.label || source.provider || 'ArProv',
-      labelEn: source.label || source.provider || 'ArProv',
-      url: String(source.url).trim(),
-      isWorking: true,
-      provider: source.provider || 'ArProv',
-      providerKey: source.providerKey || source.providerReference || undefined,
-      providerReference: source.providerReference || source.providerKey || undefined,
-      referer: source.referer || undefined,
-    }))
-    .filter((source: any, index: number, all: any[]) =>
-      index === all.findIndex((candidate) =>
-        String(candidate.providerKey || candidate.providerReference || candidate.provider).toLowerCase() ===
-          String(source.providerKey || source.providerReference || source.provider).toLowerCase() &&
-        String(candidate.quality || '').toLowerCase() === String(source.quality || '').toLowerCase(),
-      ),
-    )
-    .slice(0, 8);
-
+  const output = sources
+    .filter((source: any) => /^https:\/\//i.test(String(source?.url || '').trim()))
+    .map((source: any) => ({ ...source, isWorking: true }));
 
   res.setHeader('Cache-Control', 'no-store');
   return ok(res, output);
 }));
-
 app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
   const contentType = z.enum(['movie', 'episode']).default('movie').parse(req.query.type);
   const id = req.params.id;
