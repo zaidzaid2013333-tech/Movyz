@@ -17,7 +17,46 @@ async function writeState(values: Record<string, unknown>) {
   if (error) throw error;
 }
 
+const { fetchArProvPage } = await import('../server/providers/arprov-runtime');
+
+async function inspectSearchContract() {
+  const urls = [
+    'https://akwam.ss/search?q=Breaking%20Bad',
+    'https://akwam.ss/?s=Breaking%20Bad',
+    'https://akwam.ss/series?search=Breaking%20Bad',
+  ];
+  const out: any[] = [];
+  for (const url of urls) {
+    const page = await fetchArProvPage(url, { timeoutMs: 12000 });
+    if (!page) {
+      out.push({ url, ok: false });
+      continue;
+    }
+    const body = page.body;
+    const anchors = [...body.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+      .map(m => ({
+        href: new URL(m[1], page.url).toString(),
+        text: String(m[2] || '').replace(/<[^>]+>/g,' ').replace(/&nbsp;/gi,' ').replace(/\s+/g,' ').trim().slice(0,180),
+      }))
+      .filter(x => /^https:\/\/akwam\.ss(?:\/|$)/i.test(x.href))
+      .filter(x => /\/series\//i.test(x.href) || /\/episode\//i.test(x.href) || /breaking|bad/i.test(x.text + ' ' + x.href))
+      .slice(0, 120);
+    const forms = [...body.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/gi)].slice(0, 10).map(m => m[0].slice(0, 3000));
+    const scripts = [...body.matchAll(/<script\b[^>]*src=["']([^"']+)["'][^>]*>/gi)].map(m => new URL(m[1], page.url).toString()).slice(0,80);
+    const apiHints = [...body.matchAll(/(?:\/api\/|ajax|search\?)[^"'\s<>]{0,180}/gi)].map(m=>m[0]).slice(0,80);
+    out.push({url,ok:true,status:page.status,bytes:body.length,anchors,forms,scripts,apiHints});
+  }
+  await writeState({
+    last_run_at:new Date().toISOString(),
+    last_success_at:new Date().toISOString(),
+    last_error:null,
+    stats:{state:'search-contract',out},
+  });
+  console.log(JSON.stringify(out,null,2));
+}
+
 async function main() {
+  await inspectSearchContract();
   const { data: series, error: seriesError } = await adminSupabase
     .from('series')
     .select('id,tmdb_id,title_ar,title_en,original_title,alternative_titles,first_air_date')
