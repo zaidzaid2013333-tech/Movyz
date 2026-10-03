@@ -1,4 +1,5 @@
 import { OMSSServer } from '@omss/framework';
+import { createServer } from 'node:http';
 import { httpServerHandler } from 'cloudflare:node';
 import { knownThirdPartyProxies } from './src/thirdPartyProxies';
 import { streamPatterns } from './src/streamPatterns';
@@ -99,27 +100,35 @@ try {
 }
 
 const app = cinepro.getInstance();
-let ready: Promise<void> | undefined;
-let handler: ReturnType<typeof httpServerHandler> | undefined;
 
-async function getHandler() {
+let ready: Promise<void> | undefined;
+
+async function ensureReady() {
   if (!ready) {
     ready = app.ready();
   }
   await ready;
-
-  if (!handler) {
-    handler = httpServerHandler(app.server);
-  }
-
-  return handler;
 }
 
-export default {
-  async fetch(request: Request, env: { TMDB_API_KEY?: string }, ctx: ExecutionContext) {
-    // env is intentionally accepted for Worker compatibility; CinePro reads the same secret
-    // from process.env during startup via nodejs_compat_populate_process_env.
-    void env;
-    return (await getHandler()).fetch(request, env, ctx);
-  },
-};
+// Cloudflare's Node HTTP bridge is designed to wrap a regular Node http.Server.
+// Fastify owns the request listener; this tiny bridge forwards Worker requests
+// into that listener after Fastify has completed its async boot sequence.
+const bridgeServer = createServer(async (request, response) => {
+  try {
+    await ensureReady();
+    app.server.emit('request', request, response);
+  } catch (error) {
+    console.error('[CinePro] request bridge failed', error);
+    if (!response.headersSent) {
+      response.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+    }
+    response.end(JSON.stringify({
+      error: 'CINEPRO_RUNTIME_ERROR',
+      message: error instanceof Error ? error.message : String(error),
+    }));
+  }
+});
+
+const handler = httpServerHandler(bridgeServer);
+
+export default handler;
