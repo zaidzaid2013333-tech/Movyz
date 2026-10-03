@@ -168,7 +168,7 @@ async function main() {
         }
       }
 
-      results.push({
+      const result = {
         episode: episode.episode_number,
         title: episode.name_en || episode.name_ar,
         discovered: sources.length,
@@ -180,8 +180,9 @@ async function main() {
         })).slice(0, 8),
         trace,
         saved,
-      });
-      console.log(JSON.stringify({ ok: saved > 0, ...results.at(-1) }));
+      };
+      results.push(result);
+      console.log(JSON.stringify({ ok: saved > 0, ...result }));
     } catch (error) {
       let trace: Array<Record<string, unknown>> = [];
       if (episode.episode_number === 1) {
@@ -192,7 +193,7 @@ async function main() {
         });
       }
 
-      results.push({
+      const result = {
         episode: episode.episode_number,
         title: episode.name_en || episode.name_ar,
         discovered: 0,
@@ -200,8 +201,9 @@ async function main() {
         trace,
         saved: 0,
         error: error instanceof Error ? error.message : String(error),
-      });
-      console.error(JSON.stringify({ ok: false, ...results.at(-1) }));
+      };
+      results.push(result);
+      console.error(JSON.stringify({ ok: false, ...result }));
     }
   }
 
