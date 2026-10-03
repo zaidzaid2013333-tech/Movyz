@@ -44,7 +44,7 @@ function normalizeSource(source: NormalizedPlaybackSource) {
   };
 }
 
-async function saveEpisode(episodeId: string, sources: NormalizedPlaybackSource[], providerId: string) {
+async function saveEpisode(episodeId: string, sources: NormalizedPlaybackSource[], providerId: string): Promise<number> {
   void episodeId;
   void providerId;
   const validated = [];
