@@ -1,0 +1,50 @@
+name: Prepare ArProv Playback Sources
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "scripts/prepare-arprov-sources.ts"
+      - "bot/run-maintenance-once.ts"
+      - ".github/workflows/arprov-prepared.yml"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "movies or episodes"
+        required: true
+        default: "movies"
+      limit:
+        description: "number of rows to prepare"
+        required: true
+        default: "250"
+      offset:
+        description: "starting row offset"
+        required: true
+        default: "0"
+
+concurrency:
+  group: movyz-arprov-prepared
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      PREPARE_MODE: ${{ github.event.inputs.mode || 'movies' }}
+      PREPARE_LIMIT: ${{ github.event.inputs.limit || '250' }}
+      PREPARE_OFFSET: ${{ github.event.inputs.offset || '0' }}
+      PREPARE_CONCURRENCY: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Prepare ready playback sources
+        run: npm run bot:once
