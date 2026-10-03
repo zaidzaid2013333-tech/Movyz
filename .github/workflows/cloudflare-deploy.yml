@@ -121,7 +121,6 @@ jobs:
           PY
 
       - name: Smoke test production watch paths
-        continue-on-error: true
         run: |
           set -u
           export API_BASE="https://movyz-api.sameranede.workers.dev"
