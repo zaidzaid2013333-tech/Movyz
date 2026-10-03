@@ -561,8 +561,8 @@ async function resolveDownload(
     }];
   }
 
-  const directType = inferPlaybackType(finalUrl);
-  if (directType) {
+  const directType = inferPlaybackType(finalUrl) || 'direct';
+  if (directType && !/\/embed(?:\/|$)/i.test(finalUrl) && !/\/download(?:\/|$)/i.test(finalUrl)) {
     return [{
       provider: 'Akwam',
       providerReference: 'akwam',
