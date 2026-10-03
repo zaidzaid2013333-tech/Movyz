@@ -1,4 +1,4 @@
-name: Movyz Akwam legacy session diagnostic
+name: Movyz Akwam session fix diagnostic
 
 on:
   push:
@@ -19,42 +19,17 @@ jobs:
         with:
           node-version: 22
       - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-      - name: Inspect GET state and POST requirements
+      - name: Resolve Inception after session-cookie fix
         run: |
           npx tsx -e "
           (async () => {
-            const target='https://akwam.ss/old/download/8b8a42e56071/Inception-720p-BluRay-akoam-net-mkv';
-            const get=await fetch(target,{
-              headers:{
-                Accept:'text/html,*/*;q=0.8',
-                'User-Agent':'Movyza/1.0',
-              },
-              redirect:'manual'
-            });
-            const html=await get.text();
-            const interesting=(needle)=>{
-              const out=[];
-              let p=0;
-              while((p=html.toLowerCase().indexOf(needle.toLowerCase(),p))>=0 && out.length<8){
-                out.push(html.slice(Math.max(0,p-1500),Math.min(html.length,p+3500)));
-                p+=needle.length;
-              }
-              return out;
-            };
-            console.log(JSON.stringify({
-              getStatus:get.status,
-              getUrl:get.url,
-              contentType:get.headers.get('content-type'),
-              setCookie:get.headers.get('set-cookie'),
-              headers:[...get.headers.entries()].filter(([k])=>/cookie|token|csrf|x-/i.test(k)),
-              snippets:{
-                btnLoader:interesting('btn-loader'),
-                hashData:interesting('hash_data'),
-                token:interesting('token'),
-                csrf:interesting('csrf'),
-                ajax:interesting('ajax'),
-                form:interesting('<form')
-              }
-            },null,2));
+            const { resolveAkwamPlayback } = await import('./server/providers/arprov-akwam');
+            const result = await resolveAkwamPlayback({
+              tmdbId: 27205,
+              title: 'Inception',
+              originalTitle: 'Inception',
+              releaseYear: 2010,
+            }, {});
+            console.log(JSON.stringify({count: result.length, sources: result}, null, 2));
           })();
           "
