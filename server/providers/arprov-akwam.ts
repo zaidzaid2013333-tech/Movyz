@@ -278,9 +278,13 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
       stage: 'search-empty',
       base,
       queries: [...queries].slice(0, 8),
-      pages: pages.map((page) => page.status === 'fulfilled'
-        ? { ok: true, url: page.value.url, status: page.value.status, bytes: page.value.body.length }
-        : { ok: false, reason: page.reason instanceof Error ? page.reason.message : String(page.reason) }),
+      pages: pages.map((page) => {
+        if (page.status !== 'fulfilled') {
+          return { ok: false, reason: page.reason instanceof Error ? page.reason.message : String(page.reason) };
+        }
+        if (!page.value) return { ok: false, reason: 'empty-response' };
+        return { ok: true, url: page.value.url, status: page.value.status, bytes: page.value.body.length };
+      }),
     }));
   }
 
