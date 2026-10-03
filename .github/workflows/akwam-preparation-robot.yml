@@ -1,5 +1,6 @@
 name: Movyz Akwam Preparation Robot
 # [akwam-robot] parallel bulk preparation
+# manual retrigger: movie-only run
 
 on:
   push:
