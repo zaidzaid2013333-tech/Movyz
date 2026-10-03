@@ -8,6 +8,8 @@ on:
       - "scripts/prepare-arprov-sources.ts"
       - "scripts/prepare-arprov-episodes-fast.ts"
       - "scripts/validate-prepared-source.ts"
+      - "bot/groq-akwam-agent.ts"
+      - "package.json"
       - ".github/workflows/akwam-preparation-robot.yml"
   schedule:
     - cron: "17 03 * * *"
@@ -34,6 +36,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  groq-agent:
+    if: ${{ always() }}
+    needs: [movies, episodes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GROQ_MODEL: "openai/gpt-oss-120b"
+      GROQ_AGENT_MAX_TURNS: "5"
+      GROQ_AGENT_MAX_ACTIONS: "3"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
+      - name: Run Movyz Groq preparation agent
+        run: npm run bot:groq-agent
+
   movies:
     if: >-
       ${{ github.event_name != 'push' ||
