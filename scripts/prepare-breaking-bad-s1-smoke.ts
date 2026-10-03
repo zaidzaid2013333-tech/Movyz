@@ -155,6 +155,12 @@ async function main() {
         episode: episode.episode_number,
         title: episode.name_en || episode.name_ar,
         discovered: sources.length,
+        rawSources: sources.map((source) => ({
+          url: source.url,
+          quality: source.quality,
+          type: source.type,
+          label: source.label,
+        })).slice(0, 8),
         saved,
       });
       console.log(JSON.stringify({ ok: saved > 0, ...results.at(-1) }));
@@ -163,6 +169,7 @@ async function main() {
         episode: episode.episode_number,
         title: episode.name_en || episode.name_ar,
         discovered: 0,
+        rawSources: [],
         saved: 0,
         error: error instanceof Error ? error.message : String(error),
       });
