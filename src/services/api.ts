@@ -6,11 +6,11 @@ import {
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
 
-const onDemandPlaybackCache = new Map<string, {
+const preparedPlaybackCache = new Map<string, {
   expiresAt: number;
   promise: Promise<import('../types').PlaybackSource[]>;
 }>();
-const ON_DEMAND_BROWSER_TTL_MS = 90 * 1000;
+const PREPARED_BROWSER_TTL_MS = 90 * 1000;
 
 async function request<T>(
   path: string,
@@ -132,40 +132,37 @@ export const MovyzaApi = {
   getWatchHistory: () => request<WatchProgress[]>('/history'),
   clearWatchHistory: () => request<{ cleared: boolean }>('/history', { method: 'DELETE' }),
 
-  getOnDemandAkwamSources: (contentType: 'movie' | 'episode', contentId: string) => {
+  getPreparedPlaybackSources: (contentType: 'movie' | 'episode', contentId: string) => {
     const key = `${contentType}:${contentId}`;
     const now = Date.now();
-    const cached = onDemandPlaybackCache.get(key);
+    const cached = preparedPlaybackCache.get(key);
     if (cached && cached.expiresAt > now) return cached.promise;
 
     const promise = request<import('../types').PlaybackSource[]>(
-      `/playback/on-demand?type=${encodeURIComponent(contentType)}&id=${encodeURIComponent(contentId)}`,
-      {},
+      '/playback/prepared',
+      {
+        method: 'POST',
+        body: JSON.stringify({ contentType, contentId }),
+      },
       { skipAuth: true },
     ).then((response) => response.data);
 
-    onDemandPlaybackCache.set(key, {
-      expiresAt: now + ON_DEMAND_BROWSER_TTL_MS,
+    preparedPlaybackCache.set(key, {
+      expiresAt: now + PREPARED_BROWSER_TTL_MS,
       promise,
     });
 
     promise.catch(() => {
-      const current = onDemandPlaybackCache.get(key);
-      if (current?.promise === promise) onDemandPlaybackCache.delete(key);
+      const current = preparedPlaybackCache.get(key);
+      if (current?.promise === promise) preparedPlaybackCache.delete(key);
     });
 
     return promise;
   },
 
-  prefetchOnDemandAkwamSources: (contentType: 'movie' | 'episode', contentId: string) => {
-    void MovyzaApi.getOnDemandAkwamSources(contentType, contentId).catch(() => undefined);
+  prefetchPreparedPlaybackSources: (contentType: 'movie' | 'episode', contentId: string) => {
+    void MovyzaApi.getPreparedPlaybackSources(contentType, contentId).catch(() => undefined);
   },
-
-  getPreparedPlaybackSources: (contentType: 'movie' | 'episode', contentId: string) =>
-    request<import('../types').PlaybackSource[]>('/playback/prepared', {
-      method: 'POST',
-      body: JSON.stringify({ contentType, contentId }),
-    }, { skipAuth: true }),
 
   getWatchProgress: (contentId: string, episodeId?: string) =>
     request<WatchProgress | null>(
