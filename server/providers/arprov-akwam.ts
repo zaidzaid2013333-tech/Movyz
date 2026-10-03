@@ -234,7 +234,12 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
   }
 
   const queryList = [...queries].slice(0, 3);
-  const searchRequestUrls = queryList.map(query => `${base}/search?q=${encodeURIComponent(query)}`);
+  // Current Akwam.ss exposes its working search index under /old/search/<query>.
+  // Keep the legacy/query forms as fallbacks because individual pages can still live on the new routes.
+  const searchRequestUrls = queryList.flatMap(query => [
+    `${base}/old/search/${encodeURIComponent(query)}`,
+    `${base}/search?q=${encodeURIComponent(query)}`,
+  ]);
 
   const candidates: SearchCandidate[] = [];
   const seen = new Set<string>();
@@ -307,7 +312,10 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
   // fall back to the plain title so we can open the series page and index its episodes.
   if (!candidates.length && ctx.episodeNumber !== undefined) {
     const seriesQueries = titles.slice(0, 3);
-    const seriesUrls = seriesQueries.map(query => `${base}/search?q=${encodeURIComponent(query)}`);
+    const seriesUrls = seriesQueries.flatMap(query => [
+      `${base}/old/search/${encodeURIComponent(query)}`,
+      `${base}/search?q=${encodeURIComponent(query)}`,
+    ]);
     pages = await Promise.allSettled(
       seriesUrls.map(url => fetchArProvPage(url, {
         browserBinding: runtime.browserBinding,
