@@ -126,6 +126,13 @@ export const MovyzaApi = {
   getWatchHistory: () => request<WatchProgress[]>('/history'),
   clearWatchHistory: () => request<{ cleared: boolean }>('/history', { method: 'DELETE' }),
 
+  getOnDemandAkwamSources: (contentType: 'movie' | 'episode', contentId: string) =>
+    request<import('../types').PlaybackSource[]>(
+      `/playback/on-demand?type=${encodeURIComponent(contentType)}&id=${encodeURIComponent(contentId)}`,
+      {},
+      { skipAuth: true },
+    ),
+
   getPreparedPlaybackSources: (contentType: 'movie' | 'episode', contentId: string) =>
     request<import('../types').PlaybackSource[]>('/playback/prepared', {
       method: 'POST',
