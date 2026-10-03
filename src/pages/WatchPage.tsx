@@ -36,6 +36,8 @@ interface WatchPageProps {
 const isPlayableHttpSource = (source: PlaybackSource) => {
   const url = source.url?.trim() || '';
   if (!/^https?:\/\//i.test(url)) return false;
+  if (!['mp4', 'hls', 'dash', 'webm', 'direct'].includes(String(source.type || '').toLowerCase())) return false;
+  if (!/^\\d{3,4}p$/i.test(String(source.quality || '').trim())) return false;
   try {
     new URL(url);
   } catch {
@@ -302,10 +304,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       return () => { active = false; };
     }
 
-    setResolverLoading(true);
+    setResolverLoading(true); // Loading already-prepared playback metadata; no source discovery occurs here.
     setPlaybackError(null);
 
-    void MovyzaApi.getOnDemandAkwamSources(targetType, targetId)
+    void MovyzaApi.getPreparedPlaybackSources(targetType, targetId)
       .then((resolved) => {
         if (!active) return;
 
