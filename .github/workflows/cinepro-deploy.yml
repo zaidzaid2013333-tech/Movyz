@@ -54,9 +54,20 @@ jobs:
         working-directory: cinepro-worker
         run: npx wrangler deploy --dry-run
 
+      - name: Prepare CinePro secrets
+        working-directory: cinepro-worker
+        run: |
+          umask 077
+          printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .cinepro-secrets
+
       - name: Deploy CinePro Worker
         working-directory: cinepro-worker
-        run: npx wrangler deploy
+        run: npx wrangler deploy --secrets-file .cinepro-secrets
+
+      - name: Remove CinePro secrets
+        if: ${{ always() }}
+        working-directory: cinepro-worker
+        run: rm -f .cinepro-secrets
 
       - name: Smoke test CinePro
         run: |
