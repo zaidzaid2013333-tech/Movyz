@@ -2,6 +2,9 @@
 // Smoke coverage order: Interstellar -> Inception -> Fight Club -> The Shawshank Redemption.
 // CI trigger: production smoke verification follows workflow-only fixes
 import { app } from './server/index';
+import { getCineProSources } from './server/cinepro-adapter';
+import { ok, fail } from './server/http';
+import { z } from 'zod';
 import type { WorkerEnvironment } from './server/mini-http';
 
 type ServiceBinding = {
@@ -15,6 +18,7 @@ type ExecutionContextLike = {
 type MovyzEnvironment = WorkerEnvironment & {
   ASSETS: { fetch(request: Request): Promise<Response> };
   WATCH_API?: ServiceBinding;
+  CINEPRO_BASE_URL?: string;
 };
 
 
@@ -34,6 +38,37 @@ const noCacheHeaders = (response: Response) => {
 export default {
   async fetch(request: Request, env: MovyzEnvironment, ctx: ExecutionContextLike): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === '/api/v1/playback/prepared' && request.method === 'POST' && env.CINEPRO_BASE_URL) {
+      try {
+        const body = await request.clone().json();
+        const parsed = z.object({
+          contentType: z.enum(['movie', 'episode']),
+          contentId: z.string().uuid(),
+        }).safeParse(body);
+
+        if (parsed.success) {
+          try {
+            const sources = await getCineProSources(
+              parsed.data.contentType,
+              parsed.data.contentId,
+              request.url,
+              env,
+            );
+            if (sources.length) {
+              return ok(
+                { status: 200, headers: new Headers(), body: null } as any,
+                sources,
+              ) as any;
+            }
+          } catch (error) {
+            console.warn('[cinepro-playback]', error instanceof Error ? error.message : String(error));
+          }
+        }
+      } catch (error) {
+        console.warn('[cinepro-playback-request]', error instanceof Error ? error.message : String(error));
+      }
+    }
 
     if (url.pathname === '/health' || url.pathname.startsWith('/api/')) {
       return app.handle(request, env, ctx);
