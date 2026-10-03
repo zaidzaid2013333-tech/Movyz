@@ -649,6 +649,94 @@ export async function debugAkwamEpisode(
   return trace;
 }
 
+export type AkwamIndexedEpisode = {
+  url: string;
+  episode: number;
+  season?: number;
+};
+
+function indexEpisodeCandidates(body: string, base: string, requestedSeason?: number) {
+  const values = new Map<string, AkwamIndexedEpisode & { score: number }>();
+
+  for (const anchor of anchors(body, base)) {
+    const identity = extractSeasonEpisode(anchor.url + ' ' + anchor.text);
+    if (identity.episode === undefined) continue;
+
+    let score = 0;
+    if (/class=["'][^"']*text-white[^"']*["']/i.test(anchor.tag)) score += 100;
+    if (requestedSeason !== undefined && identity.season === requestedSeason) score += 500;
+    if (requestedSeason !== undefined && identity.season !== undefined && identity.season !== requestedSeason) score -= 800;
+    if (/(episode|ep|الحلقة|حلقه|حلقة)/i.test(normalize(anchor.text + ' ' + anchor.url))) score += 50;
+
+    const key = (identity.season === undefined ? '' : String(identity.season) + ':') + identity.episode;
+    const current = values.get(key);
+    const item = {
+      url: anchor.url,
+      episode: identity.episode,
+      season: identity.season,
+      score,
+    };
+    if (!current || score > current.score) values.set(key, item);
+  }
+
+  return [...values.values()]
+    .sort((a, b) => b.score - a.score)
+    .map(({ score: _score, ...item }) => item);
+}
+
+export async function discoverAkwamSeasonEpisodes(
+  context: ProviderContext,
+  runtime: AkwamRuntime = {},
+): Promise<AkwamIndexedEpisode[]> {
+  for (const base of AKWAM_BASES) {
+    const candidates = await search(base, context, runtime);
+    for (const candidate of candidates.slice(0, 3)) {
+      let detail = await fetchArProvPage(candidate.url, {
+        browserBinding: runtime.browserBinding,
+        timeoutMs: 10_000,
+      });
+
+      if (looksBlocked(detail) && runtime.browserBinding) {
+        detail = await fetchArProvPage(candidate.url, {
+          browserBinding: runtime.browserBinding,
+          timeoutMs: 12_000,
+          forceBrowser: true,
+        });
+      }
+      if (!detail) continue;
+
+      const indexed = indexEpisodeCandidates(detail.body, detail.url, context.seasonNumber);
+      if (indexed.length) {
+        return indexed;
+      }
+    }
+  }
+
+  return [];
+}
+
+export async function resolveAkwamEpisodePage(
+  url: string,
+  context: ProviderContext,
+  runtime: AkwamRuntime = {},
+): Promise<NormalizedPlaybackSource[]> {
+  let page = await fetchArProvPage(url, {
+    browserBinding: runtime.browserBinding,
+    timeoutMs: 10_000,
+  });
+
+  if (looksBlocked(page) && runtime.browserBinding) {
+    page = await fetchArProvPage(url, {
+      browserBinding: runtime.browserBinding,
+      timeoutMs: 12_000,
+      forceBrowser: true,
+    });
+  }
+
+  if (!page) return [];
+  return resolvePage(page, context, runtime);
+}
+
 export async function resolveAkwamPlayback(
   context: ProviderContext,
   runtime: AkwamRuntime = {},

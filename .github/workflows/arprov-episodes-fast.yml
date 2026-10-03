@@ -1,0 +1,44 @@
+name: Prepare ArProv Episodes Fast
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "scripts/prepare-arprov-episodes-fast.ts"
+      - "server/providers/arprov-akwam.ts"
+      - "package.json"
+      - "ops/episode-fill.trigger"
+      - ".github/workflows/arprov-episodes-fast.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: movyz-arprov-episodes-fast
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      EPISODE_SHARD_INDEX: ${{ matrix.shard }}
+      EPISODE_SHARD_COUNT: "4"
+      SEASON_CONCURRENCY: "1"
+      EPISODE_CONCURRENCY: "12"
+      PREPARE_ONLY_MISSING: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Prepare episode sources
+        run: npm run bot:episodes-fast

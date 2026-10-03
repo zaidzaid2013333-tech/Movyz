@@ -16,7 +16,8 @@
     "cf:deploy": "wrangler deploy",
     "cf:dev": "wrangler dev",
     "bot": "tsx bot/source-maintenance.ts",
-    "bot:once": "tsx bot/run-maintenance-once.ts"
+    "bot:once": "tsx bot/run-maintenance-once.ts",
+    "bot:episodes-fast": "tsx scripts/prepare-arprov-episodes-fast.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
