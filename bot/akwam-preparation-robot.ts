@@ -13,6 +13,24 @@ const episodeShardCount = Math.max(1, Number.parseInt(process.env.AKWAM_EPISODE_
 const runMode = mode === 'movies' || mode === 'episodes' ? mode : 'both';
 const runKey =
   `akwam-preparation-robot:${runMode}:m${movieShardIndex}:e${episodeShardIndex}`;
+const PLAYBOOK_PATH = new URL('../docs/AKWAM-EXTRACTION-PLAYBOOK.md', import.meta.url);
+
+async function loadTrainingState() {
+  const playbook = await readFile(PLAYBOOK_PATH, 'utf8');
+  const { data } = await adminSupabase
+    .from('maintenance_state')
+    .select('stats')
+    .eq('job_key', 'akwam-learning-memory')
+    .maybeSingle();
+
+  return {
+    playbookLoaded: playbook.length > 0,
+    playbookBytes: playbook.length,
+    learningVersion: data?.stats?.version || null,
+    learningLessons: Array.isArray(data?.stats?.lessons) ? data.stats.lessons.length : 0,
+    strategyOrder: Array.isArray(data?.stats?.strategyOrder) ? data.stats.strategyOrder.slice(0, 8) : [],
+  };
+}
 
 async function markState(values: {
   last_run_at?: string;
@@ -62,6 +80,7 @@ function run(script: string, env: Record<string, string>) {
 
 async function main() {
   const startedAt = new Date().toISOString();
+  const training = await loadTrainingState();
 
   console.log(JSON.stringify({
     robot: 'movyz-akwam-preparation',
@@ -71,6 +90,7 @@ async function main() {
     playbackDiscovery: 'background-only',
     origin: 'https://akwam.ss/',
     policy: 'prepare-store-proxy-play-native',
+    training,
   }));
 
   await markState({
@@ -87,6 +107,7 @@ async function main() {
       episodeShardCount,
       startedAt,
       state: 'running',
+      training,
     },
   });
 
@@ -99,6 +120,8 @@ async function main() {
       PREPARE_CONCURRENCY: process.env.PREPARE_CONCURRENCY || '2',
       PREPARE_LIMIT: process.env.PREPARE_LIMIT || '500',
       PREPARE_OFFSET: process.env.PREPARE_OFFSET || '0',
+      AKWAM_TRAINING_VERSION: String(training.learningVersion || 'playbook-only'),
+      AKWAM_TRAINING_STRATEGIES: JSON.stringify(training.strategyOrder),
     });
   }
 
@@ -110,6 +133,8 @@ async function main() {
       EPISODE_SEASON_LIMIT: process.env.EPISODE_SEASON_LIMIT || '20',
       EPISODE_CONCURRENCY: process.env.EPISODE_CONCURRENCY || '8',
       SEASON_CONCURRENCY: process.env.SEASON_CONCURRENCY || '1',
+      AKWAM_TRAINING_VERSION: String(training.learningVersion || 'playbook-only'),
+      AKWAM_TRAINING_STRATEGIES: JSON.stringify(training.strategyOrder),
     });
   }
 
@@ -132,6 +157,7 @@ async function main() {
       completedAt,
       state: 'success',
       workingSourceCount: sourceCount,
+      training,
     },
   });
 }
