@@ -606,7 +606,7 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
 app.get(`${api}/movies/:id`, asyncRoute(async (req, res) => {
   const { data, error } = await adminSupabase.from('movies').select('*').eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
-  const movie = await movieDto(data, true);
+  const movie = await movieDto(data, true, req.url, req.env || {});
   return ok(res, { movie, similar: [] });
 }));
 
@@ -665,7 +665,7 @@ app.get(`${api}/series/:id/watch/:season/:episode`, asyncRoute(async (req, res) 
     .eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error) return fail(res, 500, 'SERIES_QUERY_FAILED', 'Unable to load series');
   if (!data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
-  const series = await seriesWatchDto(data, seasonNumber);
+  const series = await seriesWatchDto(data, seasonNumber, req.url, req.env || {});
   if (!series) return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
   if (!series.seasons[0].episodes.some((item: any) => item.episodeNumber === episodeNumber)) {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
@@ -844,7 +844,7 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
   }
 
-  const playbackSources = await getFreshArProvSourcesForContent('episode', String(episode.id))
+  const playbackSources = await getFreshArProvSourcesForContent('episode', String(episode.id), req.url, req.env || {})
     .catch((sourceError) => {
       console.warn('[episode-playback-cache]', sourceError instanceof Error ? sourceError.message : String(sourceError));
       return [];
