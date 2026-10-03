@@ -278,31 +278,89 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     ?? storedPlaybackSources[0]
     ?? null;
   useEffect(() => {
-    const ready = collapseProviderQualityDuplicates(
+    let active = true;
+
+    const fallback = collapseProviderQualityDuplicates(
       storedPlaybackSources
         .filter(isPlayableHttpSource)
         .filter((source) => source.isWorking !== false)
         .slice(0, 20),
     );
 
-    setRemotePlaybackSources(ready);
-    setRemotePlaybackSource((current) => current && ready.some((source) => source.url === current.url)
-      ? current
-      : ready.find((source) => /1080p/i.test(source.quality || source.labelEn || ''))
-        || ready.find((source) => /720p/i.test(source.quality || source.labelEn || ''))
-        || ready[0]
-        || null,
-    );
-    setResolverLoading(false);
-    setPlayerUnlocked(ready.length > 0);
-    setPlaybackError(
-      ready.length
-        ? null
-        : (language === 'ar'
-          ? 'لا يوجد مصدر تشغيل جاهز حاليًا.'
-          : 'No prepared playback source is currently available.'),
-    );
-  }, [storedPlaybackSources, language]);
+    const targetType = mediaType === 'movie' ? 'movie' as const : 'episode' as const;
+    const targetId = mediaType === 'movie'
+      ? content?.id
+      : currentEpisode?.id;
+
+    if (!targetId) {
+      setRemotePlaybackSources(fallback);
+      setRemotePlaybackSource(fallback[0] || null);
+      setResolverLoading(false);
+      setPlayerUnlocked(fallback.length > 0);
+      return () => { active = false; };
+    }
+
+    setResolverLoading(true);
+    setPlaybackError(null);
+
+    void MovyzaApi.getOnDemandAkwamSources(targetType, targetId)
+      .then((resolved) => {
+        if (!active) return;
+
+        const ready = collapseProviderQualityDuplicates(
+          resolved
+            .filter(isPlayableHttpSource)
+            .filter((source) => source.isWorking !== false)
+            .slice(0, 20),
+        );
+
+        const preferred =
+          ready.find((source) => /1080p/i.test(source.quality || source.labelEn || '')) ||
+          ready.find((source) => /720p/i.test(source.quality || source.labelEn || '')) ||
+          ready[0] ||
+          fallback.find((source) => /1080p/i.test(source.quality || source.labelEn || '')) ||
+          fallback.find((source) => /720p/i.test(source.quality || source.labelEn || '')) ||
+          fallback[0] ||
+          null;
+
+        setRemotePlaybackSources(ready.length ? ready : fallback);
+        setRemotePlaybackSource(preferred);
+        setPlayerUnlocked(Boolean(preferred));
+        setPlaybackError(
+          preferred
+            ? null
+            : (language === 'ar'
+              ? 'تعذر الحصول على مصدر تشغيل حاليًا.'
+              : 'Unable to resolve a playable source right now.'),
+        );
+        setResolverLoading(false);
+      })
+      .catch(() => {
+        if (!active) return;
+
+        const preferred =
+          fallback.find((source) => /1080p/i.test(source.quality || source.labelEn || '')) ||
+          fallback.find((source) => /720p/i.test(source.quality || source.labelEn || '')) ||
+          fallback[0] ||
+          null;
+
+        setRemotePlaybackSources(fallback);
+        setRemotePlaybackSource(preferred);
+        setPlayerUnlocked(Boolean(preferred));
+        setPlaybackError(
+          preferred
+            ? null
+            : (language === 'ar'
+              ? 'تعذر الحصول على مصدر تشغيل حاليًا.'
+              : 'Unable to resolve a playable source right now.'),
+        );
+        setResolverLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [mediaType, content?.id, currentEpisode?.id, storedPlaybackSources, language]);
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
@@ -404,7 +462,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const availableSources = useMemo(
     () =>
       collapseProviderQualityDuplicates(
-        [...storedPlaybackSources, ...remotePlaybackSources].filter(
+        [...remotePlaybackSources, ...storedPlaybackSources].filter(
           (source, index, all) =>
             index === all.findIndex((candidate) => candidate.url === source.url),
         ),
