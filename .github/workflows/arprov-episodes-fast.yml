@@ -32,7 +32,7 @@ jobs:
       EPISODE_SHARD_INDEX: ${{ matrix.shard }}
       EPISODE_SHARD_COUNT: "4"
       SEASON_CONCURRENCY: "1"
-      EPISODE_CONCURRENCY: "12"
+      EPISODE_CONCURRENCY: "8"
       PREPARE_ONLY_MISSING: "true"
     steps:
       - uses: actions/checkout@v4
