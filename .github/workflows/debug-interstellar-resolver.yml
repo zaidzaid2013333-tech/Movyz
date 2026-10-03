@@ -1,4 +1,4 @@
-name: Movyz current Akwam resolver raw output
+name: Movyz Akwam movie download trace
 
 on:
   push:
@@ -21,35 +21,17 @@ jobs:
         with:
           node-version: 22
       - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-      - name: Resolve current legacy movies
+      - name: Trace Inception movie download resolution
         run: |
           npx tsx -e "
           (async () => {
-            const { resolveAkwamPlayback } = await import('./server/providers/arprov-akwam');
-            for (const item of [
-              {label:'Inception',tmdbId:27205,releaseYear:2010},
-              {label:'Fight Club',tmdbId:550,releaseYear:1999},
-            ]) {
-              const started = Date.now();
-              try {
-                const sources = await resolveAkwamPlayback({
-                  tmdbId:item.tmdbId,
-                  title:item.label,
-                  originalTitle:item.label,
-                  releaseYear:item.releaseYear,
-                }, { tmdbApiToken:process.env.TMDB_API_READ_ACCESS_TOKEN });
-                console.log(JSON.stringify({
-                  label:item.label,
-                  elapsedMs:Date.now()-started,
-                  count:sources.length,
-                  sources
-                },null,2));
-              } catch(error) {
-                console.log(JSON.stringify({
-                  label:item.label,
-                  error:error instanceof Error?error.message:String(error)
-                },null,2));
-              }
-            }
+            const { debugAkwamMovie } = await import('./server/providers/arprov-akwam');
+            const trace = await debugAkwamMovie({
+              tmdbId:27205,
+              title:'Inception',
+              originalTitle:'Inception',
+              releaseYear:2010,
+            }, { tmdbApiToken:process.env.TMDB_API_READ_ACCESS_TOKEN });
+            console.log(JSON.stringify(trace,null,2));
           })();
           "
