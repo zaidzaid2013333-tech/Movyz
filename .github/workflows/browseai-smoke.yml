@@ -51,10 +51,31 @@ jobs:
               map({
                 id,
                 name,
+                createdAt,
                 inputParameters: ([.inputParameters[]? | {name,type,required}] // [])
               })
             )
           }' <<< "${robots_json}" > .github/browseai/robots.json
+
+          # Capture configuration and the latest task metadata for every approved robot.
+          echo '[]' > /tmp/browseai-robot-state.json
+          while IFS= read -r robot_id; do
+            [ -n "${robot_id}" ] || continue
+            detail_json="$(curl -fsS --retry 2 --connect-timeout 10 --max-time 30               -H "Authorization: Bearer ${BROWSEAI_API_KEY}"               -H "Accept: application/json"               "https://api.browse.ai/v2/robots/${robot_id}")"
+            tasks_json="$(curl -fsS --retry 2 --connect-timeout 10 --max-time 30               -H "Authorization: Bearer ${BROWSEAI_API_KEY}"               -H "Accept: application/json"               "https://api.browse.ai/v2/robots/${robot_id}/tasks?page=1&pageSize=10")"
+            jq --argjson detail "${detail_json}"                --argjson tasks "${tasks_json}"                --arg rid "${robot_id}"                '. + [{
+                 robotId: $rid,
+                 detail: $detail.result,
+                 recentTasks: ($tasks.result.robotTasks.items // [])
+               }]' /tmp/browseai-robot-state.json > /tmp/browseai-robot-state.next.json
+            mv /tmp/browseai-robot-state.next.json /tmp/browseai-robot-state.json
+          done < <(jq -r '.robots.items[]?.id // empty' <<< "${robots_json}")
+
+          jq '{
+            syncedAt: (now | todateiso8601),
+            robots: .
+          }' /tmp/browseai-robot-state.json > .github/browseai/robot-state.json
+
 
       - name: Commit discovered robot metadata
         shell: bash
