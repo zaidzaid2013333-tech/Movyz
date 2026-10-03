@@ -6,7 +6,7 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
-import { handlePlaybackProxy, refreshStoredPlaybackProxyUrl } from './playback-proxy';
+import { createPlaybackProxyUrl, handlePlaybackProxy, refreshStoredPlaybackProxyUrl } from './playback-proxy';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -100,7 +100,23 @@ async function getFreshArProvSourcesForContent(
 
     const expiresAt = source.expires_at ? Date.parse(String(source.expires_at)) : Number.POSITIVE_INFINITY;
     if (Number.isFinite(expiresAt) && expiresAt <= now) return null;
-    return cachedArProvSourceDto(source);
+
+    const mapped = cachedArProvSourceDto(source);
+    if (provider === 'akwam' && requestUrl && env) {
+      const proxiedUrl = await createPlaybackProxyUrl({
+        provider: 'arprov',
+        type: mapped.type as any,
+        url: storedUrl,
+        providerReference: 'akwam',
+        quality: mapped.quality,
+        language: mapped.language,
+        label: mapped.label,
+        referer: 'https://akwam.ss/',
+      }, requestUrl, env);
+      return { ...mapped, url: proxiedUrl, isWorking: true };
+    }
+
+    return mapped;
   }));
 
   return prepared
@@ -234,9 +250,9 @@ async function batchSeriesGenres(ids: string[]) {
   return map;
 }
 
-async function movieDto(row: any, includePlaybackSources = false) {
+async function movieDto(row: any, includePlaybackSources = false, requestUrl?: string, env?: Record<string, unknown>) {
   const playbackPromise = includePlaybackSources
-    ? getFreshArProvSourcesForContent('movie', row.id).catch((error) => {
+    ? getFreshArProvSourcesForContent('movie', row.id, requestUrl, env).catch((error) => {
         console.warn('[movie-playback-cache]', error instanceof Error ? error.message : String(error));
         return [];
       })
@@ -356,7 +372,7 @@ async function seriesDto(row: any, includePlaybackSources = false) {
   } as any;
 }
 
-async function seriesWatchDto(row: any, seasonNumber: number) {
+async function seriesWatchDto(row: any, seasonNumber: number, requestUrl?: string, env?: Record<string, unknown>) {
   const [genres, cast, seasonResult] = await Promise.all([
     adminSupabase.from('series_genres').select('genres(id,name_ar,name_en,slug)').eq('series_id', row.id),
     adminSupabase.from('series_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('series_id', row.id).order('cast_order'),
@@ -391,9 +407,24 @@ async function seriesWatchDto(row: any, seasonNumber: number) {
         if (!['akwam', 'anime4up'].includes(providerReference)) continue;
         const mapped = cachedArProvSourceDto(source);
         if (!mapped.url || !mapped.providerKey) continue;
+        const playable = providerReference === 'akwam' && requestUrl && env
+          ? {
+              ...mapped,
+              url: await createPlaybackProxyUrl({
+                provider: 'arprov',
+                type: mapped.type as any,
+                url: mapped.url,
+                providerReference: 'akwam',
+                quality: mapped.quality,
+                language: mapped.language,
+                label: mapped.label,
+                referer: 'https://akwam.ss/',
+              }, requestUrl, env),
+            }
+          : mapped;
         const episodeId = String(source.content_id || '');
         const list = playbackByEpisode.get(episodeId) || [];
-        list.push(mapped);
+        list.push(playable);
         playbackByEpisode.set(episodeId, list);
       }
     }
@@ -568,7 +599,7 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
   }
 
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
-  const movie = await movieDto(data, true);
+  const movie = await movieDto(data, true, req.url, req.env || {});
   return ok(res, { movie, similar: [] });
 }));
 
@@ -615,7 +646,7 @@ app.get(`${api}/series/tmdb/:tmdbId/watch/:season/:episode`, asyncRoute(async (r
     .eq('tmdb_id', tmdbId).eq('status', 'published').maybeSingle();
   if (error) return fail(res, 500, 'SERIES_QUERY_FAILED', 'Unable to load series');
   if (!data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
-  const series = await seriesWatchDto(data, seasonNumber);
+  const series = await seriesWatchDto(data, seasonNumber, req.url, req.env || {});
   if (!series) return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
   if (!series.seasons[0].episodes.some((item: any) => item.episodeNumber === episodeNumber)) {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
@@ -799,7 +830,7 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
       contentType,
       id,
       tmdbId: Number(data.tmdb_id || 0),
-      content: await movieDto(data, true),
+      content: await movieDto(data, true, req.url, req.env || {}),
     });
   }
 
