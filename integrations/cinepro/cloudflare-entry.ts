@@ -21,12 +21,8 @@ import { VidSrcProvider } from './src/providers/vidsrc/vidsrc';
 import { VidZeeProvider } from './src/providers/vidzee/vidzee';
 import { VixSrcProvider } from './src/providers/vixsrc/vixsrc';
 
-// Runtime adapter: lazy initialization keeps all CinePro I/O inside request scope on Workers.
 const PORT = 8787;
 const PUBLIC_URL = 'https://movyz-cinepro.sameranede.workers.dev';
-// Diagnostic smoke run uses Wrangler tail; HTTP integration is handled by Cloudflare's official Node bridge.
-
-let initialization: Promise<ReturnType<typeof httpServerHandler>> | undefined;
 
 const providers = [
   MovieDownloader,
@@ -48,72 +44,82 @@ const providers = [
   VixSrcProvider,
 ];
 
-async function initializeCinePro(tmdbApiKey: string) {
-  if (!initialization) {
-    initialization = (async () => {
-      if (!tmdbApiKey) {
-        throw new Error('TMDB_API_KEY is required');
-      }
+const tmdbApiKey = process.env.TMDB_API_KEY;
+if (!tmdbApiKey) {
+  throw new Error('TMDB_API_KEY is required');
+}
 
-      const server = new OMSSServer({
-        name: 'CinePro',
-        version: '1.0.0',
-        host: '0.0.0.0',
-        port: PORT,
-        publicUrl: PUBLIC_URL,
-        cache: {
-          type: 'memory',
-          ttl: {
-            sources: 60 * 60,
-            subtitles: 60 * 60 * 24,
-          },
-        },
-        tmdb: {
-          apiKey: tmdbApiKey,
-          cacheTTL: 24 * 60 * 60,
-        },
-        proxyConfig: {
-          knownThirdPartyProxies,
-          streamPatterns,
-        },
-        cors: {
-          origin: '*',
-          methods: ['GET', 'OPTIONS', 'HEAD'],
-          allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept'],
-          exposedHeaders: ['Content-Length', 'Content-Type', 'Content-Range', 'Accept-Ranges'],
-          credentials: false,
-        },
-        stremio: {
-          enableNativeAddon: true,
-          stremioAddons: [],
-        },
-        mcp: {
-          enabled: false,
-        },
-      });
+// Fastify/find-my-way uses new Function() while registering routes.
+// Workers permits this during startup, but not during a request. The memory cache
+// cleanup timer is not essential for correctness because cache reads enforce TTL,
+// so suppress only that timer while the server graph is constructed.
+const nativeSetInterval = globalThis.setInterval;
+globalThis.setInterval = (() => ({ unref() {} })) as unknown as typeof setInterval;
 
-      const registry = server.getRegistry();
-      for (const Provider of providers) {
-        registry.register(new Provider());
-      }
+let cinepro: OMSSServer;
+try {
+  cinepro = new OMSSServer({
+    name: 'CinePro',
+    version: '1.0.0',
+    host: '0.0.0.0',
+    port: PORT,
+    publicUrl: PUBLIC_URL,
+    cache: {
+      type: 'memory',
+      ttl: {
+        sources: 60 * 60,
+        subtitles: 60 * 60 * 24,
+      },
+    },
+    tmdb: {
+      apiKey: tmdbApiKey,
+      cacheTTL: 24 * 60 * 60,
+    },
+    proxyConfig: {
+      knownThirdPartyProxies,
+      streamPatterns,
+    },
+    cors: {
+      origin: '*',
+      methods: ['GET', 'OPTIONS', 'HEAD'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept'],
+      exposedHeaders: ['Content-Length', 'Content-Type', 'Content-Range', 'Accept-Ranges'],
+      credentials: false,
+    },
+    stremio: {
+      enableNativeAddon: true,
+      stremioAddons: [],
+    },
+    mcp: {
+      enabled: false,
+    },
+  });
+} finally {
+  globalThis.setInterval = nativeSetInterval;
+}
 
-      const app = server.getInstance();
-      await app.ready();
+const app = cinepro.getInstance();
+let ready: Promise<void> | undefined;
+let handler: ReturnType<typeof httpServerHandler> | undefined;
 
-      // Cloudflare's Node.js bridge can directly wrap the Fastify HTTP server.
-      return httpServerHandler(app.server);
-    })().catch((error) => {
-      initialization = undefined;
-      throw error;
-    });
+async function getHandler() {
+  if (!ready) {
+    ready = app.ready();
+  }
+  await ready;
+
+  if (!handler) {
+    handler = httpServerHandler(app.server);
   }
 
-  return initialization;
+  return handler;
 }
 
 export default {
   async fetch(request: Request, env: { TMDB_API_KEY?: string }, ctx: ExecutionContext) {
-    const handler = await initializeCinePro(env?.TMDB_API_KEY || '');
-    return handler.fetch(request, env, ctx);
+    // env is intentionally accepted for Worker compatibility; CinePro reads the same secret
+    // from process.env during startup via nodejs_compat_populate_process_env.
+    void env;
+    return (await getHandler()).fetch(request, env, ctx);
   },
 };
