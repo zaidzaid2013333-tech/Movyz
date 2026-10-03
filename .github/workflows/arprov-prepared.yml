@@ -36,8 +36,8 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       PREPARE_MODE: ${{ github.event.inputs.mode || 'movies' }}
-      PREPARE_LIMIT: ${{ github.event.inputs.limit || '250' }}
-      PREPARE_OFFSET: ${{ github.event.inputs.offset || '0' }}
+      PREPARE_LIMIT: ${{ github.event.inputs.limit || '88' }}
+      PREPARE_OFFSET: ${{ github.event.inputs.offset || '250' }}
       PREPARE_CONCURRENCY: "4"
     steps:
       - uses: actions/checkout@v4
@@ -49,4 +49,4 @@ jobs:
       - name: Prepare ready playback sources
         run: npm run bot:once
 
-# Bulk preparation is intentionally resumable and runs in bounded batches.
+# Second bounded movie batch queued behind the first batch.
