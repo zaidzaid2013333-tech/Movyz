@@ -37,8 +37,7 @@ const isPlayableHttpSource = (source: PlaybackSource) => {
   const url = source.url?.trim() || '';
   if (!/^https?:\/\//i.test(url)) return false;
   try {
-    const pathname = new URL(url).pathname;
-    if (/\/download(?:\/|$)/i.test(pathname)) return false;
+    new URL(url);
   } catch {
     return false;
   }
