@@ -1,8 +1,7 @@
 name: Movyz Cloudflare Deploy
-# Browser Run verification trigger: 2026-10-01
-# Runtime playback uses prepared Akwam sources stored in Supabase and the Movyz playback proxy
+# Akwam playback architecture: HTTP-only on-demand resolution, short-lived edge cache, signed redirect.
+# Movyz never streams Akwam video bytes and does not persist Akwam media URLs for playback.
 # CI trigger: production deploys run from a real main-branch push.
-# Runtime playback never discovers sources; prepared Akwam media is exposed only through the Movyz playback proxy.
 
 on:
   push:
@@ -166,7 +165,7 @@ jobs:
 
           print("Playback provider checks skipped: production player is now resolved from Movyz API playback sources.")
 
-      - name: Smoke test prepared Akwam playback and proxy
+      - name: Smoke test on-demand Akwam redirect playback
         continue-on-error: true
         run: |
           python - <<'PY'
