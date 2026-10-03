@@ -24,13 +24,16 @@ on:
         required: true
         default: "0"
 
-concurrency:
-  group: movyz-arprov-movies
-  cancel-in-progress: true
-
 jobs:
   prepare:
     if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message || '', '[episode-fill-only]') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    concurrency:
+      group: movyz-arprov-movies-${{ matrix.shard }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -41,7 +44,9 @@ jobs:
       PREPARE_MODE: ${{ github.event.inputs.mode || 'movies' }}
       PREPARE_LIMIT: ${{ github.event.inputs.limit || '500' }}
       PREPARE_OFFSET: ${{ github.event.inputs.offset || '0' }}
-      PREPARE_CONCURRENCY: "4"
+      PREPARE_SHARD_INDEX: ${{ matrix.shard }}
+      PREPARE_SHARD_COUNT: "4"
+      PREPARE_CONCURRENCY: "1"
       PREPARE_ONLY_MISSING: "true"
     steps:
       - uses: actions/checkout@v4
