@@ -337,8 +337,10 @@ async function readEdgeCache(
     const payload = await response.json() as { expiresAt: number; sources: CachedSource[] };
     if (!payload || !Number.isFinite(payload.expiresAt) || payload.expiresAt <= Date.now()) return null;
 
-    const sources = filterFresh(Array.isArray(payload.sources) ? payload.sources : []);
-    return sources.length ? sources : null;
+    if (!Array.isArray(payload.sources)) return null;
+    // An empty array is a valid negative-cache hit. Keep it distinct from
+    // "no cache entry" so repeated failed lookups do not hammer Akwam.
+    return filterFresh(payload.sources);
   } catch {
     return null;
   }
