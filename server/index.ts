@@ -805,7 +805,11 @@ app.get(`${api}/playback/on-demand`, asyncRoute(async (req, res) => {
       req.env || {},
     );
 
-    res.setHeader("Cache-Control", "no-store");
+    // The resolver result is already edge-cached in playback-on-demand.ts.
+    // Keep a tiny browser cache too so a fast navigation back to the title does
+    // not repeat the same JSON request while the signed proxy token remains valid.
+    res.setHeader("Cache-Control", "private, max-age=15, stale-while-revalidate=60");
+    res.setHeader("X-Movyz-Playback-Path", "fast-direct-fallback");
     return ok(res, sources);
   } catch (error) {
     console.warn("[playback-on-demand]", error instanceof Error ? error.message : String(error));
