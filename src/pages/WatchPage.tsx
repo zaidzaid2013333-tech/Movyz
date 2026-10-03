@@ -900,11 +900,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-black/20" />
             <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
               <ErrorState
-                  message={playbackError || (language === 'ar' ? 'لا يوجد مصدر تشغيل جاهز حاليًا.' : 'No prepared playback source is currently available.')}
-                  onRetry={() => window.location.reload()}
-                  onGoHome={() => onNavigate('/')}
-                />
-              )}
+                message={playbackError || (language === 'ar' ? 'لا يوجد مصدر تشغيل جاهز حاليًا.' : 'No prepared playback source is currently available.')}
+                onRetry={() => window.location.reload()}
+                onGoHome={() => onNavigate('/')}
+              />
             </div>
           </div>
         </div>
