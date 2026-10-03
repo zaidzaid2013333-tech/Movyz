@@ -1,6 +1,6 @@
 name: Movyz Akwam Preparation Robot
 # [akwam-robot] parallel bulk preparation
-# PAUSED: manual source import only
+# [akwam-robot] movies + series preparation
 
 on:
   push:
@@ -25,9 +25,9 @@ on:
       mode:
         description: "Preparation lane"
         required: false
-        default: "movies"
+        default: "both"
         type: choice
-        options: [movies]
+        options: [both]
 permissions:
   contents: read
 
@@ -37,8 +37,8 @@ concurrency:
 
 jobs:
   groq-agent:
-    if: ${{ false }}
-    needs: [movies]
+    if: ${{ always() }}
+    needs: [movies, episodes]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -72,7 +72,6 @@ jobs:
         run: npm run bot:groq-agent
 
   movies:
-    if: ${{ false }}
     strategy:
       fail-fast: false
       matrix:
@@ -106,6 +105,43 @@ jobs:
       - name: Run Movyz Akwam movie robot
         run: npm run bot:akwam
 
+  episodes:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SUPABASE_URL: \${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: \${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: \${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: \${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      EPISODE_SHARD_INDEX: \${{ matrix.shard }}
+      EPISODE_SHARD_COUNT: "8"
+      SEASON_CONCURRENCY: "2"
+      EPISODE_CONCURRENCY: "8"
+      VALIDATION_CONCURRENCY: "12"
+      DELETE_CONCURRENCY: "6"
+      EPISODE_SEASON_LIMIT: "160"
+      AKWAM_PRIORITY_TMDB_IDS: "1396"
+      PREPARE_ONLY_MISSING: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Cache npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: \${{ runner.os }}-node22-npm-\${{ hashFiles('package.json') }}
+          restore-keys: |
+            \${{ runner.os }}-node22-npm-
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --prefer-offline --no-audit --no-fund --ignore-scripts
+      - name: Run Movyz Akwam episode robot
+        run: npm run bot:episodes-fast
   debug-breaking-bad:
     if: ${{ false }}
     runs-on: ubuntu-latest
