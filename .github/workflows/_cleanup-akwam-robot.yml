@@ -1,0 +1,13 @@
+name: Movyz Akwam Preparation Robot
+on:
+  push:
+    branches: ["main"]
+concurrency:
+  group: movyz-akwam-robot-Movyz Akwam Preparation Robot-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  cleanup:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: exit 0
