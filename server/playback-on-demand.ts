@@ -24,7 +24,7 @@ const inFlight = new Map<string, Promise<CachedSource[]>>();
 
 function edgeCache(): Cache | null {
   const cacheStorage = (globalThis as typeof globalThis & {
-    caches?: CacheStorage;
+    caches?: { default?: Cache };
   }).caches;
   return cacheStorage?.default ?? null;
 }
