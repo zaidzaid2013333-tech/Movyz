@@ -1,4 +1,4 @@
-name: Movyz Akwam watching-link diagnostic
+name: Movyz Akwam legacy download POST diagnostic
 
 on:
   push:
@@ -19,18 +19,34 @@ jobs:
         with:
           node-version: 22
       - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-      - name: Inspect legacy watching variables
+      - name: Test legacy download POST
         run: |
           npx tsx -e "
           (async () => {
-            const url = 'https://akwam.ss/old/download/8b8a42e56071/Inception-720p-BluRay-akoam-net-mkv';
-            const response = await fetch(url, { headers: { 'User-Agent': 'Movyz-Diagnostics/1.0', 'Accept': 'text/html' } });
-            const html = await response.text();
-            const needles = ['hash_data','watch_title','watch_label','downloadalt','watching/','btn-loader'];
-            for (const needle of needles) {
-              const index = html.toLowerCase().indexOf(needle.toLowerCase());
-              console.log('NEEDLE', needle, 'INDEX', index);
-              if (index >= 0) console.log(html.slice(Math.max(0,index-1800), Math.min(html.length,index+3500)));
+            const urls = [
+              'https://akwam.ss/old/download/8b8a42e56071/Inception-720p-BluRay-akoam-net-mkv',
+              'https://akwam.ss/old/download/24b6c7c86025/Fight-Club-1999-1080p-BluRay-akoam-net-mkv'
+            ];
+            for (const url of urls) {
+              for (const method of ['POST']) {
+                const response = await fetch(url, {
+                  method,
+                  headers: {
+                    'User-Agent': 'Movyz-Diagnostics/1.0',
+                    'Accept': 'application/json, text/plain, */*',
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Referer': url,
+                  },
+                  body: '',
+                });
+                const text = await response.text();
+                console.log('RESULT', JSON.stringify({
+                  url, method, status: response.status,
+                  contentType: response.headers.get('content-type'),
+                  body: text.slice(0, 12000),
+                }, null, 2));
+              }
             }
           })();
           "
