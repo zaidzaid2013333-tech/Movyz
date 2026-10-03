@@ -65,19 +65,19 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
         return true;
       });
 
-      // Warm the most likely first clicks immediately after the home UI paints.
+      // Warm the most likely prepared playback records immediately after the home UI paints.
       // Only a small bounded set is prefetched so landing on Movyz does not
       // create a resolver storm.
       unique
         .filter((item): item is Movie => item.type === 'movie')
         .slice(0, 4)
         .forEach((movie) => {
-          MovyzaApi.prefetchOnDemandAkwamSources('movie', movie.id);
+          MovyzaApi.prefetchPreparedPlaybackSources('movie', movie.id);
         });
 
       // Series cards do not contain episode IDs on the catalog response.
       // Warm S01E01 for the first featured/trending series so opening it can
-      // reuse the shared browser cache immediately.
+      // reuse the prepared playback cache immediately.
       const firstSeries = unique.find((item): item is Series => item.type === 'series');
       if (firstSeries) {
         void MovyzaApi.getSeriesWatchById(firstSeries.id, 1, 1)
@@ -86,7 +86,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
             const season = response.data.currentSeason;
             const episode = season?.episodes?.find((item) => item.episodeNumber === 1) || season?.episodes?.[0];
             if (episode) {
-              MovyzaApi.prefetchOnDemandAkwamSources('episode', episode.id);
+              MovyzaApi.prefetchPreparedPlaybackSources('episode', episode.id);
             }
           })
           .catch(() => undefined);
