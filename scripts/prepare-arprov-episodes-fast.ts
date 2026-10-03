@@ -10,8 +10,10 @@ import { validatePreparedMediaSource } from './validate-prepared-source';
 
 const SHARD_INDEX = Math.max(0, Number.parseInt(process.env.EPISODE_SHARD_INDEX || '0', 10) || 0);
 const SHARD_COUNT = Math.max(1, Number.parseInt(process.env.EPISODE_SHARD_COUNT || '4', 10) || 4);
-const SEASON_CONCURRENCY = Math.max(1, Math.min(2, Number.parseInt(process.env.SEASON_CONCURRENCY || '1', 10) || 1));
-const EPISODE_CONCURRENCY = Math.max(1, Math.min(16, Number.parseInt(process.env.EPISODE_CONCURRENCY || '12', 10) || 12));
+const SEASON_CONCURRENCY = Math.max(1, Math.min(2, Number.parseInt(process.env.SEASON_CONCURRENCY || '2', 10) || 2));
+const EPISODE_CONCURRENCY = Math.max(1, Math.min(12, Number.parseInt(process.env.EPISODE_CONCURRENCY || '8', 10) || 8));
+const VALIDATION_CONCURRENCY = Math.max(1, Math.min(16, Number.parseInt(process.env.VALIDATION_CONCURRENCY || '12', 10) || 12));
+const DELETE_CONCURRENCY = Math.max(1, Math.min(8, Number.parseInt(process.env.DELETE_CONCURRENCY || '6', 10) || 6));
 const ONLY_MISSING = !/^(0|false|no)$/i.test(process.env.PREPARE_ONLY_MISSING || 'true');
 const SEASON_LIMIT = Math.max(1, Number.parseInt(process.env.EPISODE_SEASON_LIMIT || '80', 10) || 80);
 const PRIORITY_TMDB_IDS = new Set(
@@ -131,25 +133,31 @@ async function fetchEpisodesBySeason(seasonIds: string[]) {
 }
 
 async function fetchSeasons() {
+  const { count, error: countError } = await adminSupabase
+    .from('seasons')
+    .select('id', { count: 'exact', head: true })
+    .eq('series.status', 'published');
+  if (countError) throw countError;
+
+  const total = count ?? 0;
+  const start = Math.floor(total * SHARD_INDEX / SHARD_COUNT);
+  const end = Math.min(total, Math.floor(total * (SHARD_INDEX + 1) / SHARD_COUNT));
+  if (start >= end) return [];
+
+  const { data, error } = await adminSupabase
+    .from('seasons')
+    .select('id,season_number,series_id,series:series_id!inner(id,tmdb_id,title_ar,title_en,original_title,alternative_titles,status,first_air_date)')
+    .eq('series.status', 'published')
+    .order('id')
+    .range(start, end - 1);
+  if (error) throw error;
+
   const output: SeasonRow[] = [];
-  const pageSize = 500;
-
-  for (let offset = 0; ; offset += pageSize) {
-    const { data, error } = await adminSupabase
-      .from('seasons')
-      .select('id,season_number,series_id,series:series_id!inner(id,tmdb_id,title_ar,title_en,original_title,alternative_titles,status,first_air_date)')
-      .order('id')
-      .range(offset, offset + pageSize - 1);
-    if (error) throw error;
-
-    for (const row of data || []) {
-      const rawSeries = Array.isArray(row.series) ? row.series[0] : row.series;
-      const series = rawSeries as SeasonRow['series'] | null | undefined;
-      if (!series || String(series.status || 'published') !== 'published') continue;
-      output.push({ ...row, series });
-    }
-
-    if (!data || data.length < pageSize) break;
+  for (const row of data || []) {
+    const rawSeries = Array.isArray(row.series) ? row.series[0] : row.series;
+    const series = rawSeries as SeasonRow['series'] | null | undefined;
+    if (!series || String(series.status || 'published') !== 'published') continue;
+    output.push({ ...row, series });
   }
 
   return output;
@@ -157,31 +165,28 @@ async function fetchSeasons() {
 
 async function readyEpisodeIds(episodeIds: string[]) {
   const ready = new Set<string>();
-  const assigned = new Set(episodeIds);
-  const pageSize = 1000;
+  const chunkSize = 200;
 
-  // Read prepared episode IDs by pagination instead of generating hundreds
-  // of large IN(...) requests. This keeps shard startup fast and avoids
-  // HTTP header overflow on Supabase/PostgREST.
-  for (let offset = 0; ; offset += pageSize) {
+  const chunks: string[][] = [];
+  for (let i = 0; i < episodeIds.length; i += chunkSize) {
+    chunks.push(episodeIds.slice(i, i + chunkSize));
+  }
+
+  await mapLimit(chunks, 4, async (chunk) => {
+    if (!chunk.length) return;
     const { data, error } = await adminSupabase
       .from('playback_sources')
       .select('content_id')
+      .in('content_id', chunk)
       .eq('content_type', 'episode')
       .eq('provider_reference', 'akwam')
       .eq('is_working', true)
       .not('url', 'is', null)
-      .is('expires_at', null)
-      .range(offset, offset + pageSize - 1);
+      .is('expires_at', null);
     if (error) throw error;
 
-    for (const row of data || []) {
-      const id = String(row.content_id);
-      if (assigned.has(id)) ready.add(id);
-    }
-
-    if (!data || data.length < pageSize) break;
-  }
+    for (const row of data || []) ready.add(String(row.content_id));
+  });
 
   return ready;
 }
@@ -198,31 +203,44 @@ async function saveBatch(rows: Array<{ episodeId: string; sources: NormalizedPla
 
   if (!successful.length) return 0;
 
-  const validated = [];
-  for (const item of successful) {
-    const sources = [];
-    for (const row of item.normalized) {
-      const checked = await validatePreparedMediaSource({
-        provider: 'Akwam',
-        providerReference: 'akwam',
-        type: row.source_type as NormalizedPlaybackSource['type'],
-        url: row.url,
-        quality: row.quality,
-        language: row.language,
-        label: row.label_ar,
-        referer: 'https://akwam.ss/',
-      });
-      if (checked) sources.push({ ...row, url: checked.url });
-    }
-    const deduped = [...new Map(sources.map((x) => [x.quality + '|' + x.source_type + '|' + x.url, x])).values()];
-    if (deduped.length) validated.push({ episodeId: item.episodeId, sources: deduped });
+  const validationTasks = successful.flatMap((item) =>
+    item.normalized.map((row) => ({ episodeId: item.episodeId, row })),
+  );
+
+  const checkedRows = await mapLimit(validationTasks, VALIDATION_CONCURRENCY, async (task) => {
+    const checked = await validatePreparedMediaSource({
+      provider: 'Akwam',
+      providerReference: 'akwam',
+      type: task.row.source_type as NormalizedPlaybackSource['type'],
+      url: task.row.url,
+      quality: task.row.quality,
+      language: task.row.language,
+      label: task.row.label_ar,
+      referer: 'https://akwam.ss/',
+    });
+    return checked ? { episodeId: task.episodeId, row: { ...task.row, url: checked.url } } : null;
+  });
+
+  const grouped = new Map<string, typeof validationTasks[number][]>();
+  for (const checked of checkedRows) {
+    if (!checked) continue;
+    const existing = grouped.get(checked.episodeId) || [];
+    existing.push(checked.row);
+    grouped.set(checked.episodeId, existing as any);
   }
+
+  const validated = [...grouped.entries()].map(([episodeId, rowsForEpisode]) => ({
+    episodeId,
+    sources: [...new Map(
+      rowsForEpisode.map((row: any) => [row.quality + '|' + row.source_type + '|' + row.url, row]),
+    ).values()],
+  })).filter((item) => item.sources.length > 0);
 
   if (!validated.length) return 0;
 
   // Refresh only the qualities that were actually validated for each episode.
   // Never delete the episode's other prepared qualities.
-  for (const item of validated) {
+  await mapLimit(validated, DELETE_CONCURRENCY, async (item) => {
     const qualities = [...new Set(item.sources.map((source) => source.quality))];
     const { error } = await adminSupabase
       .from('playback_sources')
@@ -233,7 +251,7 @@ async function saveBatch(rows: Array<{ episodeId: string; sources: NormalizedPla
       .eq('content_id', item.episodeId)
       .in('quality', qualities);
     if (error) throw error;
-  }
+  });
 
   const payload = validated.flatMap((item) =>
     item.sources.map((source) => ({
@@ -244,11 +262,12 @@ async function saveBatch(rows: Array<{ episodeId: string; sources: NormalizedPla
     })),
   );
 
-  for (let i = 0; i < payload.length; i += 200) {
-    const chunk = payload.slice(i, i + 200);
+  const chunks: typeof payload[] = [];
+  for (let i = 0; i < payload.length; i += 200) chunks.push(payload.slice(i, i + 200));
+  await mapLimit(chunks, 4, async (chunk) => {
     const { error } = await adminSupabase.from('playback_sources').insert(chunk);
     if (error) throw error;
-  }
+  });
 
   return validated.length;
 }
