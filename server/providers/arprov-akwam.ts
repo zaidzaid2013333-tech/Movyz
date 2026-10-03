@@ -349,10 +349,10 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
   // Current Akwam.ss exposes its working search index under /old/search/<query>.
   // Keep the legacy/query forms as fallbacks because individual pages can still live on the new routes.
   const searchRequestUrls = queryList.flatMap(query => [
-    `${base}/old/search/${encodeURIComponent(query)}`,
+    `${base}/search?q=${encodeURIComponent(query)}&section=series`,
     `${base}/search?q=${encodeURIComponent(query)}`,
+    `${base}/old/search/${encodeURIComponent(query)}`,
   ]);
-
   const candidates: SearchCandidate[] = [];
   const seen = new Set<string>();
 
