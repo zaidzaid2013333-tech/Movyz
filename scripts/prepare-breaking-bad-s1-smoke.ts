@@ -167,10 +167,10 @@ async function main() {
         for (const detailUrl of detailUrls) {
           const page = await fetchArProvPage(detailUrl, { timeoutMs: 10_000 });
           if (!page) continue;
-          const anchors = [...page.body.matchAll(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)]
+          const anchors = [...page.body.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
             .map((match) => ({
               href: match[1],
-              text: String(match[2] || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 160),
+              text: String(match[2] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160),
             }))
             .filter((item) => /episode|watch|الحلقة|مشاهدة|play/i.test(item.href + ' ' + item.text))
             .slice(0, 80);
