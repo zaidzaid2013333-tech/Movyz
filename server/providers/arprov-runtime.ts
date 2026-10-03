@@ -8,6 +8,7 @@ export interface ArProvPage {
   status: number;
   contentType: string;
   via: 'http';
+  cookie?: string;
 }
 
 const pageCache = new Map<string, { expiresAt: number; value: ArProvPage }>();
@@ -51,6 +52,8 @@ async function fetchHttp(url: string, referer?: string, timeoutMs = 9_000): Prom
   const contentType = response.headers.get('content-type') || '';
   const body = await response.text();
   const finalUrl = response.url || url;
+  const setCookie = response.headers.get('set-cookie') || '';
+  const cookie = setCookie.match(/^[^;]+/)?.[0] || undefined;
 
   const result: ArProvPage = {
     body,
@@ -58,6 +61,7 @@ async function fetchHttp(url: string, referer?: string, timeoutMs = 9_000): Prom
     status: response.status,
     contentType,
     via: 'http',
+    cookie,
   };
 
   if (response.ok && body) save(url, result);
