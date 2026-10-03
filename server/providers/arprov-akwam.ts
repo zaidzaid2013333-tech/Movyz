@@ -1358,7 +1358,7 @@ export async function debugAkwamMovie(
         bytes: detail?.body.length,
         downloads: detail
           ? anchors(detail.body, detail.url)
-              .filter(a => /تحميل|download|\\/download|\\/link/i.test(a.text + ' ' + a.url))
+              .filter(a => /تحميل|download|\/download|\/link/i.test(a.text + ' ' + a.url))
               .slice(0, 6)
               .map(a => ({ url: a.url, text: a.text, tag: a.tag }))
           : [],
@@ -1366,11 +1366,11 @@ export async function debugAkwamMovie(
       if (!detail) continue;
 
       for (const anchor of anchors(detail.body, detail.url)
-        .filter(a => /تحميل|download|\\/download|\\/link/i.test(a.text + ' ' + a.url))
+        .filter(a => /تحميل|download|\/download|\/link/i.test(a.text + ' ' + a.url))
         .slice(0, 4)) {
         const prefix = detail.body.slice(Math.max(0, anchor.index - 12_000), anchor.index);
         const qualityMarkers = [
-          ...prefix.matchAll(/<div\\b[^>]*class=["'][^"']*tab-content[^"']*quality[^"']*["'][^>]*>/gi),
+          ...prefix.matchAll(/<div\b[^>]*class=["'][^"']*tab-content[^"']*quality[^"']*["'][^>]*>/gi),
         ];
         const latestQualityMarker = qualityMarkers.at(-1);
         const qualityContext = latestQualityMarker
