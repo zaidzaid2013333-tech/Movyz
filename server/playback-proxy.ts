@@ -68,12 +68,27 @@ export async function createPlaybackProxyUrl(
   const secret = secretFromEnv(env);
   if (!secret) return source.url;
 
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(source.url);
+  } catch {
+    return '';
+  }
+
+  if (parsedUrl.protocol !== 'https:') return '';
+
+  const sourceExpiry = source.expiresAt ? Date.parse(source.expiresAt) : Number.POSITIVE_INFINITY;
+  const requestedTtl = Math.max(30_000, ttlMs);
+  const boundedTtl = Number.isFinite(sourceExpiry)
+    ? Math.max(30_000, Math.min(requestedTtl, sourceExpiry - Date.now()))
+    : requestedTtl;
+
   const payload: ProxyPayload = {
-    url: source.url,
+    url: parsedUrl.toString(),
     referer: source.referer,
     headers: source.headers,
     type: source.type,
-    exp: Date.now() + Math.max(30_000, ttlMs),
+    exp: Date.now() + boundedTtl,
   };
 
   const encoded = base64UrlEncode(JSON.stringify(payload));
