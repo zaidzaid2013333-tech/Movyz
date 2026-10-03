@@ -303,7 +303,12 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
       let anchorHost = '';
       try { anchorHost = new URL(anchor.url).hostname; } catch {}
       if (anchorHost && anchorHost !== pageHost && anchorHost !== baseHost) continue;
-      if (/\/(?:games|programs)(?:\/|$)/i.test(new URL(anchor.url).pathname)) continue;
+      const anchorPath = new URL(anchor.url).pathname.toLowerCase();
+      if (/\/(?:games|programs)(?:\/|$)/i.test(anchorPath)) continue;
+      // Never treat search/index pages as content candidates. Query URLs such
+      // as /old/search/Breaking%20Bad%20S01E01 contain S01E01 themselves and
+      // can otherwise score higher than the real episode page.
+      if (/\/(?:old\/)?(?:search|advanced-search)(?:\/|$)/i.test(anchorPath)) continue;
       if (seen.has(anchor.url)) continue;
 
       const imageAlt = /<img\b[^>]*(?:alt)=["']([^"']+)["'][^>]*>/i.exec(anchor.tag)?.[1] || '';
@@ -434,6 +439,10 @@ function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
   const seen = new Set<string>();
 
   for (const anchor of anchors(body, base)) {
+    let pathname = '';
+    try { pathname = new URL(anchor.url).pathname.toLowerCase(); } catch { continue; }
+    if (!/\/episode(?:\/|$)/i.test(pathname)) continue;
+
     const neighborhood = body.slice(
       Math.max(0, anchor.index - 1_600),
       Math.min(body.length, anchor.index + 500),
@@ -870,6 +879,10 @@ function indexEpisodeCandidates(body: string, base: string, requestedSeason?: nu
   const values = new Map<string, AkwamIndexedEpisode & { score: number }>();
 
   for (const anchor of anchors(body, base)) {
+    let pathname = '';
+    try { pathname = new URL(anchor.url).pathname.toLowerCase(); } catch { continue; }
+    if (!/\/episode(?:\/|$)/i.test(pathname)) continue;
+
     // ArProv's original Akwam provider reads the episode number from the
     // containing episode card, not from the "مشاهدة" anchor text itself.
     const neighborhood = body.slice(
