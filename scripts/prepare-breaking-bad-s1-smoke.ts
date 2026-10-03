@@ -67,7 +67,8 @@ async function saveEpisode(episodeId: string, sources: NormalizedPlaybackSource[
   const deduped = [...new Map(validated.map((row) => [row.quality + '|' + row.source_type + '|' + row.url, row])).values()];
   if (!deduped.length) return 0;
 
-  // Smoke-only validation: never persist Akwam URLs. Playback is resolved on demand.\n  return deduped.length;
+  // Smoke-only validation: never persist Akwam URLs. Playback is resolved on demand.
+  return deduped.length;
 }
 
 async function writeState(values: Record<string, unknown>) {
