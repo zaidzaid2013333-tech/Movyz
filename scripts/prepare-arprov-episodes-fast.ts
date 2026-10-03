@@ -117,7 +117,8 @@ async function fetchSeasons() {
     if (error) throw error;
 
     for (const row of data || []) {
-      const series = row.series as SeasonRow['series'];
+      const rawSeries = Array.isArray(row.series) ? row.series[0] : row.series;
+      const series = rawSeries as SeasonRow['series'] | null | undefined;
       if (!series || String(series.status || 'published') !== 'published') continue;
       output.push({ ...row, series });
     }
