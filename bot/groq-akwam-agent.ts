@@ -471,7 +471,7 @@ async function main() {
     'For a failure id, call get_content_details before acting unless the metadata is already explicit.',
     'For difficult episodes, prefer series-level discovery plus exact season/episode matching; reject /old/search and movie pages.',
     'Akwam may express seasons with Arabic ordinals such as الموسم الأول; use the exact requested season.',
-    'For a difficult episode, inspect a relevant Akwam page and then retry preparation with a verified title variant if needed.'
+    'For a difficult episode, inspect a relevant Akwam page and then retry preparation with a verified title variant if needed.',
     'Do not repeatedly retry the exact same failed action.',
     'Finish with a concise machine-readable summary in plain text.',
   ].join('\n');
