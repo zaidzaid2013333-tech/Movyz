@@ -6,6 +6,7 @@ on:
     paths:
       - "bot/akwam-preparation-robot.ts"
       - "server/providers/arprov-akwam.ts"
+      - "scripts/debug-breaking-bad-akwam.ts"
       - "scripts/prepare-arprov-sources.ts"
       - "scripts/prepare-arprov-episodes-fast.ts"
       - "scripts/validate-prepared-source.ts"
