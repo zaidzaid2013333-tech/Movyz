@@ -159,7 +159,7 @@ async function validateDirectSource(source: CachedSource): Promise<CachedSource 
       try { await response.body?.cancel(); } catch {}
       return null;
     }
-    if (/(?:^|\\/)(?:embed|iframe|download|link)(?:\\/|$)/i.test(finalParsed.pathname)) {
+    if (/(?:^|\/)(?:embed|iframe|download|link)(?:\/|$)/i.test(finalParsed.pathname)) {
       try { await response.body?.cancel(); } catch {}
       return null;
     }
@@ -173,9 +173,9 @@ async function validateDirectSource(source: CachedSource): Promise<CachedSource 
       return null;
     }
 
-    const looksLikeMediaPath = /\\.(?:mp4|webm|m3u8|mpd|m4v|mov|mpeg|mpg|ts|m2ts|flv|3gp|3g2)(?:$|[?#])/i.test(finalPath);
+    const looksLikeMediaPath = /\.(?:mp4|webm|m3u8|mpd|m4v|mov|mpeg|mpg|ts|m2ts|flv|3gp|3g2)(?:$|[?#])/i.test(finalPath);
     const typeMatches = expectedContentType(source.type)?.test(contentType) ?? false;
-    const obviouslyTextual = /text\\/html|application\\/json|text\\/json/i.test(contentType);
+    const obviouslyTextual = /text\/html|application\/json|text\/json/i.test(contentType);
 
     if (obviouslyTextual) {
       try { await response.body?.cancel(); } catch {}
@@ -185,7 +185,7 @@ async function validateDirectSource(source: CachedSource): Promise<CachedSource 
     // Never buffer a full media file just to validate it. If the upstream
     // ignores Range, inspect only a tiny prefix for textual manifests.
     if (source.type === 'hls' && !typeMatches) {
-      if (!/\\.(?:m3u8)(?:$|[?#])/i.test(finalPath)) {
+      if (!/\.(?:m3u8)(?:$|[?#])/i.test(finalPath)) {
         try { await response.body?.cancel(); } catch {}
         return null;
       }
@@ -194,9 +194,9 @@ async function validateDirectSource(source: CachedSource): Promise<CachedSource 
       const first = await reader.read();
       try { await reader.cancel(); } catch {}
       const prefix = new TextDecoder().decode(first.value || new Uint8Array()).slice(0, 8192);
-      if (!/^#EXTM3U\\b/i.test(prefix.trim())) return null;
+      if (!/^#EXTM3U\b/i.test(prefix.trim())) return null;
     } else if (source.type === 'dash' && !typeMatches) {
-      if (!/\\.(?:mpd)(?:$|[?#])/i.test(finalPath)) {
+      if (!/\.(?:mpd)(?:$|[?#])/i.test(finalPath)) {
         try { await response.body?.cancel(); } catch {}
         return null;
       }
@@ -205,7 +205,7 @@ async function validateDirectSource(source: CachedSource): Promise<CachedSource 
       const first = await reader.read();
       try { await reader.cancel(); } catch {}
       const prefix = new TextDecoder().decode(first.value || new Uint8Array()).slice(0, 8192);
-      if (!/<(?:MPD|mpd)\\b/i.test(prefix)) return null;
+      if (!/<(?:MPD|mpd)\b/i.test(prefix)) return null;
     } else if (!typeMatches && !(contentType === 'application/octet-stream' && looksLikeMediaPath)) {
       try { await response.body?.cancel(); } catch {}
       return null;
