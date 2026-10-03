@@ -452,6 +452,7 @@ function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
     const id = extractSeasonEpisode(hay);
 
     let score = 0;
+    if (id.season !== undefined && id.season !== requestedSeason) continue;
     if (/class=["'][^"']*text-white[^"']*["']/i.test(anchor.tag)) score += 200;
     if (id.episode === requestedEpisode) score += 1_000;
     if (id.season === requestedSeason) score += 600;
@@ -666,6 +667,15 @@ async function resolvePage(page: { body: string; url: string }, ctx: ProviderCon
   }
 
   return dedupe(output);
+}
+
+function matchesRequestedEpisodeSource(source: NormalizedPlaybackSource, context: ProviderContext) {
+  if (context.episodeNumber === undefined || !source.url) return true;
+  const identity = extractSeasonEpisode([source.url, source.label || ''].join(' '));
+  const requestedSeason = context.seasonNumber ?? 1;
+  if (identity.season !== undefined && identity.season !== requestedSeason) return false;
+  if (identity.episode !== undefined && identity.episode !== context.episodeNumber) return false;
+  return true;
 }
 
 function playbackTypeValue(value: unknown) {
@@ -901,10 +911,11 @@ function indexEpisodeCandidates(body: string, base: string, requestedSeason?: nu
     };
     if (identity.episode === undefined) continue;
 
+    if (requestedSeason !== undefined && identity.season !== undefined && identity.season !== requestedSeason) continue;
+
     let score = 0;
     if (/class=["'][^"']*text-white[^"']*["']/i.test(anchor.tag)) score += 100;
     if (requestedSeason !== undefined && identity.season === requestedSeason) score += 500;
-    if (requestedSeason !== undefined && identity.season !== undefined && identity.season !== requestedSeason) score -= 800;
     if (/(episode|ep|الحلقة|حلقه|حلقة)/i.test(hay)) score += 50;
 
     const key = (identity.season === undefined ? '' : String(identity.season) + ':') + identity.episode;
@@ -1168,7 +1179,7 @@ export async function resolveAkwamPlayback(
       if (result.status === 'fulfilled') merged.push(...result.value);
     }
 
-    const output = dedupe(merged);
+    const output = dedupe(merged).filter((source) => matchesRequestedEpisodeSource(source, context));
     if (output.length) return output;
   }
 
