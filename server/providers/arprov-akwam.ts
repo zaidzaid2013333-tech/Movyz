@@ -533,7 +533,7 @@ async function resolveDownload(
       language: source.language || 'und',
       label: source.label || `Akwam ${effectiveQuality !== 'auto' ? effectiveQuality : source.quality || ''}`.trim(),
       referer: source.referer || referer,
-    })).filter((source) => /^https:\/\//i.test(source.url));
+    })).filter((source): source is typeof source & { url: string } => typeof source.url === 'string' && /^https:\/\//i.test(source.url));
   }
 
   // ArProv's CloudStream provider passes the btn-loader URL to its extractor
