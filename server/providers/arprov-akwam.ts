@@ -287,6 +287,35 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
     }
   }
 
+  // Akwam search is most reliable at the series/movie level. For episode lookups,
+  // fall back to the plain title so we can open the series page and index its episodes.
+  if (!candidates.length && ctx.episodeNumber !== undefined) {
+    const seriesQueries = titles.slice(0, 3);
+    const seriesUrls = seriesQueries.map(query => `${base}/search?q=${encodeURIComponent(query)}`);
+    pages = await Promise.allSettled(
+      seriesUrls.map(url => fetchArProvPage(url, {
+        browserBinding: runtime.browserBinding,
+        timeoutMs: 9_000,
+      })),
+    );
+    for (const page of pages) {
+      if (page.status === 'fulfilled') collect(page.value);
+    }
+
+    if (!candidates.length) {
+      const legacySeriesUrls = seriesQueries.map(query => `${base}/?s=${encodeURIComponent(query)}`);
+      pages = await Promise.allSettled(
+        legacySeriesUrls.map(url => fetchArProvPage(url, {
+          browserBinding: runtime.browserBinding,
+          timeoutMs: 9_000,
+        })),
+      );
+      for (const page of pages) {
+        if (page.status === 'fulfilled') collect(page.value);
+      }
+    }
+  }
+
   if (!candidates.length && runtime.browserBinding) {
     const browserPages = await Promise.allSettled(
       searchRequestUrls.map(url => fetchArProvPage(url, {
