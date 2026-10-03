@@ -19,6 +19,15 @@ tmdb = tmdb.replaceAll('await fetch(', 'await tmdbFetch(this.apiKey, ');
 tmdb = tmdb.replaceAll('?api_key=${this.apiKey}', '');
 tmdb = tmdb.replaceAll('&api_key=${this.apiKey}', '');
 fs.writeFileSync(tmdbPath, tmdb);
+
+const cachePath = new URL('./node_modules/@omss/framework/dist/core/cache.js', import.meta.url);
+let cache = fs.readFileSync(cachePath, 'utf8');
+cache = cache.replace(
+  'this.cleanupInterval = setInterval(() => this.cleanup(), 60000)',
+  'this.cleanupInterval = undefined'
+);
+fs.writeFileSync(cachePath, cache);
+
 const vidzeePath = new URL('./core/src/providers/vidzee/decrypt.ts', import.meta.url);
 let vidzee = fs.readFileSync(vidzeePath, 'utf8');
 vidzee = vidzee.replace("            keyBytes,", "            keyBytes as unknown as BufferSource,");
