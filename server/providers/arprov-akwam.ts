@@ -506,6 +506,141 @@ function qualityValue(value: unknown) {
   return 0;
 }
 
+export async function debugAkwamEpisode(
+  context: ProviderContext,
+  runtime: AkwamRuntime = {},
+) {
+  const trace: Array<Record<string, unknown>> = [];
+
+  for (const base of AKWAM_BASES) {
+    const candidates = await search(base, context, runtime);
+    trace.push({
+      stage: 'search',
+      base,
+      candidates: candidates.slice(0, 5).map(item => ({ url: item.anchor.url, title: item.anchor.text, score: item.score })),
+    });
+
+    for (const candidate of candidates.slice(0, 3)) {
+      let detail = await fetchArProvPage(candidate.anchor.url, {
+        browserBinding: runtime.browserBinding,
+        timeoutMs: 10_000,
+      });
+
+      if (looksBlocked(detail) && runtime.browserBinding) {
+        detail = await fetchArProvPage(candidate.anchor.url, {
+          browserBinding: runtime.browserBinding,
+          timeoutMs: 12_000,
+          forceBrowser: true,
+        });
+      }
+
+      if (!detail) {
+        trace.push({ stage: 'detail', url: candidate.anchor.url, result: 'null' });
+        continue;
+      }
+
+      trace.push({
+        stage: 'detail',
+        url: candidate.anchor.url,
+        via: detail.via,
+        status: detail.status,
+        finalUrl: detail.url,
+        bytes: detail.body.length,
+        excerpt: detail.body.slice(0, 1200),
+      });
+
+      const episodeUrls = episodeCandidates(detail.body, detail.url, context);
+      trace.push({ stage: 'episode-candidates', count: episodeUrls.length, urls: episodeUrls.slice(0, 5) });
+
+      for (const episodeUrl of episodeUrls.slice(0, 3)) {
+        let episodePage = await fetchArProvPage(episodeUrl, {
+          referer: detail.url,
+          browserBinding: runtime.browserBinding,
+          timeoutMs: 10_000,
+        });
+
+        if (looksBlocked(episodePage) && runtime.browserBinding) {
+          episodePage = await fetchArProvPage(episodeUrl, {
+            referer: detail.url,
+            browserBinding: runtime.browserBinding,
+            timeoutMs: 12_000,
+            forceBrowser: true,
+          });
+        }
+
+        if (!episodePage) {
+          trace.push({ stage: 'episode-page', url: episodeUrl, result: 'null' });
+          continue;
+        }
+
+        trace.push({
+          stage: 'episode-page',
+          url: episodeUrl,
+          via: episodePage.via,
+          status: episodePage.status,
+          finalUrl: episodePage.url,
+          bytes: episodePage.body.length,
+          qualityBlocks: [...episodePage.body.matchAll(/<div\b[^>]*class=["'][^"']*tab-content[^"']*quality[^"']*["'][^>]*>/gi)].length,
+          downloadAnchors: anchors(episodePage.body, episodePage.url)
+            .filter(anchor => /تحميل|download/i.test(anchor.text + ' ' + anchor.url))
+            .slice(0, 12)
+            .map(anchor => ({ url: anchor.url, text: anchor.text, tag: anchor.tag })),
+          excerpt: episodePage.body.slice(0, 1800),
+        });
+
+        const downloadAnchors = anchors(episodePage.body, episodePage.url)
+          .filter(anchor => /تحميل|download/i.test(anchor.text + ' ' + anchor.url))
+          .slice(0, 6);
+
+        for (const anchor of downloadAnchors) {
+          const target = downloadTarget(episodePage.url, anchor.url, new URL(episodePage.url).origin) || anchor.url;
+          trace.push({ stage: 'download-target', href: anchor.url, target });
+
+          if (!/^https:\/\//i.test(target)) continue;
+
+          let downloadPage = await fetchArProvPage(target, {
+            referer: episodePage.url,
+            browserBinding: runtime.browserBinding,
+            timeoutMs: 10_000,
+          });
+
+          if ((!downloadPage || !/btn-loader/i.test(downloadPage.body)) && runtime.browserBinding) {
+            downloadPage = await fetchArProvPage(target, {
+              referer: episodePage.url,
+              browserBinding: runtime.browserBinding,
+              timeoutMs: 14_000,
+              forceBrowser: true,
+            });
+          }
+
+          if (!downloadPage) {
+            trace.push({ stage: 'download-page', target, result: 'null' });
+            continue;
+          }
+
+          const loader = /btn-loader[\s\S]*?<a\b[^>]*href=["']([^"']+)["']/i.exec(downloadPage.body)?.[1] || null;
+          trace.push({
+            stage: 'download-page',
+            target,
+            via: downloadPage.via,
+            status: downloadPage.status,
+            finalUrl: downloadPage.url,
+            bytes: downloadPage.body.length,
+            hasBtnLoader: /btn-loader/i.test(downloadPage.body),
+            loader,
+            anchors: anchors(downloadPage.body, downloadPage.url).slice(0, 12).map(item => ({ url: item.url, text: item.text, tag: item.tag })),
+            excerpt: downloadPage.body.slice(0, 1800),
+          });
+        }
+
+        return trace;
+      }
+    }
+  }
+
+  return trace;
+}
+
 export async function resolveAkwamPlayback(
   context: ProviderContext,
   runtime: AkwamRuntime = {},
