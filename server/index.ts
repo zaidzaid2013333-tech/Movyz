@@ -7,7 +7,6 @@ import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { createPlaybackProxyUrl, handlePlaybackProxy, refreshStoredPlaybackProxyUrl } from './playback-proxy';
-import { getOnDemandAkwamSources } from './playback-on-demand';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -26,7 +25,7 @@ function cachedArProvSourceDto(source: any) {
   return {
     id: source.id,
     type: source.source_type,
-    quality: source.quality || 'source',
+    quality: source.quality || '',
     language: source.language || 'und',
     label: source.label_ar || source.providers?.name || 'Selected Playback Site',
     labelEn: source.label_en || source.providers?.name || 'Selected Playback Site',
@@ -88,8 +87,9 @@ async function getFreshArProvSourcesForContent(
     const provider = String(source.provider_reference || '').trim().toLowerCase();
     const type = String(source.source_type || '').trim().toLowerCase();
     const storedUrl = String(source.url || '').trim();
+    const quality = String(source.quality || '').trim().toLowerCase();
     if (!allowedProviders.has(provider) || !allowedTypes.has(type) || !/^https:\/\//i.test(storedUrl)) return null;
-    if (String(source.quality || '').trim().toLowerCase() === 'auto') return null;
+    if (!/^\\d{3,4}p$/i.test(quality)) return null;
 
     const isStoredProxy = /\/api\/v1\/playback\/stream(?:\\?|$)/i.test(storedUrl);
     if (isStoredProxy && requestUrl && env) {
@@ -103,7 +103,9 @@ async function getFreshArProvSourcesForContent(
     if (Number.isFinite(expiresAt) && expiresAt <= now) return null;
 
     const mapped = cachedArProvSourceDto(source);
-    if (provider === 'akwam' && requestUrl && env) {
+    if (provider === 'akwam') {
+      if (!requestUrl || !env) return null;
+
       const proxiedUrl = await createPlaybackProxyUrl({
         provider: 'arprov',
         type: mapped.type as any,
@@ -114,6 +116,8 @@ async function getFreshArProvSourcesForContent(
         label: mapped.label,
         referer: 'https://akwam.ss/',
       }, requestUrl, env);
+
+      if (!/^https:\/\/[^/]+\/api\/v1\/playback\/stream\?token=/i.test(proxiedUrl)) return null;
       return { ...mapped, url: proxiedUrl, isWorking: true };
     }
 
@@ -789,38 +793,6 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req) => {
   );
 }));
 
-app.get(`${api}/playback/on-demand`, asyncRoute(async (req, res) => {
-  const contentType = z.enum(["movie", "episode"]).safeParse(req.query.type);
-  const contentId = z.string().uuid().safeParse(req.query.id);
-
-  if (!contentType.success || !contentId.success) {
-    return fail(res, 400, "INVALID_PLAYBACK_REQUEST", "Invalid playback request");
-  }
-
-  try {
-    const sources = await getOnDemandAkwamSources(
-      contentType.data,
-      contentId.data,
-      req.url,
-      req.env || {},
-    );
-
-    // The resolver result is already edge-cached in playback-on-demand.ts.
-    // Keep a tiny browser cache too so a fast navigation back to the title does
-    // not repeat the same JSON request while the signed proxy token remains valid.
-    res.setHeader("Cache-Control", "private, max-age=15, stale-while-revalidate=60");
-    res.setHeader("X-Movyz-Playback-Path", "fast-direct-fallback");
-    return ok(res, sources);
-  } catch (error) {
-    console.warn("[playback-on-demand]", error instanceof Error ? error.message : String(error));
-    return fail(
-      res,
-      502,
-      "PLAYBACK_RESOLUTION_FAILED",
-      "Unable to resolve a playable Akwam source right now",
-    );
-  }
-}));
 app.post(`${api}/playback/prepared`, asyncRoute(async (req, res) => {
   const body = z.object({
     contentType: z.enum(['movie', 'episode']),
