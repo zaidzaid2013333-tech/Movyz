@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 import { adminSupabase } from '../server/supabase';
 import { debugAkwamEpisode, resolveAkwamPlayback } from '../server/providers/arprov-akwam';
+import { fetchArProvPage } from '../server/providers/arprov-runtime';
 import type { NormalizedPlaybackSource, ProviderContext } from '../server/providers/types';
 import { validatePreparedMediaSource } from './validate-prepared-source';
 
@@ -44,6 +45,8 @@ function normalizeSource(source: NormalizedPlaybackSource) {
 }
 
 async function saveEpisode(episodeId: string, sources: NormalizedPlaybackSource[], providerId: string) {
+  void episodeId;
+  void providerId;
   const validated = [];
   for (const source of sources) {
     const normalized = normalizeSource(source);
@@ -64,26 +67,7 @@ async function saveEpisode(episodeId: string, sources: NormalizedPlaybackSource[
   const deduped = [...new Map(validated.map((row) => [row.quality + '|' + row.source_type + '|' + row.url, row])).values()];
   if (!deduped.length) return 0;
 
-  const qualities = [...new Set(deduped.map((row) => row.quality))];
-  const { error: delError } = await adminSupabase
-    .from('playback_sources')
-    .delete()
-    .eq('provider_id', providerId)
-    .eq('content_type', 'episode')
-    .eq('content_id', episodeId)
-    .eq('provider_reference', 'akwam')
-    .in('quality', qualities);
-  if (delError) throw delError;
-
-  const payload = deduped.map((row) => ({
-    provider_id: providerId,
-    content_type: 'episode',
-    content_id: episodeId,
-    ...row,
-  }));
-  const { error } = await adminSupabase.from('playback_sources').insert(payload);
-  if (error) throw error;
-  return deduped.length;
+  // Smoke-only validation: never persist Akwam URLs. Playback is resolved on demand.\n  return deduped.length;
 }
 
 async function writeState(values: Record<string, unknown>) {
@@ -151,15 +135,16 @@ async function main() {
     try {
       const sources = await resolveAkwamPlayback(context, {});
       const saved = await saveEpisode(episode.id, sources, provider.id);
-      let trace = [];
+      let trace: Array<Record<string, unknown>> = [];
       if (!sources.length && episode.episode_number === 1) {
-        trace = (await debugAkwamEpisode(context, {})).slice(0, 30).map((item) => {
+        const debugTrace = await debugAkwamEpisode(context, {});
+        trace = debugTrace.slice(0, 30).map((item) => {
           const copy = { ...item };
           if (typeof copy.excerpt === 'string') copy.excerpt = copy.excerpt.slice(0, 1000);
           return copy;
         });
 
-        const detailUrls = trace
+        const detailUrls = debugTrace
           .filter((item) => item.stage === 'detail' && typeof item.finalUrl === 'string')
           .map((item) => String(item.finalUrl))
           .slice(0, 5);
@@ -198,7 +183,7 @@ async function main() {
       });
       console.log(JSON.stringify({ ok: saved > 0, ...results.at(-1) }));
     } catch (error) {
-      let trace = [];
+      let trace: Array<Record<string, unknown>> = [];
       if (episode.episode_number === 1) {
         trace = (await debugAkwamEpisode(context, {})).slice(0, 30).map((item) => {
           const copy = { ...item };
