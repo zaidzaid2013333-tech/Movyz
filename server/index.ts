@@ -10,6 +10,8 @@ const api = '/api/v1';
 
 app.disable('x-powered-by');
 
+// Playback backend: CinePro Core only.
+
 // Production diagnostics for the selected playback-sites path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
