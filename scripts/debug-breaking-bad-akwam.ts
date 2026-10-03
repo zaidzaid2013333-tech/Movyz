@@ -1,0 +1,109 @@
+import 'dotenv/config';
+
+import { adminSupabase } from '../server/supabase';
+import { debugAkwamEpisode } from '../server/providers/arprov-akwam';
+import type { ProviderContext } from '../server/providers/types';
+
+const SERIES_ID = '0e6b39aa-6564-4bbc-91f3-8f36ba808362';
+const EPISODE_ID = 'cfec368f-138e-405d-a98b-bb6734f5bbf5';
+const JOB_KEY = 'akwam-debug-breaking-bad';
+
+async function writeState(values: Record<string, unknown>) {
+  const { error } = await adminSupabase.from('maintenance_state').upsert({
+    job_key: JOB_KEY,
+    ...values,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'job_key' });
+  if (error) throw error;
+}
+
+async function main() {
+  const { data: series, error: seriesError } = await adminSupabase
+    .from('series')
+    .select('id,tmdb_id,title_ar,title_en,original_title,alternative_titles,first_air_date')
+    .eq('id', SERIES_ID)
+    .maybeSingle();
+  if (seriesError) throw seriesError;
+  if (!series) throw new Error('Breaking Bad series row not found');
+
+  const { data: episode, error: episodeError } = await adminSupabase
+    .from('episodes')
+    .select('id,episode_number,name_ar,name_en,seasons!inner(season_number)')
+    .eq('id', EPISODE_ID)
+    .maybeSingle();
+  if (episodeError) throw episodeError;
+  if (!episode) throw new Error('Breaking Bad S01E01 row not found');
+
+  const rawSeason = Array.isArray(episode.seasons) ? episode.seasons[0] : episode.seasons;
+  const seasonNumber = Number((rawSeason as Record<string, unknown> | null | undefined)?.season_number || 1);
+
+  const context: ProviderContext = {
+    tmdbId: Number(series.tmdb_id || 0) || undefined,
+    title: series.title_ar || series.title_en || series.original_title || undefined,
+    originalTitle: series.original_title || series.title_en || series.title_ar || undefined,
+    alternateTitles: Array.isArray(series.alternative_titles)
+      ? series.alternative_titles
+          .flatMap((value) => value && typeof value === 'object'
+            ? [String((value as Record<string, unknown>).title || '')]
+            : [])
+          .filter(Boolean)
+      : [],
+    releaseYear: series.first_air_date ? Number(String(series.first_air_date).slice(0, 4)) : undefined,
+    seasonNumber,
+    episodeNumber: Number(episode.episode_number),
+    episodeTitle: episode.name_ar || episode.name_en || undefined,
+  };
+
+  await writeState({
+    last_run_at: new Date().toISOString(),
+    last_success_at: null,
+    last_error: null,
+    stats: { state: 'running', stage: 'debug', content: 'Breaking Bad S01E01', context },
+  });
+
+  const trace = await debugAkwamEpisode(context, {});
+  const compactTrace = trace.slice(0, 40).map((item) => {
+    const copy: Record<string, unknown> = { ...item };
+    if (typeof copy.excerpt === 'string') copy.excerpt = copy.excerpt.slice(0, 800);
+    return copy;
+  });
+
+  const hasEpisodePage = trace.some((item) => item.stage === 'episode-page');
+  const hasDownloadTarget = trace.some((item) => item.stage === 'download-target');
+  const hasLoader = trace.some((item) => item.stage === 'download-page' && item.hasBtnLoader === true);
+  const errorMessages = trace
+    .filter((item) => item.ok === false)
+    .map((item) => String(item.error || item.reason || item.result || 'unknown'))
+    .slice(0, 20);
+
+  const success = hasEpisodePage && (hasDownloadTarget || hasLoader);
+  await writeState({
+    last_run_at: new Date().toISOString(),
+    last_success_at: success ? new Date().toISOString() : null,
+    last_error: success ? null : 'Breaking Bad debug did not reach a final download target',
+    stats: {
+      state: success ? 'success' : 'diagnostic-failed',
+      content: 'Breaking Bad S01E01',
+      stages: {
+        hasEpisodePage,
+        hasDownloadTarget,
+        hasLoader,
+        errorMessages,
+      },
+      trace: compactTrace,
+    },
+  });
+
+  console.log(JSON.stringify({
+    ok: success,
+    hasEpisodePage,
+    hasDownloadTarget,
+    hasLoader,
+    errors: errorMessages,
+    trace: compactTrace,
+  }, null, 2));
+
+  if (!success) process.exitCode = 2;
+}
+
+await main();
