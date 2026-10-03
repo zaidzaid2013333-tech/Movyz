@@ -131,6 +131,16 @@ Root parser bug discovered:
 - Latest Groq state before commit 6406057: no-repair on a Breaking Bad S02 candidate, with 0 discovered/saved sources.
 - Do not claim the new search fix succeeded until a post-6406057 robot run writes verified source rows to Supabase.
 
+## Continual Akwam training layer — 2026-10-03
+- Added `docs/AKWAM-EXTRACTION-PLAYBOOK.md`: persistent rules for discovery, multilingual title matching, Unicode normalization, URL/HTML/JS extraction signals, quality inference, media validation, and failure-class strategy changes.
+- Added `scripts/train-akwam-agent.ts`: one compact Groq training pass that reads the playbook + recent Akwam states/failures + current working-source counts, then stores durable learning memory in `maintenance_state` under `akwam-learning-memory`.
+- Groq training uses strict JSON Structured Outputs for `openai/gpt-oss-120b`; Groq currently documents strict Structured Outputs support for this model. citeturn797999search3turn797999search4
+- Updated `bot/groq-akwam-agent.ts` to load the playbook and learned memory before choosing repairs; Groq remains decision-only and may only choose observed candidates.
+- Updated `bot/akwam-preparation-robot.ts` to load the playbook/learning snapshot and pass the learned strategy version into deterministic preparation workers.
+- Updated `.github/workflows/akwam-preparation-robot.yml` so the training pass runs immediately before the Groq supervisor and changes to the playbook/trainer trigger the workflow.
+- This is continual context-learning, not model-weight fine-tuning: the Groq model itself is unchanged, while durable project memory is refreshed from verified outcomes.
+- As of the latest observed Supabase state before these changes, `akwam-learning-memory` had not yet been populated by a post-change workflow run; the new commits are prepared to create it automatically in the next workflow execution.
+
 ## Next steps
 1. Verify the latest workflow run after the final parser fix.
 2. Check Groq/agent output.
