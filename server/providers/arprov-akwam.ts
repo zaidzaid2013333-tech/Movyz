@@ -1338,6 +1338,69 @@ export async function resolveAkwamEpisodePage(
   return resolvePage(page, context, runtime);
 }
 
+export async function debugAkwamMovie(
+  context: ProviderContext,
+  runtime: AkwamRuntime = {},
+) {
+  const trace: Array<Record<string, unknown>> = [];
+  for (const base of AKWAM_BASES) {
+    const candidates = await search(base, context, runtime);
+    trace.push({ stage: 'search', candidates: candidates.slice(0, 4) });
+    for (const candidate of candidates.slice(0, 2)) {
+      const detail = await fetchArProvPage(candidate.url, {
+        browserBinding: runtime.browserBinding,
+        timeoutMs: 10_000,
+      });
+      trace.push({
+        stage: 'detail',
+        url: candidate.url,
+        status: detail?.status,
+        bytes: detail?.body.length,
+        downloads: detail
+          ? anchors(detail.body, detail.url)
+              .filter(a => /تحميل|download|\\/download|\\/link/i.test(a.text + ' ' + a.url))
+              .slice(0, 6)
+              .map(a => ({ url: a.url, text: a.text, tag: a.tag }))
+          : [],
+      });
+      if (!detail) continue;
+
+      for (const anchor of anchors(detail.body, detail.url)
+        .filter(a => /تحميل|download|\\/download|\\/link/i.test(a.text + ' ' + a.url))
+        .slice(0, 4)) {
+        const prefix = detail.body.slice(Math.max(0, anchor.index - 12_000), anchor.index);
+        const qualityMarkers = [
+          ...prefix.matchAll(/<div\\b[^>]*class=["'][^"']*tab-content[^"']*quality[^"']*["'][^>]*>/gi),
+        ];
+        const latestQualityMarker = qualityMarkers.at(-1);
+        const qualityContext = latestQualityMarker
+          ? prefix.slice(latestQualityMarker.index || 0) + ' ' + detail.body.slice(anchor.index, anchor.index + 2_000)
+          : anchor.text + ' ' + anchor.tag;
+        const quality = qualityFromBlock(qualityContext);
+        const target = downloadTarget(detail.url, anchor.url, new URL(detail.url).origin) || anchor.url;
+        let sources: NormalizedPlaybackSource[] = [];
+        let error = '';
+        try {
+          sources = await resolveDownload(target, quality, new URL(detail.url).origin, detail.url, runtime);
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e);
+        }
+        trace.push({
+          stage: 'download',
+          href: anchor.url,
+          target,
+          quality,
+          sourceCount: sources.length,
+          sources,
+          error,
+        });
+      }
+      if (trace.some(item => item.stage === 'download' && Number(item.sourceCount) > 0)) return trace;
+    }
+  }
+  return trace;
+}
+
 export async function resolveAkwamPlayback(
   context: ProviderContext,
   runtime: AkwamRuntime = {},
