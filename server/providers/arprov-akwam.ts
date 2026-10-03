@@ -49,7 +49,7 @@ function normalize(value: string) {
 function isAkwamContentUrl(value: string) {
   try {
     const path = new URL(value).pathname.toLowerCase();
-    return /\/(?:movie|series|episode|show|shows)(?:\/|$)/i.test(path);
+    return /\/(?:movies?|series|episodes?|show|shows)(?:\/|$)/i.test(path);
   } catch {
     return false;
   }
