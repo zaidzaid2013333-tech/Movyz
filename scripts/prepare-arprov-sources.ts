@@ -31,7 +31,7 @@ function normalizeSource(source: NormalizedPlaybackSource) {
   const type = String(source.type || '').trim().toLowerCase();
   if (!/^https:\/\//i.test(url)) return null;
   try {
-    if (/\/download(?:\/|$)/i.test(new URL(url).pathname)) return null;
+    new URL(url);
   } catch {
     return null;
   }
