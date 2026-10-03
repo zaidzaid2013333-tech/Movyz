@@ -656,7 +656,7 @@ async function resolveDownload(
           'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
           'User-Agent': 'Movyza/1.0',
           'X-Requested-With': 'XMLHttpRequest',
-          Referer: pageUrl,
+          Referer: page.url,
           ...(page.cookie ? { Cookie: page.cookie } : {}),
           Origin: new URL(page.url).origin,
         },
