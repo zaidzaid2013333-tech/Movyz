@@ -290,6 +290,19 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
     }
   }
 
+  // Some Akwam deployments expose the search route as /search/{query}.
+  if (!candidates.length) {
+    const pathSearchUrls = queryList.map(query => `${base}/search/${encodeURIComponent(query)}`);
+    pages = await Promise.allSettled(
+      pathSearchUrls.map(url => fetchArProvPage(url, {
+        browserBinding: runtime.browserBinding,
+        timeoutMs: 9_000,
+      })),
+    );
+    for (const page of pages) {
+      if (page.status === 'fulfilled') collect(page.value);
+    }
+  }
   // Akwam search is most reliable at the series/movie level. For episode lookups,
   // fall back to the plain title so we can open the series page and index its episodes.
   if (!candidates.length && ctx.episodeNumber !== undefined) {
