@@ -1,6 +1,6 @@
 name: Movyz Akwam Preparation Robot
 # [akwam-robot] parallel bulk preparation
-# manual retrigger: movie-only run
+# PAUSED: manual source import only
 
 on:
   push:
@@ -37,7 +37,7 @@ concurrency:
 
 jobs:
   groq-agent:
-    if: ${{ always() }}
+    if: ${{ false }}
     needs: [movies]
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -72,6 +72,7 @@ jobs:
         run: npm run bot:groq-agent
 
   movies:
+    if: ${{ false }}
     strategy:
       fail-fast: false
       matrix:
@@ -106,6 +107,7 @@ jobs:
         run: npm run bot:akwam
 
   debug-breaking-bad:
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
