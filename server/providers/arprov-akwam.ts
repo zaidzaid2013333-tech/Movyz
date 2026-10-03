@@ -799,8 +799,18 @@ export async function discoverAkwamSeasonEpisodes(
   context: ProviderContext,
   runtime: AkwamRuntime = {},
 ): Promise<AkwamIndexedEpisode[]> {
+  // Bulk episode preparation should follow ArProv's native flow:
+  // search the series title, open the series page, then index its episode cards.
+  // Episode-specific search queries add latency and often return an individual
+  // episode page instead of the season index.
+  const seriesSearchContext: ProviderContext = {
+    ...context,
+    episodeNumber: undefined,
+    episodeTitle: undefined,
+  };
+
   for (const base of AKWAM_BASES) {
-    const candidates = await search(base, context, runtime);
+    const candidates = await search(base, seriesSearchContext, runtime);
     for (const candidate of candidates.slice(0, 3)) {
       let detail = await fetchArProvPage(candidate.url, {
         browserBinding: runtime.browserBinding,
