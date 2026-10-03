@@ -6,7 +6,7 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
-import { handlePlaybackProxy } from './playback-proxy';
+import { createPlaybackProxyUrl, handlePlaybackProxy } from './playback-proxy';
 import { getOnDemandAkwamSources } from './playback-on-demand';
 
 export const app = new MiniApp();
@@ -33,7 +33,7 @@ async function cachedPlaybackSourceDto(
 
   if (!/^https:\/\//i.test(storedUrl)) return null;
   if (!['mp4', 'hls', 'dash', 'webm', 'direct'].includes(type)) return null;
-  if (!/^\\d{3,4}p$/i.test(quality)) return null;
+  if (!/^\d{3,4}p$/i.test(quality)) return null;
 
   const signedUrl = await createPlaybackProxyUrl({
     provider: providerName,
@@ -95,17 +95,18 @@ async function getFreshPlaybackSourcesForContent(
   }
 
   const now = Date.now();
-  const prepared = (storedResult.data || [])
-    .map((source: any) => {
+  const prepared = (await Promise.all(
+    (storedResult.data || []).map(async (source: any) => {
       const providerKey = String(source.providers?.key || '').trim().toLowerCase();
-      if (!providerKey || providerKey === 'arprov' && String(source.provider_reference || '').trim().toLowerCase() === 'akwam') return null;
+      const providerReference = String(source.provider_reference || '').trim().toLowerCase();
+      if (!providerKey || providerReference === 'akwam') return null;
 
       const expiresAt = source.expires_at ? Date.parse(String(source.expires_at)) : Number.POSITIVE_INFINITY;
       if (Number.isFinite(expiresAt) && expiresAt <= now) return null;
 
       return cachedPlaybackSourceDto(source, requestUrl || '', env || {});
-    })
-    .filter((source: any): source is Record<string, unknown> => Boolean(source));
+    }),
+  )).filter((source): source is Record<string, unknown> => Boolean(source));
 
   return [...akwamSources, ...prepared]
     .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))

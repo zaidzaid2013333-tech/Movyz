@@ -194,8 +194,8 @@ export async function handlePlaybackProxy(
     });
   }
 
-  // Redirect-only playback: Movyz resolves and validates the source, but never
-  // streams the video bytes. The media remains hosted by Akwam.
+  // Redirect-only playback: Movyz signs/validates the source, but never
+  // streams the video bytes. The media remains hosted by its provider.
   return new Response(null, {
     status: 302,
     headers: {
