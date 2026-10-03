@@ -110,6 +110,53 @@ async function verifyToken(token: string, env: Record<string, unknown>): Promise
   }
 }
 
+export async function refreshStoredPlaybackProxyUrl(
+  storedUrl: string,
+  requestUrl: string,
+  env: Record<string, unknown>,
+) {
+  try {
+    const parsed = new URL(storedUrl);
+    if (!parsed.pathname.endsWith('/api/v1/playback/stream')) return null;
+    const token = parsed.searchParams.get('token') || '';
+    if (!token) return null;
+
+    const secret = secretFromEnv(env);
+    if (!secret) return null;
+    const [encoded, signature] = token.split('.', 2);
+    if (!encoded || !signature) return null;
+    const signatureBytes = hexToBytes(signature);
+    if (!signatureBytes) return null;
+
+    const valid = await crypto.subtle.verify(
+      'HMAC',
+      await keyFor(secret),
+      signatureBytes,
+      new TextEncoder().encode(encoded),
+    );
+    if (!valid) return null;
+
+    const payload = JSON.parse(base64UrlDecode(encoded)) as ProxyPayload;
+    if (!payload || typeof payload.url !== 'string' || !/^https:\/\//i.test(payload.url)) return null;
+
+    const source: NormalizedPlaybackSource = {
+      provider: 'arprov',
+      type: (payload.type || 'direct') as NormalizedPlaybackSource['type'],
+      url: payload.url,
+      providerReference: 'arprov',
+      quality: 'source',
+      language: 'und',
+      label: 'Prepared Playback',
+      referer: payload.referer,
+      headers: payload.headers,
+    };
+
+    return createPlaybackProxyUrl(source, requestUrl, env);
+  } catch {
+    return null;
+  }
+}
+
 export async function handlePlaybackProxy(
   request: Request,
   env: Record<string, unknown>,
