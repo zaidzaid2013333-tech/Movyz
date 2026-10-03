@@ -25,11 +25,12 @@ on:
         default: "0"
 
 concurrency:
-  group: movyz-arprov-refresh
+  group: movyz-arprov-movies
   cancel-in-progress: true
 
 jobs:
   prepare:
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message || '', '[episode-fill-only]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
