@@ -4,7 +4,7 @@ import { fetchArProvPage, type ArProvBrowserBinding } from './arprov-runtime';
 import { resolveArProvExtractor } from './arprov-extractors';
 import { resolveUniversalSource } from './universal-resolver';
 
-const AKWAM_BASES = ['https://ak.sv', 'https://akwam.it', 'https://akwam.ss'] as const;
+const AKWAM_BASES = ['https://akwam.ss'] as const;
 // [akwam-smoke] V2 verification trigger
 // [akwam-robot] episode candidate filtering retest trigger
 // Trigger the prepared-source workers without changing runtime playback behavior.
