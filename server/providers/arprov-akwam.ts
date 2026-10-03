@@ -517,11 +517,11 @@ export async function debugAkwamEpisode(
     trace.push({
       stage: 'search',
       base,
-      candidates: candidates.slice(0, 5).map(item => ({ url: item.anchor.url, title: item.anchor.text, score: item.score })),
+      candidates: candidates.slice(0, 5).map(item => ({ url: item.url, title: item.title, score: item.score })),
     });
 
     for (const candidate of candidates.slice(0, 3)) {
-      let detail = await fetchArProvPage(candidate.anchor.url, {
+      let detail = await fetchArProvPage(candidate.url, {
         browserBinding: runtime.browserBinding,
         timeoutMs: 10_000,
       });
@@ -535,13 +535,13 @@ export async function debugAkwamEpisode(
       }
 
       if (!detail) {
-        trace.push({ stage: 'detail', url: candidate.anchor.url, result: 'null' });
+        trace.push({ stage: 'detail', url: candidate.url, result: 'null' });
         continue;
       }
 
       trace.push({
         stage: 'detail',
-        url: candidate.anchor.url,
+        url: candidate.url,
         via: detail.via,
         status: detail.status,
         finalUrl: detail.url,
