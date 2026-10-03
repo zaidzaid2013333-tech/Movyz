@@ -272,7 +272,7 @@ export async function getOnDemandAkwamSources(
       },
       requestUrl,
       env,
-      15 * 60 * 1000,
+      PROXY_TOKEN_TTL_MS,
     );
 
     if (!fallbackUrl || fallbackUrl === source.url) {
