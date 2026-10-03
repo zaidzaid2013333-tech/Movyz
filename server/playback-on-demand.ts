@@ -307,9 +307,19 @@ async function resolveAndValidate(
   ));
   if (!resolved.length) return [];
 
-  const validated = await Promise.all(resolved.map(validateDirectSource));
-  return validated
-    .filter((source): source is CachedSource => Boolean(source))
+  // The resolver already extracts direct media URLs. Do not perform a
+  // second upstream media fetch from the Cloudflare Worker request path:
+  // some CDNs accept the resolver's URL but reject Worker-origin validation
+  // requests. Strict URL/type/quality filtering remains in normalizeSources.
+  if (/^(1|true|yes)$/i.test(String(env.AKWAM_VALIDATE_MEDIA_SOURCE || ''))) {
+    const validated = await Promise.all(resolved.map(validateDirectSource));
+    return validated
+      .filter((source): source is CachedSource => Boolean(source))
+      .sort((a, b) => qualityScore(b.quality) - qualityScore(a.quality))
+      .slice(0, 6);
+  }
+
+  return resolved
     .sort((a, b) => qualityScore(b.quality) - qualityScore(a.quality))
     .slice(0, 6);
 }
