@@ -1,21 +1,21 @@
 # Movyz Akwam Extraction Playbook
 
 ## Purpose
-This is the persistent operating manual for the Movyz deterministic preparation robot and the Groq supervisor.
-It is a context-learning layer, not model-weight fine-tuning. Every training run reads this playbook plus recent verified failures/results and writes a compact learned memory back to Supabase.
+This is the persistent operating manual for the Movyz HTTP-only Akwam resolver and its optional maintenance/training tooling.
+It is a context-learning layer, not model-weight fine-tuning. Training/maintenance may use this playbook plus recent verified failures/results, but Groq and browser automation are never part of the live playback path.
 
 ## Hard invariants
 1. Allowed Akwam origin: https://akwam.ss only.
-2. Discovery happens in background preparation only; playback never discovers.
-3. Never store search pages, series pages, episode pages, iframes, embeds, /download pages, /link pages, HTML or JSON as playback media.
+2. Discovery may happen on-demand for the requested movie/episode, or optionally during background prewarm. Live playback uses HTTP-only deterministic discovery; it never uses Browser Run.
+3. Never persist Akwam media URLs in Supabase playback_sources as the playback authority. Search pages, series pages, episode pages, iframes, embeds, /download pages, /link pages, HTML or JSON are never playback media. Temporary edge-cache entries and short-lived signed redirect tokens are allowed.
 4. A candidate URL is not success. Success means a final HTTPS media URL passes deterministic media validation.
 5. Preserve healthy qualities. Refresh only qualities that were actually rediscovered and validated.
 6. Never invent or mutate an Akwam URL that was not observed from a verified page/tool result.
-7. Never use old domains/origins, unrelated mirrors, or browser automation for playback.
+7. Never use old domains/origins, unrelated mirrors, or browser automation for playback or source discovery.
 8. Stop retry loops. Change strategy after a failed attempt.
 
 ## Discovery strategy
-Use a staged sequence. Do not burst every route concurrently.
+Use a bounded staged sequence. Stay below the request/subrequest budget of the Worker; do not burst every route concurrently.
 
 A) Known exact page
 - Prefer a verified season URL when one is known.
@@ -26,9 +26,7 @@ B) Search routes
 Try one route family at a time and stop as soon as credible candidates appear:
 - /old/search/<encoded-query>
 - /search?q=<encoded-query>
-- /search?q=<encoded-query>&section=series
-- /search/<encoded-query>
-- site legacy query forms only as fallback.
+- legacy site query forms only as fallback.
 
 C) Query variants
 Build variants from:
@@ -170,8 +168,8 @@ For every candidate final media URL:
 4. MIME/media response check.
 5. Range smoke request (bytes=0-1) where supported.
 6. Reject obvious HTML/challenge responses.
-7. Persist only after validation succeeds.
-8. Record quality/type/observed referer/expiry when available.
+7. Return/cache temporarily only after validation succeeds; do not persist the Akwam media URL to playback_sources.
+8. Record quality/type/observed referer/expiry in ephemeral runtime state when available.
 
 ## Failure learning
 Classify failures before retrying:
@@ -219,7 +217,8 @@ Deterministic code:
 - URL normalization
 - media extraction
 - validation
-- database writes
+- temporary cache + signed redirect creation
+- non-URL health/maintenance metadata
 
 Groq:
 - select among observed candidates
@@ -227,7 +226,7 @@ Groq:
 - classify failure
 - choose the next deterministic strategy
 - summarize lessons
-Groq must never invent or directly persist a URL.
+Groq must never invent, fetch, or directly persist a playback URL. Groq is not called on the live playback path.
 
 ## Success definition
 The training is considered useful only when it changes future decisions measurably:
@@ -235,4 +234,7 @@ The training is considered useful only when it changes future decisions measurab
 - better candidate selection;
 - more verified final media URLs;
 - no false "success" states;
-- no playback-time discovery.
+- bounded on-demand discovery at playback time;
+- no video proxying by Movyz;
+- no Browser Run dependency;
+- no permanent Akwam media URL storage.
