@@ -151,13 +151,37 @@ async function main() {
     try {
       const sources = await resolveAkwamPlayback(context, {});
       const saved = await saveEpisode(episode.id, sources, provider.id);
-      const trace = sources.length || episode.episode_number !== 1
-        ? []
-        : (await debugAkwamEpisode(context, {})).slice(0, 30).map((item) => {
-            const copy = { ...item };
-            if (typeof copy.excerpt === 'string') copy.excerpt = copy.excerpt.slice(0, 1000);
-            return copy;
+      let trace = [];
+      if (!sources.length && episode.episode_number === 1) {
+        trace = (await debugAkwamEpisode(context, {})).slice(0, 30).map((item) => {
+          const copy = { ...item };
+          if (typeof copy.excerpt === 'string') copy.excerpt = copy.excerpt.slice(0, 1000);
+          return copy;
+        });
+
+        const detailUrls = trace
+          .filter((item) => item.stage === 'detail' && typeof item.finalUrl === 'string')
+          .map((item) => String(item.finalUrl))
+          .slice(0, 5);
+
+        for (const detailUrl of detailUrls) {
+          const page = await fetchArProvPage(detailUrl, { timeoutMs: 10_000 });
+          if (!page) continue;
+          const anchors = [...page.body.matchAll(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)]
+            .map((match) => ({
+              href: match[1],
+              text: String(match[2] || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 160),
+            }))
+            .filter((item) => /episode|watch|الحلقة|مشاهدة|play/i.test(item.href + ' ' + item.text))
+            .slice(0, 80);
+
+          trace.push({
+            stage: 'anchor-inspection',
+            url: page.url,
+            matchingAnchors: anchors,
           });
+        }
+      }
 
       results.push({
         episode: episode.episode_number,
@@ -174,13 +198,14 @@ async function main() {
       });
       console.log(JSON.stringify({ ok: saved > 0, ...results.at(-1) }));
     } catch (error) {
-      const trace = episode.episode_number === 1
-        ? (await debugAkwamEpisode(context, {})).slice(0, 30).map((item) => {
-            const copy = { ...item };
-            if (typeof copy.excerpt === 'string') copy.excerpt = copy.excerpt.slice(0, 1000);
-            return copy;
-          })
-        : [];
+      let trace = [];
+      if (episode.episode_number === 1) {
+        trace = (await debugAkwamEpisode(context, {})).slice(0, 30).map((item) => {
+          const copy = { ...item };
+          if (typeof copy.excerpt === 'string') copy.excerpt = copy.excerpt.slice(0, 1000);
+          return copy;
+        });
+      }
 
       results.push({
         episode: episode.episode_number,
