@@ -34,7 +34,7 @@ function save(url: string, value: ArProvPage) {
   pageCache.set(cacheKey(url), { expiresAt: Date.now() + PAGE_TTL_MS, value });
 }
 
-async function fetchHttp(url: string, referer?: string, timeoutMs = 9_000): Promise<ArProvPage> {
+async function fetchHttp(url: string, referer?: string, cookie?: string, timeoutMs = 9_000): Promise<ArProvPage> {
   const response = await fetchWithTimeout(url, {
     method: 'GET',
     redirect: 'follow',
@@ -46,6 +46,7 @@ async function fetchHttp(url: string, referer?: string, timeoutMs = 9_000): Prom
       Pragma: 'no-cache',
       Referer: referer || new URL(url).origin + '/',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+      ...(cookie ? { Cookie: cookie } : {}),
     },
   });
 
@@ -81,6 +82,7 @@ export async function fetchArProvPage(
     browserBinding?: ArProvBrowserBinding;
     timeoutMs?: number;
     forceBrowser?: boolean;
+    cookie?: string;
   } = {},
 ): Promise<ArProvPage | null> {
   void options.browserBinding;
@@ -95,7 +97,7 @@ export async function fetchArProvPage(
   const timeoutMs = Math.max(3_000, Math.min(20_000, options.timeoutMs ?? 9_000));
 
   try {
-    const page = await fetchHttp(url, options.referer, timeoutMs);
+    const page = await fetchHttp(url, options.referer, options.cookie, timeoutMs);
     if (page.status >= 200 && page.status < 400 && page.body) return page;
 
     negativeCache.set(cacheKey(url), Date.now() + NEGATIVE_TTL_MS);
