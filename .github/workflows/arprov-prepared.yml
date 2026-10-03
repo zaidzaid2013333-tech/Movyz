@@ -1,28 +1,7 @@
 name: Prepare ArProv Playback Sources
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - "scripts/prepare-arprov-sources.ts"
-      - "bot/run-maintenance-once.ts"
-      - "server/providers/arprov-akwam.ts"
-      - "server/providers/arprov.ts"
-      - ".github/workflows/arprov-prepared.yml"
   workflow_dispatch:
-    inputs:
-      mode:
-        description: "movies or episodes"
-        required: true
-        default: "movies"
-      limit:
-        description: "number of rows to prepare"
-        required: true
-        default: "250"
-      offset:
-        description: "starting row offset"
-        required: true
-        default: "0"
 
 jobs:
   prepare:
