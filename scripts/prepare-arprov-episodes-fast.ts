@@ -144,10 +144,13 @@ async function fetchSeasons() {
 
 async function readyEpisodeIds(episodeIds: string[]) {
   const ready = new Set<string>();
-  const chunkSize = 100;
+  const assigned = new Set(episodeIds);
+  const pageSize = 1000;
 
-  for (let i = 0; i < episodeIds.length; i += chunkSize) {
-    const chunk = episodeIds.slice(i, i + chunkSize);
+  // Read prepared episode IDs by pagination instead of generating hundreds
+  // of large IN(...) requests. This keeps shard startup fast and avoids
+  // HTTP header overflow on Supabase/PostgREST.
+  for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await adminSupabase
       .from('playback_sources')
       .select('content_id')
@@ -156,9 +159,15 @@ async function readyEpisodeIds(episodeIds: string[]) {
       .eq('is_working', true)
       .not('url', 'is', null)
       .is('expires_at', null)
-      .in('content_id', chunk);
+      .range(offset, offset + pageSize - 1);
     if (error) throw error;
-    for (const row of data || []) ready.add(String(row.content_id));
+
+    for (const row of data || []) {
+      const id = String(row.content_id);
+      if (assigned.has(id)) ready.add(id);
+    }
+
+    if (!data || data.length < pageSize) break;
   }
 
   return ready;
