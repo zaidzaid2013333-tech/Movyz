@@ -39,7 +39,7 @@ jobs:
       PREPARE_LIMIT: ${{ github.event.inputs.limit || '500' }}
       PREPARE_OFFSET: ${{ github.event.inputs.offset || '0' }}
       PREPARE_CONCURRENCY: "10"
-      PREPARE_ONLY_MISSING: "true"
+      PREPARE_ONLY_MISSING: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
