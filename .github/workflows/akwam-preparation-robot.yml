@@ -37,7 +37,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyz-akwam-robot-${{ github.workflow }}-${{ github.ref }}
+  group: movyz-akwam-robot-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
