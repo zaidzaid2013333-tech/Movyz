@@ -20,7 +20,9 @@ const helper = [
 if (tmdb.includes(marker)) {
   tmdb = tmdb.replace(marker, helper);
 }
-tmdb = tmdb.replace(/await fetch\\((\\`[^\\`]+\\`)\\)/g, 'await this.tmdbFetch($1)');
+tmdb = tmdb.replaceAll('await fetch(`${this.baseUrl}', 'await this.tmdbFetch(`${this.baseUrl');
+tmdb = tmdb.replaceAll('?api_key=${this.apiKey}`', '`');
+tmdb = tmdb.replaceAll('&api_key=${this.apiKey}`', '`');
 fs.writeFileSync(tmdbPath, tmdb);
 
 const vidzeePath = new URL('./core/src/providers/vidzee/decrypt.ts', import.meta.url);
