@@ -6,6 +6,7 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
+import { handlePlaybackProxy } from './playback-proxy';
 
 export const app = new MiniApp();
 const api = '/api/v1';
