@@ -199,6 +199,32 @@ function extractSeasonEpisode(value: string) {
   };
 }
 
+function arabicSeasonName(value: number) {
+  const names: Record<number, string> = {
+    1: 'الاول',
+    2: 'الثاني',
+    3: 'الثالث',
+    4: 'الرابع',
+    5: 'الخامس',
+    6: 'السادس',
+    7: 'السابع',
+    8: 'الثامن',
+    9: 'التاسع',
+    10: 'العاشر',
+    11: 'الحادي عشر',
+    12: 'الثاني عشر',
+    13: 'الثالث عشر',
+    14: 'الرابع عشر',
+    15: 'الخامس عشر',
+    16: 'السادس عشر',
+    17: 'السابع عشر',
+    18: 'الثامن عشر',
+    19: 'التاسع عشر',
+    20: 'العشرون',
+  };
+  return names[value] || String(value);
+}
+
 function searchUrls(base: string, query: string) {
   const encoded = encodeURIComponent(query);
   return [
@@ -224,22 +250,36 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
   ].filter((value): value is string => Boolean(value?.trim())))].slice(0, 3);
 
   const queries = new Set<string>();
+  const seasonNumber = ctx.seasonNumber ?? 1;
+  const seasonName = arabicSeasonName(seasonNumber);
+
   if (ctx.episodeNumber !== undefined) {
-    const season = String(ctx.seasonNumber ?? 1).padStart(2, '0');
+    const season = String(seasonNumber).padStart(2, '0');
     const episode = String(ctx.episodeNumber).padStart(2, '0');
     const numericEpisode = String(ctx.episodeNumber);
     for (const title of titles.slice(0, 3)) {
       queries.add(`${title} S${season}E${episode}`);
       queries.add(`${title} S${season} E${episode}`);
+      queries.add(`${title} season ${seasonNumber} episode ${numericEpisode}`);
       queries.add(`${title} episode ${numericEpisode}`);
+      queries.add(`${title} الموسم ${seasonName} الحلقة ${numericEpisode}`);
       queries.add(`${title} الحلقة ${numericEpisode}`);
       queries.add(`${title} ${numericEpisode}`);
       if (ctx.episodeTitle?.trim()) {
         queries.add(`${title} ${ctx.episodeTitle.trim()}`);
+        queries.add(`${title} الموسم ${seasonName} ${ctx.episodeTitle.trim()}`);
       }
     }
   } else {
-    for (const title of titles) queries.add(title);
+    for (const title of titles) {
+      queries.add(title);
+      if (ctx.seasonNumber !== undefined) {
+        queries.add(`${title} season ${seasonNumber}`);
+        queries.add(`${title} S${seasonNumber}`);
+        queries.add(`${title} الموسم ${seasonName}`);
+        queries.add(`${title} الموسم ${seasonNumber}`);
+      }
+    }
   }
 
   const queryList = [...queries].slice(0, 3);
