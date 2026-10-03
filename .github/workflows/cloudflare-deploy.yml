@@ -166,6 +166,72 @@ jobs:
 
           print("Playback provider checks skipped: production player is now resolved from Movyz API playback sources.")
 
+      - name: Smoke test prepared Akwam playback and proxy
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+          from urllib.error import HTTPError
+
+          api = "https://movyz-api.sameranede.workers.dev"
+          checks = [
+              ("movie", "81723a1b-a9c5-46bb-bec6-f16664895d3e", "Inception"),
+              ("episode", "cfec368f-138e-405d-a98b-bb6734f5bbf5", "Breaking Bad S01E01"),
+          ]
+
+          def post_prepared(content_type, content_id):
+              body = json.dumps({"contentType": content_type, "contentId": content_id}).encode()
+              req = urllib.request.Request(
+                  api + "/api/v1/playback/prepared",
+                  method="POST",
+                  data=body,
+                  headers={"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Movyz-CI/1.0"},
+              )
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return json.load(response)
+
+          for content_type, content_id, label in checks:
+              payload = post_prepared(content_type, content_id)
+              if payload.get("success") is not True:
+                  raise SystemExit(f"{label}: prepared API success=false")
+
+              sources = payload.get("data") if isinstance(payload.get("data"), list) else []
+              if not sources:
+                  raise SystemExit(f"{label}: no prepared sources")
+
+              source = sources[0]
+              url = str(source.get("url") or "")
+              quality = str(source.get("quality") or "").lower()
+              source_type = str(source.get("type") or "").lower()
+
+              if not url.startswith(api + "/api/v1/playback/stream?token="):
+                  raise SystemExit(f"{label}: playback URL is not a Movyz proxy URL")
+              if "akwam.ss" in url.lower():
+                  raise SystemExit(f"{label}: raw Akwam URL leaked")
+              if not quality.endswith("p") or quality in {"auto", "source"}:
+                  raise SystemExit(f"{label}: invalid quality {quality!r}")
+              if source_type not in {"mp4", "hls", "dash", "webm", "direct"}:
+                  raise SystemExit(f"{label}: invalid source type {source_type!r}")
+
+              range_req = urllib.request.Request(
+                  url,
+                  method="GET",
+                  headers={"Range": "bytes=0-1", "User-Agent": "Movyz-CI/1.0"},
+              )
+              try:
+                  with urllib.request.urlopen(range_req, timeout=30) as response:
+                      status = response.status
+                      content_type_header = str(response.headers.get("Content-Type") or "").lower()
+                      if status not in (200, 206):
+                          raise SystemExit(f"{label}: proxy returned HTTP {status}")
+                      if "text/html" in content_type_header or "application/json" in content_type_header:
+                          raise SystemExit(f"{label}: proxy returned non-media content type {content_type_header!r}")
+                      print(f"Prepared proxy OK: {label} status={status} content-type={content_type_header} quality={quality} type={source_type}")
+              except HTTPError as exc:
+                  raise SystemExit(f"{label}: proxy range check HTTP {exc.code}") from exc
+          PY
+
       - name: Remove temporary secrets file
         if: always()
         run: rm -f .env.production
