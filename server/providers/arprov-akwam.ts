@@ -1161,6 +1161,52 @@ export async function discoverAkwamSeasonEpisodes(
   return [];
 }
 
+export async function resolveAkwamEpisodeFromSeriesPage(
+  seriesUrl: string,
+  context: ProviderContext,
+  runtime: AkwamRuntime = {},
+): Promise<{ episodeUrl: string | null; sources: NormalizedPlaybackSource[]; indexed: AkwamIndexedEpisode[] }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(seriesUrl);
+  } catch {
+    return { episodeUrl: null, sources: [], indexed: [] };
+  }
+
+  if (parsed.origin !== 'https://akwam.ss' || !/\/series(?:\/|$)/i.test(parsed.pathname)) {
+    return { episodeUrl: null, sources: [], indexed: [] };
+  }
+
+  let page = await fetchArProvPage(seriesUrl, {
+    browserBinding: runtime.browserBinding,
+    timeoutMs: 10_000,
+  });
+
+  if (looksBlocked(page) && runtime.browserBinding) {
+    page = await fetchArProvPage(seriesUrl, {
+      browserBinding: runtime.browserBinding,
+      timeoutMs: 12_000,
+      forceBrowser: true,
+    });
+  }
+
+  if (!page) return { episodeUrl: null, sources: [], indexed: [] };
+
+  const indexed = indexEpisodeCandidates(page.body, page.url, context.seasonNumber)
+    .filter(item => item.episode === context.episodeNumber)
+    .filter(item => context.seasonNumber === undefined || item.season === undefined || item.season === context.seasonNumber)
+    .slice(0, 8);
+
+  for (const item of indexed) {
+    const sources = await resolveAkwamEpisodePage(item.url, context, runtime);
+    if (sources.length) {
+      return { episodeUrl: item.url, sources, indexed };
+    }
+  }
+
+  return { episodeUrl: null, sources: [], indexed };
+}
+
 export async function resolveAkwamEpisodePage(
   url: string,
   context: ProviderContext,
