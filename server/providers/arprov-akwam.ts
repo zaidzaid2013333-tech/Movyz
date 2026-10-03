@@ -5,6 +5,7 @@ import { resolveArProvExtractor } from './arprov-extractors';
 import { resolveUniversalSource } from './universal-resolver';
 
 const AKWAM_BASES = ['https://akwam.ss'] as const;
+// Trigger the prepared-source workers without changing runtime playback behavior.
 
 type AkwamRuntime = {
   browserBinding?: ArProvBrowserBinding;
