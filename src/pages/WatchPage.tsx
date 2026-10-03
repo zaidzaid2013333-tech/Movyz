@@ -552,35 +552,63 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   };
 
   const runStartupWarmup = (video: HTMLVideoElement, url: string) => {
-    if (startupWarmupDoneRef.current.has(url)) return;
+    const key = `${url}::${playbackSource?.type || 'native'}`;
+    if (startupWarmupDoneRef.current.has(key)) return;
     if (!Number.isFinite(video.duration) || video.duration < 125) return;
     if (video.currentTime > 1) return;
+    if (qualityResumeTimeRef.current !== null && qualityResumeTimeRef.current > 1) return;
 
-    startupWarmupDoneRef.current.add(url);
-    const restorePosition = 0;
-    const wasPaused = video.paused;
+    const targetTime = Math.min(120, Math.max(0, video.duration - 2));
+    if (targetTime <= 1) return;
 
-    try {
-      video.currentTime = Math.min(120, Math.max(0, video.duration - 1));
-      if (!wasPaused) void video.play().catch(() => undefined);
-    } catch {
-      return;
-    }
+    startupWarmupDoneRef.current.add(key);
+    const originalTime = Math.max(0, video.currentTime);
+    const wasPlaying = !video.paused && !video.ended;
+    let restored = false;
 
-    if (startupWarmupTimerRef.current !== null) {
-      window.clearTimeout(startupWarmupTimerRef.current);
-    }
-    startupWarmupTimerRef.current = window.setTimeout(() => {
-      startupWarmupTimerRef.current = null;
+    const cleanup = () => {
+      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('error', restore);
+      if (startupWarmupTimerRef.current !== null) {
+        window.clearTimeout(startupWarmupTimerRef.current);
+        startupWarmupTimerRef.current = null;
+      }
+    };
+
+    const restore = () => {
+      if (restored) return;
+      restored = true;
+      cleanup();
+
       const active = videoRef.current;
       if (!active || playbackUrl !== url) return;
+
       try {
-        active.currentTime = restorePosition;
-        if (wasPaused) active.pause();
+        active.currentTime = originalTime;
+        if (!wasPlaying) active.pause();
       } catch {
-        // Some remote MP4 servers reject an immediate seek-back; playback can continue normally.
+        // Ignore sources that reject the immediate seek-back.
       }
-    }, 1200);
+    };
+
+    const onSeeked = () => {
+      if (startupWarmupTimerRef.current !== null) {
+        window.clearTimeout(startupWarmupTimerRef.current);
+      }
+      startupWarmupTimerRef.current = window.setTimeout(restore, 900);
+    };
+
+    video.addEventListener('seeked', onSeeked, { once: true });
+    video.addEventListener('error', restore, { once: true });
+
+    startupWarmupTimerRef.current = window.setTimeout(restore, 1800);
+
+    try {
+      video.currentTime = targetTime;
+      if (wasPlaying) void video.play().catch(() => undefined);
+    } catch {
+      restore();
+    }
   };
 
 
@@ -822,6 +850,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       syncDuration();
       syncTime();
       syncBuffered();
+      runStartupWarmup(video, playbackUrl);
     };
     const onPlaying = () => {
       setPlayerPlaying(true);
@@ -845,7 +874,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       ['loadedmetadata', onMetadata],
       ['durationchange', syncDuration],
       ['loadeddata', () => { setPlayerReady(true); syncTime(); syncBuffered(); }],
-      ['canplay', () => { setPlayerReady(true); syncDuration(); syncBuffered(); }],
+      ['canplay', () => { setPlayerReady(true); syncDuration(); syncBuffered(); runStartupWarmup(video, playbackUrl); }],
       ['canplaythrough', () => { setPlayerReady(true); syncDuration(); syncBuffered(); }],
       ['timeupdate', syncTime],
       ['progress', syncBuffered],

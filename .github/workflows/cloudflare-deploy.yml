@@ -1,8 +1,8 @@
 name: Movyz Cloudflare Deploy
 # Browser Run verification trigger: 2026-10-01
-# Selected playback sites: Aflam + CimaClub; Anime4Up for anime
+# Cached native playback sources only; runtime does not resolve providers
 # CI trigger: production deploys run from a real main-branch push.
-# Emergency playback verification: selected providers must return native playable media.
+# Runtime playback verification checks only pre-recorded native media URLs.
 
 on:
   push:
@@ -117,40 +117,6 @@ jobs:
               )
           except Exception as exc:
               print(f"DoodStream WARN: {exc!r}")
-          PY
-
-      - name: Debug Akwam episode resolution
-        env:
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          import urllib.request
-
-          api = "https://movyz-api.sameranede.workers.dev/api/v1/debug/arprov-episode"
-          body = json.dumps({
-              "tmdbId": 1396,
-              "title": "Breaking Bad",
-              "originalTitle": "Breaking Bad",
-              "episodeTitle": "Pilot",
-              "seasonNumber": 1,
-              "episodeNumber": 1,
-          }).encode()
-          request = urllib.request.Request(
-              api,
-              data=body,
-              method="POST",
-              headers={
-                  "Content-Type": "application/json",
-                  "Accept": "application/json",
-                  "User-Agent": "Movyz-CI/1.0",
-                  "x-debug-key": os.environ["SUPABASE_SERVICE_ROLE_KEY"],
-              },
-          )
-          with urllib.request.urlopen(request, timeout=120) as response:
-              payload = json.load(response)
-          print(json.dumps(payload, ensure_ascii=False, indent=2)[:30000])
           PY
 
       - name: Smoke test production watch paths
