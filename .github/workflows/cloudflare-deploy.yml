@@ -1,8 +1,8 @@
 name: Movyz Cloudflare Deploy
 # Browser Run verification trigger: 2026-10-01
-# Runtime playback uses on-demand Akwam resolution with edge caching and the Movyz playback proxy
+# Runtime playback uses prepared Akwam sources stored in Supabase and the Movyz playback proxy
 # CI trigger: production deploys run from a real main-branch push.
-# Runtime playback uses the resolved raw media URL first, with a Movyz proxy fallback for referer/CORS-restricted sources.
+# Runtime playback never discovers sources; prepared Akwam media is exposed only through the Movyz playback proxy.
 
 on:
   push:
@@ -165,79 +165,6 @@ jobs:
           print("Series watch API OK: Breaking Bad S01E01")
 
           print("Playback provider checks skipped: production player is now resolved from Movyz API playback sources.")
-
-      - name: Smoke test production on-demand Akwam playback
-        continue-on-error: true
-        run: |
-          python - <<'PY'
-          import json
-          import urllib.parse
-          import urllib.request
-          from urllib.error import HTTPError
-
-          api = "https://movyz-api.sameranede.workers.dev/api/v1/playback/on-demand"
-          checks = [
-              ("movie", "81723a1b-a9c5-46bb-bec6-f16664895d3e", "Inception"),
-              ("movie", "ef350c7c-dbf6-44bb-80dc-3bc61890a166", "Fight Club"),
-              ("episode", "cfec368f-138e-405d-a98b-bb6734f5bbf5", "Breaking Bad S01E01"),
-          ]
-
-          for content_type, content_id, label in checks:
-              url = api + "?" + urllib.parse.urlencode({
-                  "type": content_type,
-                  "id": content_id,
-              })
-
-              request = urllib.request.Request(
-                  url,
-                  method="GET",
-                  headers={
-                      "Accept": "application/json",
-                      "User-Agent": "Movyz-CI/1.0",
-                  },
-              )
-
-              try:
-                  with urllib.request.urlopen(request, timeout=90) as response:
-                      payload = json.load(response)
-              except HTTPError as exc:
-                  print(f"On-demand WARN: {label} HTTP {exc.code}")
-                  continue
-              except Exception as exc:
-                  print(f"On-demand WARN: {label} {exc!r}")
-                  continue
-
-              if payload.get("success") is not True:
-                  print(f"On-demand WARN: {label} success=false")
-                  continue
-
-              sources = payload.get("data") if isinstance(payload.get("data"), list) else []
-              if not sources:
-                  print(f"On-demand WARN: {label} returned no playable sources")
-                  continue
-
-              for source in sources[:4]:
-                  provider = str(source.get("providerKey") or "").lower()
-                  quality = str(source.get("quality") or "").lower()
-                  source_type = str(source.get("type") or "").lower()
-                  direct_url = str(source.get("directUrl") or source.get("url") or "")
-                  fallback_url = str(source.get("fallbackUrl") or "")
-
-                  if provider != "akwam":
-                      raise SystemExit(f"{label}: unexpected provider {provider!r}")
-                  if source_type not in {"hls", "mp4", "dash", "webm", "direct"}:
-                      raise SystemExit(f"{label}: invalid source type {source_type!r}")
-                  if quality in {"", "auto", "source"}:
-                      raise SystemExit(f"{label}: invalid quality {quality!r}")
-                  if not direct_url.startswith("https://"):
-                      raise SystemExit(f"{label}: non-HTTPS direct source")
-                  if "movyz-api.sameranede.workers.dev/api/v1/playback/stream?token=" not in fallback_url:
-                      raise SystemExit(f"{label}: Movyz proxy fallback missing")
-
-              print(f"On-demand playback OK: {label} sources={len(sources)}")
-
-          print("On-demand Akwam smoke test complete.")
-          PY
 
       - name: Remove temporary secrets file
         if: always()
