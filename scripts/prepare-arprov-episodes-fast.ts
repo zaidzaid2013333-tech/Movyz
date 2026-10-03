@@ -235,54 +235,25 @@ async function saveBatch(rows: Array<{ episodeId: string; sources: NormalizedPla
     return checked ? { episodeId: task.episodeId, row: { ...task.row, url: checked.url } } : null;
   });
 
-  const grouped = new Map<string, typeof validationTasks[number][]>();
+  const grouped = new Map<string, Array<(typeof successful)[number]['normalized'][number]>>();
   for (const checked of checkedRows) {
     if (!checked) continue;
     const existing = grouped.get(checked.episodeId) || [];
     existing.push(checked.row);
-    grouped.set(checked.episodeId, existing as any);
+    grouped.set(checked.episodeId, existing);
   }
 
   const validated = [...grouped.entries()].map(([episodeId, rowsForEpisode]) => ({
     episodeId,
     sources: [...new Map(
-      rowsForEpisode.map((row: any) => [row.quality + '|' + row.source_type + '|' + row.url, row]),
+      rowsForEpisode.map((row) => [row.quality + '|' + row.source_type + '|' + row.url, row]),
     ).values()],
   })).filter((item) => item.sources.length > 0);
 
-  if (!validated.length) return 0;
-
-  // Refresh only the qualities that were actually validated for each episode.
-  // Never delete the episode's other prepared qualities.
-  await mapLimit(validated, DELETE_CONCURRENCY, async (item) => {
-    const qualities = [...new Set(item.sources.map((source) => source.quality))];
-    const { error } = await adminSupabase
-      .from('playback_sources')
-      .delete()
-      .eq('provider_id', providerId)
-      .eq('content_type', 'episode')
-      .eq('provider_reference', 'akwam')
-      .eq('content_id', item.episodeId)
-      .in('quality', qualities);
-    if (error) throw error;
-  });
-
-  const payload = validated.flatMap((item) =>
-    item.sources.map((source) => ({
-      provider_id: providerId,
-      content_type: 'episode',
-      content_id: item.episodeId,
-      ...source,
-    })),
-  );
-
-  const chunks: typeof payload[] = [];
-  for (let i = 0; i < payload.length; i += 200) chunks.push(payload.slice(i, i + 200));
-  await mapLimit(chunks, 4, async (chunk) => {
-    const { error } = await adminSupabase.from('playback_sources').insert(chunk);
-    if (error) throw error;
-  });
-
+  // New architecture: Akwam playback is on-demand. This legacy preparation
+  // worker may validate candidates for diagnostics, but must never persist URLs.
+  void providerId;
+  void DELETE_CONCURRENCY;
   return validated.length;
 }
 
