@@ -6,7 +6,7 @@ import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } fr
 import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
 import { registerBuiltInProviders } from './providers/bootstrap';
-import { handlePlaybackProxy } from './playback-proxy';
+import { handlePlaybackProxy, refreshStoredPlaybackProxyUrl } from './playback-proxy';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -60,7 +60,12 @@ function playbackTypeScore(value: unknown) {
   }
 }
 
-async function getFreshArProvSourcesForContent(contentType: 'movie' | 'episode', contentId: string) {
+async function getFreshArProvSourcesForContent(
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  requestUrl?: string,
+  env?: Record<string, unknown>,
+) {
   const { data, error } = await adminSupabase
     .from('playback_sources')
     .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name)')
@@ -68,7 +73,6 @@ async function getFreshArProvSourcesForContent(contentType: 'movie' | 'episode',
     .eq('content_id', contentId)
     .eq('is_working', true)
     .eq('providers.key', 'arprov')
-    .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
     .order('quality', { ascending: true });
 
   if (error) {
@@ -77,13 +81,30 @@ async function getFreshArProvSourcesForContent(contentType: 'movie' | 'episode',
 
   const allowedProviders = new Set(['akwam', 'anime4up']);
   const allowedTypes = new Set(['mp4', 'hls', 'dash', 'webm', 'direct']);
+  const now = Date.now();
 
-  return (data || [])
-    .filter((source: any) => allowedProviders.has(String(source.provider_reference || '').trim().toLowerCase()))
-    .filter((source: any) => allowedTypes.has(String(source.source_type || '').trim().toLowerCase()))
-    .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
-    .filter((source: any) => String(source.quality || '').trim().toLowerCase() !== 'auto')
-        .map(cachedArProvSourceDto)
+  const prepared = await Promise.all((data || []).map(async (source: any) => {
+    const provider = String(source.provider_reference || '').trim().toLowerCase();
+    const type = String(source.source_type || '').trim().toLowerCase();
+    const storedUrl = String(source.url || '').trim();
+    if (!allowedProviders.has(provider) || !allowedTypes.has(type) || !/^https:\/\//i.test(storedUrl)) return null;
+    if (String(source.quality || '').trim().toLowerCase() === 'auto') return null;
+
+    const isStoredProxy = /\/api\/v1\/playback\/stream(?:\\?|$)/i.test(storedUrl);
+    if (isStoredProxy && requestUrl && env) {
+      const refreshedUrl = await refreshStoredPlaybackProxyUrl(storedUrl, requestUrl, env);
+      if (refreshedUrl) {
+        return { ...cachedArProvSourceDto(source), url: refreshedUrl, isWorking: true };
+      }
+    }
+
+    const expiresAt = source.expires_at ? Date.parse(String(source.expires_at)) : Number.POSITIVE_INFINITY;
+    if (Number.isFinite(expiresAt) && expiresAt <= now) return null;
+    return cachedArProvSourceDto(source);
+  }));
+
+  return prepared
+    .filter((source: any): source is Record<string, unknown> => Boolean(source))
     .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
     .sort((a: any, b: any) => {
       const qualityDiff = playbackQualityScore(b.quality) - playbackQualityScore(a.quality);
@@ -751,6 +772,8 @@ app.post(`${api}/playback/prepared`, asyncRoute(async (req, res) => {
   const sources = await getFreshArProvSourcesForContent(
     body.data.contentType,
     body.data.contentId,
+    req.url,
+    req.env || {},
   );
 
   const output = sources
