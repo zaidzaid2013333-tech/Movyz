@@ -272,90 +272,31 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     ?? storedPlaybackSources[0]
     ?? null;
   useEffect(() => {
-    let mounted = true;
+    const ready = collapseProviderQualityDuplicates(
+      storedPlaybackSources
+        .filter(isPlayableHttpSource)
+        .filter((source) => source.isWorking !== false)
+        .slice(0, 20),
+    );
 
-    const applyReadySources = (sources: PlaybackSource[]) => {
-      const ready = collapseProviderQualityDuplicates(
-        sources
-          .filter(isPlayableHttpSource)
-          .filter((source) => source.isWorking !== false)
-          .slice(0, 20),
-      );
-
-      if (!ready.length) return false;
-
-      setPlaybackError(null);
-      setRemotePlaybackSources(ready);
-      setRemotePlaybackSource((current) => current ?? (
-        ready.find((source) => /1080p/i.test(source.quality || source.labelEn || '')) ||
-        ready.find((source) => /720p/i.test(source.quality || source.labelEn || '')) ||
-        ready[0]
-      ));
-      setResolverLoading(false);
-      setPlayerUnlocked(true);
-      return true;
-    };
-
-    const resolveOnDemand = async () => {
-      setResolverLoading(true);
-      setPlayerUnlocked(false);
-      setPlaybackError(null);
-
-      try {
-        const targetId = mediaType === 'movie' ? content?.id : currentEpisode?.id;
-        if (!targetId) throw new Error('Missing playback target');
-
-        const resolved = await MovyzaApi.getPreparedPlaybackSources(
-          mediaType === 'movie' ? 'movie' : 'episode',
-          targetId,
-        );
-
-        if (!mounted) return;
-        if (!applyReadySources(resolved.data)) {
-          throw new Error('No playable source returned');
-        }
-      } catch (caught) {
-        if (!mounted) return;
-        setResolverLoading(false);
-        setPlayerUnlocked(false);
-        setPlaybackError(
-          language === 'ar'
-            ? 'تعذر الحصول على مصدر تشغيل حاليًا.'
-            : 'Unable to get a playable source right now.',
-        );
-      }
-    };
-
-    setRemotePlaybackSources([]);
-    setRemotePlaybackSource(null);
+    setRemotePlaybackSources(ready);
+    setRemotePlaybackSource((current) => current && ready.some((source) => source.url === current.url)
+      ? current
+      : ready.find((source) => /1080p/i.test(source.quality || source.labelEn || ''))
+        || ready.find((source) => /720p/i.test(source.quality || source.labelEn || ''))
+        || ready[0]
+        || null,
+    );
     setResolverLoading(false);
-    setPlaybackError(null);
-
-    if (storedPlaybackSources.length && applyReadySources(storedPlaybackSources)) {
-      return () => {
-        mounted = false;
-      };
-    }
-
-    if (content && (mediaType === 'movie' || currentEpisode)) {
-      void resolveOnDemand();
-    }
-
-    return () => {
-      mounted = false;
-    };
-  }, [
-    mediaType,
-    content?.id,
-    activeSeason,
-    activeEpisode,
-    currentEpisode?.id,
-    currentEpisode?.seasonNumber,
-    currentEpisode?.episodeNumber,
-    storedPlaybackSources.length,
-    storedPlaybackSource?.url,
-    language,
-  ]);
+    setPlayerUnlocked(ready.length > 0);
+    setPlaybackError(
+      ready.length
+        ? null
+        : (language === 'ar'
+          ? 'لا يوجد مصدر تشغيل جاهز حاليًا.'
+          : 'No prepared playback source is currently available.'),
+    );
+  }, [storedPlaybackSources, language]);
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const playbackUrl = playbackSource?.url?.trim() || '';
@@ -958,15 +899,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             ) : null}
             <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-black/20" />
             <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
-              {resolverLoading ? (
-                <>
-                  <div className="mb-4 h-10 w-10 rounded-full border-2 border-amber-400/25 border-t-amber-400 animate-spin" />
-                  <p className="text-sm font-medium text-slate-200">
-                    {language === 'ar' ? 'جاري قراءة المصدر الجاهز…' : 'Reading prepared playback source…'}
-                  </p>
-                </>
-              ) : (
-                <ErrorState
+              <ErrorState
                   message={playbackError || (language === 'ar' ? 'لا يوجد مصدر تشغيل جاهز حاليًا.' : 'No prepared playback source is currently available.')}
                   onRetry={() => window.location.reload()}
                   onGoHome={() => onNavigate('/')}
