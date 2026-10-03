@@ -1,5 +1,4 @@
 import { app } from './server/index';
-import { runMaintenanceTick } from './server/maintenance';
 import type { WorkerEnvironment } from './server/mini-http';
 
 type ServiceBinding = {
@@ -12,7 +11,6 @@ type ExecutionContextLike = {
 
 type MovyzEnvironment = WorkerEnvironment & {
   ASSETS: { fetch(request: Request): Promise<Response> };
-  BROWSER?: unknown;
   WATCH_API?: ServiceBinding;
 };
 
@@ -53,13 +51,5 @@ export default {
     return assetResponse;
   },
 
-  async scheduled(_controller: unknown, env: MovyzEnvironment, ctx: ExecutionContextLike) {
-    ctx.waitUntil(
-      runMaintenanceTick('primary_sources', env.BROWSER).catch((error) => {
-        console.error('[movyz-scheduled-maintenance]', error instanceof Error ? error.message : String(error));
-      }),
-    );
-  },
 };
 
-// Playback architecture marker: external resolver returns links; Movyz never proxies video bytes.

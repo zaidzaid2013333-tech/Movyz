@@ -22,7 +22,7 @@ function inferExpiry(url: string, explicit?: string) {
       if (Number.isFinite(ms) && ms > Date.now()) return new Date(ms).toISOString();
     }
   } catch {}
-  return new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+  return null;
 }
 
 async function getProviderId() {
@@ -132,6 +132,7 @@ async function persist(
 
   const expiries = normalized
     .map((source) => inferExpiry(source.url, source.expiresAt))
+    .filter((value): value is string => Boolean(value))
     .map((value) => Date.parse(value))
     .filter(Number.isFinite);
 
