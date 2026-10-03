@@ -1,3 +1,4 @@
+// CI trigger: production smoke verification follows workflow-only fixes
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
 
