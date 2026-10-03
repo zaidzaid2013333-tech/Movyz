@@ -169,13 +169,18 @@ function titleScore(candidate: { text: string; url: string }, ctx: ProviderConte
 
   if (ctx.releaseYear && hay.includes(String(ctx.releaseYear))) score += 120;
 
+  const requestedSeason = ctx.seasonNumber;
+  const identity = extractSeasonEpisode(candidate.text + ' ' + candidate.url);
+
+  if (requestedSeason !== undefined && identity.season !== undefined) {
+    if (identity.season === requestedSeason) score += 1_500;
+    else score -= 5_000;
+  }
+
   if (ctx.episodeNumber !== undefined) {
-    const requestedSeason = ctx.seasonNumber ?? 1;
     const episode = ctx.episodeNumber;
-    const id = extractSeasonEpisode(candidate.text + ' ' + candidate.url);
-    if (id.episode === episode) score += 500;
-    if (id.season === requestedSeason) score += 400;
-    if (id.episode !== undefined && id.episode !== episode) score -= 1_000;
+    if (identity.episode === episode) score += 500;
+    if (identity.episode !== undefined && identity.episode !== episode) score -= 1_000;
   }
 
   return score;
@@ -194,10 +199,42 @@ function extractSeasonEpisode(value: string) {
 
   const ep = /(?:episode|ep|الحلقة|حلقه|حلقة)[^0-9٠-٩]*([0-9٠-٩]{1,3})/i.exec(text);
   const season = /(?:season|الموسم)[^0-9٠-٩]*([0-9٠-٩]{1,3})/i.exec(text);
-  return {
-    season: season ? Number(season[1]) : undefined,
-    episode: ep ? Number(ep[1]) : undefined,
-  };
+  if (season) {
+    return {
+      season: Number(String(season[1]).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))),
+      episode: ep ? Number(String(ep[1]).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))) : undefined,
+    };
+  }
+
+  const arabicOrdinals: Array<[RegExp, number]> = [
+    [/الموسم\s+(?:الأول|الاول|الاولى|الأولى)/i, 1],
+    [/الموسم\s+(?:الثاني|الثانية)/i, 2],
+    [/الموسم\s+(?:الثالث|الثالثة)/i, 3],
+    [/الموسم\s+(?:الرابع|الرابعة)/i, 4],
+    [/الموسم\s+(?:الخامس|الخامسة)/i, 5],
+    [/الموسم\s+(?:السادس|السادسة)/i, 6],
+    [/الموسم\s+(?:السابع|السابعة)/i, 7],
+    [/الموسم\s+(?:الثامن|الثامنة)/i, 8],
+    [/الموسم\s+(?:التاسع|التاسعة)/i, 9],
+    [/الموسم\s+(?:العاشر)/i, 10],
+    [/الموسم\s+(?:الحادي\s+عشر|الحادية\s+عشرة)/i, 11],
+    [/الموسم\s+(?:الثاني\s+عشر|الثانية\s+عشرة)/i, 12],
+    [/الموسم\s+(?:الثالث\s+عشر|الثالثة\s+عشرة)/i, 13],
+    [/الموسم\s+(?:الرابع\s+عشر|الرابعة\s+عشرة)/i, 14],
+    [/الموسم\s+(?:الخامس\s+عشر|الخامسة\s+عشرة)/i, 15],
+    [/الموسم\s+(?:السادس\s+عشر|السادسة\s+عشرة)/i, 16],
+    [/الموسم\s+(?:السابع\s+عشر|السابعة\s+عشرة)/i, 17],
+    [/الموسم\s+(?:الثامن\s+عشر|الثامنة\s+عشرة)/i, 18],
+    [/الموسم\s+(?:التاسع\s+عشر|التاسعة\s+عشرة)/i, 19],
+    [/الموسم\s+(?:العشرون|العشرين)/i, 20],
+  ];
+  for (const [pattern, number] of arabicOrdinals) {
+    if (pattern.test(text)) {
+      return { season: number, episode: ep ? Number(String(ep[1]).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))) : undefined };
+    }
+  }
+
+  return { season: undefined, episode: ep ? Number(String(ep[1]).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))) : undefined };
 }
 
 function arabicSeasonName(value: number) {
