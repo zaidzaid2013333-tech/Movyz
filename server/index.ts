@@ -8,6 +8,7 @@ import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdb
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { createPlaybackProxyUrl, handlePlaybackProxy } from './playback-proxy';
 import { getOnDemandAkwamSources } from './playback-on-demand';
+import { getCineProPlaybackSources, type CineProMediaLocator } from './providers/cinepro';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -73,11 +74,47 @@ async function cachedPlaybackSourceDto(
   };
 }
 
+async function getCineProLocator(
+  contentType: 'movie' | 'episode',
+  contentId: string,
+): Promise<CineProMediaLocator | null> {
+  try {
+    if (contentType === 'movie') {
+      const { data } = await adminSupabase
+        .from('movies')
+        .select('tmdb_id')
+        .eq('id', contentId)
+        .maybeSingle();
+      const tmdbId = Number(data?.tmdb_id || 0);
+      return tmdbId > 0 ? { type: 'movie', tmdbId } : null;
+    }
+
+    const { data } = await adminSupabase
+      .from('episodes')
+      .select('episode_number,seasons(season_number,series:series_id(tmdb_id))')
+      .eq('id', contentId)
+      .maybeSingle();
+
+    const season = Array.isArray(data?.seasons) ? data.seasons[0] : data?.seasons;
+    const tmdbId = Number(season?.series?.tmdb_id || 0);
+    const seasonNumber = Number(season?.season_number || 0);
+    const episodeNumber = Number(data?.episode_number || 0);
+
+    return tmdbId > 0 && seasonNumber > 0 && episodeNumber > 0
+      ? { type: 'episode', tmdbId, season: seasonNumber, episode: episodeNumber }
+      : null;
+  } catch (error) {
+    console.warn('[cinepro-locator]', error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
+
 async function getFreshPlaybackSourcesForContent(
   contentType: 'movie' | 'episode',
   contentId: string,
   requestUrl?: string,
   env?: Record<string, unknown>,
+  cineProLocator?: CineProMediaLocator,
 ) {
   const akwamPromise = requestUrl && env
     ? getOnDemandAkwamSources(contentType, contentId, requestUrl, env).catch((error) => {
@@ -89,6 +126,10 @@ async function getFreshPlaybackSourcesForContent(
       })
     : Promise.resolve([]);
 
+  const cineProLocatorPromise = cineProLocator
+    ? Promise.resolve(cineProLocator)
+    : getCineProLocator(contentType, contentId);
+
   const storedPromise = adminSupabase
     .from('playback_sources')
     .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name,enabled)')
@@ -99,7 +140,16 @@ async function getFreshPlaybackSourcesForContent(
     .neq('provider_reference', 'akwam')
     .order('quality', { ascending: true });
 
-  const [akwamSources, storedResult] = await Promise.all([akwamPromise, storedPromise]);
+  const [resolvedCineProLocator, akwamSources, storedResult] = await Promise.all([
+    cineProLocatorPromise,
+    akwamPromise,
+    storedPromise,
+  ]);
+
+  const cineProSources = resolvedCineProLocator && env
+    ? await getCineProPlaybackSources(resolvedCineProLocator, env)
+    : [];
+
   if (storedResult.error) {
     console.warn('[stored-playback-sources]', storedResult.error.message);
   }
@@ -118,7 +168,7 @@ async function getFreshPlaybackSourcesForContent(
     }),
   )).filter((source) => source !== null);
 
-  return [...akwamSources, ...prepared]
+  return [...cineProSources, ...akwamSources, ...prepared]
     .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
     .sort((a: any, b: any) => {
       const qualityDiff = playbackQualityScore(b.quality) - playbackQualityScore(a.quality);
@@ -250,7 +300,10 @@ async function batchSeriesGenres(ids: string[]) {
 
 async function movieDto(row: any, includePlaybackSources = false, requestUrl?: string, env?: Record<string, unknown>) {
   const playbackPromise = includePlaybackSources
-    ? getFreshPlaybackSourcesForContent('movie', row.id, requestUrl, env).catch((error) => {
+    ? getFreshPlaybackSourcesForContent('movie', row.id, requestUrl, env, {
+      type: 'movie',
+      tmdbId: Number(row.tmdb_id || 0),
+    }).catch((error) => {
         console.warn('[movie-playback-cache]', error instanceof Error ? error.message : String(error));
         return [];
       })
@@ -366,6 +419,12 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
         String(currentEpisode.id),
         requestUrl,
         env,
+        {
+          type: 'episode',
+          tmdbId: Number(row.tmdb_id || 0),
+          season: seasonNumber,
+          episode: episodeNumber,
+        },
       );
       playbackByEpisode.set(String(currentEpisode.id), prepared);
     } catch (playbackError) {
@@ -791,8 +850,18 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
   }
 
-  const playbackSources = await getFreshPlaybackSourcesForContent('episode', String(episode.id), req.url, req.env || {})
-    .catch((sourceError) => {
+  const playbackSources = await getFreshPlaybackSourcesForContent(
+    'episode',
+    String(episode.id),
+    req.url,
+    req.env || {},
+    {
+      type: 'episode',
+      tmdbId: Number(series.tmdb_id || 0),
+      season: Number(episode.seasons.season_number || 0),
+      episode: Number(episode.episode_number || 0),
+    },
+  ).catch((sourceError) => {
       console.warn('[episode-playback-cache]', sourceError instanceof Error ? sourceError.message : String(sourceError));
       return [];
     });
