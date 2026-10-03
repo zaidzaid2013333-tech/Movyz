@@ -158,20 +158,44 @@ async function validateDirectSource(source: CachedSource): Promise<CachedSource 
       return null;
     }
 
-    const body = await response.text();
-    if (!body) return null;
-    if (/text\/html|application\/json|text\/json/i.test(contentType)) return null;
-    if (/just a moment|captcha|verify you are human|challenge-platform|access denied/i.test(body.slice(0, 5000))) return null;
-
-    const looksLikeMediaPath = /\.(?:mp4|webm|m3u8|mpd|m4v|mov|mpeg|mpg|ts|m2ts|flv|3gp|3g2)(?:$|[?#])/i.test(finalPath);
+    const looksLikeMediaPath = /\\.(?:mp4|webm|m3u8|mpd|m4v|mov|mpeg|mpg|ts|m2ts|flv|3gp|3g2)(?:$|[?#])/i.test(finalPath);
     const typeMatches = expectedContentType(source.type)?.test(contentType) ?? false;
+    const obviouslyTextual = /text\\/html|application\\/json|text\\/json/i.test(contentType);
 
-    if (source.type === 'hls' && !typeMatches) {
-      if (!/\.(?:m3u8)(?:$|[?#])/i.test(finalPath) || !/^#EXTM3U\b/i.test(body.trim())) return null;
-    } else if (source.type === 'dash' && !typeMatches) {
-      if (!/\.(?:mpd)(?:$|[?#])/i.test(finalPath) || !/<(?:MPD|mpd)\b/i.test(body)) return null;
-    } else if (!typeMatches && !(contentType === 'application/octet-stream' && looksLikeMediaPath)) {
+    if (obviouslyTextual) {
+      try { await response.body?.cancel(); } catch {}
       return null;
+    }
+
+    // Never buffer a full media file just to validate it. If the upstream
+    // ignores Range, inspect only a tiny prefix for textual manifests.
+    if (source.type === 'hls' && !typeMatches) {
+      if (!/\\.(?:m3u8)(?:$|[?#])/i.test(finalPath)) {
+        try { await response.body?.cancel(); } catch {}
+        return null;
+      }
+      const reader = response.body?.getReader();
+      if (!reader) return null;
+      const first = await reader.read();
+      try { await reader.cancel(); } catch {}
+      const prefix = new TextDecoder().decode(first.value || new Uint8Array()).slice(0, 8192);
+      if (!/^#EXTM3U\\b/i.test(prefix.trim())) return null;
+    } else if (source.type === 'dash' && !typeMatches) {
+      if (!/\\.(?:mpd)(?:$|[?#])/i.test(finalPath)) {
+        try { await response.body?.cancel(); } catch {}
+        return null;
+      }
+      const reader = response.body?.getReader();
+      if (!reader) return null;
+      const first = await reader.read();
+      try { await reader.cancel(); } catch {}
+      const prefix = new TextDecoder().decode(first.value || new Uint8Array()).slice(0, 8192);
+      if (!/<(?:MPD|mpd)\\b/i.test(prefix)) return null;
+    } else if (!typeMatches && !(contentType === 'application/octet-stream' && looksLikeMediaPath)) {
+      try { await response.body?.cancel(); } catch {}
+      return null;
+    } else {
+      try { await response.body?.cancel(); } catch {}
     }
 
     return { ...source, url: finalUrl };
