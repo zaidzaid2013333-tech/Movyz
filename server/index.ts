@@ -3,86 +3,19 @@ import { z } from 'zod';
 import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } from './auth';
-import { getProvider } from './providers/registry';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
-import { registerBuiltInProviders } from './providers/bootstrap';
-import { createPlaybackProxyUrl, handlePlaybackProxy } from './playback-proxy';
-import { getOnDemandAkwamSources } from './playback-on-demand';
 
 export const app = new MiniApp();
 const api = '/api/v1';
-
-registerBuiltInProviders();
 
 app.disable('x-powered-by');
 
 // Production diagnostics for the selected playback-sites path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
-const playbackQualityScore = (quality: unknown) => {
-  const value = Number.parseInt(String(quality || ''), 10);
-  return Number.isFinite(value) ? value : 0;
-};
-
-const playbackTypeScore = (type: unknown) => {
-  const scores: Record<string, number> = { hls: 4, dash: 3, mp4: 2, webm: 1, direct: 0 };
-  return scores[String(type || '').toLowerCase()] ?? 0;
-};
-
-async function cachedPlaybackSourceDto(
-  source: any,
-  requestUrl: string,
-  env: Record<string, unknown>,
-) {
-  const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-  const providerKey = String(source.providers?.key || '').trim().toLowerCase();
-  const providerName = source.providers?.name || source.label_ar || 'Source';
-  const type = String(source.source_type || '').trim().toLowerCase();
-  const quality = String(source.quality || '').trim().toLowerCase();
-  const storedUrl = String(source.url || '').trim();
-
-  if (!/^https:\/\//i.test(storedUrl)) return null;
-  if (!['mp4', 'hls', 'dash', 'webm', 'direct'].includes(type)) return null;
-  if (!/^\d{3,4}p$/i.test(quality)) return null;
-
-  const signedUrl = await createPlaybackProxyUrl({
-    provider: providerName,
-    type: type as any,
-    url: storedUrl,
-    providerReference: providerReference || providerKey || undefined,
-    quality,
-    language: source.language || 'und',
-    label: source.label_ar || providerName,
-  }, requestUrl, env);
-
-  if (!signedUrl) return null;
-
-  return {
-    id: source.id,
-    type,
-    quality,
-    language: source.language || 'und',
-    label: source.label_ar || providerName,
-    labelEn: source.label_en || providerName,
-    url: signedUrl,
-    isWorking: source.is_working === true,
-    provider: providerName,
-    providerKey: providerKey || providerReference || undefined,
-    providerReference: providerReference || undefined,
-    expiresAt: source.expires_at || null,
-  };
-}
-
-async function getCineProPlaybackSources(
-  contentType: 'movie' | 'episode',
-  contentId: string,
-  requestUrl?: string,
-  env?: Record<string, unknown>,
-) {
-  const rawBase = String(env?.CINEPRO_BASE_URL ?? process.env.CINEPRO_BASE_URL ?? '').trim();
-  const baseUrl = rawBase.replace(/\/+$/, '');
+async function getCineProPlaybackSources(contentType: 'movie' | 'episode', contentId: string) {
+  const baseUrl = String(process.env.CINEPRO_BASE_URL || '').trim().replace(/\/+$/, '');
   if (!baseUrl) return [];
-
   try {
     let endpoint = '';
     if (contentType === 'movie') {
@@ -90,146 +23,35 @@ async function getCineProPlaybackSources(
       if (error || !data?.tmdb_id) return [];
       endpoint = baseUrl + '/v1/movies/' + Number(data.tmdb_id);
     } else {
-      const { data: episode, error: episodeError } = await adminSupabase.from('episodes').select('tmdb_id,episode_number,season_id').eq('id', contentId).maybeSingle();
-      if (episodeError || !episode?.tmdb_id || !episode?.season_id) return [];
+      const { data: episode, error: episodeError } = await adminSupabase.from('episodes').select('episode_number,season_id').eq('id', contentId).maybeSingle();
+      if (episodeError || !episode?.season_id) return [];
       const { data: season, error: seasonError } = await adminSupabase.from('seasons').select('season_number,series_id').eq('id', episode.season_id).maybeSingle();
-      if (seasonError || !season?.season_number || !season?.series_id) return [];
+      if (seasonError || season?.season_number == null || !season?.series_id) return [];
       const { data: series, error: seriesError } = await adminSupabase.from('series').select('tmdb_id').eq('id', season.series_id).maybeSingle();
       if (seriesError || !series?.tmdb_id) return [];
       endpoint = baseUrl + '/v1/tv/' + Number(series.tmdb_id) + '/seasons/' + Number(season.season_number) + '/episodes/' + Number(episode.episode_number);
     }
-
-    const response = await fetch(endpoint, {
-      headers: { Accept: 'application/json', 'User-Agent': 'Movyz-CinePro-Bridge/1.0', 'Cache-Control': 'no-cache' },
-      signal: AbortSignal.timeout(25000),
-    });
+    const response = await fetch(endpoint, { headers: { Accept: 'application/json', 'User-Agent': 'Movyz-CinePro-Bridge/1.0' }, signal: AbortSignal.timeout(25000) });
     if (!response.ok) return [];
-
-    const payload = await response.json() as {
-      sources?: Array<{
-        url?: string; type?: string; quality?: string | number;
-        provider?: { name?: string; id?: string };
-        audioTracks?: Array<{ language?: string; label?: string }>;
-      }>;
-    };
-
-    const sources = Array.isArray(payload.sources) ? payload.sources : [];
-    const mappedSources = await Promise.all(sources.map(async (source, index) => {
-      const rawUrl = String(source.url || '').trim();
-      if (!rawUrl) return null;
-
-      let url = rawUrl;
-      try { url = new URL(rawUrl, baseUrl).toString(); } catch { return null; }
+    const payload = await response.json() as { sources?: Array<{ url?: string; type?: string; quality?: string | number; provider?: { name?: string; id?: string }; audioTracks?: Array<{ language?: string; label?: string }> }> };
+    return (Array.isArray(payload.sources) ? payload.sources : []).map((source, index) => {
+      const url = String(source.url || '').trim();
       if (!/^https:\/\//i.test(url)) return null;
-
       const sourceType = String(source.type || '').trim().toLowerCase();
-      const normalizedType = ['hls', 'dash', 'mp4', 'webm'].includes(sourceType)
-        ? sourceType : sourceType === 'mkv' ? 'direct' : 'direct';
+      const type = ['hls', 'dash', 'mp4', 'webm'].includes(sourceType) ? sourceType : 'direct';
       const rawQuality = String(source.quality ?? '').trim();
       const qualityMatch = rawQuality.match(/(2160|1440|1080|720|576|480|360|240)/);
       const quality = qualityMatch ? qualityMatch[1] + 'p' : '720p';
       const providerName = String(source.provider?.name || source.provider?.id || 'CinePro').trim();
       const track = Array.isArray(source.audioTracks) ? source.audioTracks[0] : undefined;
-      if (!requestUrl || !env) return null;
-
-      const signedUrl = await createPlaybackProxyUrl({
-        provider: 'CinePro',
-        type: normalizedType as any,
-        url,
-        providerReference: 'cinepro',
-        quality,
-        language: String(track?.language || 'und').trim(),
-        label: 'CinePro • ' + providerName,
-      }, requestUrl, env);
-      if (!signedUrl) return null;
-
-      return {
-        id: 'cinepro-' + contentType + '-' + contentId + '-' + index,
-        type: normalizedType,
-        quality,
-        language: String(track?.language || 'und').trim(),
-        label: 'CinePro • ' + providerName,
-        labelEn: 'CinePro • ' + providerName,
-        url: signedUrl,
-        isWorking: true,
-        provider: providerName,
-        providerKey: String(source.provider?.id || providerName).trim(),
-        providerReference: 'cinepro',
-        expiresAt: null,
-      };
-    }));
-
-    return mappedSources.filter(
-      (source): source is NonNullable<typeof source> => source !== null,
-    );
-  } catch (error) {
-    console.warn('[cinepro-bridge]', error instanceof Error ? error.message : String(error));
-    return [];
-  }
-}
-async function getFreshPlaybackSourcesForContent(
-  contentType: 'movie' | 'episode',
-  contentId: string,
-  requestUrl?: string,
-  env?: Record<string, unknown>,
-) {
-  const cineProPromise = getCineProPlaybackSources(contentType, contentId, requestUrl, env).catch((error) => {
-    console.warn('[cinepro-playback]', error instanceof Error ? error.message : String(error));
-    return [];
-  });
-  const akwamPromise = requestUrl && env
-    ? getOnDemandAkwamSources(contentType, contentId, requestUrl, env).catch((error) => {
-        console.warn(
-          '[akwam-on-demand]',
-          error instanceof Error ? error.message : String(error),
-        );
-        return [];
-      })
-    : Promise.resolve([]);
-
-  const storedPromise = adminSupabase
-    .from('playback_sources')
-    .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name,enabled)')
-    .eq('content_type', contentType)
-    .eq('content_id', contentId)
-    .eq('is_working', true)
-    .eq('providers.enabled', true)
-    .neq('provider_reference', 'akwam')
-    .order('quality', { ascending: true });
-
-  const [cineProSources, akwamSources, storedResult] = await Promise.all([
-    cineProPromise,
-    akwamPromise,
-    storedPromise,
-  ]);
-  if (storedResult.error) {
-    console.warn('[stored-playback-sources]', storedResult.error.message);
-  }
-
-  const now = Date.now();
-  const prepared = (await Promise.all(
-    (storedResult.data || []).map(async (source: any) => {
-      const providerKey = String(source.providers?.key || '').trim().toLowerCase();
-      const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-      if (!providerKey || providerReference === 'akwam') return null;
-
-      const expiresAt = source.expires_at ? Date.parse(String(source.expires_at)) : Number.POSITIVE_INFINITY;
-      if (Number.isFinite(expiresAt) && expiresAt <= now) return null;
-
-      return cachedPlaybackSourceDto(source, requestUrl || '', env || {});
-    }),
-  )).filter((source) => source !== null);
-
-  return [...cineProSources, ...akwamSources, ...prepared]
-    .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
-    .sort((a: any, b: any) => {
-      const qualityDiff = playbackQualityScore(b.quality) - playbackQualityScore(a.quality);
-      if (qualityDiff) return qualityDiff;
-      return playbackTypeScore(b.type) - playbackTypeScore(a.type);
-    })
-    .slice(0, 8);
+      return { id: 'cinepro-' + contentType + '-' + contentId + '-' + index, type, quality, language: String(track?.language || 'und').trim(), label: 'CinePro • ' + providerName, labelEn: 'CinePro • ' + providerName, url, isWorking: true, provider: providerName, providerKey: String(source.provider?.id || providerName).trim(), providerReference: 'cinepro', expiresAt: null };
+    }).filter((source): source is NonNullable<typeof source> => source !== null).sort((a,b) => Number.parseInt(b.quality,10)-Number.parseInt(a.quality,10));
+  } catch (error) { console.warn('[cinepro-bridge]', error instanceof Error ? error.message : String(error)); return []; }
 }
 
+async function getFreshPlaybackSourcesForContent(contentType: 'movie' | 'episode', contentId: string) {
+  return getCineProPlaybackSources(contentType, contentId);
+}
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   const origin = req.headers.get('origin');
   const allow = (process.env.CORS_ORIGINS || '').split(',').map((x) => x.trim()).filter(Boolean);
@@ -829,40 +651,6 @@ app.get(`${api}/episodes/:id`, asyncRoute(async (req, res) => {
   });
 }));
 
-app.get(`${api}/playback/stream`, asyncRoute(async (req) => {
-  return handlePlaybackProxy(
-    new Request(req.url, { method: req.method, headers: req.headers }),
-    req.env || {},
-  );
-}));
-
-app.post(`${api}/playback/prepared`, asyncRoute(async (req, res) => {
-  const body = z.object({
-    contentType: z.enum(['movie', 'episode']),
-    contentId: z.string().uuid(),
-  }).safeParse(req.body);
-
-  if (!body.success) {
-    return fail(res, 400, 'INVALID_PLAYBACK_REQUEST', 'Invalid playback request');
-  }
-
-  // On-demand playback: resolve through the HTTP-only Akwam gateway, cache the
-  // short-lived result at the edge, then return signed redirect URLs. No
-  // Browser Run and no video proxying are used.
-  const sources = await getFreshPlaybackSourcesForContent(
-    body.data.contentType,
-    body.data.contentId,
-    req.url,
-    req.env || {},
-  );
-
-  const output = sources
-    .filter((source: any) => /^https:\/\//i.test(String(source?.url || '').trim()))
-    .map((source: any) => ({ ...source, isWorking: true }));
-
-  res.setHeader('Cache-Control', 'no-store');
-  return ok(res, output);
-}));
 app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
   const contentType = z.enum(['movie', 'episode']).default('movie').parse(req.query.type);
   const id = req.params.id;
@@ -1383,386 +1171,6 @@ app.get(`${api}/admin/stats`, requireAuth, requireAdmin, asyncRoute(async (_req,
   });
 }));
 
-
-const adminPlaybackSourceBody = z.object({
-  providerId: z.string().uuid(),
-  contentType: z.enum(['movie', 'episode']),
-  contentId: z.string().uuid(),
-  sourceType: z.enum(['hls', 'mp4', 'dash']),
-  url: z.string().url(),
-  providerReference: z.string().max(500).optional().nullable(),
-  quality: z.string().max(50).default('auto'),
-  language: z.string().max(20).default('und'),
-  labelAr: z.string().max(150).optional().nullable(),
-  labelEn: z.string().max(150).optional().nullable(),
-  expiresAt: z.string().optional().nullable(),
-  isWorking: z.boolean().default(true),
-});
-
-async function validatePlaybackSourceTarget(contentType: 'movie' | 'episode', contentId: string) {
-  const table = contentType === 'movie' ? 'movies' : 'episodes';
-  const { data } = await adminSupabase.from(table).select('id').eq('id', contentId).maybeSingle();
-  return !!data;
-}
-
-function normalizeAdminPlaybackSourceBody(value: z.infer<typeof adminPlaybackSourceBody>) {
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(value.url);
-  } catch {
-    throw new Error('SOURCE_URL_INVALID');
-  }
-
-  if (parsedUrl.protocol !== 'https:') throw new Error('SOURCE_URL_MUST_USE_HTTPS');
-
-  let expiresAt: string | null = null;
-  if (value.expiresAt) {
-    const timestamp = Date.parse(value.expiresAt);
-    if (!Number.isFinite(timestamp)) throw new Error('SOURCE_EXPIRES_AT_INVALID');
-    expiresAt = new Date(timestamp).toISOString();
-  }
-
-  return {
-    provider_id: value.providerId,
-    content_type: value.contentType,
-    content_id: value.contentId,
-    source_type: value.sourceType,
-    url: parsedUrl.toString(),
-    provider_reference: value.providerReference || null,
-    quality: value.quality || 'auto',
-    language: value.language || 'und',
-    label_ar: value.labelAr || '',
-    label_en: value.labelEn || '',
-    expires_at: expiresAt,
-    is_working: value.isWorking !== false,
-    last_checked_at: value.isWorking !== false ? new Date().toISOString() : null,
-  };
-}
-
-app.get(`${api}/admin/mappings`, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
-  const query = z.object({
-    providerId: z.string().uuid().optional(),
-    contentType: z.enum(['movie','series','season','episode']).optional(),
-    contentId: z.string().uuid().optional(),
-  }).safeParse(req.query);
-  if (!query.success) return fail(res, 400, 'INVALID_QUERY', 'Invalid mapping filters');
-
-  let q = adminSupabase
-    .from('provider_mappings')
-    .select('id,provider_id,content_type,internal_content_id,provider_content_id,confidence,status,providers(key,name)')
-    .order('confidence', { ascending: false });
-  if (query.data.providerId) q = q.eq('provider_id', query.data.providerId);
-  if (query.data.contentType) q = q.eq('content_type', query.data.contentType);
-  if (query.data.contentId) q = q.eq('internal_content_id', query.data.contentId);
-
-  const { data, error } = await q;
-  if (error) return fail(res, 500, 'MAPPINGS_QUERY_FAILED', 'Unable to load provider mappings');
-
-  return ok(res, (data || []).map((row: any) => ({
-    id: row.id,
-    providerId: row.provider_id,
-    providerKey: row.providers?.key || '',
-    providerName: row.providers?.name || '',
-    contentType: row.content_type,
-    contentId: row.internal_content_id,
-    providerContentId: row.provider_content_id,
-    confidence: Number(row.confidence || 0),
-    status: row.status,
-  })));
-}));
-
-app.post(`${api}/admin/mappings`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
-  const body = z.object({
-    providerId: z.string().uuid(),
-    contentType: z.enum(['movie','series','season','episode']),
-    contentId: z.string().uuid(),
-    providerContentId: z.string().trim().min(1).max(500),
-    confidence: z.number().min(0).max(100).default(100),
-    status: z.enum(['active','inactive']).default('active'),
-  }).safeParse(req.body);
-  if (!body.success) return fail(res, 400, 'INVALID_MAPPING', 'Invalid provider mapping');
-
-  const { data: provider } = await adminSupabase.from('providers').select('id').eq('id', body.data.providerId).maybeSingle();
-  if (!provider) return fail(res, 404, 'PROVIDER_NOT_FOUND', 'Provider not found');
-
-  const { data, error } = await adminSupabase
-    .from('provider_mappings')
-    .upsert({
-      provider_id: body.data.providerId,
-      content_type: body.data.contentType,
-      internal_content_id: body.data.contentId,
-      provider_content_id: body.data.providerContentId,
-      confidence: body.data.confidence,
-      status: body.data.status,
-    }, { onConflict: 'provider_id,content_type,internal_content_id' })
-    .select('id,provider_id,content_type,internal_content_id,provider_content_id,confidence,status')
-    .single();
-
-  if (error) return fail(res, 500, 'MAPPING_WRITE_FAILED', 'Unable to save provider mapping');
-
-  await adminSupabase.from('audit_logs').insert({
-    actor_id: req.userId,
-    action: 'provider_mapping.upsert',
-    target_type: 'provider_mapping',
-    target_id: data.id,
-    details: { providerId: data.provider_id, contentType: data.content_type, contentId: data.internal_content_id },
-  });
-
-  return created(res, data);
-}));
-
-app.patch(`${api}/admin/mappings/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
-  const body = z.object({
-    providerContentId: z.string().trim().min(1).max(500).optional(),
-    confidence: z.number().min(0).max(100).optional(),
-    status: z.enum(['active','inactive']).optional(),
-  }).safeParse(req.body);
-  if (!body.success) return fail(res, 400, 'INVALID_MAPPING', 'Invalid provider mapping update');
-
-  const update: Record<string, unknown> = {};
-  if (body.data.providerContentId !== undefined) update.provider_content_id = body.data.providerContentId;
-  if (body.data.confidence !== undefined) update.confidence = body.data.confidence;
-  if (body.data.status !== undefined) update.status = body.data.status;
-
-  const { data, error } = await adminSupabase
-    .from('provider_mappings')
-    .update(update)
-    .eq('id', req.params.id)
-    .select('id,provider_id,content_type,internal_content_id,provider_content_id,confidence,status')
-    .maybeSingle();
-
-  if (error) return fail(res, 500, 'MAPPING_UPDATE_FAILED', 'Unable to update provider mapping');
-  if (!data) return fail(res, 404, 'MAPPING_NOT_FOUND', 'Provider mapping not found');
-
-  await adminSupabase.from('audit_logs').insert({
-    actor_id: req.userId,
-    action: 'provider_mapping.update',
-    target_type: 'provider_mapping',
-    target_id: data.id,
-    details: { providerContentId: body.data.providerContentId, confidence: body.data.confidence, status: body.data.status },
-  });
-
-  return ok(res, data);
-}));
-
-app.delete(`${api}/admin/mappings/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
-  const { error } = await adminSupabase.from('provider_mappings').delete().eq('id', req.params.id);
-  if (error) return fail(res, 500, 'MAPPING_DELETE_FAILED', 'Unable to delete provider mapping');
-
-  await adminSupabase.from('audit_logs').insert({
-    actor_id: req.userId,
-    action: 'provider_mapping.delete',
-    target_type: 'provider_mapping',
-    target_id: req.params.id,
-  });
-
-  return ok(res, { deleted: true });
-}));
-
-app.get(`${api}/admin/sources`, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
-  const parsed = z.object({
-    contentType: z.enum(['movie', 'episode']).optional(),
-    contentId: z.string().uuid().optional(),
-    providerId: z.string().uuid().optional(),
-    includeBroken: z.coerce.boolean().default(true),
-  }).safeParse(req.query);
-
-  if (!parsed.success) return fail(res, 400, 'INVALID_QUERY', 'Invalid source parameters');
-
-  let request = adminSupabase
-    .from('playback_sources')
-    .select('id,provider_id,content_type,content_id,source_type,url,provider_reference,quality,language,label_ar,label_en,expires_at,is_working,last_checked_at,failure_count,providers(id,name,key,enabled)')
-    .order('last_checked_at', { ascending: false });
-
-  if (parsed.data.contentType) request = request.eq('content_type', parsed.data.contentType);
-  if (parsed.data.contentId) request = request.eq('content_id', parsed.data.contentId);
-  if (parsed.data.providerId) request = request.eq('provider_id', parsed.data.providerId);
-  if (!parsed.data.includeBroken) request = request.eq('is_working', true);
-
-  const { data, error } = await request;
-  if (error) return fail(res, 500, 'SOURCES_QUERY_FAILED', 'Unable to load playback sources');
-  return ok(res, data || []);
-}));
-
-app.post(`${api}/admin/sources`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
-  const parsed = adminPlaybackSourceBody.safeParse(req.body);
-  if (!parsed.success) return fail(res, 400, 'INVALID_BODY', 'Invalid playback source payload');
-
-  try {
-    const payload = normalizeAdminPlaybackSourceBody(parsed.data);
-
-    const { data: provider } = await adminSupabase
-      .from('providers')
-      .select('id')
-      .eq('id', payload.provider_id)
-      .maybeSingle();
-    if (!provider) return fail(res, 404, 'PROVIDER_NOT_FOUND', 'Provider not found');
-
-    if (!(await validatePlaybackSourceTarget(payload.content_type, payload.content_id))) {
-      return fail(res, 404, 'CONTENT_NOT_FOUND', 'Target content not found');
-    }
-
-    const { data: duplicate } = await adminSupabase
-      .from('playback_sources')
-      .select('id')
-      .eq('provider_id', payload.provider_id)
-      .eq('content_type', payload.content_type)
-      .eq('content_id', payload.content_id)
-      .eq('url', payload.url)
-      .maybeSingle();
-    if (duplicate) return fail(res, 409, 'SOURCE_ALREADY_EXISTS', 'Playback source already exists');
-
-    const { data, error } = await adminSupabase
-      .from('playback_sources')
-      .insert(payload)
-      .select('id,provider_id,content_type,content_id,source_type,url,provider_reference,quality,language,label_ar,label_en,expires_at,is_working,last_checked_at,failure_count,providers(id,name,key,enabled)')
-      .single();
-
-    if (error || !data) return fail(res, 500, 'SOURCE_CREATE_FAILED', 'Unable to create playback source');
-    await writeAudit(req.userId!, 'create_playback_source', payload.content_type, payload.content_id, { sourceId: data.id, providerId: payload.provider_id });
-    return created(res, data);
-  } catch (error) {
-    const code = error instanceof Error ? error.message : '';
-    if (code === 'SOURCE_URL_INVALID') return fail(res, 400, code, 'Invalid source URL');
-    if (code === 'SOURCE_URL_MUST_USE_HTTPS') return fail(res, 400, code, 'Source URL must use HTTPS');
-    if (code === 'SOURCE_EXPIRES_AT_INVALID') return fail(res, 400, code, 'Invalid source expiry timestamp');
-    return fail(res, 400, 'SOURCE_PAYLOAD_INVALID', 'Invalid playback source payload');
-  }
-}));
-
-app.patch(`${api}/admin/sources/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
-  const parsed = adminPlaybackSourceBody.partial().safeParse(req.body);
-  if (!parsed.success) return fail(res, 400, 'INVALID_BODY', 'Invalid playback source payload');
-
-  try {
-    const current = await adminSupabase
-      .from('playback_sources')
-      .select('id,provider_id,content_type,content_id,source_type,url,provider_reference,quality,language,label_ar,label_en,expires_at,is_working,last_checked_at')
-      .eq('id', req.params.id)
-      .maybeSingle();
-    if (current.error || !current.data) return fail(res, 404, 'SOURCE_NOT_FOUND', 'Playback source not found');
-
-    const values = parsed.data;
-    const merged = {
-      providerId: values.providerId ?? current.data.provider_id,
-      contentType: values.contentType ?? current.data.content_type,
-      contentId: values.contentId ?? current.data.content_id,
-      sourceType: values.sourceType ?? current.data.source_type,
-      url: values.url ?? current.data.url,
-      providerReference: values.providerReference ?? current.data.provider_reference,
-      quality: values.quality ?? current.data.quality ?? 'auto',
-      language: values.language ?? current.data.language ?? 'und',
-      labelAr: values.labelAr ?? current.data.label_ar ?? '',
-      labelEn: values.labelEn ?? current.data.label_en ?? '',
-      expiresAt: values.expiresAt ?? current.data.expires_at,
-      isWorking: values.isWorking ?? current.data.is_working,
-    };
-
-    const payload = normalizeAdminPlaybackSourceBody(merged);
-
-    const { data: provider } = await adminSupabase
-      .from('providers')
-      .select('id')
-      .eq('id', payload.provider_id)
-      .maybeSingle();
-    if (!provider) return fail(res, 404, 'PROVIDER_NOT_FOUND', 'Provider not found');
-
-    if (!(await validatePlaybackSourceTarget(payload.content_type, payload.content_id))) {
-      return fail(res, 404, 'CONTENT_NOT_FOUND', 'Target content not found');
-    }
-
-    const { data, error } = await adminSupabase
-      .from('playback_sources')
-      .update(payload)
-      .eq('id', req.params.id)
-      .select('id,provider_id,content_type,content_id,source_type,url,provider_reference,quality,language,label_ar,label_en,expires_at,is_working,last_checked_at,failure_count,providers(id,name,key,enabled)')
-      .maybeSingle();
-
-    if (error || !data) return fail(res, 404, 'SOURCE_UPDATE_FAILED', 'Playback source not found or not updated');
-    await writeAudit(req.userId!, 'update_playback_source', payload.content_type, payload.content_id, { sourceId: data.id });
-    return ok(res, data);
-  } catch (error) {
-    const code = error instanceof Error ? error.message : '';
-    if (code === 'SOURCE_URL_INVALID') return fail(res, 400, code, 'Invalid source URL');
-    if (code === 'SOURCE_URL_MUST_USE_HTTPS') return fail(res, 400, code, 'Source URL must use HTTPS');
-    if (code === 'SOURCE_EXPIRES_AT_INVALID') return fail(res, 400, code, 'Invalid source expiry timestamp');
-    return fail(res, 400, 'SOURCE_PAYLOAD_INVALID', 'Invalid playback source payload');
-  }
-}));
-
-app.delete(`${api}/admin/sources/:id`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
-  const { data, error } = await adminSupabase
-    .from('playback_sources')
-    .select('id,content_type,content_id')
-    .eq('id', req.params.id)
-    .maybeSingle();
-  if (error || !data) return fail(res, 404, 'SOURCE_NOT_FOUND', 'Playback source not found');
-
-  const { error: deleteError } = await adminSupabase
-    .from('playback_sources')
-    .delete()
-    .eq('id', req.params.id);
-  if (deleteError) return fail(res, 500, 'SOURCE_DELETE_FAILED', 'Unable to delete playback source');
-
-  await writeAudit(req.userId!, 'delete_playback_source', data.content_type, data.content_id, { sourceId: data.id });
-  return ok(res, { deleted: true });
-}));
-
-app.post(`${api}/admin/providers/:id/test`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
-  const { data: provider, error: providerError } = await adminSupabase
-    .from('providers')
-    .select('id,key,name,enabled,status')
-    .eq('id', req.params.id)
-    .maybeSingle();
-
-  if (providerError) return fail(res, 500, 'PROVIDER_QUERY_FAILED', 'Unable to load provider');
-  if (!provider) return fail(res, 404, 'PROVIDER_NOT_FOUND', 'Provider not found');
-
-  const adapter = getProvider(provider.key);
-  const started = Date.now();
-
-  if (!adapter || !adapter.enabled) {
-    const message = 'Provider adapter is not registered';
-    await adminSupabase.from('providers').update({ status: 'offline', latency_ms: Date.now() - started, last_checked_at: new Date().toISOString() }).eq('id', provider.id);
-    return ok(res, { id: provider.id, key: provider.key, name: provider.name, status: 'offline', latencyMs: Date.now() - started, message });
-  }
-
-  try {
-    const health = await adapter.health();
-    const latencyMs = Date.now() - started;
-    await adminSupabase.from('providers').update({ status: health.status, latency_ms: latencyMs, last_checked_at: new Date().toISOString() }).eq('id', provider.id);
-    return ok(res, { id: provider.id, key: provider.key, name: provider.name, status: health.status, latencyMs, message: health.message || undefined });
-  } catch (error) {
-    const latencyMs = Date.now() - started;
-    const message = error instanceof Error ? error.message : 'Provider health check failed';
-    await adminSupabase.from('providers').update({ status: 'offline', latency_ms: latencyMs, last_checked_at: new Date().toISOString() }).eq('id', provider.id);
-    return ok(res, { id: provider.id, key: provider.key, name: provider.name, status: 'offline', latencyMs, message });
-  }
-}));
-app.get(`${api}/admin/providers`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
-  const { data, error } = await adminSupabase.from('providers').select('*').order('name');
-  if (error) return fail(res, 500, 'PROVIDERS_QUERY_FAILED', 'Unable to load providers');
-
-  const providers = data || [];
-  const sourceCounts = new Map<string, number>();
-  if (providers.length) {
-    const { data: sources } = await adminSupabase
-      .from('playback_sources')
-      .select('provider_id')
-      .eq('is_working', true)
-      .in('provider_id', providers.map((p: any) => p.id));
-
-    for (const source of sources || []) {
-      sourceCounts.set(source.provider_id, (sourceCounts.get(source.provider_id) || 0) + 1);
-    }
-  }
-
-  return ok(res, providers.map((p: any) => ({
-    id: p.id, name: p.name, adapterName: p.adapter_name, type: 'api',
-    status: p.status, latencyMs: p.latency_ms || 0, successRate: Number(p.success_rate || 0),
-    lastChecked: p.last_checked_at || '', activeSources: sourceCounts.get(p.id) || 0,
-  })));
-}));
 
 app.post(`${api}/admin/sync/tmdb/episodes`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
   const body = z.object({ seriesLimit: z.number().int().min(1).max(25).default(10) }).safeParse(req.body || {});
