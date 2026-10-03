@@ -57,4 +57,5 @@ export default {
 };
 
 
+// Playback backend is CinePro Core; CI deploys and smoke-tests the upstream backend before Movyz verification.
 // CI concurrency: only the newest production verification should run.
