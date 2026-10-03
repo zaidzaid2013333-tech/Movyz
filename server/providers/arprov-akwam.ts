@@ -1006,18 +1006,30 @@ function indexEpisodeCandidates(body: string, base: string, requestedSeason?: nu
 
     // ArProv's original Akwam provider reads the episode number from the
     // containing episode card, not from the "مشاهدة" anchor text itself.
+    // Parse the episode's own label first. The surrounding series HTML contains
+    // other-season links, so using the first season match from a wide neighborhood
+    // can assign the wrong season to an otherwise correct episode.
+    const localHay = normalize(anchor.url + ' ' + anchor.text + ' ' + (
+      /<img\b[^>]*(?:alt)=["']([^"']+)["']/i.exec(anchor.tag)?.[1] || ''
+    ));
+    const localIdentity = extractSeasonEpisode(localHay);
+
     const neighborhood = body.slice(
       Math.max(0, anchor.index - 1_600),
       Math.min(body.length, anchor.index + 500),
     );
-    const hay = normalize(anchor.url + ' ' + anchor.text + ' ' + neighborhood);
-    const parsed = extractSeasonEpisode(hay);
+    const neighborhoodIdentity = extractSeasonEpisode(normalize(anchor.url + ' ' + neighborhood));
+
     const explicitEpisode = /class=["'][^"']*text-white[^"']*["']/i.test(anchor.tag)
-      ? /^\s*(?:الحلقة|episode|ep)?\s*([0-9٠-٩]{1,3})\s*$/i.exec(cleanText(anchor.text))?.[1]
+      ? /^\s*(?:الحلقة|حلقة|episode|ep)?\s*([0-9٠-٩]{1,3})\s*:/i.exec(cleanText(anchor.text))?.[1]
+        || /^\s*(?:الحلقة|حلقة|episode|ep)?\s*([0-9٠-٩]{1,3})\s*$/i.exec(cleanText(anchor.text))?.[1]
       : undefined;
+
     const identity = {
-      season: parsed.season,
-      episode: parsed.episode ?? (explicitEpisode ? Number(explicitEpisode.replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))) : undefined),
+      season: localIdentity.season ?? neighborhoodIdentity.season,
+      episode: localIdentity.episode
+        ?? (explicitEpisode ? Number(explicitEpisode.replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))) : undefined)
+        ?? neighborhoodIdentity.episode,
     };
     if (identity.episode === undefined) continue;
 
