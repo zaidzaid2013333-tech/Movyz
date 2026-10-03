@@ -47,7 +47,7 @@ function normalizeSource(source: NormalizedPlaybackSource) {
 async function saveEpisode(episodeId: string, sources: NormalizedPlaybackSource[], providerId: string): Promise<number> {
   void episodeId;
   void providerId;
-  const validated = [];
+  const validated: Array<NonNullable<ReturnType<typeof normalizeSource>> & { url: string }> = [];
   for (const source of sources) {
     const normalized = normalizeSource(source);
     if (!normalized) continue;
