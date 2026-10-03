@@ -66,6 +66,7 @@ jobs:
         run: npx tsx scripts/train-akwam-agent.ts
 
       - name: Run Movyz Groq preparation agent
+        continue-on-error: true
         run: npm run bot:groq-agent
 
   movies:
@@ -115,6 +116,7 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
       - name: Diagnose Breaking Bad S01E01
+        continue-on-error: true
         run: npx tsx scripts/debug-breaking-bad-akwam.ts
 
   episodes:
