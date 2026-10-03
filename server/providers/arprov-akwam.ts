@@ -214,30 +214,27 @@ function looksBlocked(page: { body: string; status: number } | null) {
 
 async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime) {
   const titles = [...new Set([
-    ctx.title,
     ctx.originalTitle,
-    ctx.episodeTitle,
+    ctx.title,
     ...(ctx.alternateTitles || []),
-  ].filter((value): value is string => Boolean(value?.trim())))].slice(0, 5);
+  ].filter((value): value is string => Boolean(value?.trim())))].slice(0, 3);
 
   const queries = new Set<string>();
-  for (const title of titles) {
-    queries.add(title);
-    if (ctx.episodeNumber !== undefined) {
-      const season = String(ctx.seasonNumber ?? 1).padStart(2, '0');
-      const episode = String(ctx.episodeNumber).padStart(2, '0');
+  if (ctx.episodeNumber !== undefined) {
+    const season = String(ctx.seasonNumber ?? 1).padStart(2, '0');
+    const episode = String(ctx.episodeNumber).padStart(2, '0');
+    for (const title of titles.slice(0, 2)) {
       queries.add(`${title} S${season}E${episode}`);
-      queries.add(`${title} الحلقة ${ctx.episodeNumber}`);
     }
+    if (ctx.episodeNumber !== undefined && ctx.title) {
+      queries.add(`${ctx.title} الحلقة ${ctx.episodeNumber}`);
+    }
+  } else {
+    for (const title of titles) queries.add(title);
   }
 
-  const searchRequestUrls = [...queries].flatMap(query => searchUrls(base, query).slice(0, 2));
-  const pages = await Promise.allSettled(
-    searchRequestUrls.map(url => fetchArProvPage(url, {
-      browserBinding: runtime.browserBinding,
-      timeoutMs: 9_000,
-    })),
-  );
+  const queryList = [...queries].slice(0, 3);
+  const searchRequestUrls = queryList.map(query => `${base}/search?q=${encodeURIComponent(query)}`);
 
   const candidates: SearchCandidate[] = [];
   const seen = new Set<string>();
@@ -257,9 +254,7 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
 
       const text = anchorSearchText(anchor);
       const score = titleScore({ ...anchor, text }, ctx);
-
-      // Prefer exact content-card links, but do not require a specific HTML class.
-      const cardHint = /\\b(?:entry-box|box|entry-title|watch|details)\\b/i.test(anchor.tag) ? 150 : 0;
+      const cardHint = /\b(?:entry-box|box|entry-title|watch|details)\b/i.test(anchor.tag) ? 150 : 0;
       const finalScore = score + cardHint;
       if (finalScore < 100) continue;
 
@@ -268,24 +263,28 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
     }
   };
 
+  let pages = await Promise.allSettled(
+    searchRequestUrls.map(url => fetchArProvPage(url, {
+      browserBinding: runtime.browserBinding,
+      timeoutMs: 9_000,
+    })),
+  );
   for (const page of pages) {
     if (page.status === 'fulfilled') collect(page.value);
   }
 
+  // Akwam's legacy query form is only a fallback; avoid firing it alongside the primary search.
   if (!candidates.length) {
-    console.warn(JSON.stringify({
-      provider: 'akwam',
-      stage: 'search-empty',
-      base,
-      queries: [...queries].slice(0, 8),
-      pages: pages.map((page) => {
-        if (page.status !== 'fulfilled') {
-          return { ok: false, reason: page.reason instanceof Error ? page.reason.message : String(page.reason) };
-        }
-        if (!page.value) return { ok: false, reason: 'empty-response' };
-        return { ok: true, url: page.value.url, status: page.value.status, bytes: page.value.body.length };
-      }),
-    }));
+    const fallbackUrls = queryList.map(query => `${base}/?s=${encodeURIComponent(query)}`);
+    pages = await Promise.allSettled(
+      fallbackUrls.map(url => fetchArProvPage(url, {
+        browserBinding: runtime.browserBinding,
+        timeoutMs: 9_000,
+      })),
+    );
+    for (const page of pages) {
+      if (page.status === 'fulfilled') collect(page.value);
+    }
   }
 
   if (!candidates.length && runtime.browserBinding) {
@@ -301,9 +300,24 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
     }
   }
 
-  return candidates.sort((a, b) => b.score - a.score).slice(0, 6);
-}
+  if (!candidates.length) {
+    console.warn(JSON.stringify({
+      provider: 'akwam',
+      stage: 'search-empty',
+      base,
+      queries: queryList,
+      pages: pages.map((page) => {
+        if (page.status !== 'fulfilled') {
+          return { ok: false, reason: page.reason instanceof Error ? page.reason.message : String(page.reason) };
+        }
+        if (!page.value) return { ok: false, reason: 'empty-response' };
+        return { ok: true, url: page.value.url, status: page.value.status, bytes: page.value.body.length };
+      }),
+    }));
+  }
 
+  return candidates.sort((a, b) => b.score - a.score).slice(0, 3);
+}
 function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
   if (ctx.episodeNumber === undefined) return [];
 
@@ -801,7 +815,7 @@ export async function resolveAkwamPlayback(
     if (!candidates.length) continue;
 
     const detailResults = await Promise.allSettled(
-      candidates.map(async candidate => {
+      candidates.slice(0, 3).map(async candidate => {
         let detail = await fetchArProvPage(candidate.url, {
           browserBinding: runtime.browserBinding,
           timeoutMs: 10_000,
