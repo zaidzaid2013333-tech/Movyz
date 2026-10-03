@@ -12,6 +12,7 @@ const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 const MAX_TURNS = Math.max(1, Math.min(6, Number.parseInt(process.env.GROQ_AGENT_MAX_TURNS || '5', 10) || 5));
 const MAX_ACTIONS = Math.max(1, Math.min(4, Number.parseInt(process.env.GROQ_AGENT_MAX_ACTIONS || '3', 10) || 3));
+const GROQ_RETRIES = 2;
 const ACTION_DELAY_MS = 700;
 
 type ActionState = { count: number };
@@ -396,7 +397,9 @@ async function callGroq(messages: any[]) {
   const key = process.env.GROQ_API_KEY?.trim();
   if (!key) throw new Error('Missing GROQ_API_KEY');
 
-  const response = await fetch(GROQ_URL, {
+  let lastError = '';
+  for (let attempt = 0; attempt <= GROQ_RETRIES; attempt++) {
+    const response = await fetch(GROQ_URL, {
     method: 'POST',
     headers: {
       Authorization: 'Bearer ' + key,
@@ -404,8 +407,10 @@ async function callGroq(messages: any[]) {
     },
     body: JSON.stringify({
       model: MODEL,
-      temperature: 0.15,
-      max_tokens: 2200,
+      temperature: 0.1,
+      max_tokens: 1200,
+      reasoning_effort: 'medium',
+      parallel_tool_calls: false,
       messages,
       tools,
       tool_choice: 'auto',
@@ -413,11 +418,21 @@ async function callGroq(messages: any[]) {
     signal: AbortSignal.timeout(60_000),
   });
 
-  const body = await response.text();
-  if (!response.ok) throw new Error('Groq HTTP ' + response.status + ': ' + body.slice(0, 600));
+    const body = await response.text();
+    if (response.ok) {
+      const payload = JSON.parse(body);
+      return payload.choices?.[0]?.message;
+    }
 
-  const payload = JSON.parse(body);
-  return payload.choices?.[0]?.message;
+    lastError = 'Groq HTTP ' + response.status + ': ' + body.slice(0, 600);
+    if (response.status !== 429 || attempt >= GROQ_RETRIES) break;
+
+    const retryAfter = Number.parseFloat(response.headers.get('retry-after') || '15');
+    const delayMs = Math.max(10_000, Math.min(30_000, Number.isFinite(retryAfter) ? retryAfter * 1000 + 500 : 15_000));
+    await sleep(delayMs);
+  }
+
+  throw new Error(lastError || 'Groq request failed');
 }
 
 function toolArgs(raw: string | undefined) {
@@ -464,7 +479,7 @@ async function main() {
 
   const prompt = [
     'Current Movyz state:',
-    JSON.stringify(initial).slice(0, 28000),
+    JSON.stringify(initial).slice(0, 10000),
     '',
     'First inspect the failures and states. Then take only the minimum useful actions.',
     'Prioritize missing or recently failing episodes before broad batches.',
