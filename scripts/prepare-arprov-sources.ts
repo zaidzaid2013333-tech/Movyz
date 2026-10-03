@@ -56,7 +56,7 @@ async function savePrepared(contentType: 'movie' | 'episode', contentId: string,
       quality: row.quality,
       language: row.language,
       label: row.label_ar,
-      referer: 'https://akwam.it/',
+      referer: 'https://akwam.ss/',
     });
     if (checked) validated.push({ ...row, url: checked.url });
   }
