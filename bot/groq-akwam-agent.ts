@@ -599,7 +599,7 @@ async function main() {
     '',
     'First inspect the failures and states. Then take only the minimum useful actions.',
     'Prioritize missing or recently failing episodes before broad batches.',
-    'If priorityQueue is non-empty, perform at least one prepare_episode action from it in the first two turns.',
+    'A deterministic preflight attempt is already made on the first priority item; continue from its result instead of re-reading metadata.',
     'Use get_content_details only when the queue item lacks enough metadata.',
     'For a failure id, call get_content_details before acting unless the metadata is already explicit.',
     'For difficult episodes, use search_akwam first to obtain real /series/ or /episode/ links, then inspect the best link, then prepare.',
@@ -609,9 +609,27 @@ async function main() {
     'Finish with a concise machine-readable summary in plain text.',
   ].join('\n');
 
+  let preflight: unknown = null;
+  const firstPriority = initial.priorityQueue?.[0];
+  if (firstPriority && state.count < MAX_ACTIONS) {
+    preflight = await prepareEpisode(
+      String(firstPriority.contentId),
+      typeof firstPriority.title === 'string' ? firstPriority.title : undefined,
+    );
+  }
+
   const messages: any[] = [
     { role: 'system', content: system },
-    { role: 'user', content: prompt },
+    {
+      role: 'user',
+      content: [
+        prompt,
+        '',
+        'Deterministic preflight (already executed) for the first priority item:',
+        JSON.stringify(preflight),
+        'You must now react to that result. If it failed, investigate the exact Akwam search contract and retry with a better verified route/title. Do not spend turns re-reading unrelated metadata.',
+      ].join('\\n'),
+    },
   ];
 
   const trace: any[] = [];
