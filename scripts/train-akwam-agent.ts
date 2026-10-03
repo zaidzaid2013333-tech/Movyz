@@ -138,7 +138,7 @@ async function callGroq(input: {
           role: 'user',
           content: [
             'PLAYBOOK:',
-            playbook.slice(0, 20000),
+            input.playbook.slice(0, 20000),
             '',
             'RECENT EVIDENCE:',
             compact(input.evidence, 13000),
@@ -241,7 +241,6 @@ try {
   await adminSupabase.from('maintenance_state').upsert({
     job_key: JOB_KEY,
     last_run_at: new Date().toISOString(),
-    last_success_at: previous?.stats ? null : null,
     last_error: message,
     stats: {
       ...(previous?.stats || {}),
