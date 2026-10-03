@@ -119,7 +119,7 @@ async function getCineProPlaybackSources(
       if (!rawUrl) return null;
       let url = rawUrl;
       try { url = new URL(rawUrl, baseUrl).toString(); } catch { return null; }
-      if (!/^https:\\/\\//i.test(url)) return null;
+      if (!/^https:\/\//i.test(url)) return null;
       const sourceType = String(source.type || '').trim().toLowerCase();
       const normalizedType = ['hls', 'dash', 'mp4', 'webm'].includes(sourceType)
         ? sourceType : sourceType === 'mkv' ? 'direct' : 'direct';
