@@ -6,7 +6,7 @@ let tmdb = fs.readFileSync(tmdbPath, 'utf8');
 const tmdbHelper = [
   "const tmdbFetch = (credential, url) => {",
   "  const value = String(credential || '').trim()",
-  "  if (/^eyJ[A-Za-z0-9_-]+\\\\./.test(value)) return fetch(url, { headers: { Authorization: 'Bearer ' + value } })",
+  "  if (value.startsWith('eyJ') && value.split('.').length >= 3) return fetch(url, { headers: { Authorization: 'Bearer ' + value } })",
   "  const separator = url.includes('?') ? '&' : '?'",
   "  return fetch(url + separator + 'api_key=' + encodeURIComponent(value))",
   "}",
