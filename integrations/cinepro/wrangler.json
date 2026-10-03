@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "movyz-cinepro",
+  "main": "cloudflare-entry.ts",
+  "compatibility_date": "2026-10-04",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "PUBLIC_URL": "https://movyz-cinepro.sameranede.workers.dev",
+    "NODE_ENV": "production",
+    "HOST": "0.0.0.0",
+    "PORT": "8787",
+    "CACHE_TYPE": "memory",
+    "STREMIO_ADDON": "true",
+    "CORS_ORIGIN": "*",
+    "MCP_ENABLED": "false"
+  }
+}
