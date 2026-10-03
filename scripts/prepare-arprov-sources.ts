@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { adminSupabase } from '../server/supabase';
 import { resolveAkwamPlayback } from '../server/providers/arprov-akwam';
 import type { ProviderContext, NormalizedPlaybackSource } from '../server/providers/types';
+import { validatePreparedMediaSource } from './validate-prepared-source';
 
 type Mode = 'movies' | 'episodes';
 const MODE = (process.env.PREPARE_MODE || 'movies') as Mode;
@@ -41,13 +42,30 @@ function normalizeSource(source: NormalizedPlaybackSource) {
 }
 
 async function savePrepared(contentType: 'movie' | 'episode', contentId: string, sources: NormalizedPlaybackSource[], providerId: string) {
-  const rows = sources.map(normalizeSource).filter((x): x is NonNullable<ReturnType<typeof normalizeSource>> => Boolean(x));
-  const deduped = [...new Map(rows.map((row) => [row.quality + '|' + row.source_type + '|' + row.url, row])).values()];
+  const normalized = sources
+    .map(normalizeSource)
+    .filter((x): x is NonNullable<ReturnType<typeof normalizeSource>> => Boolean(x));
+
+  const validated: NonNullable<ReturnType<typeof normalizeSource>>[] = [];
+  for (const row of normalized) {
+    const checked = await validatePreparedMediaSource({
+      provider: 'Akwam',
+      providerReference: 'akwam',
+      type: row.source_type,
+      url: row.url,
+      quality: row.quality,
+      language: row.language,
+      label: row.label_ar,
+      referer: 'https://akwam.ss/',
+    });
+    if (checked) validated.push({ ...row, url: checked.url });
+  }
+
+  const deduped = [...new Map(validated.map((row) => [row.quality + '|' + row.source_type + '|' + row.url, row])).values()];
   if (!deduped.length) return 0;
 
-  // Refresh only the qualities returned by this resolution pass. Keep other
-  // already-prepared qualities so a partial Akwam response cannot erase good
-  // 720p/480p sources while refreshing a missing 1080p (or vice versa).
+  // Update only qualities returned and validated in this pass. Other prepared
+  // qualities remain untouched, so a failed 1080p refresh cannot erase 720p.
   const qualities = [...new Set(deduped.map((row) => row.quality))];
   const { error: deleteError } = await adminSupabase
     .from('playback_sources')
