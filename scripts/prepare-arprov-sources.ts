@@ -44,8 +44,21 @@ async function savePrepared(contentType: 'movie' | 'episode', contentId: string,
   const rows = sources.map(normalizeSource).filter((x): x is NonNullable<ReturnType<typeof normalizeSource>> => Boolean(x));
   const deduped = [...new Map(rows.map((row) => [row.quality + '|' + row.source_type + '|' + row.url, row])).values()];
   if (!deduped.length) return 0;
-  const { error: deleteError } = await adminSupabase.from('playback_sources').delete().eq('provider_id', providerId).eq('content_type', contentType).eq('content_id', contentId).eq('provider_reference', 'akwam');
+
+  // Refresh only the qualities returned by this resolution pass. Keep other
+  // already-prepared qualities so a partial Akwam response cannot erase good
+  // 720p/480p sources while refreshing a missing 1080p (or vice versa).
+  const qualities = [...new Set(deduped.map((row) => row.quality))];
+  const { error: deleteError } = await adminSupabase
+    .from('playback_sources')
+    .delete()
+    .eq('provider_id', providerId)
+    .eq('content_type', contentType)
+    .eq('content_id', contentId)
+    .eq('provider_reference', 'akwam')
+    .in('quality', qualities);
   if (deleteError) throw deleteError;
+
   const payload = deduped.map((row) => ({ provider_id: providerId, content_type: contentType, content_id: contentId, ...row }));
   const { error: insertError } = await adminSupabase.from('playback_sources').insert(payload);
   if (insertError) throw insertError;
@@ -78,26 +91,41 @@ async function mapLimit<T>(items: T[], fn: (item: T) => Promise<void>) {
 }
 
 async function getReadyContentIds(contentType: 'movie' | 'episode', providerId: string) {
-  const ids = new Set<string>();
+  const qualityCountByContent = new Map<string, Set<string>>();
   const pageSize = 1000;
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await adminSupabase
       .from('playback_sources')
-      .select('content_id')
+      .select('content_id,quality')
       .eq('provider_id', providerId)
       .eq('content_type', contentType)
       .eq('provider_reference', 'akwam')
       .eq('is_working', true)
       .not('url', 'is', null)
-      .is('expires_at', null)
+      .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
       .range(offset, offset + pageSize - 1);
     if (error) throw error;
+
     for (const row of data || []) {
-      if (row.content_id) ids.add(String(row.content_id));
+      const contentId = row.content_id ? String(row.content_id) : '';
+      const quality = String(row.quality || '').trim().toLowerCase();
+      if (!contentId || !quality || quality === 'auto' || quality === 'source') continue;
+      const set = qualityCountByContent.get(contentId) || new Set<string>();
+      set.add(quality);
+      qualityCountByContent.set(contentId, set);
     }
     if (!data || data.length < pageSize) break;
   }
-  return ids;
+
+  // Movies are considered complete only when the common prepared ladder has
+  // at least 1080p + 720p + 480p. This makes the bulk job revisit movies that
+  // currently have only one or two qualities. Episodes remain missing-only.
+  const minimumQualities = contentType === 'movie' ? 3 : 1;
+  return new Set(
+    [...qualityCountByContent.entries()]
+      .filter(([, qualities]) => qualities.size >= minimumQualities)
+      .map(([contentId]) => contentId),
+  );
 }
 
 async function main() {
