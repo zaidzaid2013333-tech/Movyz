@@ -1,0 +1,19 @@
+name: Movyz Akwam Preparation Robot
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-akwam-robot-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  retire-stale-run:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "retiring stale Akwam workflow queue"
