@@ -8,6 +8,7 @@ import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdb
 import { registerBuiltInProviders } from './providers/bootstrap';
 import { resolveRe3ArabiPlayback } from './providers/re3arabi';
 import { resolveArProvPlayback } from './providers/arprov';
+import { debugAkwamEpisode } from './providers/arprov-akwam';
 import { createPlaybackProxyUrl, handlePlaybackProxy } from './playback-proxy';
 import { persistEvergreenEpisodeSources, persistEvergreenMovieSources } from './playback-source-persistence';
 
@@ -729,6 +730,29 @@ app.get(`${api}/episodes/:id`, asyncRoute(async (req, res) => {
     series: { id: series.id, title: series.title_ar, titleEn: series.title_en || series.title_ar, originalTitle: series.original_title || series.title_en || series.title_ar, posterUrl: series.poster_url || '', backdropUrl: series.backdrop_url || '' },
     season: { id: season.id, seasonNumber: season.season_number, name: season.name_ar || season.name_en || `الموسم ${season.season_number}`, nameEn: season.name_en || season.name_ar || `Season ${season.season_number}` },
   });
+}));
+
+app.post(`${api}/debug/arprov-episode`, asyncRoute(async (req, res) => {
+  const debugKey = String(req.env?.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  if (!debugKey || req.headers.get('x-debug-key') !== debugKey) {
+    return fail(res, 404, 'NOT_FOUND', 'Not found');
+  }
+
+  const body = z.object({
+    tmdbId: z.number(),
+    title: z.string(),
+    originalTitle: z.string().optional(),
+    episodeTitle: z.string().optional(),
+    seasonNumber: z.number(),
+    episodeNumber: z.number(),
+  }).safeParse(req.body);
+
+  if (!body.success) {
+    return fail(res, 400, 'INVALID_DEBUG_REQUEST', 'Invalid debug request');
+  }
+
+  const trace = await debugAkwamEpisode(body.data, { browserBinding: req.env?.BROWSER });
+  return ok(res, trace);
 }));
 
 app.get(`${api}/playback/stream`, asyncRoute(async (req) => {
