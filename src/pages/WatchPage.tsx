@@ -174,6 +174,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const startupGuardTimerRef = useRef<number | null>(null);
   const startupWarmupTimerRef = useRef<number | null>(null);
   const startupWarmupDoneRef = useRef<Set<string>>(new Set());
+  const directFallbackTriedRef = useRef<Set<string>>(new Set());
   const progressSaveTimerRef = useRef<number | null>(null);
   const lastProgressSaveAtRef = useRef(0);
   const playbackEngineRef = useRef<{ destroy?: () => void; reset?: () => void } | null>(null);
@@ -204,6 +205,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         playbackStartedRef.current = false;
         startupTriedUrlsRef.current.clear();
         startupWarmupDoneRef.current.clear();
+        directFallbackTriedRef.current.clear();
 
         const legacyTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
         const response = mediaType === 'movie'
@@ -363,7 +365,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }, [mediaType, content?.id, currentEpisode?.id, storedPlaybackSources, language]);
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
-  const playbackUrl = playbackSource?.url?.trim() || '';
+  const directPlaybackUrl = playbackSource?.directUrl?.trim() || '';
+  const playbackUrl = directPlaybackUrl || playbackSource?.url?.trim() || '';
   const isEmbedPlayback = String(playbackSource?.type || '').toLowerCase() === 'embed';
 
   const formatPlayerTime = (value: number) => {
@@ -618,6 +621,33 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     }
   };
 
+
+  const tryDirectFallback = (currentUrl: string) => {
+    const source = playbackSource;
+    const fallbackUrl = source?.fallbackUrl?.trim() || '';
+    if (!fallbackUrl || fallbackUrl === currentUrl) return false;
+
+    const key = source?.id || source?.url || currentUrl;
+    if (directFallbackTriedRef.current.has(key)) return false;
+
+    directFallbackTriedRef.current.add(key);
+    qualityResumeTimeRef.current = 0;
+    qualitySwitchPendingRef.current = false;
+    resumeAfterQualitySwitchRef.current = false;
+    playbackStartedRef.current = false;
+    setPlaybackError(null);
+    setPlayerReady(false);
+    setPlayerCurrentTime(0);
+    setPlayerDuration(0);
+    setPlayerBufferedEnd(0);
+    setRemotePlaybackSource({
+      ...source,
+      url: fallbackUrl,
+      directUrl: undefined,
+      fallbackUrl: undefined,
+    });
+    return true;
+  };
 
   const tryNextStartupSource = (currentUrl: string) => {
     const next = availableSources.find(
@@ -1135,6 +1165,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       setPlaybackError(null);
                       startupTriedUrlsRef.current.delete(playbackUrl);
                       retriedPlaybackUrlsRef.current.delete(playbackUrl);
+                      if (playbackSource?.id) directFallbackTriedRef.current.delete(playbackSource.id);
                       const video = videoRef.current;
                       if (!video) return;
                       playbackEngineRef.current?.destroy?.();
@@ -1281,6 +1312,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   if (!playbackUrl) return;
 
                   markPlaybackSourceFailed();
+
+                  // FastPath: try the same source through Movyz only when the
+                  // direct/raw URL is rejected by the browser or upstream.
+                  if (tryDirectFallback(playbackUrl)) {
+                    return;
+                  }
 
                   // Sequential bounded failover: never revisit a URL, and never
                   // loop between qualities.
