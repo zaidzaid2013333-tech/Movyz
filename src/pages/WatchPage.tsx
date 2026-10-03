@@ -459,16 +459,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             : playbackSource?.type === 'dash'
               ? 'application/dash+xml'
               : undefined;
-  const availableSources = useMemo(
-    () =>
-      collapseProviderQualityDuplicates(
-        [...remotePlaybackSources, ...storedPlaybackSources].filter(
-          (source, index, all) =>
-            index === all.findIndex((candidate) => candidate.url === source.url),
-        ),
+  const availableSources = useMemo(() => {
+    const activeSources = remotePlaybackSources.length
+      ? remotePlaybackSources
+      : storedPlaybackSources;
+
+    return collapseProviderQualityDuplicates(
+      activeSources.filter(
+        (source, index, all) =>
+          index === all.findIndex((candidate) => candidate.url === source.url),
       ),
-    [storedPlaybackSources, remotePlaybackSources],
-  );
+    );
+  }, [storedPlaybackSources, remotePlaybackSources]);
   const availableSourceGroups = useMemo(
     () => groupPlaybackSources(availableSources, language),
     [availableSources, language],
@@ -792,8 +794,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
       setPlaybackError(
         language === 'ar'
-          ? 'تعذر تحميل المصدر بعد تجربة المصادر الجاهزة. جرّب إعادة المحاولة أو جودة أخرى.'
-          : 'The prepared sources could not be loaded. Retry or try another quality.',
+          ? 'تعذر تحميل المصدر الحالي. جرّب إعادة المحاولة أو جودة أخرى.'
+          : 'The current source could not be loaded. Retry or try another quality.',
       );
     }, 35000);
 
@@ -991,7 +993,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-black/20" />
             <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
               <ErrorState
-                message={playbackError || (language === 'ar' ? 'لا يوجد مصدر تشغيل جاهز حاليًا.' : 'No prepared playback source is currently available.')}
+                message={playbackError || (language === 'ar' ? 'لا يوجد مصدر تشغيل حاليًا.' : 'No playable source is currently available.')}
                 onRetry={() => window.location.reload()}
                 onGoHome={() => onNavigate('/')}
               />
