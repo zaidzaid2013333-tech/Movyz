@@ -181,7 +181,10 @@ jobs:
 
           api = "https://movyz-api.sameranede.workers.dev"
           checks = [
+              ("movie", "6591564a-13a9-4892-a166-247d1ff9158b", "Interstellar"),
               ("movie", "81723a1b-a9c5-46bb-bec6-f16664895d3e", "Inception"),
+              ("movie", "ef350c7c-dbf6-44bb-80dc-3bc61890a166", "Fight Club"),
+              ("movie", "a5c2bdf2-66f5-404a-a5dd-348cde1a32a6", "The Shawshank Redemption"),
               ("episode", "cfec368f-138e-405d-a98b-bb6734f5bbf5", "Breaking Bad S01E01"),
           ]
 

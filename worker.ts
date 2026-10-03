@@ -1,4 +1,5 @@
 // General playback transport: all playable providers use the same signed redirect path; Akwam remains on-demand.
+// Smoke coverage order: Interstellar -> Inception -> Fight Club -> The Shawshank Redemption.
 // CI trigger: production smoke verification follows workflow-only fixes
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
