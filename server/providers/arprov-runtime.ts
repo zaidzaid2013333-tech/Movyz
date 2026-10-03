@@ -34,7 +34,7 @@ function save(url: string, value: ArProvPage) {
   pageCache.set(cacheKey(url), { expiresAt: Date.now() + PAGE_TTL_MS, value });
 }
 
-async function fetchHttp(url: string, referer?: string, cookie?: string, timeoutMs = 9_000): Promise<ArProvPage> {
+async function fetchHttp(url: string, referer?: string, requestCookie?: string, timeoutMs = 9_000): Promise<ArProvPage> {
   const response = await fetchWithTimeout(url, {
     method: 'GET',
     redirect: 'follow',
@@ -46,7 +46,7 @@ async function fetchHttp(url: string, referer?: string, cookie?: string, timeout
       Pragma: 'no-cache',
       Referer: referer || new URL(url).origin + '/',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-      ...(cookie ? { Cookie: cookie } : {}),
+      ...(requestCookie ? { Cookie: requestCookie } : {}),
     },
   });
 
@@ -54,7 +54,7 @@ async function fetchHttp(url: string, referer?: string, cookie?: string, timeout
   const body = await response.text();
   const finalUrl = response.url || url;
   const setCookie = response.headers.get('set-cookie') || '';
-  const cookie = setCookie.match(/^[^;]+/)?.[0] || undefined;
+  const responseCookie = setCookie.match(/^[^;]+/)?.[0] || undefined;
 
   const result: ArProvPage = {
     body,
@@ -62,7 +62,7 @@ async function fetchHttp(url: string, referer?: string, cookie?: string, timeout
     status: response.status,
     contentType,
     via: 'http',
-    cookie,
+    cookie: responseCookie,
   };
 
   if (response.ok && body) save(url, result);
