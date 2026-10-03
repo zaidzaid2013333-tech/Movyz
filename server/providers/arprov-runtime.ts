@@ -1,13 +1,13 @@
 import { fetchWithTimeout } from './http';
 
-export type ArProvBrowserBinding = any;
+export type ArProvBrowserBinding = unknown;
 
 export interface ArProvPage {
   body: string;
   url: string;
   status: number;
   contentType: string;
-  via: 'http' | 'browser';
+  via: 'http';
 }
 
 const pageCache = new Map<string, { expiresAt: number; value: ArProvPage }>();
@@ -60,60 +60,16 @@ async function fetchHttp(url: string, referer?: string, timeoutMs = 9_000): Prom
     via: 'http',
   };
 
-  if (response.ok) save(url, result);
+  if (response.ok && body) save(url, result);
   return result;
 }
 
-async function fetchBrowser(
-  url: string,
-  referer?: string,
-  browserBinding?: ArProvBrowserBinding,
-  timeoutMs = 14_000,
-): Promise<ArProvPage | null> {
-  if (!browserBinding) return null;
-
-  try {
-    const { launch } = await import('@cloudflare/playwright');
-    const browser = await launch(browserBinding);
-    const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
-      extraHTTPHeaders: {
-        'Accept-Language': 'ar,en;q=0.8',
-        Referer: referer || new URL(url).origin + '/',
-      },
-    });
-    const page = await context.newPage();
-
-    const response = await page.goto(url, {
-      waitUntil: 'domcontentloaded',
-      timeout: timeoutMs,
-    }).catch(() => null);
-
-    await page.waitForLoadState('networkidle', { timeout: Math.min(5_000, timeoutMs) }).catch(() => {});
-
-    const body = await page.content();
-    const finalUrl = page.url() || url;
-    const status = response?.status() || 200;
-
-    await context.close().catch(() => {});
-    await browser.close().catch(() => {});
-
-    const result: ArProvPage = {
-      body,
-      url: finalUrl,
-      status,
-      contentType: 'text/html',
-      via: 'browser',
-    };
-
-    if (body) save(url, result);
-    return result;
-  } catch (error) {
-    console.warn('[arprov-browser]', error instanceof Error ? error.message : String(error));
-    return null;
-  }
-}
-
+/**
+ * HTTP-only page fetcher.
+ *
+ * Browser Run is intentionally not part of the Akwam path anymore. The
+ * compatibility options remain so older callers compile, but they are ignored.
+ */
 export async function fetchArProvPage(
   url: string,
   options: {
@@ -123,32 +79,26 @@ export async function fetchArProvPage(
     forceBrowser?: boolean;
   } = {},
 ): Promise<ArProvPage | null> {
+  void options.browserBinding;
+  void options.forceBrowser;
+
   const cachedValue = cached(url);
-  if (cachedValue && !options.forceBrowser) return cachedValue;
+  if (cachedValue) return cachedValue;
 
   const negativeUntil = negativeCache.get(cacheKey(url)) || 0;
-  if (negativeUntil > Date.now() && !options.forceBrowser) return null;
+  if (negativeUntil > Date.now()) return null;
 
   const timeoutMs = Math.max(3_000, Math.min(20_000, options.timeoutMs ?? 9_000));
 
-  if (!options.forceBrowser) {
-    try {
-      const http = await fetchHttp(url, options.referer, timeoutMs);
-      if (http.status >= 200 && http.status < 400 && http.body) return http;
+  try {
+    const page = await fetchHttp(url, options.referer, timeoutMs);
+    if (page.status >= 200 && page.status < 400 && page.body) return page;
 
-      const shouldEscalate = Boolean(options.browserBinding) && [401, 403, 408, 409, 425, 429, 451, 500, 502, 503, 504].includes(http.status);
-      if (!shouldEscalate) {
-        negativeCache.set(cacheKey(url), Date.now() + NEGATIVE_TTL_MS);
-        return http.body ? http : null;
-      }
-    } catch {
-      // Escalate to Browser Run when available.
-    }
+    negativeCache.set(cacheKey(url), Date.now() + NEGATIVE_TTL_MS);
+    return page.body ? page : null;
+  } catch (error) {
+    console.warn('[arprov-http]', error instanceof Error ? error.message : String(error));
+    negativeCache.set(cacheKey(url), Date.now() + NEGATIVE_TTL_MS);
+    return null;
   }
-
-  const browser = await fetchBrowser(url, options.referer, options.browserBinding, timeoutMs + 4_000);
-  if (browser?.body) return browser;
-
-  negativeCache.set(cacheKey(url), Date.now() + NEGATIVE_TTL_MS);
-  return null;
 }
