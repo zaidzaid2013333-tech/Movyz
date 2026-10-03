@@ -1,4 +1,4 @@
-name: Movyz Akwam direct-link universal diagnostic
+name: Movyz Akwam legacy session diagnostic
 
 on:
   push:
@@ -13,47 +13,48 @@ jobs:
   diagnose:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-      - name: Inspect direct link and universal resolver
+      - name: Inspect GET state and POST requirements
         run: |
           npx tsx -e "
           (async () => {
-            const { resolveUniversalSource } = await import('./server/providers/universal-resolver');
-            const { inferPlaybackType } = await import('./server/providers/http');
-            const { fetchWithTimeout } = await import('./server/providers/http');
             const target='https://akwam.ss/old/download/8b8a42e56071/Inception-720p-BluRay-akoam-net-mkv';
-            const response=await fetchWithTimeout(target,{
-              method:'POST',
-              timeoutMs:10000,
+            const get=await fetch(target,{
               headers:{
-                Accept:'application/json, text/plain, */*',
-                'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
+                Accept:'text/html,*/*;q=0.8',
                 'User-Agent':'Movyza/1.0',
-                'X-Requested-With':'XMLHttpRequest',
-                Referer:'https://akwam.ss/old/54108/%D9%81%D9%8A%D9%84%D9%85-Inception-2010-%D9%85%D8%AA%D8%B1%D8%AC%D9%85',
               },
-              body:''
+              redirect:'manual'
             });
-            const body=await response.text();
-            let parsed={};
-            try{parsed=JSON.parse(body)}catch{}
-            const raw=String(parsed.direct_link||'');
-            const httpsRaw=raw.replace(/^http:\/\//i,'https://');
-            const universal=httpsRaw?await resolveUniversalSource(httpsRaw,{timeoutMs:10000,maxDepth:2,maxHtmlBytes:1000000}):null;
+            const html=await get.text();
+            const interesting=(needle)=>{
+              const out=[];
+              let p=0;
+              while((p=html.toLowerCase().indexOf(needle.toLowerCase(),p))>=0 && out.length<8){
+                out.push(html.slice(Math.max(0,p-1500),Math.min(html.length,p+3500)));
+                p+=needle.length;
+              }
+              return out;
+            };
             console.log(JSON.stringify({
-              status:response.status,
-              contentType:response.headers.get('content-type'),
-              rawDirectLink:raw,
-              httpsDirectLink:httpsRaw,
-              inferredType:httpsRaw?inferPlaybackType(httpsRaw):null,
-              universal
+              getStatus:get.status,
+              getUrl:get.url,
+              contentType:get.headers.get('content-type'),
+              setCookie:get.headers.get('set-cookie'),
+              headers:[...get.headers.entries()].filter(([k])=>/cookie|token|csrf|x-/i.test(k)),
+              snippets:{
+                btnLoader:interesting('btn-loader'),
+                hashData:interesting('hash_data'),
+                token:interesting('token'),
+                csrf:interesting('csrf'),
+                ajax:interesting('ajax'),
+                form:interesting('<form')
+              }
             },null,2));
           })();
           "
