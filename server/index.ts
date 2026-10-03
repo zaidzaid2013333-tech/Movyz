@@ -390,48 +390,23 @@ async function seriesWatchDto(row: any, seasonNumber: number, requestUrl?: strin
     .from('episodes').select('*').eq('season_id', season.id).order('episode_number');
   if (episodesError) throw new Error('Unable to load season episodes: ' + episodesError.message);
 
-  const episodeIds = (episodes || []).map((episode: any) => String(episode.id));
   const playbackByEpisode = new Map<string, any[]>();
+  const currentEpisode = (episodes || []).find((episode: any) => Number(episode.episode_number) === episodeNumber);
 
-  if (episodeIds.length) {
-    const { data: playbackRows, error: playbackError } = await adminSupabase
-      .from('playback_sources')
-      .select('id,content_id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name)')
-      .eq('content_type', 'episode')
-      .in('content_id', episodeIds)
-      .eq('is_working', true)
-      .eq('providers.key', 'arprov')
-      .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
-      .order('quality', { ascending: true });
-
-    if (playbackError) {
-      console.warn('[series-watch-playback-cache]', playbackError.message);
-    } else {
-      for (const source of playbackRows || []) {
-        const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-        if (!['akwam', 'anime4up'].includes(providerReference)) continue;
-        const mapped = cachedArProvSourceDto(source);
-        if (!mapped.url || !mapped.providerKey) continue;
-        const playable = providerReference === 'akwam' && requestUrl && env
-          ? {
-              ...mapped,
-              url: await createPlaybackProxyUrl({
-                provider: 'arprov',
-                type: mapped.type as any,
-                url: mapped.url,
-                providerReference: 'akwam',
-                quality: mapped.quality,
-                language: mapped.language,
-                label: mapped.label,
-                referer: 'https://akwam.ss/',
-              }, requestUrl, env),
-            }
-          : mapped;
-        const episodeId = String(source.content_id || '');
-        const list = playbackByEpisode.get(episodeId) || [];
-        list.push(playable);
-        playbackByEpisode.set(episodeId, list);
-      }
+  if (currentEpisode?.id) {
+    try {
+      const prepared = await getFreshArProvSourcesForContent(
+        'episode',
+        String(currentEpisode.id),
+        requestUrl,
+        env,
+      );
+      playbackByEpisode.set(String(currentEpisode.id), prepared);
+    } catch (playbackError) {
+      console.warn(
+        '[series-watch-playback-cache]',
+        playbackError instanceof Error ? playbackError.message : String(playbackError),
+      );
     }
   }
 
