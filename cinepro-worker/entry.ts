@@ -67,19 +67,16 @@ const providers = [
   new CineSuProvider(),
   new TulnexProvider(),
   new VidApiProvider(),
-  new FshareProvider(),
+  new FsharetvProvider(),
   new PoprProvider(),
-  new AnyEmbedProvider(),
   new VidSrcProvider(),
   new VidZeeProvider(),
   new VidRockProvider(),
   new VidNestProvider(),
-  new Fmovies4uProvider(),
   new VideasyProvider(),
   new VixSrcProvider(),
   new PeachifyProvider(),
   new StreamMafiaProvider(),
-  new TwoMovieDownloaderProvider()
 ];
 
 for (const provider of providers) {
