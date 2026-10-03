@@ -21,6 +21,7 @@ import { VidSrcProvider } from './src/providers/vidsrc/vidsrc';
 import { VidZeeProvider } from './src/providers/vidzee/vidzee';
 import { VixSrcProvider } from './src/providers/vixsrc/vixsrc';
 
+// Runtime adapter: keep CinePro initialization inside requests to satisfy Workers global-scope rules.
 const PORT = 8787;
 const PUBLIC_URL = 'https://movyz-cinepro.sameranede.workers.dev';
 
