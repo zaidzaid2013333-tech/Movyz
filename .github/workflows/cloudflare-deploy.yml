@@ -1,8 +1,8 @@
 name: Movyz Cloudflare Deploy
 # Browser Run verification trigger: 2026-10-01
-# Cached native playback sources only; runtime does not resolve providers
+# Runtime playback uses on-demand Akwam resolution with edge caching and the Movyz playback proxy
 # CI trigger: production deploys run from a real main-branch push.
-# Runtime playback verification checks only pre-recorded native media URLs.
+# Runtime verification checks the on-demand proxy path without exposing raw provider URLs.
 
 on:
   push:
