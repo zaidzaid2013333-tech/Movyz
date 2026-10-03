@@ -15,7 +15,7 @@ test('ArProv resolves an Akwam movie download into a direct MP4 source', async (
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input);
 
-    if (url.startsWith('https://akwam.ss/search') || url.startsWith('https://akwam.ss/?s=')) {
+    if (url.startsWith('https://akwam.ss/old/search/') || url.startsWith('https://akwam.ss/search') || url.startsWith('https://akwam.ss/?s=')) {
       return mockResponse('<div class="entry-box"><a class="box" href="https://akwam.ss/movie/demo">Demo</a></div>');
     }
 
