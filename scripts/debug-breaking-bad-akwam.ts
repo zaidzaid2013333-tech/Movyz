@@ -1,7 +1,7 @@
 import 'dotenv/config';
 
 import { adminSupabase } from '../server/supabase';
-import { debugAkwamEpisode } from '../server/providers/arprov-akwam';
+import { debugAkwamEpisode, resolveAkwamEpisodeFromSeriesPage } from '../server/providers/arprov-akwam';
 import type { ProviderContext } from '../server/providers/types';
 
 const SERIES_ID = '0e6b39aa-6564-4bbc-91f3-8f36ba808362';
@@ -55,7 +55,64 @@ async function inspectSearchContract() {
   console.log(JSON.stringify(out,null,2));
 }
 
+async function inspectKnownSeriesPages() {
+  const known = [
+    { season: 1, url: 'https://akwam.ss/series/59/breaking-bad-الموسم-الأول' },
+    { season: 4, url: 'https://akwam.ss/series/66/breaking-bad-الموسم-الرابع' },
+  ];
+  const output: any[] = [];
+
+  for (const item of known) {
+    const page = await fetchArProvPage(item.url, { timeoutMs: 12000 });
+    if (!page) {
+      output.push({ season: item.season, url: item.url, ok: false, error: 'no-response' });
+      continue;
+    }
+
+    const body = page.body;
+    const anchors = [...body.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+      .map(match => {
+        const tag = match[0];
+        let href = match[1];
+        try { href = new URL(href, page.url).toString(); } catch {}
+        const text = String(match[2] || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
+        return { href, text: text.slice(0, 220), tag: tag.slice(0, 900) };
+      })
+      .filter(x => /\/episode(?:\/|$)/i.test(x.href) || /text-white|الحلقة|episode|ep/i.test(x.tag + ' ' + x.text))
+      .slice(0, 120);
+
+    const snippets: Record<string,string> = {};
+    for (const needle of ['الحلقة 1','الحلقة 01','الحلقة الأولى','Episode 1','EP 1','S01E01','S04E01','episode']) {
+      const index = body.toLowerCase().indexOf(needle.toLowerCase());
+      if (index >= 0) snippets[needle] = body.slice(Math.max(0,index-1200), Math.min(body.length,index+2200));
+    }
+
+    output.push({
+      season: item.season,
+      url: page.url,
+      status: page.status,
+      bytes: body.length,
+      title: /<title[^>]*>([\s\S]*?)<\/title>/i.exec(body)?.[1]?.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim(),
+      episodePathCount: (body.match(/\/episode(?:\/|["'])/gi) || []).length,
+      textWhiteCount: (body.match(/text-white/gi) || []).length,
+      episodeWordCount: (body.match(/الحلقة|episode|\bep\b/gi) || []).length,
+      anchors,
+      snippets,
+    });
+  }
+
+  await writeState({
+    last_run_at: new Date().toISOString(),
+    last_success_at: new Date().toISOString(),
+    last_error: null,
+    stats: { state: 'series-page-inspection', output },
+  });
+
+  console.log(JSON.stringify(output, null, 2));
+}
+
 async function main() {
+  await inspectKnownSeriesPages();
   await inspectSearchContract();
   const { data: series, error: seriesError } = await adminSupabase
     .from('series')
