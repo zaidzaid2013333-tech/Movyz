@@ -65,6 +65,24 @@ jobs:
       - name: Run Movyz Akwam movie robot
         run: npm run bot:akwam
 
+  debug-breaking-bad:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
+      - name: Diagnose Breaking Bad S01E01
+        run: npx tsx scripts/debug-breaking-bad-akwam.ts
+
   episodes:
     if: >-
       ${{ github.event_name != 'push' ||
