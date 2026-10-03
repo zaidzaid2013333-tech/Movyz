@@ -85,6 +85,7 @@ jobs:
       AKWAM_EPISODE_SHARD_INDEX: ${{ matrix.shard }}
       AKWAM_EPISODE_SHARD_COUNT: "2"
       EPISODE_SEASON_LIMIT: ${{ github.event.inputs.episodeSeasonLimit || '80' }}
+      AKWAM_PRIORITY_TMDB_IDS: "1396"
       EPISODE_CONCURRENCY: "8"
       SEASON_CONCURRENCY: "1"
     steps:
