@@ -24,6 +24,7 @@ import { VixSrcProvider } from './src/providers/vixsrc/vixsrc';
 // Runtime adapter: lazy initialization keeps all CinePro I/O inside request scope on Workers.
 const PORT = 8787;
 const PUBLIC_URL = 'https://movyz-cinepro.sameranede.workers.dev';
+// Diagnostic smoke run uses Wrangler tail to capture uncaught Worker exceptions.
 
 let initialization: Promise<void> | undefined;
 
