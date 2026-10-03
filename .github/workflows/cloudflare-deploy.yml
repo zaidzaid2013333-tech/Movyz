@@ -8,6 +8,7 @@ on:
     branches: ["main"]
     paths-ignore:
       - "supabase/**"
+      - ".github/workflows/**"
       - ".github/workflows/tmdb-sync.yml"
   workflow_dispatch:
 
