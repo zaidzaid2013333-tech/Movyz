@@ -148,6 +148,21 @@ async function validateDirectSource(source: CachedSource): Promise<CachedSource 
 
     const status = response.status;
     const finalUrl = response.url || source.url;
+    let finalParsed: URL;
+    try {
+      finalParsed = new URL(finalUrl);
+    } catch {
+      try { await response.body?.cancel(); } catch {}
+      return null;
+    }
+    if (finalParsed.protocol !== 'https:') {
+      try { await response.body?.cancel(); } catch {}
+      return null;
+    }
+    if (/(?:^|\\/)(?:embed|iframe|download|link)(?:\\/|$)/i.test(finalParsed.pathname)) {
+      try { await response.body?.cancel(); } catch {}
+      return null;
+    }
     const contentType = String(response.headers.get('content-type') || '').toLowerCase();
     const finalPath = (() => {
       try { return new URL(finalUrl).pathname.toLowerCase(); } catch { return parsed.pathname.toLowerCase(); }
