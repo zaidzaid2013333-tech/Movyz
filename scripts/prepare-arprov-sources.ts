@@ -8,7 +8,8 @@ type Mode = 'movies' | 'episodes';
 const MODE = (process.env.PREPARE_MODE || 'movies') as Mode;
 const LIMIT = Math.max(1, Number.parseInt(process.env.PREPARE_LIMIT || (MODE === 'movies' ? '500' : '250'), 10) || 250);
 const OFFSET = Math.max(0, Number.parseInt(process.env.PREPARE_OFFSET || '0', 10) || 0);
-const CONCURRENCY = Math.max(1, Math.min(8, Number.parseInt(process.env.PREPARE_CONCURRENCY || '4', 10) || 4));
+const CONCURRENCY = Math.max(1, Math.min(12, Number.parseInt(process.env.PREPARE_CONCURRENCY || '10', 10) || 10));
+const ONLY_MISSING = !/^(0|false|no)$/i.test(process.env.PREPARE_ONLY_MISSING || 'true');
 
 function cleanTitles(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
@@ -69,25 +70,56 @@ async function mapLimit<T>(items: T[], fn: (item: T) => Promise<void>) {
   await Promise.all(workers);
 }
 
+async function getReadyContentIds(contentType: 'movie' | 'episode', providerId: string) {
+  const ids = new Set<string>();
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await adminSupabase
+      .from('playback_sources')
+      .select('content_id')
+      .eq('provider_id', providerId)
+      .eq('content_type', contentType)
+      .eq('provider_reference', 'akwam')
+      .eq('is_working', true)
+      .not('url', 'is', null)
+      .is('expires_at', null)
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    for (const row of data || []) {
+      if (row.content_id) ids.add(String(row.content_id));
+    }
+    if (!data || data.length < pageSize) break;
+  }
+  return ids;
+}
+
 async function main() {
   const { data: provider, error: providerError } = await adminSupabase.from('providers').select('id,key').eq('key', 'arprov').maybeSingle();
   if (providerError) throw providerError;
   if (!provider?.id) throw new Error('ArProv provider row not found');
 
   if (MODE === 'movies') {
-    const { data, error } = await adminSupabase.from('movies').select('id,tmdb_id,title_ar,title_en,original_title,alternative_titles,release_date,status').eq('status', 'published').order('id').range(OFFSET, OFFSET + LIMIT - 1);
+    const { data, error } = await adminSupabase.from('movies').select('id,tmdb_id,title_ar,title_en,original_title,alternative_titles,release_date,status').eq('status', 'published').order('id');
     if (error) throw error;
-    const rows = data || []; let prepared = 0; let sources = 0;
-    await mapLimit(rows, async (row) => { try { const result = await prepareMovie(row, provider.id); prepared++; sources += result.count; console.log(JSON.stringify({ ok: true, ...result })); } catch (error) { console.error(JSON.stringify({ ok: false, id: row.id, title: row.title_en || row.title_ar, error: error instanceof Error ? error.message : String(error) })); } });
-    console.log(JSON.stringify({ mode: MODE, requested: rows.length, prepared, sources, offset: OFFSET, limit: LIMIT }));
+    const allRows = data || [];
+    const readyIds = ONLY_MISSING ? await getReadyContentIds('movie', provider.id) : new Set<string>();
+    const candidates = allRows.filter((row: any) => !readyIds.has(String(row.id)));
+    const rows = candidates.slice(OFFSET, OFFSET + LIMIT);
+    let prepared = 0; let sources = 0;
+    await mapLimit(rows, async (row) => { try { const result = await prepareMovie(row, provider.id); if (result.count > 0) prepared++; sources += result.count; console.log(JSON.stringify({ ok: true, ...result })); } catch (error) { console.error(JSON.stringify({ ok: false, id: row.id, title: row.title_en || row.title_ar, error: error instanceof Error ? error.message : String(error) })); } });
+    console.log(JSON.stringify({ mode: MODE, requested: rows.length, candidates: candidates.length, skipped: allRows.length - candidates.length, prepared, sources, offset: OFFSET, limit: LIMIT, onlyMissing: ONLY_MISSING }));
     return;
   }
 
-  const { data, error } = await adminSupabase.from('episodes').select('id,tmdb_id,episode_number,name_ar,name_en,seasons!inner(season_number,series:series_id!inner(id,tmdb_id,title_ar,title_en,original_title,alternative_titles,status,first_air_date))').order('id').range(OFFSET, OFFSET + LIMIT - 1);
+  const { data, error } = await adminSupabase.from('episodes').select('id,tmdb_id,episode_number,name_ar,name_en,seasons!inner(season_number,series:series_id!inner(id,tmdb_id,title_ar,title_en,original_title,alternative_titles,status,first_air_date))').order('id');
   if (error) throw error;
-  const rows = data || []; let prepared = 0; let sources = 0;
+  const allRows = data || [];
+  const readyIds = ONLY_MISSING ? await getReadyContentIds('episode', provider.id) : new Set<string>();
+  const candidates = allRows.filter((row: any) => !readyIds.has(String(row.id)));
+  const rows = candidates.slice(OFFSET, OFFSET + LIMIT);
+  let prepared = 0; let sources = 0;
   await mapLimit(rows, async (row) => { try { const result = await prepareEpisode(row, provider.id); if (result.count > 0) prepared++; sources += result.count; console.log(JSON.stringify({ ok: true, ...result })); } catch (error) { console.error(JSON.stringify({ ok: false, id: row.id, title: row.name_en || row.name_ar, error: error instanceof Error ? error.message : String(error) })); } });
-  console.log(JSON.stringify({ mode: MODE, requested: rows.length, prepared, sources, offset: OFFSET, limit: LIMIT }));
+  console.log(JSON.stringify({ mode: MODE, requested: rows.length, candidates: candidates.length, skipped: allRows.length - candidates.length, prepared, sources, offset: OFFSET, limit: LIMIT, onlyMissing: ONLY_MISSING }));
 }
 
 await main();
