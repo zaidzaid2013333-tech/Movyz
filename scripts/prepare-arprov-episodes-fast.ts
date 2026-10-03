@@ -13,7 +13,7 @@ const SHARD_COUNT = Math.max(1, Number.parseInt(process.env.EPISODE_SHARD_COUNT 
 const SEASON_CONCURRENCY = Math.max(1, Math.min(2, Number.parseInt(process.env.SEASON_CONCURRENCY || '1', 10) || 1));
 const EPISODE_CONCURRENCY = Math.max(1, Math.min(16, Number.parseInt(process.env.EPISODE_CONCURRENCY || '12', 10) || 12));
 const ONLY_MISSING = !/^(0|false|no)$/i.test(process.env.PREPARE_ONLY_MISSING || 'true');
-const SEASON_LIMIT = Math.max(1, Number.parseInt(process.env.EPISODE_SEASON_LIMIT || '20', 10) || 20);
+const SEASON_LIMIT = Math.max(1, Number.parseInt(process.env.EPISODE_SEASON_LIMIT || '80', 10) || 80);
 
 type EpisodeRow = {
   id: string;
