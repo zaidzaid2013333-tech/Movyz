@@ -844,7 +844,7 @@ async function resolveRe3ArabiStyleSourcePage(
   return dedupe(output);
 }
 
-async function resolvePage(page: { body: string; url: string }, ctx: ProviderContext, runtime: AkwamRuntime) {
+async function resolvePage(page: ArProvPage, ctx: ProviderContext, runtime: AkwamRuntime) {
   const direct = await resolveRe3ArabiStyleSourcePage(page, runtime);
   if (direct.length) return direct;
 
