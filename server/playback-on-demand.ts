@@ -1,3 +1,4 @@
+// [on-demand-architecture] runtime uses Cloudflare-bound TMDB token for live Akwam enrichment
 import { adminSupabase } from './supabase';
 import { createPlaybackProxyUrl } from './playback-proxy';
 import { resolveAkwamPlayback } from './providers/arprov-akwam';
