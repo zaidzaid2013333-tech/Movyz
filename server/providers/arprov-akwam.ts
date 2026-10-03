@@ -595,11 +595,11 @@ async function resolvePage(page: { body: string; url: string }, ctx: ProviderCon
     const qualityMarkers = [
       ...prefix.matchAll(/<div\b[^>]*class=["'][^"']*tab-content[^"']*quality[^"']*["'][^>]*>/gi),
     ];
-    const latestQualityMarker = qualityMarkers.at(-1)?.[0] || '';
-    const quality =
-      latestQualityMarker
-        ? qualityFromBlock(latestQualityMarker)
-        : qualityFromBlock(anchor.text + ' ' + anchor.tag);
+    const latestQualityMarker = qualityMarkers.at(-1);
+    const qualityContext = latestQualityMarker
+      ? prefix.slice(latestQualityMarker.index || 0) + ' ' + body.slice(anchor.index, anchor.index + 2_000)
+      : anchor.text + ' ' + anchor.tag;
+    const quality = qualityFromBlock(qualityContext);
 
     const target = downloadTarget(page.url, anchor.url, new URL(page.url).origin) || anchor.url;
     if (!/^https:\/\//i.test(target)) continue;
