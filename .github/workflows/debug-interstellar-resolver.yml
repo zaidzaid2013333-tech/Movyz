@@ -27,20 +27,22 @@ jobs:
       - name: Resolve Interstellar without persisting
         run: |
           npx tsx -e "
-          import { resolveAkwamPlayback } from './server/providers/arprov-akwam';
-          const context = {
-            tmdbId: 157336,
-            title: 'Interstellar',
-            originalTitle: 'Interstellar',
-            releaseYear: 2014,
-          };
-          const started = Date.now();
-          const sources = await resolveAkwamPlayback(context, {
-            tmdbApiToken: process.env.TMDB_API_READ_ACCESS_TOKEN,
-          });
-          console.log(JSON.stringify({
-            elapsedMs: Date.now() - started,
-            count: sources.length,
-            sources,
-          }, null, 2));
+          (async () => {
+            const { resolveAkwamPlayback } = await import('./server/providers/arprov-akwam');
+            const context = {
+              tmdbId: 157336,
+              title: 'Interstellar',
+              originalTitle: 'Interstellar',
+              releaseYear: 2014,
+            };
+            const started = Date.now();
+            const sources = await resolveAkwamPlayback(context, {
+              tmdbApiToken: process.env.TMDB_API_READ_ACCESS_TOKEN,
+            });
+            console.log(JSON.stringify({
+              elapsedMs: Date.now() - started,
+              count: sources.length,
+              sources,
+            }, null, 2));
+          })();
           "
