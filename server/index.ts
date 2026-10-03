@@ -114,12 +114,14 @@ async function getCineProPlaybackSources(
     };
 
     const sources = Array.isArray(payload.sources) ? payload.sources : [];
-    return sources.map((source, index) => {
+    const mappedSources = await Promise.all(sources.map(async (source, index) => {
       const rawUrl = String(source.url || '').trim();
       if (!rawUrl) return null;
+
       let url = rawUrl;
       try { url = new URL(rawUrl, baseUrl).toString(); } catch { return null; }
       if (!/^https:\/\//i.test(url)) return null;
+
       const sourceType = String(source.type || '').trim().toLowerCase();
       const normalizedType = ['hls', 'dash', 'mp4', 'webm'].includes(sourceType)
         ? sourceType : sourceType === 'mkv' ? 'direct' : 'direct';
@@ -129,6 +131,7 @@ async function getCineProPlaybackSources(
       const providerName = String(source.provider?.name || source.provider?.id || 'CinePro').trim();
       const track = Array.isArray(source.audioTracks) ? source.audioTracks[0] : undefined;
       if (!requestUrl || !env) return null;
+
       const signedUrl = await createPlaybackProxyUrl({
         provider: 'CinePro',
         type: normalizedType as any,
@@ -139,15 +142,26 @@ async function getCineProPlaybackSources(
         label: 'CinePro • ' + providerName,
       }, requestUrl, env);
       if (!signedUrl) return null;
+
       return {
         id: 'cinepro-' + contentType + '-' + contentId + '-' + index,
-        type: normalizedType, quality, language: String(track?.language || 'und').trim(),
-        label: 'CinePro • ' + providerName, labelEn: 'CinePro • ' + providerName,
-        url: signedUrl, isWorking: true, provider: providerName,
+        type: normalizedType,
+        quality,
+        language: String(track?.language || 'und').trim(),
+        label: 'CinePro • ' + providerName,
+        labelEn: 'CinePro • ' + providerName,
+        url: signedUrl,
+        isWorking: true,
+        provider: providerName,
         providerKey: String(source.provider?.id || providerName).trim(),
-        providerReference: 'cinepro', expiresAt: null,
+        providerReference: 'cinepro',
+        expiresAt: null,
       };
-    }).filter((source): source is NonNullable<typeof source> => source !== null);
+    }));
+
+    return mappedSources.filter(
+      (source): source is NonNullable<typeof source> => source !== null,
+    );
   } catch (error) {
     console.warn('[cinepro-bridge]', error instanceof Error ? error.message : String(error));
     return [];
