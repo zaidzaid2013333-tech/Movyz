@@ -63,7 +63,7 @@ export async function createPlaybackProxyUrl(
   env: Record<string, unknown>,
   ttlMs = 30 * 24 * 60 * 60 * 1000,
 ) {
-  if (!source.url || !source.referer) return source.url || '';
+  if (!source.url) return '';
 
   const secret = secretFromEnv(env);
   if (!secret) return source.url;

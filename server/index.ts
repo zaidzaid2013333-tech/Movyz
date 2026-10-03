@@ -19,49 +19,51 @@ app.disable('x-powered-by');
 // Production diagnostics for the selected playback-sites path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
-function cachedArProvSourceDto(source: any) {
+async function cachedPlaybackSourceDto(
+  source: any,
+  requestUrl: string,
+  env: Record<string, unknown>,
+) {
   const providerReference = String(source.provider_reference || '').trim().toLowerCase();
-  const allowedProviders = new Set(['akwam', 'anime4up']);
+  const providerKey = String(source.providers?.key || '').trim().toLowerCase();
+  const providerName = source.providers?.name || source.label_ar || 'Source';
+  const type = String(source.source_type || '').trim().toLowerCase();
+  const quality = String(source.quality || '').trim().toLowerCase();
+  const storedUrl = String(source.url || '').trim();
+
+  if (!/^https:\/\//i.test(storedUrl)) return null;
+  if (!['mp4', 'hls', 'dash', 'webm', 'direct'].includes(type)) return null;
+  if (!/^\\d{3,4}p$/i.test(quality)) return null;
+
+  const signedUrl = await createPlaybackProxyUrl({
+    provider: providerName,
+    type: type as any,
+    url: storedUrl,
+    providerReference: providerReference || providerKey || undefined,
+    quality,
+    language: source.language || 'und',
+    label: source.label_ar || providerName,
+  }, requestUrl, env);
+
+  if (!signedUrl) return null;
 
   return {
     id: source.id,
-    type: source.source_type,
-    quality: source.quality || '',
+    type,
+    quality,
     language: source.language || 'und',
-    label: source.label_ar || source.providers?.name || 'Selected Playback Site',
-    labelEn: source.label_en || source.providers?.name || 'Selected Playback Site',
-    url: source.url || '',
+    label: source.label_ar || providerName,
+    labelEn: source.label_en || providerName,
+    url: signedUrl,
     isWorking: source.is_working === true,
-    provider: providerReference || source.providers?.name || 'Selected Playback Site',
-    providerKey: allowedProviders.has(providerReference) ? providerReference : undefined,
-    providerReference: allowedProviders.has(providerReference) ? providerReference : undefined,
+    provider: providerName,
+    providerKey: providerKey || providerReference || undefined,
+    providerReference: providerReference || undefined,
+    expiresAt: source.expires_at || null,
   };
 }
 
-function playbackQualityScore(value: unknown) {
-  const q = String(value || '').toLowerCase();
-  if (/2160|4k|ultra/.test(q)) return 4000;
-  if (/1440/.test(q)) return 3000;
-  if (/1080|fhd/.test(q)) return 2000;
-  if (/720|hd/.test(q)) return 1500;
-  if (/576/.test(q)) return 1200;
-  if (/480|sd/.test(q)) return 1000;
-  if (/360/.test(q)) return 800;
-  return 500;
-}
-
-function playbackTypeScore(value: unknown) {
-  switch (String(value || '').toLowerCase()) {
-    case 'hls': return 50;
-    case 'dash': return 45;
-    case 'mp4': return 40;
-    case 'webm': return 35;
-    case 'direct': return 25;
-    default: return 0;
-  }
-}
-
-async function getFreshArProvSourcesForContent(
+async function getFreshPlaybackSourcesForContent(
   contentType: 'movie' | 'episode',
   contentId: string,
   requestUrl?: string,
@@ -79,11 +81,11 @@ async function getFreshArProvSourcesForContent(
 
   const storedPromise = adminSupabase
     .from('playback_sources')
-    .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name)')
+    .select('id,source_type,url,quality,language,label_ar,label_en,provider_reference,expires_at,is_working,providers!inner(key,name,enabled)')
     .eq('content_type', contentType)
     .eq('content_id', contentId)
     .eq('is_working', true)
-    .eq('providers.key', 'arprov')
+    .eq('providers.enabled', true)
     .neq('provider_reference', 'akwam')
     .order('quality', { ascending: true });
 
@@ -92,28 +94,18 @@ async function getFreshArProvSourcesForContent(
     console.warn('[stored-playback-sources]', storedResult.error.message);
   }
 
-  const allowedProviders = new Set(['anime4up']);
-  const allowedTypes = new Set(['mp4', 'hls', 'dash', 'webm', 'direct']);
   const now = Date.now();
+  const prepared = (storedResult.data || [])
+    .map((source: any) => {
+      const providerKey = String(source.providers?.key || '').trim().toLowerCase();
+      if (!providerKey || providerKey === 'arprov' && String(source.provider_reference || '').trim().toLowerCase() === 'akwam') return null;
 
-  const prepared = (storedResult.data || []).map((source: any) => {
-    const provider = String(source.provider_reference || '').trim().toLowerCase();
-    const type = String(source.source_type || '').trim().toLowerCase();
-    const storedUrl = String(source.url || '').trim();
-    const quality = String(source.quality || '').trim().toLowerCase();
+      const expiresAt = source.expires_at ? Date.parse(String(source.expires_at)) : Number.POSITIVE_INFINITY;
+      if (Number.isFinite(expiresAt) && expiresAt <= now) return null;
 
-    if (!allowedProviders.has(provider) || !allowedTypes.has(type)) return null;
-    if (!/^https:\/\//i.test(storedUrl) || !/^\d{3,4}p$/i.test(quality)) return null;
-
-    const expiresAt = source.expires_at ? Date.parse(String(source.expires_at)) : Number.POSITIVE_INFINITY;
-    if (Number.isFinite(expiresAt) && expiresAt <= now) return null;
-
-    return {
-      ...cachedArProvSourceDto(source),
-      url: storedUrl,
-      isWorking: true,
-    };
-  }).filter((source: any): source is Record<string, unknown> => Boolean(source));
+      return cachedPlaybackSourceDto(source, requestUrl || '', env || {});
+    })
+    .filter((source: any): source is Record<string, unknown> => Boolean(source));
 
   return [...akwamSources, ...prepared]
     .filter((source: any) => /^https:\/\//i.test(String(source.url || '').trim()))
@@ -122,7 +114,7 @@ async function getFreshArProvSourcesForContent(
       if (qualityDiff) return qualityDiff;
       return playbackTypeScore(b.type) - playbackTypeScore(a.type);
     })
-    .slice(0, 6);
+    .slice(0, 8);
 }
 
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
@@ -247,7 +239,7 @@ async function batchSeriesGenres(ids: string[]) {
 
 async function movieDto(row: any, includePlaybackSources = false, requestUrl?: string, env?: Record<string, unknown>) {
   const playbackPromise = includePlaybackSources
-    ? getFreshArProvSourcesForContent('movie', row.id, requestUrl, env).catch((error) => {
+    ? getFreshPlaybackSourcesForContent('movie', row.id, requestUrl, env).catch((error) => {
         console.warn('[movie-playback-cache]', error instanceof Error ? error.message : String(error));
         return [];
       })
@@ -358,7 +350,7 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
 
   if (currentEpisode?.id) {
     try {
-      const prepared = await getFreshArProvSourcesForContent(
+      const prepared = await getFreshPlaybackSourcesForContent(
         'episode',
         String(currentEpisode.id),
         requestUrl,
@@ -744,7 +736,7 @@ app.post(`${api}/playback/prepared`, asyncRoute(async (req, res) => {
   // On-demand playback: resolve through the HTTP-only Akwam gateway, cache the
   // short-lived result at the edge, then return signed redirect URLs. No
   // Browser Run and no video proxying are used.
-  const sources = await getFreshArProvSourcesForContent(
+  const sources = await getFreshPlaybackSourcesForContent(
     body.data.contentType,
     body.data.contentId,
     req.url,
@@ -788,7 +780,7 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
   }
 
-  const playbackSources = await getFreshArProvSourcesForContent('episode', String(episode.id), req.url, req.env || {})
+  const playbackSources = await getFreshPlaybackSourcesForContent('episode', String(episode.id), req.url, req.env || {})
     .catch((sourceError) => {
       console.warn('[episode-playback-cache]', sourceError instanceof Error ? sourceError.message : String(sourceError));
       return [];

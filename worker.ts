@@ -1,3 +1,4 @@
+// General playback transport: all playable providers use the same signed redirect path; Akwam remains on-demand.
 // CI trigger: production smoke verification follows workflow-only fixes
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
