@@ -228,8 +228,8 @@ jobs:
                   url = str(source.get("url") or "")
                   if not url.startswith("https://"):
                       raise SystemExit(f"{label}: non-HTTPS source")
-                  if "movyz-api.sameranede.workers.dev" in url:
-                      raise SystemExit(f"{label}: Movyz is proxying playback")
+                  if str(source.get("providerKey") or "").lower() == "akwam" and "movyz-api.sameranede.workers.dev" not in url:
+                      raise SystemExit(f"{label}: Akwam source must use the Movyz playback proxy")
 
               print(f"Playback cache OK: {label} sources={len(sources)}")
 
