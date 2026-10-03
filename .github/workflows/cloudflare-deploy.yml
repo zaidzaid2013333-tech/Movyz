@@ -88,7 +88,7 @@ jobs:
         run: |
           set +e
           rm -f /tmp/cinepro-tail.log
-          (npx wrangler tail movyz-cinepro --format json --status error --sampling-rate 1 > /tmp/cinepro-tail.log 2>&1) &
+          (npx wrangler tail movyz-cinepro --format json --status error --sampling-rate 0.25 > /tmp/cinepro-tail.log 2>&1) &
           TAIL_PID=$!
           sleep 4
           python - <<'PY'
