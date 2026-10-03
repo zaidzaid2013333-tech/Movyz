@@ -249,14 +249,17 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
       let anchorHost = '';
       try { anchorHost = new URL(anchor.url).hostname; } catch {}
       if (anchorHost && anchorHost !== pageHost && anchorHost !== baseHost) continue;
-      if (!isAkwamContentUrl(anchor.url)) continue;
+      if (/\/(?:games|programs)(?:\/|$)/i.test(new URL(anchor.url).pathname)) continue;
       if (seen.has(anchor.url)) continue;
 
       const text = anchorSearchText(anchor);
       const score = titleScore({ ...anchor, text }, ctx);
       const cardHint = /\b(?:entry-box|box|entry-title|watch|details)\b/i.test(anchor.tag) ? 150 : 0;
       const finalScore = score + cardHint;
-      if (finalScore < 100) continue;
+
+      // Match ArProv's original behavior: search results are entry cards
+      // and their URLs are accepted without relying on a hard-coded route shape.
+      if (finalScore < 80) continue;
 
       seen.add(anchor.url);
       candidates.push({ url: anchor.url, title: text, score: finalScore });
