@@ -1381,8 +1381,9 @@ export async function debugAkwamMovie(
         const qualityContext = latestQualityMarker
           ? prefix.slice(latestQualityMarker.index || 0) + ' ' + detail.body.slice(anchor.index, anchor.index + 2_000)
           : anchor.text + ' ' + anchor.tag;
-        const quality = qualityFromBlock(qualityContext);
+        const detectedQuality = qualityFromBlock(qualityContext);
         const target = downloadTarget(detail.url, anchor.url, new URL(detail.url).origin) || anchor.url;
+        const quality = detectedQuality === 'auto' ? inferAkwamQuality(target) : detectedQuality;
         let sources: NormalizedPlaybackSource[] = [];
         let error = '';
         try {
