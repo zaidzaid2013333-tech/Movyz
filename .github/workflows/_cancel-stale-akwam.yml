@@ -9,12 +9,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyz-akwam-robot-Movyz Akwam Preparation Robot-refs/heads/main
+  group: movyz-stale-akwam-cancellation-carrier
   cancel-in-progress: true
 
 jobs:
   cancel-stale:
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     steps:
       - name: Cancel Run #55 directly
         env:
