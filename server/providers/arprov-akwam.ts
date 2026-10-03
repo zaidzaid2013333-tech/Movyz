@@ -5,9 +5,10 @@ import { resolveArProvExtractor } from './arprov-extractors';
 import { resolveUniversalSource } from './universal-resolver';
 
 const AKWAM_BASES = [
+  'https://ak.sv',
+  'https://akwam.it',
   'https://akwam.ss',
   'https://akwam.net',
-  'https://ak.sv',
 ] as const;
 
 type AkwamRuntime = {
@@ -225,8 +226,14 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
 
   const collect = (page: { body: string; url: string } | null) => {
     if (!page) return;
+    const pageHost = (() => {
+      try { return new URL(page.url).hostname; } catch { return new URL(base).hostname; }
+    })();
+    const baseHost = new URL(base).hostname;
     for (const anchor of anchors(page.body, page.url)) {
-      if (!anchor.url.includes(new URL(base).hostname)) continue;
+      let anchorHost = '';
+      try { anchorHost = new URL(anchor.url).hostname; } catch {}
+      if (anchorHost && anchorHost !== pageHost && anchorHost !== baseHost) continue;
       if (!/class=["'][^"']*\bbox\b[^"']*["']/i.test(anchor.tag)) continue;
       if (seen.has(anchor.url)) continue;
       const score = titleScore(anchor, ctx);
