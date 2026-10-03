@@ -5,6 +5,7 @@ on:
 
 jobs:
   prepare:
+    if: ${{ false }}
     strategy:
       fail-fast: false
       matrix:
