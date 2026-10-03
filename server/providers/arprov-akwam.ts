@@ -1,6 +1,6 @@
 import { fetchWithTimeout, inferPlaybackType, inferQuality } from './http';
 import type { NormalizedPlaybackSource, ProviderContext } from './types';
-import { fetchArProvPage, type ArProvBrowserBinding } from './arprov-runtime';
+import { fetchArProvPage, type ArProvBrowserBinding, type ArProvPage } from './arprov-runtime';
 import { resolveArProvExtractor } from './arprov-extractors';
 import { resolveUniversalSource } from './universal-resolver';
 
@@ -760,7 +760,7 @@ function normalizeAkwamQuality(raw: string, url: string) {
 }
 
 async function resolveRe3ArabiStyleSourcePage(
-  page: { body: string; url: string },
+  page: ArProvPage,
   runtime: AkwamRuntime,
   providerLabel = 'Akwam',
 ): Promise<NormalizedPlaybackSource[]> {
