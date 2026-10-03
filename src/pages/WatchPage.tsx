@@ -296,15 +296,39 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       ? content?.id
       : currentEpisode?.id;
 
-    if (!targetId) {
-      setRemotePlaybackSources(fallback);
-      setRemotePlaybackSource(fallback[0] || null);
+    const applySources = (ready: typeof fallback) => {
+      const preferred =
+        ready.find((source) => /1080p/i.test(source.quality || source.labelEn || '')) ||
+        ready.find((source) => /720p/i.test(source.quality || source.labelEn || '')) ||
+        ready[0] ||
+        null;
+
+      setRemotePlaybackSources(ready);
+      setRemotePlaybackSource(preferred);
+      setPlayerUnlocked(Boolean(preferred));
+      setPlaybackError(
+        preferred
+          ? null
+          : (language === 'ar'
+            ? 'تعذر الحصول على مصدر تشغيل حاليًا.'
+            : 'Unable to resolve a playable source right now.'),
+      );
       setResolverLoading(false);
-      setPlayerUnlocked(fallback.length > 0);
+    };
+
+    if (!targetId) {
+      applySources(fallback);
       return () => { active = false; };
     }
 
-    setResolverLoading(true); // Loading already-prepared playback metadata; no source discovery occurs here.
+    // The watch payload already contains the on-demand Akwam redirect URLs.
+    // Use them first and call /playback/prepared only as a recovery path.
+    if (fallback.length) {
+      applySources(fallback);
+      return () => { active = false; };
+    }
+
+    setResolverLoading(true);
     setPlaybackError(null);
 
     void MovyzaApi.getPreparedPlaybackSources(targetType, targetId)
@@ -318,47 +342,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             .slice(0, 20),
         );
 
-        const preferred =
-          ready.find((source) => /1080p/i.test(source.quality || source.labelEn || '')) ||
-          ready.find((source) => /720p/i.test(source.quality || source.labelEn || '')) ||
-          ready[0] ||
-          fallback.find((source) => /1080p/i.test(source.quality || source.labelEn || '')) ||
-          fallback.find((source) => /720p/i.test(source.quality || source.labelEn || '')) ||
-          fallback[0] ||
-          null;
-
-        setRemotePlaybackSources(ready.length ? ready : fallback);
-        setRemotePlaybackSource(preferred);
-        setPlayerUnlocked(Boolean(preferred));
-        setPlaybackError(
-          preferred
-            ? null
-            : (language === 'ar'
-              ? 'تعذر الحصول على مصدر تشغيل حاليًا.'
-              : 'Unable to resolve a playable source right now.'),
-        );
-        setResolverLoading(false);
+        applySources(ready);
       })
       .catch(() => {
         if (!active) return;
-
-        const preferred =
-          fallback.find((source) => /1080p/i.test(source.quality || source.labelEn || '')) ||
-          fallback.find((source) => /720p/i.test(source.quality || source.labelEn || '')) ||
-          fallback[0] ||
-          null;
-
-        setRemotePlaybackSources(fallback);
-        setRemotePlaybackSource(preferred);
-        setPlayerUnlocked(Boolean(preferred));
-        setPlaybackError(
-          preferred
-            ? null
-            : (language === 'ar'
-              ? 'تعذر الحصول على مصدر تشغيل حاليًا.'
-              : 'Unable to resolve a playable source right now.'),
-        );
-        setResolverLoading(false);
+        applySources(fallback);
       });
 
     return () => {
