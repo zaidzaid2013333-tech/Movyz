@@ -61,6 +61,7 @@ export async function createPlaybackProxyUrl(
   source: NormalizedPlaybackSource,
   requestUrl: string,
   env: Record<string, unknown>,
+  ttlMs = 30 * 24 * 60 * 60 * 1000,
 ) {
   if (!source.url || !source.referer) return source.url || '';
 
@@ -72,7 +73,7 @@ export async function createPlaybackProxyUrl(
     referer: source.referer,
     headers: source.headers,
     type: source.type,
-    exp: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    exp: Date.now() + Math.max(30_000, ttlMs),
   };
 
   const encoded = base64UrlEncode(JSON.stringify(payload));
