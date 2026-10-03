@@ -4,6 +4,7 @@ import { adminSupabase } from '../server/supabase';
 import {
   discoverAkwamSeasonEpisodes,
   resolveAkwamEpisodePage,
+  resolveAkwamPlayback,
 } from '../server/providers/arprov-akwam';
 import type { ProviderContext, NormalizedPlaybackSource } from '../server/providers/types';
 import { validatePreparedMediaSource } from './validate-prepared-source';
@@ -133,10 +134,24 @@ async function fetchEpisodesBySeason(seasonIds: string[]) {
 }
 
 async function fetchSeasons() {
+  // Avoid relation filters in a HEAD count query: fetch the small published-series
+  // id set first, then shard seasons deterministically within that filtered set.
+  const { data: publishedSeries, error: seriesError } = await adminSupabase
+    .from('series')
+    .select('id')
+    .eq('status', 'published');
+  if (seriesError) throw seriesError;
+
+  const publishedSeriesIds = (publishedSeries || [])
+    .map((row) => String(row.id))
+    .filter(Boolean);
+
+  if (!publishedSeriesIds.length) return [];
+
   const { count, error: countError } = await adminSupabase
     .from('seasons')
     .select('id', { count: 'exact', head: true })
-    .eq('series.status', 'published');
+    .in('series_id', publishedSeriesIds);
   if (countError) throw countError;
 
   const total = count ?? 0;
@@ -147,7 +162,7 @@ async function fetchSeasons() {
   const { data, error } = await adminSupabase
     .from('seasons')
     .select('id,season_number,series_id,series:series_id!inner(id,tmdb_id,title_ar,title_en,original_title,alternative_titles,status,first_air_date)')
-    .eq('series.status', 'published')
+    .in('series_id', publishedSeriesIds)
     .order('id')
     .range(start, end - 1);
   if (error) throw error;
@@ -162,7 +177,6 @@ async function fetchSeasons() {
 
   return output;
 }
-
 async function readyEpisodeIds(episodeIds: string[]) {
   const ready = new Set<string>();
   const chunkSize = 200;
