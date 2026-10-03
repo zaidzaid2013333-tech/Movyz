@@ -269,44 +269,52 @@ async function prepareSeason(
   let fallback = 0;
   let failed = 0;
 
-  const results = await mapLimit(targets, EPISODE_CONCURRENCY, async (episode) => {
-    const mapped = byEpisode.get(episode.episode_number);
-    const context: ProviderContext = {
-      ...contextBase,
-      episodeNumber: episode.episode_number,
-      episodeTitle: episode.name_ar || episode.name_en || undefined,
-    };
+  let prepared = 0;
+  const targetBatchSize = 50;
 
-    if (mapped?.url) {
-      try {
-        const sources = await resolveAkwamEpisodePage(mapped.url, context, {});
-        return { episodeId: episode.id, sources, fallback: false };
-      } catch (error) {
-        failed++;
-        console.warn(JSON.stringify({
-          ok: false,
-          stage: 'episode-resolve',
-          episodeId: episode.id,
-          episodeNumber: episode.episode_number,
-          seasonId: season.id,
-          error: error instanceof Error ? error.message : String(error),
-        }));
-        return { episodeId: episode.id, sources: [], fallback: false };
+  // Resolve and persist in bounded batches so the database reflects progress
+  // while a large season is still being processed.
+  for (let offset = 0; offset < targets.length; offset += targetBatchSize) {
+    const batchTargets = targets.slice(offset, offset + targetBatchSize);
+    const results = await mapLimit(batchTargets, EPISODE_CONCURRENCY, async (episode) => {
+      const mapped = byEpisode.get(episode.episode_number);
+      const context: ProviderContext = {
+        ...contextBase,
+        episodeNumber: episode.episode_number,
+        episodeTitle: episode.name_ar || episode.name_en || undefined,
+      };
+
+      if (mapped?.url) {
+        try {
+          const sources = await resolveAkwamEpisodePage(mapped.url, context, {});
+          return { episodeId: episode.id, sources, fallback: false };
+        } catch (error) {
+          failed++;
+          console.warn(JSON.stringify({
+            ok: false,
+            stage: 'episode-resolve',
+            episodeId: episode.id,
+            episodeNumber: episode.episode_number,
+            seasonId: season.id,
+            error: error instanceof Error ? error.message : String(error),
+          }));
+          return { episodeId: episode.id, sources: [], fallback: false };
+        }
       }
-    }
 
-    fallback++;
-    return {
-      episodeId: episode.id,
-      sources: [],
-      fallback: true,
-    };
-  });
+      fallback++;
+      return {
+        episodeId: episode.id,
+        sources: [],
+        fallback: true,
+      };
+    });
 
-  const prepared = await saveBatch(
-    results.map((item) => ({ episodeId: item.episodeId, sources: item.sources })),
-    providerId,
-  );
+    prepared += await saveBatch(
+      results.map((item) => ({ episodeId: item.episodeId, sources: item.sources })),
+      providerId,
+    );
+  }
 
   return {
     seasonId: season.id,
