@@ -345,7 +345,7 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
     }
   }
 
-  const queryList = [...queries].slice(0, 3);
+  const queryList = [...queries].slice(0, 2);
   const candidates: SearchCandidate[] = [];
   const seen = new Set<string>();
 
@@ -394,8 +394,6 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
   const searchForms = [
     (query: string) => `${base}/old/search/${encodeURIComponent(query)}`,
     (query: string) => `${base}/search?q=${encodeURIComponent(query)}`,
-    (query: string) => `${base}/search?q=${encodeURIComponent(query)}&section=series`,
-    (query: string) => `${base}/search/${encodeURIComponent(query)}`,
   ];
 
   let pages: PromiseSettledResult<any>[] = [];
@@ -854,8 +852,11 @@ async function resolvePage(page: { body: string; url: string }, ctx: ProviderCon
   const output: NormalizedPlaybackSource[] = [];
   const pageAnchors = anchors(page.body, page.url);
 
+  let downloadCount = 0;
   for (const anchor of pageAnchors) {
+    if (downloadCount >= 4) break;
     if (!/تحميل|download|\/download|\/link/i.test(anchor.text + ' ' + anchor.url)) continue;
+    downloadCount += 1;
 
     const prefix = page.body.slice(Math.max(0, anchor.index - 12_000), anchor.index);
     const qualityMarkers = [
@@ -1357,10 +1358,13 @@ export async function resolveAkwamPlayback(
   for (const base of bases) {
     let candidates = await search(base, searchContext, runtime);
 
-    // Episode pages are often not indexed by the exact SxxEyy query on Akwam.
-    // Always add a series-level search lane for episodes instead of trusting the
-    // first matching episode query result.
-    if (context.episodeNumber !== undefined) {
+    // Only pay for a series-level fallback when the precise episode
+    // search produced no useful candidate. This keeps the free Worker path
+    // comfortably below its external-subrequest ceiling on normal hits.
+    if (
+      context.episodeNumber !== undefined &&
+      (!candidates.length || (candidates[0]?.score ?? 0) < 80)
+    ) {
       const seriesSearchContext: ProviderContext = {
         ...searchContext,
         episodeNumber: undefined,
@@ -1385,7 +1389,7 @@ export async function resolveAkwamPlayback(
     if (!candidates.length) continue;
 
     const detailResults = await Promise.allSettled(
-      candidates.slice(0, context.episodeNumber !== undefined ? 6 : 3).map(async candidate => {
+      candidates.slice(0, context.episodeNumber !== undefined ? 4 : 2).map(async candidate => {
         let detail = await fetchArProvPage(candidate.url, {
           browserBinding: runtime.browserBinding,
           timeoutMs: 10_000,
