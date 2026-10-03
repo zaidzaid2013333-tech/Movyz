@@ -8,7 +8,9 @@ type Mode = 'movies' | 'episodes';
 const MODE = (process.env.PREPARE_MODE || 'movies') as Mode;
 const LIMIT = Math.max(1, Number.parseInt(process.env.PREPARE_LIMIT || (MODE === 'movies' ? '500' : '250'), 10) || 250);
 const OFFSET = Math.max(0, Number.parseInt(process.env.PREPARE_OFFSET || '0', 10) || 0);
-const CONCURRENCY = Math.max(1, Math.min(12, Number.parseInt(process.env.PREPARE_CONCURRENCY || '10', 10) || 10));
+const CONCURRENCY = Math.max(1, Math.min(12, Number.parseInt(process.env.PREPARE_CONCURRENCY || '2', 10) || 2));
+const SHARD_INDEX = Math.max(0, Number.parseInt(process.env.PREPARE_SHARD_INDEX || '0', 10) || 0);
+const SHARD_COUNT = Math.max(1, Number.parseInt(process.env.PREPARE_SHARD_COUNT || '1', 10) || 1);
 const ONLY_MISSING = !/^(0|false|no)$/i.test(process.env.PREPARE_ONLY_MISSING || 'true');
 
 function cleanTitles(values: unknown): string[] {
@@ -107,12 +109,13 @@ async function main() {
     const { data, error } = await adminSupabase.from('movies').select('id,tmdb_id,title_ar,title_en,original_title,alternative_titles,release_date,status').eq('status', 'published').order('id');
     if (error) throw error;
     const allRows = data || [];
+    const assignedRows = allRows.filter((_: any, index: number) => index % SHARD_COUNT === SHARD_INDEX);
     const readyIds = ONLY_MISSING ? await getReadyContentIds('movie', provider.id) : new Set<string>();
-    const candidates = allRows.filter((row: any) => !readyIds.has(String(row.id)));
+    const candidates = assignedRows.filter((row: any) => !readyIds.has(String(row.id)));
     const rows = candidates.slice(OFFSET, OFFSET + LIMIT);
     let prepared = 0; let sources = 0;
     await mapLimit(rows, async (row) => { try { const result = await prepareMovie(row, provider.id); if (result.count > 0) prepared++; sources += result.count; console.log(JSON.stringify({ ok: true, ...result })); } catch (error) { console.error(JSON.stringify({ ok: false, id: row.id, title: row.title_en || row.title_ar, error: error instanceof Error ? error.message : String(error) })); } });
-    console.log(JSON.stringify({ mode: MODE, requested: rows.length, candidates: candidates.length, skipped: allRows.length - candidates.length, prepared, sources, offset: OFFSET, limit: LIMIT, onlyMissing: ONLY_MISSING }));
+    console.log(JSON.stringify({ mode: MODE, shard: SHARD_INDEX, shards: SHARD_COUNT, requested: rows.length, candidates: candidates.length, assigned: assignedRows.length, prepared, sources, offset: OFFSET, limit: LIMIT, onlyMissing: ONLY_MISSING }));
     return;
   }
 
