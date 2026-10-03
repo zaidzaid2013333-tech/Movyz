@@ -372,7 +372,21 @@ async function resolveDownload(
 
   if (!page) return [];
 
-  const raw = /btn-loader[\s\S]*?<a\b[^>]*href=["']([^"']+)["']/i.exec(page.body)?.[1];
+  let raw = /btn-loader[\s\S]*?<a\b[^>]*href=["']([^"']+)["']/i.exec(page.body)?.[1];
+
+  if (!raw && runtime.browserBinding && page.via === 'http') {
+    const browserPage = await fetchArProvPage(target, {
+      referer: pageUrl,
+      browserBinding: runtime.browserBinding,
+      timeoutMs: 14_000,
+      forceBrowser: true,
+    });
+    if (browserPage) {
+      page = browserPage;
+      raw = /btn-loader[\s\S]*?<a\b[^>]*href=["']([^"']+)["']/i.exec(page.body)?.[1];
+    }
+  }
+
   if (!raw) return [];
 
   const finalUrl = decodeUrl(raw, page.url);
