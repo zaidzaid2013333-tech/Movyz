@@ -1,0 +1,98 @@
+name: Movyz Akwam Preparation Robot
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "bot/akwam-preparation-robot.ts"
+      - "scripts/prepare-arprov-sources.ts"
+      - "scripts/prepare-arprov-episodes-fast.ts"
+      - "scripts/validate-prepared-source.ts"
+      - ".github/workflows/akwam-preparation-robot.yml"
+  schedule:
+    - cron: "17 03 * * *"
+    - cron: "17 15 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Preparation lane"
+        required: false
+        default: "both"
+        type: choice
+        options: [movies, episodes, both]
+      episodeSeasonLimit:
+        description: "Missing seasons processed per episode shard"
+        required: false
+        default: "20"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-akwam-robot-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  movies:
+    if: >-
+      ${{ github.event_name != 'push' ||
+          contains(github.event.head_commit.message || '', '[akwam-robot]') ||
+          github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'episodes' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      AKWAM_ROBOT_MODE: "movies"
+      AKWAM_MOVIE_SHARD_INDEX: ${{ matrix.shard }}
+      AKWAM_MOVIE_SHARD_COUNT: "4"
+      PREPARE_LIMIT: "500"
+      PREPARE_CONCURRENCY: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
+      - name: Run Movyz Akwam movie robot
+        run: npm run bot:akwam
+
+  episodes:
+    if: >-
+      ${{ github.event_name != 'push' ||
+          contains(github.event.head_commit.message || '', '[akwam-robot]') ||
+          github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'movies' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      AKWAM_ROBOT_MODE: "episodes"
+      AKWAM_EPISODE_SHARD_INDEX: ${{ matrix.shard }}
+      AKWAM_EPISODE_SHARD_COUNT: "2"
+      EPISODE_SEASON_LIMIT: ${{ github.event.inputs.episodeSeasonLimit || '20' }}
+      EPISODE_CONCURRENCY: "8"
+      SEASON_CONCURRENCY: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
+      - name: Run Movyz Akwam episode robot
+        run: npm run bot:akwam
