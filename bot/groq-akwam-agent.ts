@@ -1,5 +1,6 @@
 import 'dotenv/config';
 
+import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { adminSupabase } from '../server/supabase';
 import { fetchArProvPage } from '../server/providers/arprov-runtime';
@@ -14,6 +15,20 @@ const MAX_TURNS = Math.max(1, Math.min(6, Number.parseInt(process.env.GROQ_AGENT
 const MAX_ACTIONS = Math.max(1, Math.min(4, Number.parseInt(process.env.GROQ_AGENT_MAX_ACTIONS || '3', 10) || 3));
 const GROQ_RETRIES = 2;
 const ACTION_DELAY_MS = 700;
+const PLAYBOOK_PATH = new URL('../docs/AKWAM-EXTRACTION-PLAYBOOK.md', import.meta.url);
+
+async function loadAkwamTrainingContext() {
+  const playbook = await readFile(PLAYBOOK_PATH, 'utf8');
+  const { data } = await adminSupabase
+    .from('maintenance_state')
+    .select('stats')
+    .eq('job_key', 'akwam-learning-memory')
+    .maybeSingle();
+  return {
+    playbook: playbook.slice(0, 22000),
+    learningMemory: data?.stats || null,
+  };
+}
 
 type ActionState = { count: number };
 const state: ActionState = { count: 0 };
@@ -532,7 +547,7 @@ const tools = [
   },
 ];
 
-async function callGroqDecision(context: unknown) {
+async function callGroqDecision(context: unknown, training: { playbook: string; learningMemory: unknown }) {
   const key = process.env.GROQ_API_KEY?.trim();
   if (!key) throw new Error('Missing GROQ_API_KEY');
 
@@ -553,16 +568,27 @@ async function callGroqDecision(context: unknown) {
           role: 'system',
           content: [
             'You are the Movyz preparation repair brain.',
+            'Use the supplied extraction playbook and durable learning memory as operating knowledge.',
             'Choose one safe deterministic repair action from the supplied candidates.',
             'Never invent URLs.',
             'Prefer exact series + season matches.',
+            'When a previous strategy failed, change strategy class rather than repeating the same action.',
+            'Classify the failure mentally as search, content, season, episode, detail, download, extraction, validation, quality, or transient.',
+            'Use multilingual title/query variants when the observed candidate set is empty.',
+            'For extraction, reason about observed HTML anchors, media tags, inline configuration, JSON and escaped URLs, but never invent a missing final URL.',
             'Return JSON only:',
             '{"candidateUrl":"https://akwam.ss/series/... or null","titleVariant":"... or null","retryQuery":"... or null","reason":"brief"}',
           ].join(' '),
         },
         {
           role: 'user',
-          content: JSON.stringify(context).slice(0, 4200),
+          content: JSON.stringify({
+            training: {
+              playbook: training.playbook,
+              learningMemory: training.learningMemory,
+            },
+            failureContext: context,
+          }).slice(0, 12000),
         },
       ],
     }),
@@ -610,7 +636,10 @@ async function persistState(stateData: Record<string, unknown>) {
 }
 
 async function main() {
-  const initial = await getStatus();
+  const [initial, training] = await Promise.all([
+    getStatus(),
+    loadAkwamTrainingContext(),
+  ]);
   const system = [
     'You are the Movyz Akwam Preparation Agent.',
     'You are a planner/reasoner, not the playback engine.',
@@ -688,7 +717,7 @@ async function main() {
         candidates: deduped,
       };
 
-      groqDecision = await callGroqDecision(decisionInput);
+      groqDecision = await callGroqDecision(decisionInput, training);
       const chosenUrl = typeof (groqDecision as any)?.candidateUrl === 'string'
         ? String((groqDecision as any).candidateUrl)
         : '';
@@ -764,6 +793,13 @@ async function main() {
     chosenCandidate,
     repair,
     completedAt: new Date().toISOString(),
+    training: {
+      playbookLoaded: true,
+      learningMemoryVersion: (training.learningMemory as any)?.version || null,
+      learningLessons: Array.isArray((training.learningMemory as any)?.lessons)
+        ? (training.learningMemory as any).lessons.length
+        : 0,
+    },
   });
 
 }
