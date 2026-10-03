@@ -16,5 +16,9 @@
     "STREMIO_ADDON": "true",
     "CORS_ORIGIN": "*",
     "MCP_ENABLED": "false"
-  }
+  },
+  "compatibility_flags": [
+    "allow_eval_during_startup",
+    "nodejs_compat_populate_process_env"
+  ]
 }
