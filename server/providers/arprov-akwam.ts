@@ -188,8 +188,13 @@ function titleScore(candidate: { text: string; url: string }, ctx: ProviderConte
 }
 
 function extractSeasonEpisode(value: string) {
-  const text = value
-    .replace(/%20/gi, ' ')
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    decoded = value.replace(/%20/gi, ' ');
+  }
+  const text = decoded
     .replace(/[_-]+/g, ' ');
 
   const se = /(?:s|season|الموسم)\s*(\d{1,3})\s*(?:e|episode|ep|الحلقة)\s*(\d{1,3})/i.exec(text);
@@ -472,7 +477,20 @@ async function search(base: string, ctx: ProviderContext, runtime: AkwamRuntime)
     }));
   }
 
-  return candidates.sort((a, b) => b.score - a.score).slice(0, 3);
+  const sorted = candidates.sort((a, b) => b.score - a.score);
+  if (ctx.seasonNumber !== undefined) {
+    const exactSeason = sorted.find((candidate) => {
+      const identity = extractSeasonEpisode(candidate.title + ' ' + candidate.url);
+      return identity.season === ctx.seasonNumber;
+    });
+    if (exactSeason) {
+      return [
+        exactSeason,
+        ...sorted.filter((candidate) => candidate.url !== exactSeason.url),
+      ].slice(0, 3);
+    }
+  }
+  return sorted.slice(0, 3);
 }
 function episodeCandidates(body: string, base: string, ctx: ProviderContext) {
   if (ctx.episodeNumber === undefined) return [];
