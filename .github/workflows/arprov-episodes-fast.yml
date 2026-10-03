@@ -7,6 +7,7 @@ on:
       - "scripts/prepare-arprov-episodes-fast.ts"
       - "server/providers/arprov-akwam.ts"
       - "package.json"
+      - "server/providers/arprov.ts"
       - "ops/episode-fill.trigger"
       - ".github/workflows/arprov-episodes-fast.yml"
   workflow_dispatch:
