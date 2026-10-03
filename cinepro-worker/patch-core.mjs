@@ -15,9 +15,9 @@ const tmdbHelper = [
 if (!tmdb.includes('const tmdbFetch =')) {
   tmdb = tmdb.replace('export class TMDBService', tmdbHelper + "\nexport class TMDBService");
 }
-tmdb = tmdb.replaceAll('fetch(`${this.baseUrl}', 'tmdbFetch(this.apiKey, `${this.baseUrl');
-tmdb = tmdb.replaceAll('?api_key=${this.apiKey}`', '`');
-tmdb = tmdb.replaceAll('&api_key=${this.apiKey}`', '`');
+tmdb = tmdb.replaceAll('await fetch(', 'await tmdbFetch(this.apiKey, ');
+tmdb = tmdb.replaceAll('?api_key=${this.apiKey}', '');
+tmdb = tmdb.replaceAll('&api_key=${this.apiKey}', '');
 fs.writeFileSync(tmdbPath, tmdb);
 const vidzeePath = new URL('./core/src/providers/vidzee/decrypt.ts', import.meta.url);
 let vidzee = fs.readFileSync(vidzeePath, 'utf8');
