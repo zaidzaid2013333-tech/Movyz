@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ contains(github.event.head_commit.message, 'emergency playback deploy') && format('movyz-cloudflare-emergency-{0}', github.sha) || 'movyz-cloudflare-production' }}
+  group: ${{ contains(github.event.head_commit.message, 'emergency playback deploy') && format('movyz-cloudflare-emergency-{0}', github.sha) || format('movyz-akwam-robot-Movyz Akwam Preparation Robot-{0}', github.ref) }}
   cancel-in-progress: true
 
 jobs:
