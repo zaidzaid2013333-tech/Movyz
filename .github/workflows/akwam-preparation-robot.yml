@@ -72,6 +72,7 @@ jobs:
         run: npm run bot:groq-agent
 
   movies:
+    if: ${{ false }}
     strategy:
       fail-fast: false
       matrix:
@@ -106,6 +107,7 @@ jobs:
         run: npm run bot:akwam
 
   episodes:
+    if: ${{ false }}
     strategy:
       fail-fast: false
       matrix:
@@ -143,6 +145,7 @@ jobs:
       - name: Run Movyz Akwam episode robot
         run: npm run bot:episodes-fast
   debug-breaking-bad:
+    if: ${{ false }}
     if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
