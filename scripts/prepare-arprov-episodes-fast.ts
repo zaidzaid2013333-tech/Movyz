@@ -86,19 +86,25 @@ async function mapLimit<T, R>(items: T[], concurrency: number, fn: (item: T) => 
   return results;
 }
 
-async function fetchAllEpisodes() {
-  const output: EpisodeRow[] = [];
-  const pageSize = 1000;
+async function fetchEpisodesBySeason(seasonIds: string[]) {
+  const output = new Map<string, EpisodeRow[]>();
+  const chunkSize = 50;
 
-  for (let offset = 0; ; offset += pageSize) {
+  for (let i = 0; i < seasonIds.length; i += chunkSize) {
+    const chunk = seasonIds.slice(i, i + chunkSize);
     const { data, error } = await adminSupabase
       .from('episodes')
       .select('id,episode_number,name_ar,name_en,season_id')
-      .order('id')
-      .range(offset, offset + pageSize - 1);
+      .in('season_id', chunk)
+      .order('season_id')
+      .order('episode_number');
     if (error) throw error;
-    output.push(...(data || []));
-    if (!data || data.length < pageSize) break;
+
+    for (const row of data || []) {
+      const current = output.get(String(row.season_id)) || [];
+      current.push(row as EpisodeRow);
+      output.set(String(row.season_id), current);
+    }
   }
 
   return output;
@@ -129,11 +135,12 @@ async function fetchSeasons() {
   return output;
 }
 
-async function readyEpisodeIds() {
+async function readyEpisodeIds(episodeIds: string[]) {
   const ready = new Set<string>();
-  const pageSize = 1000;
+  const chunkSize = 500;
 
-  for (let offset = 0; ; offset += pageSize) {
+  for (let i = 0; i < episodeIds.length; i += chunkSize) {
+    const chunk = episodeIds.slice(i, i + chunkSize);
     const { data, error } = await adminSupabase
       .from('playback_sources')
       .select('content_id')
@@ -142,12 +149,9 @@ async function readyEpisodeIds() {
       .eq('is_working', true)
       .not('url', 'is', null)
       .is('expires_at', null)
-      .order('content_id')
-      .range(offset, offset + pageSize - 1);
-
+      .in('content_id', chunk);
     if (error) throw error;
     for (const row of data || []) ready.add(String(row.content_id));
-    if (!data || data.length < pageSize) break;
   }
 
   return ready;
@@ -308,15 +312,24 @@ async function main() {
   if (providerError) throw providerError;
   if (!provider?.id) throw new Error('ArProv provider row not found');
 
-  const [episodes, seasons] = await Promise.all([fetchAllEpisodes(), fetchSeasons()]);
-  const readyIds = ONLY_MISSING ? await readyEpisodeIds() : new Set<string>();
-
+  const seasons = await fetchSeasons();
   const assigned = seasons.filter((_, index) => index % SHARD_COUNT === SHARD_INDEX);
+  const episodesBySeason = await fetchEpisodesBySeason(assigned.map((season) => season.id));
+  const assignedEpisodes = [...episodesBySeason.values()].flat();
+  const readyIds = ONLY_MISSING
+    ? await readyEpisodeIds(assignedEpisodes.map((episode) => episode.id))
+    : new Set<string>();
+
   let prepared = 0;
   let scanned = 0;
 
   await mapLimit(assigned, SEASON_CONCURRENCY, async (season) => {
-    const result = await prepareSeason(season, episodes, provider.id, readyIds);
+    const result = await prepareSeason(
+      season,
+      episodesBySeason.get(season.id) || [],
+      provider.id,
+      readyIds,
+    );
     scanned += result.episodes;
     prepared += result.prepared;
     console.log(JSON.stringify({ ok: true, shard: SHARD_INDEX, ...result }));
@@ -329,7 +342,7 @@ async function main() {
     seasons: assigned.length,
     scanned,
     prepared,
-    totalEpisodesLoaded: episodes.length,
+    totalEpisodesLoaded: assignedEpisodes.length,
     onlyMissing: ONLY_MISSING,
   }));
 }
