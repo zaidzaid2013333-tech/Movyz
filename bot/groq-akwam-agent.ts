@@ -11,10 +11,10 @@ import { validatePreparedMediaSource } from '../scripts/validate-prepared-source
 // [akwam-robot] full-cycle trigger with Groq supervisor
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
-const MAX_TURNS = Math.max(1, Math.min(6, Number.parseInt(process.env.GROQ_AGENT_MAX_TURNS || '5', 10) || 5));
-const MAX_ACTIONS = Math.max(1, Math.min(4, Number.parseInt(process.env.GROQ_AGENT_MAX_ACTIONS || '3', 10) || 3));
-const GROQ_RETRIES = 2;
-const ACTION_DELAY_MS = 700;
+const MAX_TURNS = Math.max(1, Math.min(2, Number.parseInt(process.env.GROQ_AGENT_MAX_TURNS || '1', 10) || 1));
+const MAX_ACTIONS = Math.max(1, Math.min(2, Number.parseInt(process.env.GROQ_AGENT_MAX_ACTIONS || '1', 10) || 1));
+const GROQ_RETRIES = 1;
+const ACTION_DELAY_MS = 5000;
 const PLAYBOOK_PATH = new URL('../docs/AKWAM-EXTRACTION-PLAYBOOK.md', import.meta.url);
 
 async function loadAkwamTrainingContext() {
