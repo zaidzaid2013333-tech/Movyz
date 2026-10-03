@@ -362,7 +362,7 @@ async function getPriorityQueue() {
 
   const { data: episodes, error } = await adminSupabase
     .from('episodes')
-    .select('id,episode_number,name_ar,name_en,seasons!inner(season_number,series:series_id!inner(tmdb_id,title_ar,title_en,original_title,status))')
+    .select('id,episode_number,name_ar,name_en,seasons!inner(season_number,series:series_id!inner(tmdb_id,title_ar,title_en,original_title,alternative_titles,status))')
     .eq('seasons.series.status', 'published')
     .in('seasons.series.tmdb_id', tmdbIds)
     .order('episode_number')
@@ -387,6 +387,10 @@ async function getPriorityQueue() {
       contentId: row.id,
       tmdbId: row.seasons?.series?.tmdb_id,
       title: row.seasons?.series?.title_ar || row.seasons?.series?.title_en || row.seasons?.series?.original_title,
+      originalTitle: row.seasons?.series?.original_title || row.seasons?.series?.title_en || row.seasons?.series?.title_ar,
+      alternateTitles: Array.isArray(row.seasons?.series?.alternative_titles)
+        ? row.seasons.series.alternative_titles.flatMap((value: any) => value && typeof value === 'object' && typeof value.title === 'string' ? [value.title] : typeof value === 'string' ? [value] : []).slice(0, 4)
+        : [],
       seasonNumber: row.seasons?.season_number,
       episodeNumber: row.episode_number,
       episodeTitle: row.name_ar || row.name_en || null,
@@ -594,11 +598,12 @@ async function executeTool(name: string, args: any) {
 }
 
 async function persistState(stateData: Record<string, unknown>) {
+  const successful = stateData.success === true;
   await adminSupabase.from('maintenance_state').upsert({
     job_key: 'akwam-groq-agent',
     last_run_at: new Date().toISOString(),
-    last_success_at: new Date().toISOString(),
-    last_error: null,
+    last_success_at: successful ? new Date().toISOString() : null,
+    last_error: successful ? null : String(stateData.lastError || 'Agent completed without a prepared source'),
     stats: stateData,
     updated_at: new Date().toISOString(),
   }, { onConflict: 'job_key' });
@@ -661,6 +666,7 @@ async function main() {
       const queries = [
         String(firstPriority.title || '').trim(),
         String((firstPriority as any).originalTitle || '').trim(),
+        ...(Array.isArray((firstPriority as any).alternateTitles) ? (firstPriority as any).alternateTitles : []),
       ].filter(Boolean);
 
       const candidates = [];
@@ -757,13 +763,6 @@ async function main() {
     completedAt: new Date().toISOString(),
   });
 
-  console.log(JSON.stringify({
-    agent: 'movyz-groq-akwam',
-    model: MODEL,
-    actions: state.count,
-    turns: trace.filter(x => x.role === 'assistant').length,
-    finalMessage,
-  }));
 }
 
 try {
