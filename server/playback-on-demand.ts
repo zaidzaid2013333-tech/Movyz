@@ -19,6 +19,7 @@ type CachedSource = {
 
 const SOURCE_TTL_MS = 5 * 60 * 1000;
 const NEGATIVE_TTL_MS = 20 * 1000;
+const PROXY_TOKEN_TTL_MS = 20 * 60 * 1000;
 const inFlight = new Map<string, Promise<CachedSource[]>>();
 
 function edgeCache(): Cache | null {
@@ -256,7 +257,7 @@ export async function getOnDemandAkwamSources(
 
   const proxied = [];
   for (const source of sources) {
-    const url = await createPlaybackProxyUrl(
+    const fallbackUrl = await createPlaybackProxyUrl(
       {
         provider: 'Akwam',
         providerReference: 'akwam',
@@ -274,10 +275,12 @@ export async function getOnDemandAkwamSources(
       15 * 60 * 1000,
     );
 
-    if (!url || url === source.url) {
+    if (!fallbackUrl || fallbackUrl === source.url) {
       throw new Error('Playback proxy secret is not configured');
     }
 
+    // FastPath: expose the already-resolved media URL for direct playback first.
+    // Keep a Movyz proxy URL beside it for sources that require the Akwam Referer/CORS path.
     proxied.push({
       id: `ondemand:${contentType}:${contentId}:${source.quality}:${source.type}`,
       type: source.type,
@@ -285,7 +288,9 @@ export async function getOnDemandAkwamSources(
       language: source.language,
       label: source.label,
       labelEn: source.label,
-      url,
+      url: source.url,
+      directUrl: source.url,
+      fallbackUrl,
       isWorking: true,
       provider: 'Akwam',
       providerKey: 'akwam',
