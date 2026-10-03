@@ -751,8 +751,11 @@ async function main() {
     repair,
     actions: state.count,
   }));
+  const successful = Boolean((repair as any)?.ok || (preflight as any)?.ok);
   await persistState({
-    state: 'success',
+    state: successful ? 'success' : 'no-repair',
+    success: successful,
+    lastError: successful ? null : 'No prepared source was saved',
     model: MODEL,
     turns: groqDecision ? 1 : 0,
     actions: state.count,
