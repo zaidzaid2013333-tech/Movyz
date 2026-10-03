@@ -757,11 +757,11 @@ async function resolveDownload(
 
 function normalizeAkwamQuality(raw: string, url: string) {
   const value = String(raw || '').trim().toLowerCase();
-  const explicit = value.match(/(?:^|\\D)(2160|1440|1080|720|576|480|360|240)p?(?:\\D|$)/i)?.[1];
+  const explicit = value.match(/(?:^|\D)(2160|1440|1080|720|576|480|360|240)p?(?:\D|$)/i)?.[1];
   if (explicit) return explicit + 'p';
 
   const inferred = inferQuality(value, url);
-  return /^\\d{3,4}p$/i.test(inferred) ? inferred.toLowerCase() : '';
+  return /^\d{3,4}p$/i.test(inferred) ? inferred.toLowerCase() : '';
 }
 
 async function resolveRe3ArabiStyleSourcePage(
@@ -772,12 +772,12 @@ async function resolveRe3ArabiStyleSourcePage(
   // Mirrors the Akwam flow used by the referenced re-3arabi provider:
   // content page -> a.link-show -> watch page -> <source src>.
   const watchAnchor = anchors(page.body, page.url)
-    .find((anchor) => /(?:^|\\s)link-show(?:\\s|$)/i.test(anchor.tag));
+    .find((anchor) => /(?:^|\s)link-show(?:\s|$)/i.test(anchor.tag));
 
   if (!watchAnchor) return [];
 
   const rawWatchUrl = watchAnchor.url.trim();
-  if (!/^https:\/\\//i.test(rawWatchUrl)) return [];
+  if (!/^https:\/\//i.test(rawWatchUrl)) return [];
 
   let watchPage = await fetchArProvPage(rawWatchUrl, {
     referer: page.url,
@@ -802,33 +802,33 @@ async function resolveRe3ArabiStyleSourcePage(
   const seen = new Set<string>();
 
   for (const match of watchPage.body.matchAll(
-    /<(?:source|video)\\b[^>]*(?:src|data-src)=[\"']([^\"']+)[\"'][^>]*>/gi,
+    /<(?:source|video)\b[^>]*(?:src|data-src)=["']([^"']+)["'][^>]*>/gi,
   )) {
     const raw = match[1]?.trim();
     if (!raw) continue;
 
     let mediaUrl: string;
     try {
-      mediaUrl = new URL(raw.replaceAll('\\\\/', '/').replace(/&amp;/gi, '&'), watchPage.url).toString();
+      mediaUrl = new URL(raw.replaceAll('\\/', '/').replace(/&amp;/gi, '&'), watchPage.url).toString();
     } catch {
       continue;
     }
 
-    if (!/^https:\/\\//i.test(mediaUrl)) continue;
-    if (/\\/(?:embed|iframe)(?:\\/|$)/i.test(new URL(mediaUrl).pathname)) continue;
+    if (!/^https:\/\//i.test(mediaUrl)) continue;
+    if (/(?:\/)(?:embed|iframe)(?:\/|$)/i.test(new URL(mediaUrl).pathname)) continue;
     if (seen.has(mediaUrl)) continue;
 
     const tag = match[0];
-    const size = /\\bsize=[\"']([^\"']+)[\"']/i.exec(tag)?.[1] || '';
-    const label = /\\blabel=[\"']([^\"']+)[\"']/i.exec(tag)?.[1] || '';
+    const size = /\bsize=["']([^"']+)["']/i.exec(tag)?.[1] || '';
+    const label = /\blabel=["']([^"']+)["']/i.exec(tag)?.[1] || '';
     const quality = normalizeAkwamQuality(size || label, mediaUrl);
     if (!quality) continue;
 
     const type =
-      /\\.m3u8(?:$|[?#])/i.test(mediaUrl) ? 'hls' as const :
-      /\\.mpd(?:$|[?#])/i.test(mediaUrl) ? 'dash' as const :
-      /\\.webm(?:$|[?#])/i.test(mediaUrl) ? 'webm' as const :
-      /\\.mp4(?:$|[?#])/i.test(mediaUrl) ? 'mp4' as const :
+      /\.m3u8(?:$|[?#])/i.test(mediaUrl) ? 'hls' as const :
+      /\.mpd(?:$|[?#])/i.test(mediaUrl) ? 'dash' as const :
+      /\.webm(?:$|[?#])/i.test(mediaUrl) ? 'webm' as const :
+      /\.mp4(?:$|[?#])/i.test(mediaUrl) ? 'mp4' as const :
       inferPlaybackType(mediaUrl) || 'direct';
 
     seen.add(mediaUrl);
