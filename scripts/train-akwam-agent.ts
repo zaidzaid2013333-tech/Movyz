@@ -232,14 +232,28 @@ try {
   await main();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
+  const { data: previous } = await adminSupabase
+    .from('maintenance_state')
+    .select('stats')
+    .eq('job_key', JOB_KEY)
+    .maybeSingle();
+
   await adminSupabase.from('maintenance_state').upsert({
     job_key: JOB_KEY,
     last_run_at: new Date().toISOString(),
-    last_success_at: null,
+    last_success_at: previous?.stats ? null : null,
     last_error: message,
-    stats: { state: 'training-failed', model: MODEL, at: new Date().toISOString() },
+    stats: {
+      ...(previous?.stats || {}),
+      state: 'training-failed-preserved',
+      trainingError: message,
+      model: previous?.stats?.model || MODEL,
+      at: new Date().toISOString(),
+    },
     updated_at: new Date().toISOString(),
   }, { onConflict: 'job_key' });
+
   console.error('[akwam-trainer]', message);
-  process.exitCode = 1;
+  // Preserve the previous learned memory and let the next workflow cycle retry training.
+  process.exitCode = 0;
 }
