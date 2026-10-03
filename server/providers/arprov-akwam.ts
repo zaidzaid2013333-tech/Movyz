@@ -56,12 +56,8 @@ function isAkwamContentUrl(value: string) {
 }
 
 function anchorSearchText(anchor: { text: string; tag: string; url: string }) {
-  const attributes = [
-    /(?:alt|title)=["']([^"']+)["']/i.exec(anchor.tag)?.[1],
-    /class=["'][^"']*entry-title[^"']*["'][^>]*>([\\s\\S]*?)<\\/[^>]+>/i.exec(anchor.tag)?.[1],
-  ].filter((value): value is string => Boolean(value));
-
-  return cleanText([anchor.text, ...attributes, anchor.url].join(' '));
+  const altOrTitle = /(?:alt|title)=["']([^"']+)["']/i.exec(anchor.tag)?.[1];
+  return cleanText([anchor.text, altOrTitle || '', anchor.url].join(' '));
 }
 
 async function enrichAkwamTitles(context: ProviderContext): Promise<ProviderContext> {
