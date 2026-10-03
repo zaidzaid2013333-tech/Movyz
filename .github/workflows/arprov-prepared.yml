@@ -40,7 +40,7 @@ jobs:
       PREPARE_MODE: ${{ github.event.inputs.mode || 'movies' }}
       PREPARE_LIMIT: ${{ github.event.inputs.limit || '500' }}
       PREPARE_OFFSET: ${{ github.event.inputs.offset || '0' }}
-      PREPARE_CONCURRENCY: "10"
+      PREPARE_CONCURRENCY: "4"
       PREPARE_ONLY_MISSING: "true"
     steps:
       - uses: actions/checkout@v4
