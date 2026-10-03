@@ -1,5 +1,5 @@
 import { OMSSServer } from '@omss/framework';
-import { handleAsNodeRequest } from 'cloudflare:node';
+import { httpServerHandler } from 'cloudflare:node';
 import { knownThirdPartyProxies } from './src/thirdPartyProxies';
 import { streamPatterns } from './src/streamPatterns';
 
@@ -26,7 +26,7 @@ const PORT = 8787;
 const PUBLIC_URL = 'https://movyz-cinepro.sameranede.workers.dev';
 // Diagnostic smoke run uses Wrangler tail to capture uncaught Worker exceptions.
 
-let initialization: Promise<void> | undefined;
+let initialization: Promise<ReturnType<typeof httpServerHandler>> | undefined;
 
 const providers = [
   MovieDownloader,
@@ -100,21 +100,8 @@ async function initializeCinePro(tmdbApiKey: string) {
       const app = server.getInstance();
       await app.ready();
 
-      await new Promise<void>((resolve, reject) => {
-        const nodeServer = app.server;
-        const onError = (error: unknown) => {
-          nodeServer.off('listening', onListening);
-          reject(error);
-        };
-        const onListening = () => {
-          nodeServer.off('error', onError);
-          resolve();
-        };
-
-        nodeServer.once('error', onError);
-        nodeServer.once('listening', onListening);
-        nodeServer.listen(PORT);
-      });
+      // Cloudflare's Node.js bridge can directly wrap the Fastify HTTP server.
+      return httpServerHandler(app.server);
     })().catch((error) => {
       initialization = undefined;
       throw error;
@@ -125,8 +112,8 @@ async function initializeCinePro(tmdbApiKey: string) {
 }
 
 export default {
-  async fetch(request: Request, env: { TMDB_API_KEY?: string }) {
-    await initializeCinePro(env?.TMDB_API_KEY || '');
-    return handleAsNodeRequest(PORT, request);
+  async fetch(request: Request, env: { TMDB_API_KEY?: string }, ctx: ExecutionContext) {
+    const handler = await initializeCinePro(env?.TMDB_API_KEY || '');
+    return handler.fetch(request, env, ctx);
   },
 };
