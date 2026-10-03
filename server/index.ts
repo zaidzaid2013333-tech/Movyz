@@ -641,7 +641,7 @@ app.get(`${api}/series/:id/watch/:season/:episode`, asyncRoute(async (req, res) 
     .eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error) return fail(res, 500, 'SERIES_QUERY_FAILED', 'Unable to load series');
   if (!data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
-  const series = await seriesWatchDto(data, seasonNumber, req.url, req.env || {});
+  const series = await seriesWatchDto(data, seasonNumber, episodeNumber, req.url, req.env || {});
   if (!series) return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
   if (!series.seasons[0].episodes.some((item: any) => item.episodeNumber === episodeNumber)) {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
