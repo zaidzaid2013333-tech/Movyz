@@ -76,6 +76,7 @@ async function cachedPlaybackSourceDto(
 async function getCineProPlaybackSources(
   contentType: 'movie' | 'episode',
   contentId: string,
+  requestUrl?: string,
   env?: Record<string, unknown>,
 ) {
   const rawBase = String(env?.CINEPRO_BASE_URL ?? process.env.CINEPRO_BASE_URL ?? '').trim();
@@ -131,7 +132,7 @@ async function getCineProPlaybackSources(
         id: 'cinepro-' + contentType + '-' + contentId + '-' + index,
         type: normalizedType, quality, language: String(track?.language || 'und').trim(),
         label: 'CinePro • ' + providerName, labelEn: 'CinePro • ' + providerName,
-        url, isWorking: true, provider: providerName,
+        url: signedUrl, isWorking: true, provider: providerName,
         providerKey: String(source.provider?.id || providerName).trim(),
         providerReference: 'cinepro', expiresAt: null,
       };
@@ -147,7 +148,7 @@ async function getFreshPlaybackSourcesForContent(
   requestUrl?: string,
   env?: Record<string, unknown>,
 ) {
-  const cineProPromise = getCineProPlaybackSources(contentType, contentId, env).catch((error) => {
+  const cineProPromise = getCineProPlaybackSources(contentType, contentId, requestUrl, env).catch((error) => {
     console.warn('[cinepro-playback]', error instanceof Error ? error.message : String(error));
     return [];
   });
