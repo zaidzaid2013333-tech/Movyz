@@ -54,6 +54,11 @@ function normalizeSource(source: NormalizedPlaybackSource) {
   const quality = String(source.quality || '').trim().toLowerCase();
   const type = String(source.type || '').trim().toLowerCase();
   if (!/^https:\/\//i.test(url)) return null;
+  try {
+    if (/\/download(?:\/|$)/i.test(new URL(url).pathname)) return null;
+  } catch {
+    return null;
+  }
   if (!['mp4', 'hls', 'dash', 'webm', 'direct'].includes(type)) return null;
   if (!quality || quality === 'auto' || quality === 'source') return null;
 
