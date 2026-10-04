@@ -348,82 +348,25 @@ async function sourcesFor(type, id, season, episode, requestUrl, env) {
       }
     }
 
-    // With a Node relay configured, rank sources by a real relay-side
-    // manifest + first-segment probe. Cloudflare Workers cannot reliably probe
-    // some upstream CDNs, while the relay is the same path the player uses.
-    let ranked = rawSources;
-    const relayBase = String(env?.MEDIA_RELAY_BASE_URL || '').trim().replace(/\/+$/, '');
+    // Rank known-fast/direct CDN sources ahead of wrapper/proxy hosts.
+    // Bingr can return several URLs for the same title; empirical playback
+    // shows direct Helios/CDN streams are much more reliable than Wormhole
+    // wrapper URLs through the relay. Keep every source as a fallback.
+    const sourceScore = (source) => {
+      const provider = String(source.provider || '').toLowerCase();
+      let host = '';
+      try { host = new URL(source.url).hostname.toLowerCase(); } catch {}
 
-    if (relayBase) {
-      const byProvider = new Map();
-      for (const source of rawSources) {
-        const provider = String(source.provider || 'unknown');
-        if (!byProvider.has(provider)) byProvider.set(provider, []);
-        const list = byProvider.get(provider);
-        if (list.length < 2) list.push(source);
-      }
+      let score = 0;
+      if (provider.includes('helios')) score += 100;
+      if (host.includes('ngcorp.dad')) score += 40;
+      if (host.includes('cdn')) score += 15;
+      if (host.includes('wormhole') || host.includes('filmu.in')) score -= 40;
+      if (host.includes('proxy')) score -= 10;
+      return score;
+    };
 
-      const probeCandidates = [...byProvider.values()].flat().slice(0, 8);
-
-      const probeResults = await Promise.all(
-        probeCandidates.map(async (source) => {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 9000);
-          try {
-            const probeUrl =
-              relayBase +
-              '/api/relay?probe=1&url=' +
-              encodeURIComponent(source.url) +
-              '&headers=' +
-              encodeURIComponent(JSON.stringify(source.headers || {}));
-
-            const response = await fetch(probeUrl, {
-              method: 'GET',
-              headers: { Accept: 'application/json' },
-              signal: controller.signal,
-            });
-            if (!response.ok) return [source.url, false];
-            const payload = await response.json();
-            return [source.url, payload?.playable === true];
-          } catch {
-            return [source.url, false];
-          } finally {
-            clearTimeout(timeout);
-          }
-        }),
-      );
-
-      const playableUrls = new Set(
-        probeResults.filter(([, ok]) => ok).map(([url]) => url),
-      );
-
-      if (playableUrls.size) {
-        ranked = [
-          ...rawSources.filter((source) => playableUrls.has(source.url)),
-          ...rawSources.filter((source) => !playableUrls.has(source.url)),
-        ];
-      }
-    } else {
-      const byProvider = new Map();
-      for (const source of rawSources) {
-        if (!byProvider.has(source.provider)) byProvider.set(source.provider, []);
-        const list = byProvider.get(source.provider);
-        if (list.length < 2) list.push(source);
-      }
-      const probeCandidates = [...byProvider.values()].flat();
-
-      const probeResults = await Promise.all(
-        probeCandidates.map(async (source) => [source, await probePlayableSource(source)]),
-      );
-      const playableUrls = new Set(
-        probeResults.filter(([, ok]) => ok).map(([source]) => source.url),
-      );
-
-      ranked = [
-        ...rawSources.filter((source) => playableUrls.has(source.url)),
-        ...rawSources.filter((source) => !playableUrls.has(source.url)),
-      ];
-    }
+    const ranked = [...rawSources].sort((a, b) => sourceScore(b) - sourceScore(a));
 
     const sources = ranked.map((source) => ({
       id: crypto.randomUUID(),
