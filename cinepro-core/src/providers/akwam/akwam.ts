@@ -156,7 +156,7 @@ export class AkwamProvider extends BaseProvider {
 
     private async validateMediaResults(results: MediaResult[]): Promise<MediaResult[]> {
         const checks = await Promise.all(
-            results.slice(0, 12).map(async (result) => {
+            results.slice(0, 8).map(async (result) => {
                 const startedAt = Date.now();
 
                 try {
@@ -168,7 +168,7 @@ export class AkwamProvider extends BaseProvider {
                                 result.type === 'hls'
                                     ? 'application/vnd.apple.mpegurl,application/x-mpegURL,*/*;q=0.8'
                                     : 'video/mp4,video/webm,application/octet-stream,*/*;q=0.8',
-                            Range: 'bytes=0-262143'
+                            Range: 'bytes=0-524287'
                         },
                         redirect: 'follow',
                         signal: AbortSignal.timeout(8000)
@@ -184,7 +184,7 @@ export class AkwamProvider extends BaseProvider {
 
                     if (reader) {
                         try {
-                            for (let i = 0; i < 4 && totalBytes < 65536; i += 1) {
+                            for (let i = 0; i < 16 && totalBytes < 524288; i += 1) {
                                 const part = await reader.read();
                                 if (part.done) break;
                                 if (part.value?.length) {
@@ -228,8 +228,8 @@ export class AkwamProvider extends BaseProvider {
             })
         );
 
-        // Keep the fastest healthy mirror first. The player can still expose
-        // all validated qualities/sources for manual selection.
+        // Keep the fastest healthy mirror first. The UI exposes all validated
+        // qualities/sources separately for manual selection.
         return checks
             .filter(
                 (
@@ -241,14 +241,6 @@ export class AkwamProvider extends BaseProvider {
                 } => Boolean(value)
             )
             .sort((a, b) => {
-                if (a.result.quality && b.result.quality && a.result.quality === b.result.quality) {
-                    return a.latencyMs - b.latencyMs;
-                }
-
-                const qualityA = Number(a.result.quality ?? 0);
-                const qualityB = Number(b.result.quality ?? 0);
-                if (qualityA !== qualityB) return qualityB - qualityA;
-
                 return a.latencyMs - b.latencyMs;
             })
             .map((item) => item.result);
