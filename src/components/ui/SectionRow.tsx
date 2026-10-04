@@ -33,10 +33,10 @@ export const SectionRow: React.FC<SectionRowProps> = ({
   };
 
   return (
-    <section className="movyza-section w-full space-y-3 py-1 sm:py-2">
+    <section className="movyza-section w-full space-y-4 py-2 sm:py-3">
       <div className="flex items-end justify-between gap-3 px-4 sm:px-6 max-w-7xl mx-auto">
         <div className="min-w-0">
-          <h2 className="text-[17px] sm:text-lg lg:text-xl font-bold font-cinema-title text-white tracking-tight">
+          <h2 className="movyza-section-heading text-[17px] sm:text-lg lg:text-xl font-bold font-cinema-title text-white tracking-tight">
             {title}
           </h2>
           {subtitle && <p className="text-xs text-slate-500 mt-0.5 truncate">{subtitle}</p>}
@@ -46,7 +46,7 @@ export const SectionRow: React.FC<SectionRowProps> = ({
           {actionLabel && onAction && (
             <button
               onClick={onAction}
-              className="text-xs font-semibold text-amber-400 hover:text-amber-300 transition-all cursor-pointer py-1.5 px-2.5 rounded-lg hover:bg-white/[0.04]"
+              className="text-xs font-semibold text-amber-400 hover:text-amber-300 transition-all cursor-pointer py-2.5 px-3 rounded-xl hover:bg-white/[0.04] border border-transparent hover:border-amber-400/10"
             >
               {actionLabel}
             </button>
