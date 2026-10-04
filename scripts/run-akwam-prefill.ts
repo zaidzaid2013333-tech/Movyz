@@ -12,6 +12,7 @@ if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 // GitHub Actions is the trusted Akwam fetch environment; keep playback DB-only.
+// Smoke priority is controlled in Supabase, not in the runner.
 const workerId = `gha-prefill-${process.env.GITHUB_RUN_ID || Date.now()}-${process.env.GITHUB_RUN_ATTEMPT || 1}`;
 const result = await run(env, workerId);
 console.log(JSON.stringify(result));
