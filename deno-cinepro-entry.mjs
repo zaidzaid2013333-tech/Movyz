@@ -1,29 +1,17 @@
 // Deno Deploy entrypoint for Movyz CinePro.
-//
-// CinePro Core reads HOST/PORT/PUBLIC_URL while constructing its server.
-// Read Deno Deploy's predefined runtime variables through Deno.env so the
-// public proxy URL is available before CinePro is imported.
-const getEnv = (key) => Deno.env.get(key)?.trim() || "";
+import process from "node:process";
+import { MOVYZ_PUBLIC_URL } from "./.deno-cinepro-env.mjs";
 
-const nodeEnv = getEnv("NODE_ENV") || "production";
-const host = getEnv("HOST") || "0.0.0.0";
-const port = getEnv("PORT") || "8000";
-const configuredPublicUrl = getEnv("PUBLIC_URL");
+process.env.NODE_ENV = process.env.NODE_ENV?.trim() || "production";
+process.env.HOST = process.env.HOST?.trim() || "0.0.0.0";
+process.env.PORT = process.env.PORT?.trim() || "8000";
 
-const appSlug = getEnv("DENO_DEPLOY_APP_SLUG");
-const orgSlug = getEnv("DENO_DEPLOY_ORG_SLUG");
-const publicUrl =
-  configuredPublicUrl ||
-  (appSlug && orgSlug ? "https://" + appSlug + "." + orgSlug + ".deno.net" : "");
+const configuredPublicUrl = process.env.PUBLIC_URL?.trim() || MOVYZ_PUBLIC_URL?.trim() || "";
+if (configuredPublicUrl) {
+  process.env.PUBLIC_URL = configuredPublicUrl.replace(/\/+$/, "");
+}
 
-Deno.env.set("NODE_ENV", nodeEnv);
-Deno.env.set("HOST", host);
-Deno.env.set("PORT", port);
-if (publicUrl) Deno.env.set("PUBLIC_URL", publicUrl);
-
-console.log("[Movyz/Deno] DENO_DEPLOY:", getEnv("DENO_DEPLOY") || "unknown");
-console.log("[Movyz/Deno] App/Org:", appSlug || "missing", "/", orgSlug || "missing");
-console.log("[Movyz/Deno] PUBLIC_URL:", publicUrl || "missing");
+console.log("[Movyz/Deno] PUBLIC_URL:", process.env.PUBLIC_URL || "missing");
 
 // Use a dynamic import so all runtime environment overrides are applied
 // before CinePro constructs its OMSS server.
