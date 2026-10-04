@@ -238,7 +238,18 @@ function score(c: Candidate, titles: string[], year?: number, expected?: "movie"
   return Math.min(160, out);
 }
 
-function parseCandidates(html: string, env: Env): Candidate[] {
+function rawTextFromAnchor(html: string) {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseCandidates(html: string, env: Env, allowLegacy = false): Candidate[] {
   const out: Candidate[] = [];
   const re = /<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
@@ -254,7 +265,10 @@ function parseCandidates(html: string, env: Env): Candidate[] {
 
     if (!isAkwamUrl(u.href)) continue;
 
-    const kind = candidateKind(u.pathname);
+    let kind = candidateKind(u.pathname);
+    if (allowLegacy && kind === "other" && /^\/old\//i.test(u.pathname)) {
+      kind = /(?:فيلم|movie)/i.test(rawTextFromAnchor(m[2])) ? "movie" : /(?:مسلسل|series|show)/i.test(rawTextFromAnchor(m[2])) ? "series" : "other";
+    }
     if (kind === "other" || kind === "watch") continue;
 
     const rawText = m[2]
@@ -263,7 +277,7 @@ function parseCandidates(html: string, env: Env): Candidate[] {
       .replace(/&amp;/gi, "&")
       .replace(/&quot;/gi, '"')
       .replace(/&#39;/gi, "'")
-      .replace(/\\s+/g, " ")
+      .replace(/\s+/g, " ")
       .trim();
 
     const parts = u.pathname.split("/").filter(Boolean);
@@ -318,12 +332,45 @@ async function findCandidate(
 
       if (best && best.score >= 128) return best.item;
     }
+
+    // The current search form has changed across Akwam revisions. Keep the
+    // primary /search?q= route first, then try only a small set of bounded
+    // fallback routes before touching the legacy archive.
+    const fallbackRoutes =
+      expected === "movie"
+        ? [
+            host + "/movies?search=" + encodeURIComponent(seeds[0] || ""),
+            host + "/movies?query=" + encodeURIComponent(seeds[0] || ""),
+            host + "/search/" + encodeURIComponent(seeds[0] || ""),
+          ]
+        : expected === "series"
+          ? [
+              host + "/series?search=" + encodeURIComponent(seeds[0] || ""),
+              host + "/series?query=" + encodeURIComponent(seeds[0] || ""),
+              host + "/search/" + encodeURIComponent(seeds[0] || ""),
+            ]
+          : [];
+
+    for (const url of fallbackRoutes) {
+      if (!url.endsWith("=")) {
+        const html = await fetchText(env, url, diagnostics);
+        if (!html) continue;
+        for (const item of parseCandidates(html, env)) {
+          const itemScore = score(item, titles, year, expected, expectedSeason);
+          if (!best || itemScore > best.score) best = { item, score: itemScore };
+        }
+        if (best && best.score >= 128) return best.item;
+      }
+    }
+
     // Legacy search is allowed only on the single verified host, as a last resort.
+    // Old result pages use /old/... URLs, so parse them explicitly instead of
+    // discarding every legacy candidate as "other".
     if (host === base(env)) {
       for (const title of variants.slice(0, 1)) {
         const html = await fetchText(env, host + "/old/search/" + encodeURIComponent(title), diagnostics);
         if (!html) continue;
-        for (const item of parseCandidates(html, env)) {
+        for (const item of parseCandidates(html, env, true)) {
           const itemScore = score(item, titles, year, expected, expectedSeason);
           if (!best || itemScore > best.score) best = { item, score: itemScore };
         }
