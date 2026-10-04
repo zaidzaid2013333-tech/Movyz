@@ -32,6 +32,7 @@ type Media = {
   type: "hls" | "mp4" | "dash" | "webm" | "direct";
   quality?: string;
   referer?: string;
+  trustedExternal?: boolean;
 };
 
 type RequestBudget = {
@@ -674,6 +675,7 @@ function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null
         type: mediaTypeFromUrl(url),
         quality: inferQuality(html),
         referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
+        trustedExternal: isAkwamUrl(baseUrl) && !isAkwamUrl(url),
       };
     }
   }
@@ -695,6 +697,7 @@ function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null
       type: mediaTypeFromUrl(url),
       quality: inferQuality(match[0] + " " + html.slice(Math.max(0, match.index - 1200), match.index + 1800)),
       referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
+      trustedExternal: isAkwamUrl(baseUrl) && !isAkwamUrl(url),
     };
   }
 
@@ -710,6 +713,7 @@ function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null
       type: mediaTypeFromUrl(url),
       quality: inferQuality(html.slice(Math.max(0, attr.index - 1000), attr.index + 1000)),
       referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
+      trustedExternal: isAkwamUrl(baseUrl) && !isAkwamUrl(url),
     };
   }
 
@@ -756,6 +760,13 @@ async function validateMedia(env: Env, media: Media, budget?: RequestBudget) {
       redirect: "follow",
       signal: AbortSignal.timeout(5000),
     });
+
+    if (response.status === 526 && media.trustedExternal) {
+      // Akwam itself attests this external URL as the playable media source,
+      // but Cloudflare Workers use strict TLS for external subrequests and
+      // cannot validate this CDN's broken/incomplete certificate chain.
+      return true;
+    }
 
     if (!response.ok && response.status !== 206) return false;
 
