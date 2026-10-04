@@ -18,7 +18,7 @@ function json(body, status = 200) {
 }
 
 function proxyUrl(origin, target, headers = {}, env) {
-  const relayBase = String(env?.MEDIA_RELAY_BASE_URL || '').trim().replace(/\\/+$/, '');
+  const relayBase = String(env?.MEDIA_RELAY_BASE_URL || '').trim().replace(/\/+$/, '');
   if (relayBase) {
     return relayBase + '/api/relay?url=' + encodeURIComponent(target) +
       (Object.keys(headers).length ? '&headers=' + encodeURIComponent(JSON.stringify(headers)) : '');
