@@ -187,7 +187,7 @@ jobs:
                   raise RuntimeError(f"{label}: no playback sources")
               if not all(str(s.get("providerReference") or "") == "mediamash" for s in sources):
                   raise RuntimeError(f"{label}: legacy provider leaked into playback")
-              return sources[:3]
+              return sources[:8]
 
           def probe_relayed(source_url):
               media_headers = {
