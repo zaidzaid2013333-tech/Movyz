@@ -846,7 +846,13 @@ async function persist(env: Env, job: Job, sources: Media[], provider: string, w
     }),
   });
 
-  const stored = Number(result?.[0]?.persist_akwam_prefill_job ?? 0);
+  // PostgREST returns scalar RPC results as a JSON number, not a row array.
+  // Accept the scalar shape and keep compatibility with row/object-shaped responses.
+  const stored = Number(
+    typeof result === "number"
+      ? result
+      : result?.persist_akwam_prefill_job ?? result?.[0]?.persist_akwam_prefill_job ?? 0,
+  );
   if (!Number.isFinite(stored) || stored !== rows.length) {
     throw new Error(`AKWAM_PERSIST_VERIFY_FAILED expected=${rows.length} stored=${stored}`);
   }
