@@ -172,9 +172,14 @@ jobs:
           print('Created and promoted Vercel CinePro route:', promoted.get('version', {}).get('id', version))
           PY
 
+      - name: Stop Vercel Git auto-deployments
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
+        run: |
+          npx --yes vercel@latest git disconnect github --yes --token "$VERCEL_TOKEN" --scope "$VERCEL_PROJECT_ID"
       - name: Deploy CinePro Core to Vercel
-        # Create a fresh deployment when Vercel allows it. On the Hobby daily deployment cap,
-        # keep the existing production deployment and continue with the live project route.
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
@@ -184,19 +189,19 @@ jobs:
             exit 1
           fi
           set +e
-          OUTPUT="$(npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN" --project "$VERCEL_PROJECT_ID" 2>&1)"
+          OUTPUT="$(npx --yes vercel@latest redeploy dpl_FEM8GX6w39ezpXosEMrAbx9U6TS3 --token "$VERCEL_TOKEN" --yes 2>&1)"
           STATUS=$?
           set -e
           printf '%s\n' "$OUTPUT"
           if [ "$STATUS" -eq 0 ]; then
-            echo "CinePro fresh Vercel deployment created."
+            echo "CinePro existing deployment redeploy requested."
             exit 0
           fi
           if printf '%s' "$OUTPUT" | grep -qi 'api-deployments-free-per-day'; then
-            echo "Vercel Hobby daily deployment cap reached; continuing with the existing production deployment and project route."
+            echo "Vercel Hobby daily deployment cap still active; existing deployment could not be rebuilt yet."
             exit 0
           fi
-          echo "Vercel deployment failed for a reason other than the daily quota."
+          echo "Vercel redeploy failed for a reason other than the daily quota."
           exit "$STATUS"
       - name: Verify CinePro Core on Vercel
         env:
