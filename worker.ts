@@ -1,5 +1,5 @@
 // MediaMash Core is the only playback source backend; Movyz only bridges catalog metadata to it.
-// CI smoke coverage: Interstellar -> Inception -> Fight Club -> The Shawshank Redemption -> Breaking Bad S01E01.
+// Production playback core: MediaMash Core -> prepared API -> Worker proxy -> HLS playback.
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
 
