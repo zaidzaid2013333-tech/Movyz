@@ -17,7 +17,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: movyz-akwam-prefill-deploy
+  group: movyz-akwam-prefill-deploy-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
