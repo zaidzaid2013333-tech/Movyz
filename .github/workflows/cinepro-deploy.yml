@@ -100,6 +100,8 @@ jobs:
                   with urllib.request.urlopen(req, timeout=60) as response:
                       payload = json.load(response)
               except HTTPError as exc:
+                  body = exc.read().decode("utf-8", errors="replace")
+                  print(f"{label}: HTTP {exc.code} body={body[:12000]}")
                   raise SystemExit(f"{label}: HTTP {exc.code}") from exc
 
               sources = payload.get("sources") if isinstance(payload, dict) else None
