@@ -10,13 +10,13 @@ const api = '/api/v1';
 
 app.disable('x-powered-by');
 
-// Playback backend: CinePro Core only; legacy source adapters removed.
+// Playback backend: MediaMash Core only; legacy source adapters removed.
 
 // Production diagnostics for the selected playback-sites path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
-async function getCineProPlaybackSources(contentType: 'movie' | 'episode', contentId: string) {
-  const baseUrl = String(process.env.CINEPRO_BASE_URL || '').trim().replace(/\/+$/, '');
+async function getPlaybackCoreSources(contentType: 'movie' | 'episode', contentId: string) {
+  const baseUrl = String(process.env.PLAYBACK_CORE_BASE_URL || '').trim().replace(/\/+$/, '');
   if (!baseUrl) return [];
   try {
     let endpoint = '';
@@ -33,7 +33,7 @@ async function getCineProPlaybackSources(contentType: 'movie' | 'episode', conte
       if (seriesError || !series?.tmdb_id) return [];
       endpoint = baseUrl + '/v1/tv/' + Number(series.tmdb_id) + '/seasons/' + Number(season.season_number) + '/episodes/' + Number(episode.episode_number);
     }
-    const response = await fetch(endpoint, { headers: { Accept: 'application/json', 'User-Agent': 'Movyz-CinePro-Bridge/1.0' }, signal: AbortSignal.timeout(25000) });
+    const response = await fetch(endpoint, { headers: { Accept: 'application/json', 'User-Agent': 'Movyz-Playback-Bridge/1.0' }, signal: AbortSignal.timeout(25000) });
     if (!response.ok) return [];
     const payload = await response.json() as { sources?: Array<{ url?: string; type?: string; quality?: string | number; provider?: { name?: string; id?: string }; audioTracks?: Array<{ language?: string; label?: string }> }> };
     return (Array.isArray(payload.sources) ? payload.sources : []).map((source, index) => {
@@ -46,13 +46,13 @@ async function getCineProPlaybackSources(contentType: 'movie' | 'episode', conte
       const quality = qualityMatch ? qualityMatch[1] + 'p' : '720p';
       const providerName = String(source.provider?.name || source.provider?.id || 'CinePro').trim();
       const track = Array.isArray(source.audioTracks) ? source.audioTracks[0] : undefined;
-      return { id: 'cinepro-' + contentType + '-' + contentId + '-' + index, type, quality, language: String(track?.language || 'und').trim(), label: 'CinePro • ' + providerName, labelEn: 'CinePro • ' + providerName, url, isWorking: true, provider: providerName, providerKey: String(source.provider?.id || providerName).trim(), providerReference: 'cinepro', expiresAt: null };
+      return { id: 'playback-' + contentType + '-' + contentId + '-' + index, type, quality, language: String(track?.language || 'und').trim(), label: providerName, labelEn: providerName, url, isWorking: true, provider: providerName, providerKey: String(source.provider?.id || providerName).trim(), providerReference: 'mediamash', expiresAt: null };
     }).filter((source): source is NonNullable<typeof source> => source !== null).sort((a,b) => Number.parseInt(b.quality,10)-Number.parseInt(a.quality,10));
-  } catch (error) { console.warn('[cinepro-bridge]', error instanceof Error ? error.message : String(error)); return []; }
+  } catch (error) { console.warn('[playback-core-bridge]', error instanceof Error ? error.message : String(error)); return []; }
 }
 
 async function getFreshPlaybackSourcesForContent(contentType: 'movie' | 'episode', contentId: string) {
-  return getCineProPlaybackSources(contentType, contentId);
+  return getPlaybackCoreSources(contentType, contentId);
 }
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   const origin = req.headers.get('origin');
