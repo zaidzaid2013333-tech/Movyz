@@ -427,7 +427,7 @@ export class AkwamProvider extends BaseProvider {
             return {
                 url,
                 type: /\.m3u8(?:\?|$)/i.test(url) ? 'hls' : 'mp4',
-                quality: this.inferQuality(input)
+                quality: this.inferAkwamQuality(input)
             };
         }
 
@@ -444,7 +444,7 @@ export class AkwamProvider extends BaseProvider {
                 return {
                     url,
                     type: /\.m3u8/i.test(url) ? 'hls' : 'mp4',
-                    quality: this.inferQuality(input)
+                    quality: this.inferAkwamQuality(input)
                 };
             }
         }
@@ -460,7 +460,7 @@ export class AkwamProvider extends BaseProvider {
                 return {
                     url,
                     type: /\.m3u8/i.test(url) ? 'hls' : 'mp4',
-                    quality: this.inferQuality(bodyText)
+                    quality: this.inferAkwamQuality(bodyText)
                 };
             }
         }
@@ -511,7 +511,7 @@ export class AkwamProvider extends BaseProvider {
         };
     }
 
-    private inferQuality(text: string): string | undefined {
+    private inferAkwamQuality(text: string): string | undefined {
         const match = text.match(
             /(?:^|\D)(2160|1440|1080|720|576|480|360)(?:p)?(?:\D|$)/i
         );
@@ -572,7 +572,7 @@ export class AkwamProvider extends BaseProvider {
             subtitles: [],
             diagnostics: [
                 {
-                    code,
+                    code: 'PROVIDER_ERROR',
                     message: this.name + ': ' + message,
                     field: '',
                     severity: 'error'
