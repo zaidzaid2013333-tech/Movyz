@@ -7,7 +7,10 @@ on:
     paths:
       - "workers/akwam-prefill/**"
       - "workers/akwam-launcher/**"
+      - "scripts/run-akwam-prefill.ts"
       - ".github/workflows/akwam-db-prefill-deploy.yml"
+  schedule:
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: read
@@ -19,6 +22,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -139,3 +143,24 @@ jobs:
 
       - if: always()
         run: rm -f .env.akwam-prefill
+
+  prefill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MAX_JOBS_PER_RUN: "50"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Run deterministic Akwam prefill from GitHub Actions
+        run: npx tsx scripts/run-akwam-prefill.ts
