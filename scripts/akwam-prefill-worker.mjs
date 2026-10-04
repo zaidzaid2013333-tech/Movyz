@@ -161,6 +161,32 @@ async function persist(job, result, providerId) {
   return rows.length;
 }
 
+async function permanentFail(job, error) {
+  const now = new Date().toISOString();
+  await supabase(
+    `/rest/v1/playback_source_jobs?id=eq.${encodeURIComponent(job.id)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        status: 'failed',
+        source_count: 0,
+        locked_at: null,
+        locked_by: null,
+        last_error: String(error).slice(0, 1800),
+        next_check_at: null,
+        updated_at: now,
+        details: {
+          permanent: true,
+          provider: 'akwam',
+          mode: 'persistent-prefill',
+          worker: workerId,
+        },
+      }),
+      headers: { Prefer: 'return=minimal' },
+    },
+  );
+}
+
 async function retry(job, error) {
   const attempts = Number(job.attempts || 1);
   const delays = [300, 900, 3600, 21600, 86400];
@@ -203,15 +229,28 @@ while (true) {
     }));
   } catch (error) {
     failed++;
-    const delay = await retry(job, error);
-    console.warn(JSON.stringify({
-      worker: workerId,
-      jobId: job.id,
-      contentType: job.content_type,
-      contentId: job.content_id,
-      error: String(error).slice(0, 1200),
-      retryInSeconds: delay,
-    }));
+    const message = String(error);
+    if (/CinePro HTTP 404/i.test(message) || /episode.*(?:not found|unavailable)/i.test(message)) {
+      await permanentFail(job, message);
+      console.warn(JSON.stringify({
+        worker: workerId,
+        jobId: job.id,
+        contentType: job.content_type,
+        contentId: job.content_id,
+        error: message.slice(0, 1200),
+        disposition: 'permanent-failure',
+      }));
+    } else {
+      const delay = await retry(job, error);
+      console.warn(JSON.stringify({
+        worker: workerId,
+        jobId: job.id,
+        contentType: job.content_type,
+        contentId: job.content_id,
+        error: message.slice(0, 1200),
+        retryInSeconds: delay,
+      }));
+    }
   }
 }
 
