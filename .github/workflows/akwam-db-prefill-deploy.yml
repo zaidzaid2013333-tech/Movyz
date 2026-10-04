@@ -192,7 +192,7 @@ jobs:
                 "Referer":"https://akwam.ss"
               }
             }).then(r => r.text());
-            const mini = parseCandidates('<a href="https://akwam.ss/movie/248/interstellar-2">Interstellar</a>', env);
+            const mini = parseCandidates("<a href=\"https://akwam.ss/movie/248/interstellar-2\">Interstellar</a>", env);
             console.log("MINI", JSON.stringify(mini));
             const candidates = parseCandidates(html, env);
             console.log(JSON.stringify({bytes:html.length,candidates:candidates.slice(0,10)},null,2));
