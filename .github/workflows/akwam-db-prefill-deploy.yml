@@ -32,6 +32,21 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
     steps:
+      - name: Runner heartbeat
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          payload=$(printf '%s' "{\"job_key\":\"akwam-github-prefill\",\"lease_until\":\"$now\",\"last_run_at\":\"$now\",\"stats\":{\"state\":\"started\",\"executor\":\"github-actions\",\"run\":\"$GITHUB_RUN_ID\"},\"updated_at\":\"$now\"}")
+          curl --fail-with-body --max-time 20 -sS -X POST \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: resolution=merge-duplicates,return=minimal" \
+            --data "$payload" \
+            "$SUPABASE_URL/rest/v1/maintenance_state?on_conflict=job_key"
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
