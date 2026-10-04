@@ -101,12 +101,42 @@ try {
 
 const app = cinepro.getInstance();
 
-// Complete Fastify/Avvio boot during Worker startup. This prevents plugin lifecycle
-// callbacks from depending on the lifetime of an incoming Worker request.
-await app.ready();
+let ready: Promise<void> | undefined;
+let restoreNextTick: (() => void) | undefined;
 
-const bridgeServer = createServer((request, response) => {
-  app.server.emit('request', request, response);
+function ensureReady() {
+  if (!ready) {
+    const nativeNextTick = process.nextTick.bind(process);
+    process.nextTick = ((callback: (...args: any[]) => void, ...args: any[]) => {
+      queueMicrotask(() => callback(...args));
+    }) as typeof process.nextTick;
+
+    restoreNextTick = () => {
+      process.nextTick = nativeNextTick;
+      restoreNextTick = undefined;
+    };
+
+    ready = app.ready().finally(() => {
+      restoreNextTick?.();
+    });
+  }
+  return ready;
+}
+
+const bridgeServer = createServer(async (request, response) => {
+  try {
+    await ensureReady();
+    app.server.emit('request', request, response);
+  } catch (error) {
+    console.error('[CinePro] request bridge failed', error);
+    if (!response.headersSent) {
+      response.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+    }
+    response.end(JSON.stringify({
+      error: 'CINEPRO_RUNTIME_ERROR',
+      message: error instanceof Error ? error.message : String(error),
+    }));
+  }
 });
 
 export default httpServerHandler(bridgeServer);
