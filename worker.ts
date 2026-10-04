@@ -1,6 +1,6 @@
-// Production playback core: CinePro Core -> prepared API -> Movyz player.
-// CI deploys CinePro Core to Vercel and validates it before accepting the production playback path.
-// CinePro is the only playback source backend; Supabase/TMDB remain the catalog layer.
+// Production playback core: Movyz API -> persisted Supabase playback_sources -> Movyz player.
+// Akwam workers populate and validate playback_sources before the watch request.
+// TMDB/Supabase remain the catalog layer; playback is DB-only at runtime.
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
 
