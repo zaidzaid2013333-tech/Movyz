@@ -96,8 +96,9 @@ async function claim(env: Env, workerId: string): Promise<Job | null> {
   return Array.isArray(rows) && rows[0] ? (rows[0] as Job) : null;
 }
 
-async function fetchText(env: Env, url: string, diagnostics?: string[], referer?: string): Promise<string | null> {
+async function fetchText(env: Env, url: string, diagnostics?: string[], referer?: string, budget?: RequestBudget): Promise<string | null> {
   try {
+    consumeRequest(budget);
     const response = await fetch(url, {
       headers: {
         ...headers(env),
@@ -725,10 +726,11 @@ async function readPrefix(response: Response, maxBytes = 8192) {
   return body;
 }
 
-async function validateMedia(env: Env, media: Media) {
+async function validateMedia(env: Env, media: Media, budget?: RequestBudget) {
   try {
     if (!/^https:\/\//i.test(media.url)) return false;
 
+    consumeRequest(budget);
     const response = await fetch(media.url, {
       method: "GET",
       headers: {
