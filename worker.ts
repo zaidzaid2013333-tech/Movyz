@@ -1,5 +1,5 @@
 // Production playback core: CinePro Core -> prepared API -> Movyz player.
-// CI also runs a Node-runtime reference smoke before accepting the production CinePro path.
+// CI runs a Node-runtime reference smoke before accepting the production CinePro path.
 // CinePro is the only playback source backend; Supabase/TMDB remain the catalog layer.
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
