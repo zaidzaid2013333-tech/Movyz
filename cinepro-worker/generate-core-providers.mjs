@@ -33,7 +33,7 @@ const imports = providerFiles.map((file, index) => {
     .relative(path.dirname(output), file)
     .split(path.sep)
     .join('/');
-  return `import * as providerModule${index} from '${relative.replace(/\\.ts$/, '.js')}';`;
+  return `import * as providerModule${index} from '${relative.replace(/\.ts$/, '.js')}';`;
 });
 
 const moduleNames = providerFiles.map((_, index) => `providerModule${index}`).join(',\n  ');
