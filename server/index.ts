@@ -161,8 +161,7 @@ async function getCineProPlaybackSources(
           expiresAt: null,
         };
       })
-      .filter((source): source is NonNullable<typeof source> => source !== null)
-      .sort((a, b) => Number.parseInt(b.quality, 10) - Number.parseInt(a.quality, 10));
+      .filter((source): source is NonNullable<typeof source> => source !== null);
   } catch (error) {
     console.warn('[cinepro-bridge]', error instanceof Error ? error.message : String(error));
     return [];
