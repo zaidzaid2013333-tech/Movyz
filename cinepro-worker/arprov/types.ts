@@ -1,0 +1,36 @@
+export type PlaybackKind = 'hls' | 'mp4' | 'dash' | 'webm' | 'direct' | 'embed';
+
+export interface ProviderContext {
+  tmdbId?: number;
+  title?: string;
+  originalTitle?: string;
+  alternateTitles?: string[];
+  releaseYear?: number;
+  providerId?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  episodeTitle?: string;
+}
+
+export interface NormalizedPlaybackSource {
+  provider: string;
+  type: PlaybackKind;
+  url?: string;
+  providerReference?: string;
+  quality: string;
+  language: string;
+  label: string;
+  expiresAt?: string;
+  referer?: string;
+  headers?: Record<string, string>;
+}
+
+export interface ProviderAdapter {
+  key: string;
+  name: string;
+  enabled: boolean;
+  requiresMapping?: boolean;
+  resolveMovie(context: ProviderContext): Promise<NormalizedPlaybackSource[]>;
+  resolveEpisode(context: ProviderContext): Promise<NormalizedPlaybackSource[]>;
+  health(): Promise<{ status: 'healthy' | 'degraded' | 'offline'; latencyMs: number; message?: string }>;
+}
