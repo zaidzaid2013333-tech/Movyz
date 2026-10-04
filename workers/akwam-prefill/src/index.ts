@@ -120,7 +120,7 @@ function parseCandidates(html: string, env: Env): Candidate[] {
   while ((m = re.exec(html))) {
     try {
       const u = new URL(m[1], base(env));
-      if (!u.hostname.endsWith(host) || !/(movie|series|show|anime)\//i.test(u.pathname)) continue;
+      if (!u.hostname.endsWith(host) || !/(movie|movies|series|show|anime|episode|watch)\//i.test(u.pathname)) continue;
       const raw = m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
       if (raw.length < 2) continue;
       const yearMatch = (raw.match(/\b(?:19|20)\d{2}\b/) || [])[0];
@@ -132,14 +132,27 @@ function parseCandidates(html: string, env: Env): Candidate[] {
 }
 
 async function findCandidate(env: Env, titles: string[], year?: number) {
-  for (const title of titles.filter(Boolean).map((x) => x.trim()).filter(Boolean)) {
-    const html = await fetchText(env, base(env) + "/search?q=" + encodeURIComponent(title));
-    if (!html) continue;
-    const ranked = parseCandidates(html, env)
+  for (const title of titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3)) {
+    const encoded = encodeURIComponent(title);
+    const routes = [
+      base(env) + "/search?q=" + encoded,
+      base(env) + "/search?query=" + encoded,
+      base(env) + "/search?keyword=" + encoded,
+      base(env) + "/search/" + encoded,
+      base(env) + "/old/search/" + encoded,
+    ];
+
+    const pages = await Promise.all(routes.map((url) => fetchText(env, url)));
+    const ranked = pages
+      .filter((html): html is string => Boolean(html))
+      .flatMap((html) => parseCandidates(html, env))
+      .filter((item, index, all) => all.findIndex((x) => x.url === item.url) === index)
       .map((item) => ({ item, score: score(item, titles, year) }))
       .sort((a, b) => b.score - a.score);
+
     if (ranked[0] && ranked[0].score >= 55) return ranked[0].item;
   }
+
   return null;
 }
 
