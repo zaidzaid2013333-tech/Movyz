@@ -4,6 +4,7 @@ on:
   push:
     branches: ["main"]
     paths:
+      - "cinepro-worker/**"
       - ".github/workflows/cinepro-deploy.yml"
   workflow_dispatch:
 
@@ -16,8 +17,8 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -25,47 +26,51 @@ jobs:
       CINEPRO_URL: https://movyz-cinepro.sameranede.workers.dev
 
     steps:
-      - name: Clone official CinePro Core
-        run: git clone --depth 1 https://github.com/cinepro-org/core.git cinepro-core
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: cinepro-core/package-lock.json
 
-      - name: Install CinePro Core
-        working-directory: cinepro-core
+      - name: Install Cloudflare adapter dependencies
+        working-directory: cinepro-worker
         run: npm install --no-audit --no-fund
 
-      - name: Build CinePro Core
-        working-directory: cinepro-core
+      - name: Clone official CinePro Core
+        working-directory: cinepro-worker
+        run: |
+          rm -rf core
+          git clone --depth 1 https://github.com/cinepro-org/core.git core
+
+      - name: Install official CinePro Core dependencies
+        working-directory: cinepro-worker/core
+        run: npm install --no-audit --no-fund
+
+      - name: Generate provider registry from CinePro Core
+        working-directory: cinepro-worker
+        run: node generate-core-providers.mjs
+
+      - name: Validate CinePro Cloudflare adapter
+        working-directory: cinepro-worker
         run: npm run build
 
-      - name: Validate official CinePro configuration
-        working-directory: cinepro-core
-        run: |
-          test -f wrangler.json
-          test -f dist/server.js
-          node -e "const c=require('./wrangler.json'); if(c.main!=='dist/server.js') process.exit(1); console.log('CinePro official wrangler main =', c.main)"
+      - name: Validate Wrangler bundle
+        working-directory: cinepro-worker
+        run: npx wrangler deploy --dry-run
 
-      - name: Prepare CinePro Core secrets
-        working-directory: cinepro-core
+      - name: Prepare CinePro secrets
+        working-directory: cinepro-worker
         run: |
           umask 077
           printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .cinepro-secrets
 
-      - name: Dry-run official CinePro deployment
-        working-directory: cinepro-core
-        run: npx wrangler deploy --dry-run --config wrangler.json --name movyz-cinepro
-
-      - name: Deploy official CinePro Core
-        working-directory: cinepro-core
+      - name: Deploy CinePro backend
+        working-directory: cinepro-worker
         run: |
-          npx wrangler deploy             --config wrangler.json             --name movyz-cinepro             --secrets-file .cinepro-secrets             --var PUBLIC_URL:$CINEPRO_URL
+          npx wrangler deploy             --secrets-file .cinepro-secrets             --var PUBLIC_URL:$CINEPRO_URL
 
-      - name: Smoke test official CinePro Core
+      - name: Smoke test CinePro Core
         run: |
           python - <<'PY'
           import json
@@ -73,7 +78,6 @@ jobs:
           from urllib.error import HTTPError
 
           base = "https://movyz-cinepro.sameranede.workers.dev"
-
           checks = [
               ("/v1/health", "health"),
               ("/v1/movies/27205", "Inception"),
@@ -101,21 +105,19 @@ jobs:
               if label == "health":
                   if response.status != 200 or payload.get("status") not in ("ok", "operational"):
                       raise SystemExit(f"health failed: {payload}")
-                  print("CinePro Core health OK")
+                  print("CinePro health OK")
                   continue
 
               sources = payload.get("sources") if isinstance(payload, dict) else None
-              if not isinstance(sources, list) or not sources:
-                  raise SystemExit(f"{label}: no CinePro Core sources")
-              valid = [x for x in sources if isinstance(x, dict) and str(x.get("url") or "").startswith("https://")]
+              valid = [x for x in sources or [] if isinstance(x, dict) and str(x.get("url") or "").startswith("https://")]
               if not valid:
-                  raise SystemExit(f"{label}: no usable HTTPS source")
-              print(f"CinePro Core OK: {label} sources={len(valid)}")
+                  raise SystemExit(f"{label}: no usable CinePro sources")
+              print(f"CinePro OK: {label} sources={len(valid)}")
 
-          print("Official CinePro Core deployment: ALL SMOKE TESTS PASSED")
+          print("CinePro Core backend smoke: ALL OK")
           PY
 
       - name: Remove temporary secret file
         if: always()
-        working-directory: cinepro-core
+        working-directory: cinepro-worker
         run: rm -f .cinepro-secrets
