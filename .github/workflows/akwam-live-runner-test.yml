@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths:
       - ".github/workflows/akwam-live-runner-test.yml"
+      - "workers/akwam-prefill/src/index.ts"
   workflow_dispatch:
 
 permissions:
