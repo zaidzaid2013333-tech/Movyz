@@ -990,7 +990,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   return (
     <div
       className={
-        'min-h-screen pb-16 transition-colors duration-500 ' +
+        'movyza-watch-page min-h-screen pb-20 transition-colors duration-500 ' +
         (theaterLighting ? 'bg-[#030406]' : 'bg-[#0a0c12]')
       }
     >
@@ -1001,16 +1001,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-3 pb-2 flex items-center justify-between gap-4 text-xs border-b border-amber-500/15 text-slate-400">
+      <div className="movyza-watch-topbar w-full px-4 sm:px-6 py-3 flex items-center justify-between gap-4 text-xs text-slate-400">
         <button
           onClick={() => onNavigate(isMovie ? `/movies/${content.id}` : `/series/${content.id}`)}
-          className="text-amber-400 hover:text-amber-300 font-medium flex items-center gap-1.5 transition-colors"
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/[0.035] border border-white/[0.06] text-slate-200 hover:text-amber-300 hover:border-amber-400/20 transition-all"
         >
           {direction === 'rtl' ? <ArrowRight className="w-4 h-4" /> : <ArrowLeft className="w-4 h-4" />}
-          <span>{language === 'ar' ? 'العودة لصفحة العمل' : 'Back to title'}</span>
+          <span>{language === 'ar' ? 'العودة للعمل' : 'Back to title'}</span>
         </button>
 
-        <div className="flex items-center gap-3 text-[11px] font-mono">
+        <div className="flex items-center gap-2.5 text-[11px]">
           <button
             onClick={() => setTheaterLighting((value) => !value)}
             className={
@@ -1029,8 +1029,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             <span>·</span>
             <span>{
               isEmbedPlayback
-                ? (language === 'ar' ? 'مشغل DoodStream مضمّن' : 'DoodStream embedded player')
-                : (language === 'ar' ? 'مصدر تشغيل مباشر' : 'Direct playback source')
+                ? (language === 'ar' ? 'مصدر محفوظ' : 'Persisted source')
+                : (language === 'ar' ? 'مصدر محفوظ' : 'Persisted source')
             }</span>
           </div>
         </div>
@@ -1042,7 +1042,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         )}
 
         {availableSourceGroups.length > 0 && (
-          <div dir={direction} className="space-y-2 px-1 pb-2">
+          <div dir={direction} className="movyza-source-panel rounded-2xl p-3 sm:p-4 mb-3 space-y-3">
             <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono">
               <span>{language === 'ar' ? 'مصادر التشغيل:' : 'Playback sources:'}</span>
               <span className="text-amber-400/70">{availableSourceGroups.length}</span>
@@ -1052,7 +1052,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               {availableSourceGroups.map((group) => (
                 <div
                   key={group.key}
-                  className="rounded-xl border border-amber-500/15 bg-[#0a0d13] p-2.5"
+                  className="movyza-source-group rounded-2xl p-3"
                 >
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <span className="text-[11px] font-bold text-white">{group.label}</span>
@@ -1070,7 +1070,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                           type="button"
                           onClick={() => handleSelectPlaybackSource(source)}
                           className={
-                            'px-2.5 py-1.5 rounded-lg border text-[10px] font-semibold transition-all ' +
+                            'movyza-source-chip px-3 py-2 rounded-xl border text-[11px] font-semibold transition-all ' +
                             (active
                               ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm shadow-amber-500/20'
                               : 'bg-[#11151d] text-slate-300 border-white/5 hover:border-amber-500/30 hover:text-white')
@@ -1090,7 +1090,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </div>
         )}
 
-        <div className="rounded-2xl overflow-hidden border border-amber-500/25 shadow-2xl shadow-black bg-black">
+        <div className="movyza-player-shell overflow-hidden shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
             <div ref={playerShellRef} className="relative h-full w-full bg-black">
 
@@ -1385,8 +1385,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-8">
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 border-b border-amber-500/15 pb-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-7 sm:pt-9 space-y-7">
+        <div className="movyza-watch-meta flex flex-col md:flex-row md:items-start justify-between gap-5 p-5 sm:p-7">
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono text-xs font-bold">
@@ -1394,10 +1394,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   ? language === 'ar' ? 'عرض سينمائي' : 'FEATURE FILM'
                   : language === 'ar' ? 'بث مسلسل' : 'EPISODE STREAM'}
               </span>
-              <span className="text-slate-500 text-xs font-mono">TMDB: {content.tmdbId}</span>
+               
             </div>
 
-            <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-wide">
+            <h1 className="movyza-watch-title text-2xl sm:text-3xl lg:text-4xl font-bold text-white tracking-tight">
               {displayTitle}
             </h1>
 
@@ -1425,14 +1425,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
           <button
             onClick={handleShare}
-            className="self-start px-4 py-2.5 rounded-xl bg-[#0f1118] hover:bg-[#151822] text-slate-300 hover:text-white border border-amber-500/20 text-xs font-medium flex items-center gap-2 transition-all"
+            className="self-start px-4 py-2.5 rounded-xl bg-white/[0.035] hover:bg-white/[0.07] text-slate-200 hover:text-white border border-white/[0.07] text-xs font-semibold flex items-center gap-2 transition-all"
           >
             <Share2 className="w-4 h-4 text-amber-400" />
             <span>{t('share')}</span>
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-7">
           <div className="lg:col-span-2 space-y-4">
             <div className="flex items-center gap-2 text-amber-300 text-sm font-bold">
               <Info className="w-4 h-4 text-amber-400" />
@@ -1443,7 +1443,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               {overview || (language === 'ar' ? 'لا توجد نبذة متاحة حاليًا.' : 'No synopsis is available right now.')}
             </p>
 
-            <div className="p-4 rounded-2xl bg-[#08090f] border border-amber-500/15 flex items-start gap-3 text-xs text-slate-400">
+            <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex items-start gap-3 text-xs text-slate-400">
               <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <div className="space-y-1">
                 <span className="font-bold text-slate-200">
@@ -1463,7 +1463,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </div>
 
           {!isMovie && (content as Series).seasons?.length > 0 && (
-            <div className="p-5 rounded-2xl bg-[#090b10] border border-amber-500/20 space-y-4 shadow-xl">
+            <div className="movyza-source-panel p-4 sm:p-5 rounded-2xl space-y-4">
               <div className="flex items-center justify-between border-b border-amber-500/15 pb-3">
                 <div className="flex items-center gap-2 font-bold text-white text-xs">
                   <Film className="w-4 h-4 text-amber-400" />
@@ -1483,7 +1483,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                         key={ep.id}
                         onClick={() => handleSelectEpisode(activeSeason, ep.episodeNumber)}
                         className={
-                          'w-full text-start p-3 rounded-xl text-xs flex items-center justify-between transition-all ' +
+                          'movyza-episode-item w-full text-start p-3.5 rounded-xl text-xs flex items-center justify-between transition-all ' +
                           (isCurrent
                             ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/25'
                             : 'bg-[#10131d] text-slate-300 hover:text-white hover:bg-[#161a27] border border-amber-500/10')
