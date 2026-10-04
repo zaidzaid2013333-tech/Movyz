@@ -19,7 +19,7 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({ currentPath,
   ];
 
   return (
-    <nav className="md:hidden fixed bottom-2 inset-x-2 z-40" aria-label="Mobile Navigation">
+    <nav className="movyza-mobile-bottom md:hidden fixed bottom-2 inset-x-2 z-40" aria-label="Mobile Navigation">
       <div
         className="max-w-md mx-auto rounded-[22px] bg-[#090c12]/92 backdrop-blur-2xl border border-white/[0.08] shadow-[0_18px_50px_rgba(0,0,0,0.55)] px-1.5 pt-1.5 grid grid-cols-5 items-center"
         style={{ paddingBottom: 'calc(6px + env(safe-area-inset-bottom))' }}
