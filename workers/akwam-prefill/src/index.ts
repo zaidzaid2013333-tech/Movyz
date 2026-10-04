@@ -17,7 +17,7 @@ type Job = {
 };
 
 type Candidate = { url: string; title: string; year?: number };
-type Media = { url: string; type: "hls" | "mp4"; quality?: string };
+type Media = { url: string; type: "hls" | "mp4"; quality?: string; referer?: string };
 
 function base(env: Env) {
   return (env.AKWAM_BASE_URL || "https://akwam.ss").replace(/\/+$/, "");
@@ -177,6 +177,7 @@ function extractMedia(text: string, baseUrl: string): Media | null {
       url: direct,
       type: /\.m3u8(?:\?|$)/i.test(direct) ? "hls" : "mp4",
       quality: inferQuality(text),
+      referer: (() => { try { return new URL(baseUrl).origin === "https://akwam.ss" ? baseUrl : undefined; } catch { return undefined; } })(),
     };
   }
 
@@ -185,7 +186,7 @@ function extractMedia(text: string, baseUrl: string): Media | null {
     try {
       const url = new URL(embedded, baseUrl).href;
       if (/\.(?:m3u8|mp4)(?:\?|$)/i.test(url)) {
-        return { url, type: /\.m3u8/i.test(url) ? "hls" : "mp4", quality: inferQuality(text) };
+        return { url, type: /\.m3u8/i.test(url) ? "hls" : "mp4", quality: inferQuality(text), referer: (() => { try { return new URL(baseUrl).origin === "https://akwam.ss" ? baseUrl : undefined; } catch { return undefined; } })() };
       }
     } catch {}
   }
@@ -302,6 +303,7 @@ async function validateMedia(env: Env, media: Media) {
           ? "application/vnd.apple.mpegurl,application/x-mpegURL,*/*;q=0.8"
           : "video/mp4,video/webm,application/octet-stream,*/*;q=0.8",
         Range: "bytes=0-8191",
+        ...(media.referer ? { Referer: media.referer } : {}),
       },
       redirect: "follow",
       signal: AbortSignal.timeout(4500),
@@ -365,7 +367,7 @@ async function discover(env: Env, job: Job, ctx: any) {
       const decoded = decodeURIComponent(url).toLowerCase();
       let s = 0;
       if (new RegExp(`(?:^|\\D)(?:episode|ep|حلقة|الحلقة)\\s*0*${ep}(?:\\D|$)`, "i").test(decoded)) s += 120;
-      if (new RegExp(`(?:^|\\D)(?:episode|ep|حلقة|الحلقة)\\s*0*${ep}(?:\\D|$)`, "i").test(decoded)) s += 120;
+      if (new RegExp(`(?:season|الموسم)\\D{0,8}${season}(?:\\D|$)|s0*${season}e0*${ep}(?:\\D|$)`, "i").test(decoded)) s += 40;
       if (/\/(?:episode|watch)\//i.test(new URL(url).pathname)) s += 20;
       if (/\/(?:download|link)\//i.test(new URL(url).pathname)) s += 10;
       return s;
@@ -382,7 +384,10 @@ async function discover(env: Env, job: Job, ctx: any) {
     if (medias.length >= 2) break;
   }
 
-  if (!medias.length) throw new Error("AKWAM_NO_PLAYABLE_SOURCE");
+  if (!medias.length) {
+    const summary = targets.slice(0, 4).map((url) => { try { return new URL(url).pathname; } catch { return "invalid"; } }).join(",");
+    throw new Error("AKWAM_NO_PLAYABLE_SOURCE candidate=" + candidate.url + " targets=" + summary);
+  }
   return medias;
 }
 async function providerId(env: Env) {
