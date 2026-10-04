@@ -1,9 +1,20 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["fra1"],
+  "regions": [
+    "fra1"
+  ],
   "functions": {
     "api/relay.js": {
       "maxDuration": 60
+    },
+    "api/cinepro.mjs": {
+      "maxDuration": 60
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/v1/:path*",
+      "destination": "/api/cinepro/v1/:path*"
+    }
+  ]
 }
