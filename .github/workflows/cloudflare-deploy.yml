@@ -104,17 +104,37 @@ jobs:
           console.log('Patched Avvio nextTick compatibility:', targets.length, 'files')
           NODE
 
-          # Disable Avvio's 10s plugin watchdog in the temporary upstream build.
+          # Disable Avvio's 10s plugin watchdog in the temporary installed framework.
           # This is a Workers compatibility setting, not a CinePro provider change.
           node --input-type=module <<'NODE'
-          import { readFileSync, writeFileSync } from 'node:fs'
-          const path = 'src/core/server.ts'
-          const source = readFileSync(path, 'utf8')
-          const marker = "this.app = Fastify({\n            logger: false,"
-          const replacement = "this.app = Fastify({\n            pluginTimeout: 0,\n            logger: false,"
-          if (!source.includes(marker)) throw new Error('Expected Fastify constructor marker not found')
-          writeFileSync(path, source.replace(marker, replacement))
-          console.log('Patched OMSS Fastify pluginTimeout=0 for Workers')
+          import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
+          import { dirname, join } from 'node:path'
+          import { createRequire } from 'node:module'
+          const require = createRequire(import.meta.url)
+          const entry = require.resolve('@omss/framework')
+          const root = dirname(entry)
+          const queue = [root]
+          let patched = false
+          while (queue.length) {
+            const dir = queue.pop()
+            for (const name of readdirSync(dir)) {
+              const full = join(dir, name)
+              const stat = statSync(full)
+              if (stat.isDirectory()) {
+                queue.push(full)
+                continue
+              }
+              if (!full.endsWith('.js') && !full.endsWith('.mjs')) continue
+              const source = readFileSync(full, 'utf8')
+              const marker = "logger: false,"
+              if (source.includes("this.app = Fastify({") && source.includes(marker) && !source.includes("pluginTimeout: 0,")) {
+                writeFileSync(full, source.replace(marker, "pluginTimeout: 0,\n        logger: false,"))
+                console.log('Patched OMSS Fastify pluginTimeout=0:', full)
+                patched = true
+              }
+            }
+          }
+          if (!patched) throw new Error('Could not locate @omss/framework Fastify constructor')
           NODE
 
           npm run build
