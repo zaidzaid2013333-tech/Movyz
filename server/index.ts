@@ -10,6 +10,21 @@ const api = '/api/v1';
 
 app.disable('x-powered-by');
 
+app.get(`${api}/__debug/mediamash`, asyncRoute(async (req, res) => {
+  const endpoint = 'https://movyz-media-core.sameranede.workers.dev/v1/movies/157336';
+  const headers = {
+    accept: 'application/json',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
+  };
+  const core = req.env?.MEDIAMASH_CORE as { fetch(request: Request): Promise<Response> } | undefined;
+  const read = async (response: Response) => ({ status: response.status, ok: response.ok, body: (await response.text()).slice(0, 8000) });
+  const binding = core
+    ? await core.fetch(new Request(endpoint, { headers }))
+    : new Response('MEDIAMASH_CORE_MISSING', { status: 500 });
+  const direct = await fetch(new Request(endpoint, { headers }));
+  return ok(res, { binding: await read(binding), direct: await read(direct) });
+}));
+
 // Playback backend: MediaMash Core only; legacy source adapters removed. End-to-end verification uses the live /api/v1/watch path.
 
 // Production diagnostics for the selected playback-sites path.
