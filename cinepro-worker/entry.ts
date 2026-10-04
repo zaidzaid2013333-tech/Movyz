@@ -1,4 +1,4 @@
-import { httpServerHandler } from 'cloudflare:node';
+import { handleAsNodeRequest } from 'cloudflare:node';
 import { OMSSServer } from '@omss/framework';
 
 import { IcefyProvider } from './core/src/providers/icefy/icefy.js';
@@ -91,14 +91,28 @@ for (const provider of providers) {
 const app = cinepro.getInstance();
 const port = Number(process.env.PORT ?? 8787);
 
-void app.ready().then(
-  () => {
-    app.server.listen(port);
-  },
-  (error) => {
-    console.error('[Movyz CinePro] Fastify ready failed:', error);
-  },
-);
+let serverReady: Promise<void> | null = null;
 
-console.log('[Movyz CinePro] Cloudflare adapter booting on port', port);
-export default httpServerHandler({ port });
+const ensureServerReady = (): Promise<void> => {
+  if (!serverReady) {
+    serverReady = Promise.resolve(app.ready()).then(
+      () => {
+        app.server.listen(port);
+        console.log('[Movyz CinePro] Fastify ready and listening on port', port);
+      },
+      (error) => {
+        console.error('[Movyz CinePro] Fastify ready failed:', error);
+        serverReady = null;
+        throw error;
+      },
+    );
+  }
+  return serverReady;
+};
+
+export default {
+  async fetch(request: Request) {
+    await ensureServerReady();
+    return handleAsNodeRequest(port, request);
+  },
+};
