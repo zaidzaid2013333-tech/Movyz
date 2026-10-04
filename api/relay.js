@@ -157,6 +157,17 @@ function requestHeaders(req, upstreamHeaders, mode = 'original', target = null) 
     headers.set('accept', '*/*');
   }
 
+  if (mode === 'browser') {
+    headers.delete('origin');
+    headers.delete('referer');
+    headers.set('accept', '*/*');
+    headers.set('accept-language', 'en-US,en;q=0.9');
+    headers.set(
+      'user-agent',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    );
+  }
+
   for (const name of ['range', 'if-range', 'if-none-match', 'if-modified-since']) {
     const value = req.headers[name];
     if (typeof value === 'string' && value) headers.set(name, value);
@@ -166,7 +177,7 @@ function requestHeaders(req, upstreamHeaders, mode = 'original', target = null) 
 }
 
 async function fetchUpstream(req, target, forwardedHeaders) {
-  const modes = ['original', 'relaxed', 'same-origin'];
+  const modes = ['original', 'relaxed', 'same-origin', 'browser'];
   let lastResponse = null;
   let lastError = null;
 
@@ -180,6 +191,7 @@ async function fetchUpstream(req, target, forwardedHeaders) {
           method: req.method === 'HEAD' ? 'HEAD' : 'GET',
           headers: requestHeaders(req, forwardedHeaders, mode, target),
           redirect: 'follow',
+          cache: 'no-store',
           signal: controller.signal,
         });
       } finally {
