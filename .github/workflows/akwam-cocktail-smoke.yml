@@ -14,8 +14,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
+      - name: Reset Cocktail test job
+        run: |
+          set -euo pipefail
+          now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            -X PATCH \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H 'Content-Type: application/json' \
+            -H 'Prefer: return=minimal' \
+            --data "{\"status\":\"pending\",\"priority\":999,\"attempts\":0,\"source_count\":0,\"locked_at\":null,\"locked_by\":null,\"last_error\":null,\"available_at\":\"$now\",\"updated_at\":\"$now\"}" \
+            "$SUPABASE_URL/rest/v1/playback_source_jobs?id=eq.fd75cc02-9e43-4b9a-aa2e-45514a135daa"
+
       - name: Run deterministic Cocktail job
         run: |
           set -euo pipefail
