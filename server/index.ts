@@ -44,7 +44,7 @@ async function getPlaybackCoreSources(contentType: 'movie' | 'episode', contentI
       const rawQuality = String(source.quality ?? '').trim();
       const qualityMatch = rawQuality.match(/(2160|1440|1080|720|576|480|360|240)/);
       const quality = qualityMatch ? qualityMatch[1] + 'p' : '720p';
-      const providerName = String(source.provider?.name || source.provider?.id || 'CinePro').trim();
+      const providerName = String(source.provider?.name || source.provider?.id || 'MediaMash').trim();
       const track = Array.isArray(source.audioTracks) ? source.audioTracks[0] : undefined;
       return { id: 'playback-' + contentType + '-' + contentId + '-' + index, type, quality, language: String(track?.language || 'und').trim(), label: providerName, labelEn: providerName, url, isWorking: true, provider: providerName, providerKey: String(source.provider?.id || providerName).trim(), providerReference: 'mediamash', expiresAt: null };
     }).filter((source): source is NonNullable<typeof source> => source !== null).sort((a,b) => Number.parseInt(b.quality,10)-Number.parseInt(a.quality,10));
