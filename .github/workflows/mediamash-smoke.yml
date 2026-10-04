@@ -104,6 +104,31 @@ jobs:
           }, ensure_ascii=False, indent=2))
           if not p.get("sources"):
               raise SystemExit("MediaMash returned zero sources for Interstellar")
+          candidates = [
+              s for s in p.get("sources", [])
+              if s.get("provider", {}).get("name") != "Example Provider" and s.get("url")
+          ]
+          print("PLAYBACK_CANDIDATES", json.dumps([
+              {"provider": s.get("provider", {}).get("name"), "type": s.get("type"), "quality": s.get("quality"), "url": s.get("url")}
+              for s in candidates[:4]
+          ], ensure_ascii=False, indent=2))
+          if not candidates:
+              raise SystemExit("No non-example MediaMash source to playback-test")
+          selected = candidates[0]["url"]
+          import subprocess
+          probe = subprocess.run(
+              [
+                  "curl", "-L", "-sS", "--max-time", "30",
+                  "-r", "0-4095", "-o", "/tmp/interstellar-playback.bin",
+                  "-w", "%{http_code} %{content_type} %{size_download}",
+                  selected,
+              ],
+              capture_output=True,
+              text=True,
+          )
+          print("PLAYBACK_PROBE", probe.stdout)
+          if probe.returncode != 0 or int(probe.stdout.split()[0]) >= 400 or not open("/tmp/interstellar-playback.bin", "rb").read(1):
+              raise SystemExit("Interstellar playback probe failed")
           PY
 
       - name: Test Breaking Bad S01E01
