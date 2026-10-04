@@ -79,9 +79,8 @@ async function getCineProPlaybackSources(
       signal: AbortSignal.timeout(25000),
     });
 
-    if (!response.ok) return [];
-
-    const payload = (await response.json()) as {
+    const rawBody = await response.text();
+    let payload: {
       sources?: Array<{
         url?: string;
         type?: string;
@@ -89,7 +88,48 @@ async function getCineProPlaybackSources(
         provider?: { name?: string; id?: string };
         audioTracks?: Array<{ language?: string; label?: string }>;
       }>;
-    };
+      diagnostics?: Array<{
+        code?: string;
+        message?: string;
+        severity?: string;
+      }>;
+    } = {};
+
+    try {
+      payload = JSON.parse(rawBody) as typeof payload;
+    } catch {
+      console.warn('[cinepro-bridge] CinePro returned non-JSON response', {
+        status: response.status,
+        bodyPreview: rawBody.slice(0, 300),
+      });
+      return [];
+    }
+
+    const diagnostics = Array.isArray(payload.diagnostics)
+      ? payload.diagnostics
+          .map((item) => ({
+            code: String(item?.code || 'UNKNOWN'),
+            message: String(item?.message || 'Provider diagnostic without message'),
+            severity: String(item?.severity || 'error'),
+          }))
+          .filter((item) => item.message.length > 0)
+          .slice(0, 12)
+      : [];
+
+    if (!response.ok || !Array.isArray(payload.sources)) {
+      console.warn('[cinepro-bridge] CinePro source request failed', {
+        status: response.status,
+        diagnostics,
+      });
+      return [];
+    }
+
+    if (payload.sources.length === 0 && diagnostics.length > 0) {
+      console.warn('[cinepro-bridge] CinePro returned no sources', {
+        status: response.status,
+        diagnostics,
+      });
+    }
 
     return (Array.isArray(payload.sources) ? payload.sources : [])
       .map((source, index) => {
