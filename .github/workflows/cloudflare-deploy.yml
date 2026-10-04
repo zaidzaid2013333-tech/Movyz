@@ -97,14 +97,13 @@ jobs:
       - name: Deploy CinePro Core to Vercel
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: team_k6ix2FuZObAmwiIzZfdjyz0U
           VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
         run: |
           if [ -z "${VERCEL_TOKEN:-}" ]; then
             echo "VERCEL_TOKEN GitHub secret is required to deploy CinePro Core to Vercel."
             exit 1
           fi
-          npx --yes vercel@latest deploy --cwd cinepro-vercel --prod --yes --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" --project "$VERCEL_PROJECT_ID"
+          npx --yes vercel@latest deploy --cwd cinepro-vercel --prod --yes --token "$VERCEL_TOKEN" --project "$VERCEL_PROJECT_ID"
 
       - name: Verify CinePro Core on Vercel
         env:
