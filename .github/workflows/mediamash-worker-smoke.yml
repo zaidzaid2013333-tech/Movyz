@@ -67,19 +67,23 @@ jobs:
               raise SystemExit("MediaMash Worker returned zero Breaking Bad sources")
           PY
 
-      - name: Probe first HLS playlist
+      - name: Probe ranked HLS playlist
         run: |
           python - <<'PY'
-          import json, subprocess, sys
+          import json, subprocess
           p=json.load(open('/tmp/interstellar.json'))
-          url=p['sources'][0]['url']
-          probe=subprocess.run(
-            ['curl','-L','-sS','--max-time','45','-o','/tmp/playlist.txt','-w','%{http_code} %{content_type} %{size_download}',url],
-            text=True,capture_output=True
-          )
-          print("PROXY_PROBE", probe.stdout)
-          body=open('/tmp/playlist.txt','r',errors='replace').read(8192)
-          print(body[:2000])
-          if probe.returncode or not probe.stdout.startswith('200 ') or '#EXTM3U' not in body:
+          for idx, source in enumerate(p.get('sources', [])[:6]):
+              url=source.get('url')
+              if not url: continue
+              probe=subprocess.run(
+                ['curl','-L','-sS','--max-time','30','-o',f'/tmp/playlist-{idx}.txt','-w','%{http_code} %{content_type} %{size_download}',url],
+                text=True,capture_output=True
+              )
+              body=open(f'/tmp/playlist-{idx}.txt','r',errors='replace').read(8192)
+              print("PROXY_PROBE", idx, source.get('provider',{}).get('name'), probe.stdout, "EXTM3U=", "#EXTM3U" in body)
+              if probe.returncode == 0 and probe.stdout.startswith('200 ') and '#EXTM3U' in body:
+                  print("WORKING_PLAYBACK_SOURCE", json.dumps(source, ensure_ascii=False)[:12000])
+                  break
+          else:
               raise SystemExit("MediaMash Worker proxy did not return a valid HLS playlist")
           PY
