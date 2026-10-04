@@ -94,6 +94,117 @@ jobs:
               print('TMDB direct status =', response.status, 'title =', payload.get('title'), 'release_date =', payload.get('release_date'), 'status =', payload.get('status'))
           PY
 
+      - name: Node reference smoke with CinePro Bearer shim
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+        run: |
+          rm -rf .cinepro-node
+          git clone --depth 1 https://github.com/cinepro-org/core.git .cinepro-node
+          cd .cinepro-node
+          npm install --no-audit --no-fund
+          cat > ci-runner.mjs <<'EOF'
+          import { OMSSServer } from '@omss/framework';
+          import { MovieDownloader } from './src/providers/02moviedownloader/02moviedownloader.ts';
+          import { AnyEmbed } from './src/providers/anyembed/anyembed.ts';
+          import { CineSuProvider } from './src/providers/cinesu/cinesu.ts';
+          import { Fmovies4U } from './src/providers/fmovies4u/fmovies4u.ts';
+          import { FsharetvProvider } from './src/providers/fshare/fshare.ts';
+          import { IcefyProvider } from './src/providers/icefy/icefy.ts';
+          import { PeachifyProvider } from './src/providers/peachify/peachify.ts';
+          import { PoprProvider } from './src/providers/popr/popr.ts';
+          import { StreamMafiaProvider } from './src/providers/streammafia/streammafia.ts';
+          import { TulnexProvider } from './src/providers/tulnex/tulnex.ts';
+          import { VidApiProvider } from './src/providers/vidapi/vidapi.ts';
+          import { VideasyProvider } from './src/providers/videasy/videasy.ts';
+          import { VidNestProvider } from './src/providers/vidnest/vidnest.ts';
+          import { VidRockProvider } from './src/providers/vidrock/vidrock.ts';
+          import { VidSrcProvider } from './src/providers/vidsrc/vidsrc.ts';
+          import { VidZeeProvider } from './src/providers/vidzee/vidzee.ts';
+          import { VixSrcProvider } from './src/providers/vixsrc/vixsrc.ts';
+          import { knownThirdPartyProxies } from './src/thirdPartyProxies.ts';
+          import { streamPatterns } from './src/streamPatterns.ts';
+
+          const token = process.env.TMDB_API_KEY || process.env.TMDB_API_READ_ACCESS_TOKEN;
+          if (!token) throw new Error('TMDB credential missing');
+          const cinepro = new OMSSServer({
+            name: 'Movyz CinePro Node',
+            version: '1.0.0',
+            host: '127.0.0.1',
+            port: 3900,
+            publicUrl: 'http://127.0.0.1:3900',
+            cache: { type: 'memory', ttl: { sources: 60 * 60, subtitles: 60 * 60 * 24 } },
+            tmdb: { apiKey: token, cacheTTL: 24 * 60 * 60 },
+            proxyConfig: { knownThirdPartyProxies, streamPatterns },
+            cors: { origin: '*', methods: ['GET','OPTIONS','HEAD'], allowedHeaders: ['Content-Type','Authorization','Range','Accept'], credentials: false },
+            stremio: { enableNativeAddon: false, stremioAddons: [] },
+            mcp: { enabled: false },
+          });
+
+          const tmdbRequest = async (path) => {
+            const response = await fetch('https://api.themoviedb.org/3' + path, {
+              headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+            });
+            if (!response.ok) throw new Error('TMDB ' + response.status);
+            return response.json();
+          };
+          const tmdbService = cinepro['tmdbService'];
+          tmdbService.validateMovie = async (id) => {
+            const m = await tmdbRequest('/movie/' + id);
+            const d = new Date(m.release_date);
+            return { exists: true, released: d <= new Date() && m.status === 'Released', releaseDate: m.release_date || '', title: m.title || '' };
+          };
+          tmdbService.validateTV = async (id) => {
+            const m = await tmdbRequest('/tv/' + id);
+            const d = new Date(m.first_air_date);
+            return { exists: true, released: d <= new Date(), releaseDate: m.first_air_date || '', title: m.name || '' };
+          };
+          tmdbService.validateTVEpisode = async (id, s, e) => {
+            const tv = await tmdbService.validateTV(id);
+            if (!tv.released) return tv;
+            const season = await tmdbRequest('/tv/' + id + '/season/' + s);
+            const ep = season.episodes?.find(x => Number(x.episode_number) === e);
+            if (!ep) return { exists: false, released: false };
+            const d = ep.air_date ? new Date(ep.air_date) : null;
+            return { exists: true, released: !!d && d <= new Date(), releaseDate: ep.air_date || '', title: ep.name || '' };
+          };
+          tmdbService.getImdbId = async (id, type) => {
+            try {
+              const endpoint = type === 'movie' ? 'movie' : 'tv';
+              const x = await tmdbRequest('/' + endpoint + '/' + id + '/external_ids');
+              return x.imdb_id || undefined;
+            } catch { return undefined; }
+          };
+
+          const registry = cinepro.getRegistry();
+          for (const Provider of [
+            MovieDownloader, AnyEmbed, CineSuProvider, Fmovies4U, FsharetvProvider,
+            IcefyProvider, PeachifyProvider, PoprProvider, StreamMafiaProvider, TulnexProvider,
+            VidApiProvider, VideasyProvider, VidNestProvider, VidRockProvider, VidSrcProvider,
+            VidZeeProvider, VixSrcProvider,
+          ]) registry.register(new Provider());
+
+          const app = cinepro.getInstance();
+          await app.listen({ host: '127.0.0.1', port: 3900 });
+          EOF
+          npx tsx ci-runner.mjs > ../cinepro-node.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          sleep 4
+          if ! curl -fsS --max-time 45 http://127.0.0.1:3900/v1/movies/157336 >/tmp/cinepro-node-movie.json; then
+            cat ../cinepro-node.log || true
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          with open('/tmp/cinepro-node-movie.json') as f: payload=json.load(f)
+          sources=payload.get('sources',[])
+          print('CinePro Node sources =', len(sources))
+          if not sources:
+              print(json.dumps(payload)[:12000])
+              raise SystemExit(1)
+          PY
+
       - name: Deploy CinePro Core (Cloudflare adapter)
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
