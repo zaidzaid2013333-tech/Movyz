@@ -1272,3 +1272,4 @@ app.use((err: any, _req: HttpRequest, res: HttpResponse, _next: NextFunction) =>
   return fail(res, 500, 'INTERNAL_ERROR', 'Internal server error');
 });
 // CI deploy sync marker: CinePro output-directory fix ready; redeploy with live v1 route.
+// CI media-proxy validation is enabled in cloudflare-deploy workflow.
