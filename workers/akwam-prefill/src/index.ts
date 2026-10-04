@@ -703,7 +703,19 @@ async function resolveTarget(env: Env, target: string): Promise<Media | null> {
     // Akwam's download pages expose the real provider URL through the
     // deterministic .btn-loader link path. Keep this before generic extraction.
     const buttonMedia = extractDownloadButtonMedia(html, current.url);
-    if (buttonMedia && await validateMedia(env, buttonMedia)) return buttonMedia;
+    if (buttonMedia) {
+      if (await validateMedia(env, buttonMedia)) return buttonMedia;
+
+      // Akwam's download button can point to an intermediate /link or /download
+      // page rather than the media file itself. Follow it as a nested target
+      // instead of discarding it after the first validation miss.
+      try {
+        const buttonUrl = new URL(buttonMedia.url);
+        if (buttonUrl.protocol === "https:" && !seen.has(buttonUrl.href) && current.depth < 3) {
+          queue.push({ url: buttonUrl.href, referer: current.url, depth: current.depth + 1 });
+        }
+      } catch {}
+    }
 
     const mediaCandidates = extractMediaCandidates(html, current.url);
     for (const candidate of mediaCandidates.slice(0, 8)) {
