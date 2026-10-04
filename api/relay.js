@@ -168,6 +168,7 @@ export default async function handler(req, res) {
   if (!rawUrl) {
     return sendJson(res, 200, {
       name: 'Movyz Media Relay',
+      version: '1.0.1',
       status: 'ok',
       runtime: 'vercel-node',
     });
