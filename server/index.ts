@@ -15,6 +15,14 @@ app.disable('x-powered-by');
 // trigger live provider discovery or any external source resolver.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
+function normalizePlaybackQuality(value: unknown) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return 'Auto';
+  if (/^auto$/i.test(raw)) return 'Auto';
+  const match = raw.match(/(?:^|\\D)(2160|1440|1080|720|576|480|360|240)(?:p)?(?:$|\\D)/i);
+  return match?.[1] ? `${match[1]}p` : raw;
+}
+
 async function getFreshPlaybackSourcesForContent(
   contentType: 'movie' | 'episode',
   contentId: string,
@@ -50,7 +58,7 @@ async function getFreshPlaybackSourcesForContent(
         return {
           id: String(row.id),
           type: String(row.source_type || 'direct').toLowerCase(),
-          quality: String(row.quality || 'Auto'),
+          quality: normalizePlaybackQuality(row.quality),
           language: String(row.language || 'und'),
           label: String(row.label_ar || row.label_en || provider.name || provider.key || 'Akwam'),
           labelEn: String(row.label_en || row.label_ar || provider.name || provider.key || 'Akwam'),
