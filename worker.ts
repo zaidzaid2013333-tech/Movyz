@@ -34,6 +34,29 @@ export default {
   async fetch(request: Request, env: MovyzEnvironment, ctx: ExecutionContextLike): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.pathname === '/__debug/mediamash') {
+      const core = env.MEDIAMASH_CORE;
+      if (!core) return new Response(JSON.stringify({ ok: false, error: 'MEDIAMASH_CORE_MISSING' }), { status: 500, headers: { 'content-type': 'application/json' } });
+      try {
+        const coreResponse = await core.fetch(new Request('https://movyz-media-core.sameranede.workers.dev/v1/movies/157336', {
+          headers: {
+            'accept': 'application/json',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
+          },
+        }));
+        const body = await coreResponse.text();
+        return new Response(JSON.stringify({ ok: coreResponse.ok, status: coreResponse.status, body: body.slice(0, 10000) }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+    }
+
     if (url.pathname === '/health' || url.pathname.startsWith('/api/')) {
       return app.handle(request, env, ctx);
     }
