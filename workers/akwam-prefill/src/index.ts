@@ -571,6 +571,46 @@ function extractTargets(html: string, baseUrl: string) {
   return ranked.sort((a, b) => b.score - a.score).map((x) => x.url).slice(0, 16);
 }
 
+
+function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null {
+  const patterns = [
+    /<[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>[\\s\\S]{0,8000}?<a\\b[^>]*href=["']([^"']+)["'][^>]*>/gi,
+    /<a\\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>/gi,
+    /<a\\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>/gi,
+    /<a\\b[^>]*href=["']([^"']+)["'][^>]*>[\\s\\S]*?(?:تحميل|Download|تحميل الآن)[\\s\\S]*?<\\/a>/gi,
+  ];
+
+  for (const re of patterns) {
+    const match = re.exec(html);
+    if (!match?.[1]) continue;
+    const url = absoluteUrl(match[1], baseUrl);
+    if (!url) continue;
+    return {
+      url,
+      type: mediaTypeFromUrl(url),
+      quality: inferQuality(match[0] + " " + html.slice(Math.max(0, match.index - 1200), match.index + 1800)),
+      referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
+    };
+  }
+
+  const attrs = /(?:href|src|data-src|data-file|data-video|data-url|data-href|data-link|data-stream)=["']([^"']+)["']/gi;
+  let attr: RegExpExecArray | null;
+  while ((attr = attrs.exec(html))) {
+    const raw = decodeHtml(attr[1]);
+    if (!/(?:\\.m3u8|\\.mp4|\\.mpd|\\.webm)(?:\\?|$)/i.test(raw)) continue;
+    const url = absoluteUrl(raw, baseUrl);
+    if (!url) continue;
+    return {
+      url,
+      type: mediaTypeFromUrl(url),
+      quality: inferQuality(html.slice(Math.max(0, attr.index - 1000), attr.index + 1000)),
+      referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
+    };
+  }
+
+  return null;
+}
+
 async function readPrefix(response: Response, maxBytes = 8192) {
   const reader = response.body?.getReader();
   if (!reader) return new Uint8Array();
@@ -649,6 +689,11 @@ async function resolveTarget(env: Env, target: string): Promise<Media | null> {
 
     const html = await fetchText(env, current.url);
     if (!html) continue;
+
+    // Akwam's download pages expose the real provider URL through the
+    // deterministic .btn-loader link path. Keep this before generic extraction.
+    const buttonMedia = extractDownloadButtonMedia(html, current.url);
+    if (buttonMedia && await validateMedia(env, buttonMedia)) return buttonMedia;
 
     const mediaCandidates = extractMediaCandidates(html, current.url);
     for (const candidate of mediaCandidates.slice(0, 8)) {
