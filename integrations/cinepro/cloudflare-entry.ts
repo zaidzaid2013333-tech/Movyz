@@ -22,6 +22,7 @@ import { VidSrcProvider } from './src/providers/vidsrc/vidsrc';
 import { VidZeeProvider } from './src/providers/vidzee/vidzee';
 import { VixSrcProvider } from './src/providers/vixsrc/vixsrc';
 
+// Final CI trigger: verify Worker-safe Fastify/Avvio startup path.
 const PORT = 8787;
 const PUBLIC_URL = 'https://movyz-cinepro.sameranede.workers.dev';
 
