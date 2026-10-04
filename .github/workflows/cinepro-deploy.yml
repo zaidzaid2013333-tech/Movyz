@@ -22,7 +22,8 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY || secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       CINEPRO_URL: https://movyz-cinepro.sameranede.workers.dev
 
     steps:
@@ -59,32 +60,38 @@ jobs:
         working-directory: cinepro-worker
         run: npx wrangler deploy --dry-run
 
-      - name: Validate CinePro TMDB API key
+      - name: Validate CinePro TMDB Bearer token
         run: |
           python - <<'PY'
           import json, os, urllib.error, urllib.request
-          key = os.environ.get("TMDB_API_KEY", "").strip()
-          if not key:
-              raise SystemExit("TMDB_API_KEY secret is empty")
-          url = "https://api.themoviedb.org/3/movie/27205?api_key=" + urllib.parse.quote(key)
-          req = urllib.request.Request(url, headers={
-              "Accept": "application/json",
-              "User-Agent": "Movyz-CinePro-TMDB-Check/1.0",
-          })
+          token = os.environ.get("TMDB_API_READ_ACCESS_TOKEN", "").strip()
+          if not token:
+              raise SystemExit("TMDB_API_READ_ACCESS_TOKEN secret is empty")
+          req = urllib.request.Request(
+              "https://api.themoviedb.org/3/movie/27205",
+              headers={
+                  "Authorization": "Bearer " + token,
+                  "Accept": "application/json",
+                  "User-Agent": "Movyz-CinePro-TMDB-Bearer-Check/1.0",
+              },
+          )
           try:
               with urllib.request.urlopen(req, timeout=30) as response:
                   payload = json.load(response)
-                  print("TMDB API key HTTP =", response.status, "title =", payload.get("title"))
+                  print("TMDB Bearer HTTP =", response.status, "title =", payload.get("title"))
           except urllib.error.HTTPError as exc:
               body = exc.read().decode("utf-8", errors="replace")
-              raise SystemExit(f"TMDB API key rejected: HTTP {exc.code}: {body[:500]}") from exc
+              raise SystemExit(f"TMDB Bearer rejected: HTTP {exc.code}: {body[:500]}") from exc
           PY
 
       - name: Prepare CinePro secrets
         working-directory: cinepro-worker
         run: |
           umask 077
-          printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .cinepro-secrets
+          {
+            printf 'TMDB_API_KEY=movyz-tmdb-bearer-compat\n'
+            printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
+          } > .cinepro-secrets
 
       - name: Deploy CinePro backend
         working-directory: cinepro-worker
