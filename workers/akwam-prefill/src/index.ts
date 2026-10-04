@@ -192,24 +192,27 @@ function score(c: Candidate, titles: string[], year?: number, expected?: "movie"
 
 function parseCandidates(html: string, env: Env): Candidate[] {
   const out: Candidate[] = [];
-  const re = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html))) {
+
+  for (const link of extractPageLinks(html, base(env))) {
     try {
-      const u = new URL(decodeHtml(m[1]), base(env));
-      if (!isAkwamUrl(u.href)) continue;
+      const u = new URL(link.url);
       const kind = candidateKind(u.pathname);
       if (kind === "other" || kind === "watch") continue;
 
-      const raw = decodeHtml(m[2]).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-      const yearMatch = (m[0].match(/\b(?:19|20)\d{2}\b/) || [])[0];
       const slug = decodeHtml(u.pathname.split("/").filter(Boolean).at(-1) || "").replace(/[-_]+/g, " ");
-      const title = [raw, slug].filter(Boolean).join(" || ");
+      const title = [link.text, slug].filter(Boolean).join(" || ");
+      const yearMatch = (link.text.match(/(?:19|20)d{2}/) || [])[0];
 
-      const item: Candidate = { url: u.href, title, kind, year: yearMatch ? Number(yearMatch) : undefined };
+      const item: Candidate = {
+        url: u.href,
+        title,
+        kind,
+        year: yearMatch ? Number(yearMatch) : undefined,
+      };
       if (!out.some((x) => x.url === item.url)) out.push(item);
     } catch {}
   }
+
   return out;
 }
 
