@@ -52,12 +52,13 @@ jobs:
       - name: Deploy Akwam DB prefill worker
         run: npx wrangler deploy -c workers/akwam-prefill/wrangler.toml --secrets-file .env.akwam-prefill
 
-      - name: Deploy four free parallel Akwam launchers
+      - name: Inventory existing Cloudflare Cron triggers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          for n in 1 2 3 4; do
-            npx wrangler deploy -c workers/akwam-launcher/wrangler.toml --name "movyz-akwam-launcher-$n" --secrets-file .env.akwam-prefill
-          done
-
+          curl --fail-with-body --silent --show-error             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts"             > /tmp/cf-workers.json
+          jq -r '.result[] | select((.schedules // []) | length > 0) | "\(.id) => \([.schedules[].cron] | join(","))"' /tmp/cf-workers.json
       - name: Smoke one Akwam prefill batch
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
