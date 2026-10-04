@@ -412,7 +412,7 @@ export default {
     if (url.pathname === '/' || url.pathname === '/v1' || url.pathname === '/v1/' || url.pathname === '/v1/health') {
       return json({
         name: 'Movyz Media Core',
-        version: '1.0.0',
+        version: '1.0.1',
         status: 'ok',
         providers: [{ id: 'bingr', name: 'Bingr', capabilities: ['movies', 'tv'] }],
         relay: String(env.MEDIA_RELAY_BASE_URL || '').trim() || null,
