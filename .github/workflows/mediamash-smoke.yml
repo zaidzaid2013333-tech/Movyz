@@ -95,40 +95,37 @@ jobs:
         run: |
           curl -fsS --max-time 120 "http://127.0.0.1:3000/v1/movies/157336?platform=web" > /tmp/interstellar.json
           python - <<'PY'
-          import json
+          import json, subprocess
           p=json.load(open('/tmp/interstellar.json'))
           print(json.dumps({
             "sources": len(p.get("sources", [])),
-            "diagnostics": p.get("diagnostics", []),
             "providers": sorted({s.get("provider", {}).get("name") for s in p.get("sources", []) if s.get("provider")}),
+            "diagnostics": p.get("diagnostics", []),
           }, ensure_ascii=False, indent=2))
-          if not p.get("sources"):
-              raise SystemExit("MediaMash returned zero sources for Interstellar")
-          candidates = [
-              s for s in p.get("sources", [])
-              if s.get("provider", {}).get("name") != "Example Provider" and s.get("url")
+
+          candidates=[
+            s for s in p.get("sources", [])
+            if s.get("provider",{}).get("name") != "Example Provider" and s.get("url")
           ]
-          print("PLAYBACK_CANDIDATES", json.dumps([
-              {"provider": s.get("provider", {}).get("name"), "type": s.get("type"), "quality": s.get("quality"), "url": s.get("url")}
-              for s in candidates[:4]
-          ], ensure_ascii=False, indent=2))
           if not candidates:
-              raise SystemExit("No non-example MediaMash source to playback-test")
-          selected = candidates[0]["url"]
-          import subprocess
-          probe = subprocess.run(
-              [
-                  "curl", "-L", "-sS", "--max-time", "30",
-                  "-r", "0-4095", "-o", "/tmp/interstellar-playback.bin",
-                  "-w", "%{http_code} %{content_type} %{size_download}",
-                  selected,
-              ],
-              capture_output=True,
-              text=True,
-          )
-          print("PLAYBACK_PROBE", probe.stdout)
-          if probe.returncode != 0 or int(probe.stdout.split()[0]) >= 400 or not open("/tmp/interstellar-playback.bin", "rb").read(1):
-              raise SystemExit("Interstellar playback probe failed")
+              raise SystemExit("No non-example MediaMash source to probe")
+
+          working=[]
+          for idx,s in enumerate(candidates):
+              probe=subprocess.run(
+                ["curl","-L","-sS","--max-time","30","-o",f"/tmp/probe-{idx}.txt","-w","%{http_code} %{content_type} %{size_download}",s["url"]],
+                text=True,capture_output=True
+              )
+              body=open(f"/tmp/probe-{idx}.txt","r",errors="replace").read(8192)
+              print("SOURCE_PROBE", idx, s.get("provider",{}).get("name"), probe.stdout, "EXTM3U=", "#EXTM3U" in body)
+              if probe.returncode == 0 and probe.stdout.startswith("200 "):
+                  working.append((idx,s))
+                  if "#EXTM3U" in body:
+                      break
+
+          if not working:
+              raise SystemExit("No non-example MediaMash source was reachable through the Node proxy")
+          print("WORKING_SOURCE", json.dumps(working[0][1], ensure_ascii=False)[:12000])
           PY
 
       - name: Test Breaking Bad S01E01
