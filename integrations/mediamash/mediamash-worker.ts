@@ -268,6 +268,7 @@ export default {
         error: {
           code: 'MEDIA_CORE_RUNTIME_ERROR',
           message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
         },
       }, 500);
     }
