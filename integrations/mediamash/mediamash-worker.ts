@@ -109,11 +109,82 @@ function rewriteManifest(text, upstreamUrl, headers, origin) {
 
 
 async function probePlayableSource(source) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 9000);
+  const headers = new Headers(source.headers || {});
+
+  const probeHls = async (url, depth = 0) => {
+    if (depth > 2) return false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    try {
+      const response = await fetch(url, {
+        headers,
+        redirect: 'follow',
+        signal: controller.signal,
+      });
+      if (!(response.status === 200 || response.status === 206)) return false;
+
+      const contentType = response.headers.get('content-type') || '';
+      const isManifest =
+        /mpegurl|m3u8|vnd\\.apple\\.mpegurl/i.test(contentType) ||
+        /\\.m3u8(?:$|\\?)/i.test(url);
+
+      if (!isManifest) {
+        return true;
+      }
+
+      const text = await response.text();
+      if (!text.trimStart().startsWith('#EXTM3U')) return false;
+
+      for (const line of text.split(/\\r?\\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+
+        let nested;
+        try {
+          nested = new URL(trimmed, url).toString();
+        } catch {
+          continue;
+        }
+
+        if (/\\.m3u8(?:$|\\?)/i.test(nested)) {
+          if (await probeHls(nested, depth + 1)) return true;
+          continue;
+        }
+
+        const segmentController = new AbortController();
+        const segmentTimer = setTimeout(() => segmentController.abort(), 5000);
+        try {
+          const segmentHeaders = new Headers(headers);
+          segmentHeaders.set('Range', 'bytes=0-8191');
+          const segment = await fetch(nested, {
+            headers: segmentHeaders,
+            redirect: 'follow',
+            signal: segmentController.signal,
+          });
+          if ((segment.status === 200 || segment.status === 206) && segment.body) {
+            const reader = segment.body.getReader();
+            const first = await reader.read();
+            try { await reader.cancel(); } catch {}
+            if ((first.value?.byteLength || 0) > 32) return true;
+          }
+        } catch {
+          // Try the next candidate segment before rejecting the source.
+        } finally {
+          clearTimeout(segmentTimer);
+        }
+      }
+
+      return false;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   try {
-    const headers = new Headers(source.headers || {});
-    headers.set('Range', 'bytes=0-2047');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 9000);
     const response = await fetch(source.url, {
       headers,
       redirect: 'follow',
@@ -122,21 +193,16 @@ async function probePlayableSource(source) {
 
     if (!(response.status === 200 || response.status === 206)) return false;
 
+    const contentType = response.headers.get('content-type') || '';
     const isHls =
       source.type === 'hls' ||
-      /mpegurl|m3u8|vnd\\.apple\\.mpegurl/i.test(response.headers.get('content-type') || '') ||
+      /mpegurl|m3u8|vnd\\.apple\\.mpegurl/i.test(contentType) ||
       /\\.m3u8(?:$|\\?)/i.test(source.url);
 
-    if (isHls) {
-      const reader = response.body?.getReader();
-      if (!reader) return false;
-      const first = await reader.read();
-      try { await reader.cancel(); } catch {}
-      const text = new TextDecoder().decode(first.value || new Uint8Array());
-      return text.includes('#EXTM3U');
-    }
-
-    return true;
+    if (!isHls) return true;
+    try { await response.body?.cancel(); } catch {}
+    clearTimeout(timer);
+    return await probeHls(source.url);
   } catch {
     return false;
   }
