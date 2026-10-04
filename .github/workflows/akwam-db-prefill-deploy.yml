@@ -173,9 +173,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm install --ignore-scripts --no-audit --no-fund
 
       - name: Run deterministic Akwam prefill from GitHub Actions
         run: npx tsx scripts/run-akwam-prefill.ts
