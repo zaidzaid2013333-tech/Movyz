@@ -83,10 +83,19 @@ jobs:
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          curl --fail-with-body --max-time 120 -X POST \
+          response=$(curl --fail-with-body --max-time 120 -sS -X POST \
             -H "x-movyz-prefill-key: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "x-movyz-prefill-mode: batch" \
-            https://movyz-akwam-prefill.sameranede.workers.dev/
+            https://movyz-akwam-prefill.sameranede.workers.dev/)
+          echo "$response"
+          printf '%s' "$response" | node -e '
+            const fs = require("fs");
+            const data = JSON.parse(fs.readFileSync(0, "utf8"));
+            if (!data.ok || Number(data.saved || 0) < 1 || Number(data.failed || 0) > 0) {
+              console.error("Akwam smoke did not prepare a source:", JSON.stringify(data));
+              process.exit(1);
+            }
+          '
 
       - if: always()
         run: rm -f .env.akwam-prefill
