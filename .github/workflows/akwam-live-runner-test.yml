@@ -27,6 +27,18 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail-with-body --silent --show-error --max-time 30             https://movyz-akwam-prefill.sameranede.workers.dev/
+      - name: Inspect one failing Akwam movie page
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          movie='https://akwam.ss/movie/10762/cocktail'
+          curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: text/html' "$movie" -o /tmp/movie.html
+          echo "movie_bytes=$(wc -c < /tmp/movie.html | tr -d ' ')"
+          echo '=== download/link markers ==='
+          grep -Ein 'btn-loader|/download/|/link/|m3u8|mp4|mpd|webm|data-file|data-video|data-url|download' /tmp/movie.html | head -200 || true
+          echo '=== hrefs ==='
+          grep -Eoi 'href=["'"'"'][^"'"'"']+["'"'"']' /tmp/movie.html | grep -Ei 'download|link|watch|movie' | head -100 || true
+
       - name: Process five real movie jobs
         run: |
           set -euo pipefail
