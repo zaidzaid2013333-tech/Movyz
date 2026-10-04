@@ -1,6 +1,4 @@
 import { OMSSServer } from '@omss/framework';
-import { createServer } from 'node:http';
-import { httpServerHandler } from 'cloudflare:node';
 import { knownThirdPartyProxies } from './src/thirdPartyProxies';
 import { streamPatterns } from './src/streamPatterns';
 
@@ -22,8 +20,6 @@ import { VidSrcProvider } from './src/providers/vidsrc/vidsrc';
 import { VidZeeProvider } from './src/providers/vidzee/vidzee';
 import { VixSrcProvider } from './src/providers/vixsrc/vixsrc';
 
-// Final CI trigger: verify Worker-safe Fastify/Avvio startup path.
-const PORT = 8787;
 const PUBLIC_URL = 'https://movyz-cinepro.sameranede.workers.dev';
 
 const providers = [
@@ -51,74 +47,131 @@ if (!tmdbApiKey) {
   throw new Error('TMDB_API_KEY is required');
 }
 
-// Fastify/find-my-way uses new Function() while registering routes.
-// Production CI uses a standard hosted runner; compile all CinePro routes during Worker startup. Keep this adapter side-effect-free after boot; final production smoke follows immediately. The memory cache
-// cleanup timer is not essential for correctness because cache reads enforce TTL,
-// so suppress only that timer while the server graph is constructed.
-const nativeSetInterval = globalThis.setInterval;
-globalThis.setInterval = (() => ({ unref() {} })) as unknown as typeof setInterval;
-
-let cinepro: OMSSServer;
-try {
-  cinepro = new OMSSServer({
-    name: 'CinePro',
-    version: '1.0.0',
-    host: '0.0.0.0',
-    port: PORT,
-    publicUrl: PUBLIC_URL,
-    cache: {
-      type: 'memory',
-      ttl: {
-        sources: 60 * 60,
-        subtitles: 60 * 60 * 24,
-      },
+// OMSSServer builds the entire CinePro service graph synchronously.
+// We intentionally do not boot its Fastify HTTP server in Workers.
+const cinepro = new OMSSServer({
+  name: 'CinePro',
+  version: '1.0.0',
+  host: '0.0.0.0',
+  port: 8787,
+  publicUrl: PUBLIC_URL,
+  cache: {
+    type: 'memory',
+    ttl: {
+      sources: 60 * 60,
+      subtitles: 60 * 60 * 24,
     },
-    tmdb: {
-      apiKey: tmdbApiKey,
-      cacheTTL: 24 * 60 * 60,
-    },
-    proxyConfig: {
-      knownThirdPartyProxies,
-      streamPatterns,
-    },
-    cors: {
-      origin: '*',
-      methods: ['GET', 'OPTIONS', 'HEAD'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept'],
-      exposedHeaders: ['Content-Length', 'Content-Type', 'Content-Range', 'Accept-Ranges'],
-      credentials: false,
-    },
-    stremio: {
-      enableNativeAddon: true,
-      stremioAddons: [],
-    },
-    mcp: {
-      enabled: false,
-    },
-  });
-} finally {
-  globalThis.setInterval = nativeSetInterval;
-}
-
-const app = cinepro.getInstance();
-
-// OMSSServer registers CinePro routes synchronously in its constructor.
-// In Workers, waiting on Fastify/Avvio's full boot queue can deadlock on Node
-// lifecycle ticks. The HTTP bridge can safely enter Fastify's request listener
-// directly because the route graph is already registered.
-const bridgeServer = createServer((request, response) => {
-  try {
-    app.server.emit('request', request, response);
-  } catch (error) {
-    console.error('[CinePro] request dispatch failed', error);
-    if (!response.headersSent) {
-      response.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
-    }
-    response.end(JSON.stringify({
-      error: 'CINEPRO_RUNTIME_ERROR',
-      message: error instanceof Error ? error.message : String(error),
-    }));
-  }
+  },
+  tmdb: {
+    apiKey: tmdbApiKey,
+    cacheTTL: 24 * 60 * 60,
+  },
+  proxyConfig: {
+    knownThirdPartyProxies,
+    streamPatterns,
+  },
+  cors: {
+    origin: '*',
+    methods: ['GET', 'OPTIONS', 'HEAD'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept'],
+    exposedHeaders: ['Content-Length', 'Content-Type', 'Content-Range', 'Accept-Ranges'],
+    credentials: false,
+  },
+  stremio: {
+    enableNativeAddon: true,
+    stremioAddons: [],
+  },
+  mcp: {
+    enabled: false,
+  },
 });
 
-export default httpServerHandler(bridgeServer);
+const registry = cinepro.getRegistry();
+for (const Provider of providers) {
+  registry.register(new Provider());
+}
+
+const sourceService = (cinepro as any).sourceService as {
+  getMovieSources(tmdbId: string): Promise<unknown>;
+  getTVSources(tmdbId: string, season: number, episode: number): Promise<unknown>;
+};
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'access-control-allow-origin': '*',
+      'cache-control': 'no-store',
+    },
+  });
+
+export default {
+  async fetch(request: Request) {
+    const url = new URL(request.url);
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'access-control-allow-origin': '*',
+          'access-control-allow-methods': 'GET,OPTIONS,HEAD',
+          'access-control-allow-headers': 'Content-Type, Authorization, Range, Accept',
+        },
+      });
+    }
+
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return json({ error: 'METHOD_NOT_ALLOWED' }, 405);
+    }
+
+    try {
+      if (url.pathname === '/' || url.pathname === '/v1' || url.pathname === '/v1/' || url.pathname === '/v1/health') {
+        return json({
+          name: 'CinePro',
+          version: '1.0.0',
+          status: 'ok',
+          providers: registry.getEnabledProviders().map((provider: any) => provider.name),
+        });
+      }
+
+      const movieMatch = url.pathname.match(/^\/v1\/movies\/([^/]+)$/);
+      if (movieMatch) {
+        return json(await sourceService.getMovieSources(decodeURIComponent(movieMatch[1])));
+      }
+
+      const episodeMatch = url.pathname.match(/^\/v1\/tv\/([^/]+)\/seasons\/(\d+)\/episodes\/(\d+)$/);
+      if (episodeMatch) {
+        return json(
+          await sourceService.getTVSources(
+            decodeURIComponent(episodeMatch[1]),
+            Number.parseInt(episodeMatch[2], 10),
+            Number.parseInt(episodeMatch[3], 10),
+          ),
+        );
+      }
+
+      return json(
+        {
+          error: {
+            code: 'ENDPOINT_NOT_FOUND',
+            message: 'The requested endpoint does not exist',
+            path: url.pathname,
+          },
+        },
+        404,
+      );
+    } catch (error) {
+      console.error('[CinePro] request failed', error);
+      return json(
+        {
+          error: {
+            code: 'CINEPRO_RUNTIME_ERROR',
+            message: error instanceof Error ? error.message : String(error),
+          },
+        },
+        500,
+      );
+    }
+  },
+};
