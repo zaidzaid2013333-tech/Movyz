@@ -20,7 +20,7 @@ async function getCineProPlaybackSources(
   contentId: string,
   env?: Record<string, unknown>,
 ) {
-  const runtimeBase = env?.CINEPRO_BASE_URL || process.env.CINEPRO_BASE_URL || 'https://movyz-cinepro-core-live.onrender.com';
+  const runtimeBase = env?.CINEPRO_BASE_URL || process.env.CINEPRO_BASE_URL || 'https://cinepro-core-production-8b58.up.railway.app';
   const baseUrl = String(runtimeBase).trim().replace(/\/+$/, '');
   if (!baseUrl) return [];
 
