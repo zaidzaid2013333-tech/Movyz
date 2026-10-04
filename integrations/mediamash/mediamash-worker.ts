@@ -17,7 +17,12 @@ function json(body, status = 200) {
   });
 }
 
-function proxyUrl(origin, target, headers = {}) {
+function proxyUrl(origin, target, headers = {}, env) {
+  const relayBase = String(env?.MEDIA_RELAY_BASE_URL || '').trim().replace(/\\/+$/, '');
+  if (relayBase) {
+    return relayBase + '/api/relay?url=' + encodeURIComponent(target) +
+      (Object.keys(headers).length ? '&headers=' + encodeURIComponent(JSON.stringify(headers)) : '');
+  }
   return `${origin}/v1/proxy?data=${encodeURIComponent(JSON.stringify({ url: target, headers }))}`;
 }
 
@@ -87,20 +92,20 @@ async function bingrStream(type, tmdbId, meta, season, episode, server, signal, 
   return { sources, diagnostic: raw.length && !sources.length ? `Bingr/${server}: unusable stream URLs` : undefined };
 }
 
-function rewriteManifest(text, upstreamUrl, headers, origin) {
+function rewriteManifest(text, upstreamUrl, headers, origin, env) {
   const lines = text.split(/\r?\n/);
   return lines.map((line) => {
     const uriAttr = line.match(/URI="([^"]+)"/i);
     if (uriAttr) {
       const resolved = new URL(uriAttr[1], upstreamUrl).toString();
-      const proxied = proxyUrl(origin, resolved, headers);
+      const proxied = proxyUrl(origin, resolved, headers, env);
       return line.replace(uriAttr[1], proxied);
     }
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) return line;
     try {
       const resolved = new URL(trimmed, upstreamUrl).toString();
-      return proxyUrl(origin, resolved, headers);
+      return proxyUrl(origin, resolved, headers, env);
     } catch {
       return line;
     }
@@ -240,7 +245,7 @@ async function handleProxy(request) {
   if (isManifest && request.method !== 'HEAD') {
     const text = await upstream.text();
     if (text.trimStart().startsWith('#EXTM3U')) {
-      const rewritten = rewriteManifest(text, parsed.url, Object.fromEntries(headers.entries()), requestUrl.origin);
+      const rewritten = rewriteManifest(text, parsed.url, Object.fromEntries(headers.entries()), requestUrl.origin, env);
       const outHeaders = new Headers(JSON_HEADERS);
       outHeaders.set('content-type', contentType || 'application/vnd.apple.mpegurl');
       outHeaders.set('cache-control', 'no-store');
@@ -367,7 +372,7 @@ async function sourcesFor(type, id, season, episode, requestUrl, env) {
 
     const sources = ranked.map((source) => ({
       id: crypto.randomUUID(),
-      url: proxyUrl(requestUrl.origin, source.url, source.headers),
+      url: proxyUrl(requestUrl.origin, source.url, source.headers, env),
       streamable: true,
       type: source.type,
       quality: source.quality,
@@ -405,6 +410,7 @@ export default {
         version: '1.0.0',
         status: 'ok',
         providers: [{ id: 'bingr', name: 'Bingr', capabilities: ['movies', 'tv'] }],
+        relay: String(env.MEDIA_RELAY_BASE_URL || '').trim() || null,
       });
     }
 
