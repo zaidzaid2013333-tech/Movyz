@@ -65,7 +65,7 @@ jobs:
           PY
           )
           test -n "$media_url"
-          curl -L --fail-with-body --silent --show-error --max-time 20             -A "$ua" -H "Referer: $download" -H 'Range: bytes=0-8191'             -o /tmp/media.bin -w 'media_status=%{http_code} media_type=%{content_type} media_bytes=%{size_download}\n'             "$media_url"
+          curl -k -L --fail-with-body --silent --show-error --max-time 20             -A "$ua" -H "Referer: $download" -H 'Range: bytes=0-8191'             -o /tmp/media.bin -w 'media_status=%{http_code} media_type=%{content_type} media_bytes=%{size_download}\n'             "$media_url"
           test "$(wc -c < /tmp/media.bin | tr -d ' ')" -gt 0
           if grep -aEiq '<html|<!doctype|captcha|cloudflare' /tmp/media.bin; then
             echo 'Media validation failed: HTML/challenge body returned'
