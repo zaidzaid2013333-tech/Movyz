@@ -77,7 +77,7 @@ const collapseProviderQualityDuplicates = (sources: PlaybackSource[]) => {
   const priority: Record<string, number> = { hls: 50, mp4: 45, dash: 40, webm: 35, direct: 30 };
   const maxPerProviderQuality = 3;
 
-  for (const source of sortPlaybackSources(sources)) {
+  for (const source of sources) {
     const provider = String(source.providerKey || source.providerReference || source.provider || 'selected-site')
       .trim()
       .toLowerCase();
@@ -109,8 +109,7 @@ const collapseProviderQualityDuplicates = (sources: PlaybackSource[]) => {
   }
 
   return [...selected.values()]
-    .flat()
-    .sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
+    .flat();
 };
 
 const providerDisplayName = (key: string, fallback: string, language: 'ar' | 'en') => {
