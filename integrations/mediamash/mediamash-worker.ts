@@ -348,27 +348,32 @@ async function sourcesFor(type, id, season, episode, requestUrl, env) {
       }
     }
 
-    // Prefer sources whose upstream playlist/file is reachable from the Worker.
-    // Probe a small representative set so we stay well below Worker subrequest limits.
-    const byProvider = new Map();
-    for (const source of rawSources) {
-      if (!byProvider.has(source.provider)) byProvider.set(source.provider, []);
-      const list = byProvider.get(source.provider);
-      if (list.length < 2) list.push(source);
+    // When a Node relay is configured, do not probe the upstream CDN from
+    // Cloudflare first. Some upstream media hosts return 522/524 from Worker
+    // egress even though the same URL is playable through the relay.
+    // Keep direct probing only as a fallback for relay-less deployments.
+    let ranked = rawSources;
+    if (!String(env?.MEDIA_RELAY_BASE_URL || '').trim()) {
+      const byProvider = new Map();
+      for (const source of rawSources) {
+        if (!byProvider.has(source.provider)) byProvider.set(source.provider, []);
+        const list = byProvider.get(source.provider);
+        if (list.length < 2) list.push(source);
+      }
+      const probeCandidates = [...byProvider.values()].flat();
+
+      const probeResults = await Promise.all(
+        probeCandidates.map(async (source) => [source, await probePlayableSource(source)]),
+      );
+      const playableUrls = new Set(
+        probeResults.filter(([, ok]) => ok).map(([source]) => source.url),
+      );
+
+      ranked = [
+        ...rawSources.filter((source) => playableUrls.has(source.url)),
+        ...rawSources.filter((source) => !playableUrls.has(source.url)),
+      ];
     }
-    const probeCandidates = [...byProvider.values()].flat();
-
-    const probeResults = await Promise.all(
-      probeCandidates.map(async (source) => [source, await probePlayableSource(source)]),
-    );
-    const playableUrls = new Set(
-      probeResults.filter(([, ok]) => ok).map(([source]) => source.url),
-    );
-
-    const ranked = [
-      ...rawSources.filter((source) => playableUrls.has(source.url)),
-      ...rawSources.filter((source) => !playableUrls.has(source.url)),
-    ];
 
     const sources = ranked.map((source) => ({
       id: crypto.randomUUID(),
