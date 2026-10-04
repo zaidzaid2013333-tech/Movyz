@@ -338,22 +338,23 @@ async function findCandidate(
 }
 
 
+
 function extractMediaLikeUrls(text: string) {
   const decoded = decodeHtml(text);
   return Array.from(new Set(
-    decoded.match(/https?:\\/\\/[^\\s"'<>]+(?:\\.(?:m3u8|mp4|mpd|webm)(?:\\?[^\\s"'<>]*)?|(?:\\?[^\\s"'<>]*)?)/gi) || [],
+    decoded.match(/https?:\\/[^\s"'<>]+/gi) || [],
   ));
 }
 
 function inferQuality(text: string) {
-  return (decodeHtml(text).match(/(?:^|\\D)(2160|1440|1080|720|576|480|360|240)(?:p)?(?:\\D|$)/i) || [])[1];
+  return (decodeHtml(text).match(/(?:^|\D)(2160|1440|1080|720|576|480|360|240)(?:p)?(?:\D|$)/i) || [])[1];
 }
 
 function mediaTypeFromUrl(url: string): Media["type"] {
-  if (/\\.m3u8(?:\\?|$)/i.test(url)) return "hls";
-  if (/\\.mpd(?:\\?|$)/i.test(url)) return "dash";
-  if (/\\.webm(?:\\?|$)/i.test(url)) return "webm";
-  if (/\\.mp4(?:\\?|$)/i.test(url)) return "mp4";
+  if (/\.m3u8(?:\?|$)/i.test(url)) return "hls";
+  if (/\.mpd(?:\?|$)/i.test(url)) return "dash";
+  if (/\.webm(?:\?|$)/i.test(url)) return "webm";
+  if (/\.mp4(?:\?|$)/i.test(url)) return "mp4";
   return "direct";
 }
 
@@ -371,7 +372,7 @@ function absoluteUrl(raw: string, baseUrl: string) {
 function isLikelyNavigationUrl(url: string) {
   try {
     const path = new URL(url).pathname.toLowerCase();
-    return /^\\/(?:download|link|watch|episode|show\\/episode|movie|series)\\//i.test(path);
+    return /^\/(?:download|link|watch|episode|show\/episode|movie|series)\//i.test(path);
   } catch {
     return false;
   }
@@ -402,36 +403,36 @@ function extractMediaCandidates(text: string, baseUrl: string) {
   const decoded = decodeHtml(text);
 
   for (const url of extractMediaLikeUrls(decoded)) {
-    addUrlCandidate(out, seen, url, baseUrl, 180, decoded);
+    const nav = isLikelyNavigationUrl(url);
+    addUrlCandidate(out, seen, url, baseUrl, nav ? 20 : 180, decoded);
   }
 
   const attrs = /(?:href|src|data-src|data-url|data-file|data-video|data-href|data-link|data-stream|data-playlist)=["']([^"']+)["']/gi;
   let match: RegExpExecArray | null;
   while ((match = attrs.exec(decoded))) {
     const raw = match[1];
+    const url = absoluteUrl(raw, baseUrl);
+    if (!url || isLikelyNavigationUrl(url)) continue;
     const nearby = decoded.slice(Math.max(0, match.index - 1200), match.index + 1800);
-    const explicitMedia = /(?:m3u8|mp4|mpd|webm|stream|playlist|manifest|videoUrl|video_url|data-file|data-video|data-stream)/i.test(
+    const score = /(?:m3u8|mp4|mpd|webm|stream|playlist|manifest|videoUrl|video_url|data-file|data-video|data-stream)/i.test(
       nearby + " " + raw,
-    );
-    const nav = isLikelyNavigationUrl(absoluteUrl(raw, baseUrl) || "");
-    if (explicitMedia && !nav) {
-      addUrlCandidate(out, seen, raw, baseUrl, 150, nearby + " " + raw);
-    } else if (/^(?:https?:)?\\/\\//i.test(raw) && !nav) {
-      addUrlCandidate(out, seen, raw, baseUrl, 90, nearby + " " + raw);
-    }
+    ) ? 160 : 110;
+    addUrlCandidate(out, seen, url, baseUrl, score, nearby + " " + raw);
   }
 
-  const keyValue = /(?:file|source|src|videoUrl|video_url|stream|streamUrl|playlist|manifest|hls|dash|mediaUrl|media_url|playbackUrl|playback_url|url)\\s*[:=]\\s*["']([^"']+)["']/gi;
+  const keyValue = /(?:file|source|src|videoUrl|video_url|stream|streamUrl|playlist|manifest|hls|dash|mediaUrl|media_url|playbackUrl|playback_url|url)\s*[:=]\s*["']([^"']+)["']/gi;
   while ((match = keyValue.exec(decoded))) {
+    const url = absoluteUrl(match[1], baseUrl);
+    if (!url || isLikelyNavigationUrl(url)) continue;
     const nearby = decoded.slice(Math.max(0, match.index - 900), match.index + 1400);
-    addUrlCandidate(out, seen, match[1], baseUrl, 140, nearby);
+    addUrlCandidate(out, seen, url, baseUrl, 150, nearby);
   }
 
   const quotedAbsolute = /["'](https?:\\/\\/[^"'<>\\s]+)["']/gi;
   while ((match = quotedAbsolute.exec(decoded))) {
     const raw = match[1];
     if (isLikelyNavigationUrl(raw)) continue;
-    addUrlCandidate(out, seen, raw, baseUrl, 70, decoded.slice(Math.max(0, match.index - 700), match.index + 1100));
+    addUrlCandidate(out, seen, raw, baseUrl, 90, decoded.slice(Math.max(0, match.index - 700), match.index + 1100));
   }
 
   return out.sort((a, b) => b.score - a.score).slice(0, 16);
@@ -448,9 +449,7 @@ function mediaFromUrl(url: string, referer?: string, qualityText = ""): Media {
 
 function extractMedia(text: string, baseUrl: string): Media | null {
   const candidate = extractMediaCandidates(text, baseUrl)[0];
-  return candidate
-    ? mediaFromUrl(candidate.url, candidate.referer, text)
-    : null;
+  return candidate ? mediaFromUrl(candidate.url, candidate.referer, text) : null;
 }
 
 function cleanHtmlText(value: string) {
@@ -460,13 +459,13 @@ function cleanHtmlText(value: string) {
     .replace(/&amp;/gi, "&")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
-    .replace(/\\s+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
 function extractPageLinks(html: string, baseUrl: string) {
   const out: Array<{ url: string; text: string }> = [];
-  const re = /<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi;
+  const re = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) {
     const url = absoluteUrl(m[1], baseUrl);
@@ -483,15 +482,15 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
   for (const link of links) {
     let rawPath = "";
     try { rawPath = decodeURIComponent(new URL(link.url).pathname); } catch { rawPath = link.url; }
-    if (/^\\/old(?:\\/|$)/i.test(rawPath)) continue;
+    if (/^\/old(?:\/|$)/i.test(rawPath)) continue;
 
     const hay = decodeUrlPath(decodeHtml(link.text + " " + rawPath));
     const declaredSeason = explicitSeason(hay);
     if (declaredSeason !== undefined && declaredSeason !== season) continue;
 
     const looksLikeEpisode =
-      /(?:حلقة|الحلقه|episode|epis(?:ode)?|s\\d+e\\d+)/i.test(hay) ||
-      /\\/(?:episode|show\\/episode|watch)\\//i.test(rawPath);
+      /(?:حلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay) ||
+      /\/(?:episode|show\/episode|watch)\//i.test(rawPath);
     if (!looksLikeEpisode) continue;
 
     let scoreValue = 0;
@@ -508,8 +507,8 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
     if (exactSeasonEpisode) scoreValue += 260;
     if (exactEpisode) scoreValue += 210;
     if (seasonMatch) scoreValue += 55;
-    if (/\\/(?:episode|show\\/episode)\\//i.test(rawPath)) scoreValue += 35;
-    if (/\\/watch\\//i.test(rawPath)) scoreValue += 20;
+    if (/\/(?:episode|show\/episode)\//i.test(rawPath)) scoreValue += 35;
+    if (/\/watch\//i.test(rawPath)) scoreValue += 20;
 
     if (scoreValue > 0 && (!best || scoreValue > best.score)) {
       best = { url: link.url, score: scoreValue };
@@ -536,38 +535,31 @@ function extractTargets(html: string, baseUrl: string) {
 
     try {
       const observed = new URL(observedUrl);
-
-      if (/^\\/download\\//i.test(observed.pathname)) {
+      if (/^\/download\//i.test(observed.pathname)) {
         add(observed.href, 220);
         return;
       }
 
       const marker = observed.pathname.indexOf("/link");
       if (marker >= 0) {
-        const contentPath = new URL(baseUrl).pathname.replace(/\\/$/, "");
-        const suffixMatch = contentPath.match(/\\/(?:movie|episode|shows|show\\/episode)(\\/.*)?$/i);
+        const contentPath = new URL(baseUrl).pathname.replace(/\/$/, "");
+        const suffixMatch = contentPath.match(/\/(?:movie|episode|shows|show\/episode)(\/.*)?$/i);
         const contentSuffix = suffixMatch?.[1] || "";
         const linkSuffix = observed.pathname.slice(marker + "/link".length);
-        const download = new URL(observed.origin + "/download" + linkSuffix + contentSuffix);
-        add(download.href, 190);
+        add(new URL(observed.origin + "/download" + linkSuffix + contentSuffix).href, 190);
         return;
       }
 
-      if (/(?:تحميل|download)/i.test(text)) {
-        add(observed.href, 180);
-      } else if (/^\\/watch\\//i.test(observed.pathname)) {
-        add(observed.href, 120);
-      } else if (/\\/episode\\//i.test(observed.pathname)) {
-        add(observed.href, 40);
-      }
+      if (/(?:تحميل|download)/i.test(text)) add(observed.href, 180);
+      else if (/^\/watch\//i.test(observed.pathname)) add(observed.href, 120);
+      else if (/\/episode\//i.test(observed.pathname)) add(observed.href, 40);
     } catch {}
   };
 
-  const anchors = /<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi;
+  const anchors = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
   while ((m = anchors.exec(html))) {
-    const text = cleanHtmlText(decodeHtml(m[2]));
-    addLinkAsDownload(m[1], text);
+    addLinkAsDownload(m[1], cleanHtmlText(decodeHtml(m[2])));
   }
 
   for (const candidate of extractMediaCandidates(html, baseUrl)) {
@@ -624,17 +616,15 @@ async function validateMedia(env: Env, media: Media) {
     if (!body.length) return false;
 
     const sample = new TextDecoder().decode(body.slice(0, 8192)).trim();
-    if (/<html[\\s>]|<!doctype|captcha|cloudflare/i.test(sample)) return false;
+    if (/<html\s>]|<!doctype|captcha|cloudflare/i.test(sample)) return false;
 
-    if (/#EXTM3U/i.test(sample) || /(?:mpegurl|vnd\\.apple\\.mpegurl)/i.test(ct)) return true;
-    if (/<MPD[\\s>]|<\\?xml[^>]*>\\s*<MPD/i.test(sample) || /dash\\+xml/i.test(ct)) return true;
+    if (/#EXTM3U/i.test(sample) || /(?:mpegurl|vnd\.apple\.mpegurl)/i.test(ct)) return true;
+    if (/<MPD\s>]|<\?xml[^>]*>\s*<MPD/i.test(sample) || /dash\+xml/i.test(ct)) return true;
     if (ct.startsWith("video/")) return true;
     if (ct.includes("webm") || (body[0] === 0x1a && body[1] === 0x45 && body[2] === 0xdf && body[3] === 0xa3)) return true;
 
     for (let i = 0; i + 3 < Math.min(body.length, 1024); i++) {
-      if (body[i] === 0x66 && body[i + 1] === 0x74 && body[i + 2] === 0x79 && body[i + 3] === 0x70) {
-        return true;
-      }
+      if (body[i] === 0x66 && body[i + 1] === 0x74 && body[i + 2] === 0x79 && body[i + 3] === 0x70) return true;
     }
 
     return false;
@@ -665,7 +655,6 @@ async function resolveTarget(env: Env, target: string): Promise<Media | null> {
     }
 
     if (current.depth >= 3) continue;
-
     const nestedTargets = extractTargets(html, current.url);
     for (const nested of nestedTargets.slice(0, 8)) {
       if (seen.has(nested)) continue;
