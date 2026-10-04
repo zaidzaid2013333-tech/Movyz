@@ -16,7 +16,7 @@ Examples verified from the live site include the current One Piece series and ep
 
 ### Current canonical-host and link-resolution rules
 - Start from the configured Akwam entrypoint, but accept Akwam canonical redirects/absolute links on `akwam.ss`, `ak.sv`, and `akwam.it` (including `www` variants). These are the same Akwam route family; do not reject a valid content page only because the current canonical host changed.
-- The current CloudStream Akwam extractor independently confirms the current search endpoint as `/search?q=<query>`, content cards under `div.entry-box`, and Akwam quality/download handling. The worker should use the current DOM signals rather than generic guessing. citeturn727110search1
+- The current CloudStream Akwam extractor independently confirms the current search endpoint as `/search?q=<query>`, content cards under `div.entry-box`, and Akwam quality/download handling. The worker should use the current DOM signals rather than generic guessing. 
 - For a movie/episode detail page, identify each quality block and prefer its **تحميل** link. The deterministic current route is:
   `detail page -> /download/... -> download page -> div.btn-loader > a -> final media URL`.
 - If a quality row exposes a `/link/...` action instead of `/download/...`, reconstruct the current Akwam `/download...` target only from the observed link and content path; never fabricate IDs.
