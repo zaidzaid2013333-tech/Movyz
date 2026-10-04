@@ -60,6 +60,37 @@ jobs:
         working-directory: cinepro-worker
         run: npx wrangler deploy --dry-run
 
+      - name: Test CinePro Core on Node runtime
+        continue-on-error: true
+        env:
+          TMDB_API_KEY: movyz-tmdb-bearer-compat
+          TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+          NODE_ENV: test
+          CACHE_TYPE: memory
+          PUBLIC_URL: http://127.0.0.1:8787
+          CORS_ORIGIN: "*"
+          MCP_ENABLED: "false"
+          STREMIO_ADDON: "false"
+        working-directory: cinepro-worker
+        run: |
+          npx tsx <<'TS'
+          import handler from './entry.ts';
+
+          const response = await handler.fetch(
+            new Request('http://127.0.0.1:8787/v1/movies/27205', {
+              headers: {
+                Accept: 'application/json',
+                'User-Agent': 'Movyz-CinePro-Node-Diagnostic/1.0',
+              },
+            }),
+          );
+
+          const body = await response.text();
+          console.log('Node CinePro status =', response.status);
+          console.log(body.slice(0, 16000));
+          if (response.status !== 200) process.exitCode = 1;
+          TS
+
       - name: Validate CinePro TMDB Bearer token
         run: |
           python - <<'PY'
