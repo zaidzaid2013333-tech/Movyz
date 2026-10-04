@@ -72,5 +72,5 @@ export function discoverCoreProviders() {
 
 fs.writeFileSync(output, source.trimStart());
 console.log(
-  `Generated ${providerConstructors.length} CinePro Core providers from ${providerEntries.length} modules`,
+  `Generated ${constructors.length} CinePro Core providers from ${providerEntries.length} modules`,
 );
