@@ -98,19 +98,19 @@ jobs:
         env:
           VERCEL_TOKEN: \${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
-          VERCEL_TEAM_ID: team_k6ix2FuZObAmwiIzZfdjyz0U
+          VERCEL_TEAM_SLUG: zaidzaid2013333-1693
         run: |
           python - <<'PY'
           import json, os, urllib.parse, urllib.request
 
           token = os.environ.get('VERCEL_TOKEN', '').strip()
           project_id = os.environ['VERCEL_PROJECT_ID']
-          team_id = os.environ['VERCEL_TEAM_ID']
+          team_slug = os.environ['VERCEL_TEAM_SLUG']
           if not token:
               raise SystemExit('VERCEL_TOKEN GitHub secret is required.')
 
           base = f'https://api.vercel.com/v1/projects/{project_id}/routes'
-          query = urllib.parse.urlencode({'teamId': team_id})
+          query = urllib.parse.urlencode({'slug': team_slug})
           headers = {
               'Authorization': 'Bearer ' + token,
               'Accept': 'application/json',
