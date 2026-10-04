@@ -1,0 +1,39 @@
+name: CinePro Smoke
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test CinePro Core
+        shell: bash
+        run: |
+          set -euo pipefail
+          for url in             "https://movyz-cinepro-core-live.onrender.com/v1/movies/27205"             "https://movyz-cinepro-core-live.onrender.com/v1/tv/1399/seasons/1/episodes/1"; do
+            echo "=== $url ==="
+            code=$(curl -L -sS --max-time 60 -o /tmp/body.txt -w "%{http_code}" "$url")
+            echo "HTTP $code"
+            head -c 6000 /tmp/body.txt || true
+            echo
+            test "$code" = "200"
+            grep -q '"sources"' /tmp/body.txt
+          done
+
+      - name: Test Movyz playback bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          for url in             "https://movyz-api.sameranede.workers.dev/api/v1/movies/tmdb/27205"             "https://movyz-api.sameranede.workers.dev/api/v1/series/tmdb/1399/watch/1/1"; do
+            echo "=== $url ==="
+            code=$(curl -L -sS --max-time 60 -o /tmp/body.txt -w "%{http_code}" "$url")
+            echo "HTTP $code"
+            head -c 10000 /tmp/body.txt || true
+            echo
+            test "$code" = "200"
+            grep -q '"sources"' /tmp/body.txt
+            ! grep -q '"sources":\[\]' /tmp/body.txt
+          done
