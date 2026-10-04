@@ -66,9 +66,9 @@ jobs:
             schedules=$(curl --fail-with-body --silent --show-error \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$id/schedules")
-            count=$(printf '%s' "$schedules" | jq '.result | length')
+            count=$(printf '%s' "$schedules" | jq '.result.schedules | length')
             if [ "$count" -gt 0 ]; then
-              crons=$(printf '%s' "$schedules" | jq -r '[.result[].cron] | join(",")')
+              crons=$(printf '%s' "$schedules" | jq -r '[.result.schedules[].cron] | join(",")')
               echo "$id => $crons"
             fi
           done
