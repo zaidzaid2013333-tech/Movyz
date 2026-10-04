@@ -29,14 +29,7 @@ type Media = {
   referer?: string;
 };
 
-const AKWAM_HOSTS = new Set([
-  "akwam.ss",
-  "www.akwam.ss",
-  "ak.sv",
-  "www.ak.sv",
-  "akwam.it",
-  "www.akwam.it",
-]);
+const AKWAM_HOSTS = new Set(["akwam.ss", "www.akwam.ss"]);
 
 function isAkwamUrl(value: string) {
   try {
@@ -48,7 +41,7 @@ function isAkwamUrl(value: string) {
 }
 
 function base(env: Env) {
-  return (env.AKWAM_BASE_URL || "https://ak.sv").replace(/\/+$/, "");
+  return "https://akwam.ss";
 }
 
 function headers(env: Env) {
@@ -226,12 +219,7 @@ async function findCandidate(
   year?: number,
   expected: "movie" | "series" | "episode" = "movie",
 ) {
-  const hosts = [
-    base(env),
-    "https://ak.sv",
-    "https://akwam.ss",
-    "https://akwam.it",
-  ].filter((x, i, all) => all.indexOf(x) === i);
+  const hosts = [base(env)];
 
   let best: { item: Candidate; score: number } | null = null;
   const diagnostics: string[] = [];
@@ -251,7 +239,7 @@ async function findCandidate(
       if (best && best.score >= 128) return best.item;
     }
 
-    // Only fall back to the verified legacy search route on the configured host.
+    // Legacy search is allowed only on the single verified host, as a last resort.
     if (host === base(env)) {
       for (const title of variants.slice(0, 1)) {
         const html = await fetchText(env, host + "/old/search/" + encodeURIComponent(title), diagnostics);
@@ -770,7 +758,7 @@ export default {
         return Response.json({ ok: true, trigger: "batch", ...result });
       }
 
-      return Response.json({ ok: true, service: "movyz-akwam-prefill", mode: "db-only", parallel_jobs: 3, fanout: 6 });
+      return Response.json({ ok: true, service: "movyz-akwam-prefill", mode: "db-only", parallel_jobs: 1, fanout: 6, akwam_host: "akwam.ss" });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("[akwam-prefill]", message);
