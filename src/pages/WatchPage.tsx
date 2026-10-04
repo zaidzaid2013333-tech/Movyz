@@ -724,8 +724,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             hls.destroy();
             playbackEngineRef.current = null;
           });
-          hls.loadSource(playbackUrl);
           hls.attachMedia(video);
+          hls.loadSource(playbackUrl);
           return;
         }
 
@@ -780,7 +780,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current = null;
       video.pause();
     };
-  }, [playbackUrl, playbackSource?.type, language, availableSources]);
+  }, [playbackUrl, playbackSource?.type, language]);
 
   useEffect(() => {
     if (isEmbedPlayback) {
@@ -1132,6 +1132,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               ) : null}
               <video
                 ref={videoRef}
+                playsInline
                 poster={content.backdropUrl || content.posterUrl}
                 className={(isEmbedPlayback ? 'hidden ' : '') + 'block h-full w-full bg-black object-contain'}
                 playsInline
