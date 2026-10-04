@@ -1,3 +1,60 @@
+## Verified live-site fingerprint (2026-10-04)
+The current `https://akwam.ss` structure was checked against live indexed pages before updating the worker.
+
+### Canonical content layers
+1. **Movie detail:** `/movie/<id>/<slug>`
+   - The current movie detail page exposes one or more quality rows such as 1080p/720p/480p and separate **مشاهدة** / **تحميل** actions.
+2. **Series detail:** `/series/<id>/<slug>`
+   - The series page lists episode links and can contain hundreds of episodes.
+3. **Episode detail:** `/episode/<id>/<slug>/الحلقة-<n>`
+   - The episode page exposes the available qualities and separate **مشاهدة** / **تحميل** actions.
+4. **Watch page:** `/watch/<watch-id>/<episode-id>/<slug>`
+   - A watch page is an intermediate player page. The final media is inside its player HTML/config (for the observed current site, a final MP4 is exposed through the player/source layer).
+5. **Final media:** the URL observed inside the watch/download result is the only playable artifact. Validate it before storing it.
+
+Examples verified from the live site include the current One Piece series and episode 1168 pages, and current movie pages such as Interstellar. The site also still exposes legacy `/old/` pages; those are historical pages, not the canonical current catalog path, and must not win candidate selection. citeturn333770search0turn333770search1turn298131search0
+
+### Deterministic route
+For **episodes**, the worker must follow:
+`TMDB metadata -> Akwam /series candidate -> exact /episode/ link -> /watch/ or /download/ target -> final media -> validation -> Supabase`
+
+For **movies**:
+`TMDB metadata -> Akwam /movie candidate -> /watch/ or /download/ target -> final media -> validation -> Supabase`
+
+Never jump directly from a search result to a guessed media URL.
+
+### Candidate identity rules
+- For an episode job, accept only a current `/series/` candidate whose title/slug matches the requested title strongly.
+- For a movie job, accept only a current `/movie/` candidate whose title/slug matches strongly.
+- The URL slug is a first-class title signal because Akwam action anchors can contain generic labels such as **مشاهدة** rather than the content title.
+- Year is a tie-breaker only after title identity is established. A matching year must never rescue an unrelated title.
+- Never accept `/old/` candidates as the canonical content source.
+- Normalize Arabic letters/digits, URL-decode, decode HTML entities, and compare title + slug before selecting a candidate.
+
+### Episode rules
+- Prefer the exact observed `/episode/` href from the series page.
+- Match the requested episode number in both link text and URL path.
+- Treat decimal specials (for example `1168.5`) as different from integer episode `1168`.
+- Season identity is a secondary confirmation when explicit; never infer a season from a large page-wide neighborhood.
+- After finding the exact episode, fetch that episode page and only then inspect its watch/download actions.
+
+### Extraction rules
+- On movie/episode detail pages, rank **/watch/** targets first, then **/download/**, then **/link/**.
+- On watch pages, inspect `<video>`, `<source>`, player/config values, and observed media-looking URLs.
+- Accept observed `.m3u8`, `.mp4`, `.mpd`, `.webm`, or a non-extension URL only when response validation proves it is media.
+- Never store an iframe, watch page, download page, episode page, or HTML/JSON response as a playback source.
+- Preserve an observed Akwam watch-page URL only as validation referer metadata when required; the stored playback URL remains the final media URL.
+
+### Validation rules
+- Final URL must be HTTPS.
+- Use a bounded Range request and inspect only a small prefix.
+- Reject HTML/challenge/captcha/Cloudflare responses.
+- HLS must expose `#EXTM3U`.
+- DASH must expose an MPD/XML manifest.
+- WebM must have WebM MIME/signature.
+- MP4/direct must have a video/octet-stream MIME or a valid MP4 `ftyp` signature.
+- Never mark a job successful until at least one final media URL passes validation and is written to `playback_sources`.
+
 # Movyz Akwam Extraction Playbook
 
 ## Purpose
@@ -6,8 +63,8 @@ It is a context-learning layer, not model-weight fine-tuning. Training/maintenan
 
 ## Hard invariants
 1. Allowed Akwam origin: https://akwam.ss only.
-2. Discovery may happen on-demand for the requested movie/episode, or optionally during background prewarm. Live playback uses HTTP-only deterministic discovery; it never uses Browser Run.
-3. Never persist Akwam media URLs in Supabase playback_sources as the playback authority. Search pages, series pages, episode pages, iframes, embeds, /download pages, /link pages, HTML or JSON are never playback media. Temporary edge-cache entries and short-lived signed redirect tokens are allowed.
+2. Discovery happens in the background prefill worker only. Live playback is DB-only: it reads already validated prepared sources and never performs source discovery.
+3. Store only the validated final media URL in Supabase playback_sources. Search pages, series pages, episode pages, iframes, embeds, /download pages, /link pages, HTML or JSON are never playback media.
 4. A candidate URL is not success. Success means a final HTTPS media URL passes deterministic media validation.
 5. Preserve healthy qualities. Refresh only qualities that were actually rediscovered and validated.
 6. Never invent or mutate an Akwam URL that was not observed from a verified page/tool result.
@@ -18,9 +75,9 @@ It is a context-learning layer, not model-weight fine-tuning. Training/maintenan
 Use a bounded staged sequence. Stay below the request/subrequest budget of the Worker; do not burst every route concurrently.
 
 A) Known exact page
-- Prefer a verified season URL when one is known.
-- For a series, prefer /series/<id>/... pages.
-- For an episode, prefer /episode/<id>/... pages.
+- For a series, prefer /series/<id>/<slug> pages.
+- For an episode, use the exact /episode/<id>/<slug>/الحلقة-<n> href found on the matching series page.
+- For a movie, use /movie/<id>/<slug> pages.
 
 B) Search routes
 Try one route family at a time and stop as soon as credible candidates appear:
