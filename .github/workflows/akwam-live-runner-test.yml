@@ -23,6 +23,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - name: Check worker
+        # media-response-retest
         # post-deploy verification
         run: |
           set -euo pipefail
