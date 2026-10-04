@@ -9,7 +9,7 @@
   },
   "vars": {
     "PUBLIC_URL": "https://movyz-cinepro.sameranede.workers.dev",
-    "NODE_ENV": "production",
+    "NODE_ENV": "test",
     "HOST": "0.0.0.0",
     "PORT": "8787",
     "CACHE_TYPE": "memory",
