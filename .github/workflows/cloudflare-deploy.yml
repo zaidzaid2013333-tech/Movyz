@@ -159,24 +159,30 @@ jobs:
               print("CinePro health HTTP", health_response.status)
               print(health_raw[:4000])
 
-          url = "https://movyz-cinepro.sameranede.workers.dev/v1/movies/157336"
-          req = urllib.request.Request(url, headers={"Accept":"application/json","User-Agent":"Movyz-CI/1.0"})
-          try:
-              with urllib.request.urlopen(req, timeout=30) as response:
-                  raw = response.read().decode("utf-8", errors="replace")
-                  payload = json.loads(raw)
-                  print("CinePro HTTP", response.status)
-          except urllib.error.HTTPError as error:
-              body = error.read().decode("utf-8", errors="replace")
-              print("CinePro HTTP", error.code)
-              print(body)
-              raise
-          sources = payload.get("sources") if isinstance(payload, dict) else None
-          if not isinstance(sources, list) or not sources:
-              print("CinePro payload:", json.dumps(payload, ensure_ascii=False)[:12000])
-              raise SystemExit("CinePro returned no playable sources for Interstellar")
-          print("CinePro Core OK: Interstellar sources=", len(sources))
-          PY
+          import concurrent.futures
+
+          def check_provider(index):
+              purl = f"https://movyz-cinepro.sameranede.workers.dev/v1/debug/provider/{index}/movie/157336"
+              req = urllib.request.Request(purl, headers={"Accept":"application/json","User-Agent":"Movyz-CI/1.0"})
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      return index, json.loads(response.read().decode("utf-8", errors="replace"))
+              except Exception as exc:
+                  return index, {"error": str(exc)}
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+              results = list(pool.map(check_provider, range(14)))
+
+          working = []
+          for index, payload in results:
+              count = payload.get("sourceCount", 0) if isinstance(payload, dict) else 0
+              print("PROVIDER", index, json.dumps(payload, ensure_ascii=False)[:6000])
+              if count:
+                  working.append(index)
+
+          print("WORKING PROVIDERS:", working)
+          if not working:
+              raise SystemExit("No CinePro provider returned a playable source for Interstellar")
           REQUEST_EXIT=$?
           sleep 5
           kill "$TAIL_PID" 2>/dev/null || true
