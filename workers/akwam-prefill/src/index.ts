@@ -132,30 +132,33 @@ function parseCandidates(html: string, env: Env): Candidate[] {
 }
 
 async function findCandidate(env: Env, titles: string[], year?: number) {
+  const routesFor = (encoded: string) => [
+    base(env) + "/search?q=" + encoded,
+    base(env) + "/search?query=" + encoded,
+    base(env) + "/search?keyword=" + encoded,
+    base(env) + "/search/" + encoded,
+    base(env) + "/old/search/" + encoded,
+  ];
+
   for (const title of titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3)) {
     const encoded = encodeURIComponent(title);
-    const routes = [
-      base(env) + "/search?q=" + encoded,
-      base(env) + "/search?query=" + encoded,
-      base(env) + "/search?keyword=" + encoded,
-      base(env) + "/search/" + encoded,
-      base(env) + "/old/search/" + encoded,
-    ];
 
-    const pages = await Promise.all(routes.map((url) => fetchText(env, url)));
-    const ranked = pages
-      .filter((html): html is string => Boolean(html))
-      .flatMap((html) => parseCandidates(html, env))
-      .filter((item, index, all) => all.findIndex((x) => x.url === item.url) === index)
-      .map((item) => ({ item, score: score(item, titles, year) }))
-      .sort((a, b) => b.score - a.score);
+    for (const url of routesFor(encoded)) {
+      const html = await fetchText(env, url);
+      if (!html) continue;
 
-    if (ranked[0] && ranked[0].score >= 55) return ranked[0].item;
+      const ranked = parseCandidates(html, env)
+        .map((item) => ({ item, score: score(item, titles, year) }))
+        .sort((a, b) => b.score - a.score);
+
+      if (ranked[0] && ranked[0].score >= 55) {
+        return ranked[0].item;
+      }
+    }
   }
 
   return null;
 }
-
 function extractMediaLikeUrls(text: string) {
   return Array.from(new Set(
     text.match(/https?:\/\/[^\s"'<>]+?\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?/gi) || []
