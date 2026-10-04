@@ -36,7 +36,8 @@ jobs:
 
       - name: Interstellar sources
         run: |
-          curl -fsS --max-time 90 "https://movyz-media-core.sameranede.workers.dev/v1/movies/157336" > /tmp/interstellar.json
+          curl -sS --max-time 90 "https://movyz-media-core.sameranede.workers.dev/v1/movies/157336" > /tmp/interstellar.json
+          cat /tmp/interstellar.json
           python - <<'PY'
           import json, sys
           p=json.load(open('/tmp/interstellar.json'))
