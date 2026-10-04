@@ -222,27 +222,41 @@ async function findCandidate(
   year?: number,
   expected: "movie" | "series" | "episode" = "movie",
 ) {
-  const routesFor = (encoded: string) => [
-    base(env) + "/search?q=" + encoded,
-    base(env) + "/search?query=" + encoded,
-    base(env) + "/search?keyword=" + encoded,
-    base(env) + "/search/" + encoded,
-    base(env) + "/old/search/" + encoded,
-  ];
+  const hosts = [
+    base(env),
+    "https://ak.sv",
+    "https://akwam.ss",
+    "https://akwam.it",
+  ].filter((x, i, all) => all.indexOf(x) === i);
 
   let best: { item: Candidate; score: number } | null = null;
-  const variants = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 5);
+  const variants = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
 
-  for (const title of variants) {
-    const encoded = encodeURIComponent(title);
-    for (const url of routesFor(encoded)) {
+  for (const host of hosts) {
+    for (const title of variants) {
+      const url = host + "/search?q=" + encodeURIComponent(title);
       const html = await fetchText(env, url);
       if (!html) continue;
+
       for (const item of parseCandidates(html, env)) {
         const itemScore = score(item, titles, year, expected);
         if (!best || itemScore > best.score) best = { item, score: itemScore };
       }
+
       if (best && best.score >= 128) return best.item;
+    }
+
+    // Only fall back to the verified legacy search route on the configured host.
+    if (host === base(env)) {
+      for (const title of variants.slice(0, 1)) {
+        const html = await fetchText(env, host + "/old/search/" + encodeURIComponent(title));
+        if (!html) continue;
+        for (const item of parseCandidates(html, env)) {
+          const itemScore = score(item, titles, year, expected);
+          if (!best || itemScore > best.score) best = { item, score: itemScore };
+        }
+        if (best && best.score >= 128) return best.item;
+      }
     }
   }
 
