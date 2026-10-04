@@ -51,5 +51,13 @@ jobs:
       - name: Deploy Akwam DB prefill worker
         run: npx wrangler deploy -c workers/akwam-prefill/wrangler.toml --secrets-file .env.akwam-prefill
 
+      - name: Smoke one Akwam prefill batch
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          curl --fail-with-body --max-time 90 -X POST \
+            -H "x-movyz-prefill-key: $SUPABASE_SERVICE_ROLE_KEY" \
+            https://movyz-akwam-prefill.sameranede.workers.dev/
+
       - if: always()
         run: rm -f .env.akwam-prefill
