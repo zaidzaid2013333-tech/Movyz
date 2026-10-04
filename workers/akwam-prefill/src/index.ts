@@ -8,6 +8,7 @@ type Env = {
   AKWAM_BASE_URL: string;
   MAX_JOBS_PER_RUN: string;
   PREFILL_CONCURRENCY?: string;
+  PREFILL_FANOUT?: string;
 };
 
 type Job = {
@@ -817,9 +818,11 @@ async function run(env: Env, workerId: string) {
 }
 
 const PREFILL_PUBLIC_URL = "https://movyz-akwam-prefill.sameranede.workers.dev/";
+const DEFAULT_FANOUT = 10;
 
 async function fanout(env: Env) {
-  const requests = Array.from({ length: 6 }, () =>
+  const count = Math.max(1, Math.min(20, Number(env.PREFILL_FANOUT || DEFAULT_FANOUT)));
+  const requests = Array.from({ length: count }, () =>
     fetch(PREFILL_PUBLIC_URL, {
       method: "POST",
       headers: {
@@ -833,6 +836,7 @@ async function fanout(env: Env) {
   return {
     launched: settled.length,
     accepted: settled.filter((r) => r.status === "fulfilled").length,
+    rejected: settled.filter((r) => r.status === "rejected").length,
   };
 }
 export default {
@@ -864,8 +868,11 @@ export default {
   },
 
   async scheduled(_event: unknown, env: Env, ctx: ExecutionContextLike) {
-    const workerId = `cf-cron-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-    ctx.waitUntil(run(env, workerId).catch((error) => console.error("[akwam-prefill]", String(error))));
+    // Cron is only an orchestrator. Work is fanned out into independent requests
+    // so one long episode lookup cannot block the whole queue.
+    ctx.waitUntil(
+      fanout(env).catch((error) => console.error("[akwam-prefill]", String(error)))
+    );
   }
 };
 
