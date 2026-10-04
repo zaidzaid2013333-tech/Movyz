@@ -577,6 +577,26 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
   return best?.url || null;
 }
 
+function targetResolutionScore(raw: string) {
+  try {
+    const path = new URL(raw).pathname.toLowerCase();
+    if (/(?:\\.m3u8|\\.mp4|\\.mpd|\\.webm)(?:\\?|$)/i.test(path)) return 260;
+    if (/^\\/(?:download|link)\\//i.test(path)) return 220;
+    if (/^\\/watch\\//i.test(path)) return 170;
+    if (/^\\/(?:episode|show\\/episode)\\//i.test(path)) return 150;
+    return 10;
+  } catch {
+    return 0;
+  }
+}
+
+function usefulResolutionTargets(targets: string[], limit = 6) {
+  return Array.from(new Set(targets))
+    .filter((url) => targetResolutionScore(url) > 10)
+    .sort((a, b) => targetResolutionScore(b) - targetResolutionScore(a))
+    .slice(0, limit);
+}
+
 function extractTargets(html: string, baseUrl: string) {
   const ranked: Array<{ url: string; score: number }> = [];
   const seen = new Set<string>();
@@ -794,8 +814,8 @@ async function resolveTarget(env: Env, target: string, referer?: string): Promis
     }
 
     if (current.depth >= 3) continue;
-    const nestedTargets = extractTargets(html, current.url);
-    for (const nested of nestedTargets.slice(0, 8)) {
+    const nestedTargets = usefulResolutionTargets(extractTargets(html, current.url), 6);
+    for (const nested of nestedTargets) {
       if (seen.has(nested)) continue;
       let nestedUrl: URL;
       try { nestedUrl = new URL(nested); } catch { continue; }
@@ -863,7 +883,8 @@ async function discover(env: Env, job: Job, ctx: any) {
 
   const medias: Media[] = [];
   const sourceReferer = candidate.url;
-  for (const target of targets.slice(0, 10)) {
+  const resolutionTargets = usefulResolutionTargets(targets, 6);
+  for (const target of resolutionTargets) {
     const media = await resolveTarget(env, target, sourceReferer);
     if (!media || !(await validateMedia(env, media))) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);
