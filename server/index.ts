@@ -10,7 +10,7 @@ const api = '/api/v1';
 
 app.disable('x-powered-by');
 
-// Playback backend: MediaMash Core only; legacy source adapters removed.
+// Playback backend: MediaMash Core only; legacy source adapters removed. End-to-end verification uses the live /api/v1/watch path.
 
 // Production diagnostics for the selected playback-sites path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
