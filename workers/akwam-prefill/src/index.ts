@@ -778,4 +778,4 @@ export default {
   }
 };
 
-export { run, findCandidate, parseCandidates };
+export { run, findCandidate, parseCandidates, isAkwamUrl, candidateKind };
