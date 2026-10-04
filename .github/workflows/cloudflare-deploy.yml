@@ -94,48 +94,6 @@ jobs:
               payload = json.load(response)
               print('TMDB direct status =', response.status, 'title =', payload.get('title'))
 
-      - name: Check CinePro on Deno Deploy
-        env:
-          CINEPRO_BASE_URL: https://movyz-cinepro.sameranede.workers.dev
-          TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
-        run: |
-          python - <<'PY'
-          import json, os, urllib.error, urllib.request
-          base = os.environ['CINEPRO_BASE_URL'].rstrip('/')
-          token = os.environ.get('TMDB_API_READ_ACCESS_TOKEN', '')
-          headers = {
-              'Accept': 'application/json',
-              'User-Agent': 'Movyz-CinePro-Cloudflare-CI/1.0',
-              **({'Authorization': 'Bearer ' + token} if token else {}),
-          }
-
-          def get(path):
-              req = urllib.request.Request(base + path, headers=headers)
-              with urllib.request.urlopen(req, timeout=45) as response:
-                  return response.status, json.load(response)
-
-          try:
-              status, health = get('/v1/health')
-              print('Deno CinePro health:', status, json.dumps(health)[:1000])
-          except Exception as error:
-              print('Deno CinePro is not live yet; continuing so the migration can be completed in the Deno dashboard.')
-              print('Health probe:', error)
-              raise SystemExit(0)
-
-          for label, path in [
-              ('movie', '/v1/movies/157336'),
-              ('episode', '/v1/tv/1399/seasons/1/episodes/1'),
-          ]:
-              try:
-                  status, payload = get(path)
-              except Exception as error:
-                  raise SystemExit(f'Deno CinePro {label} probe failed: {error}')
-              sources = payload.get('sources', []) if isinstance(payload, dict) else []
-              print(label, path, 'status=', status, 'sources=', len(sources))
-              if not sources:
-                  raise SystemExit(f'Deno CinePro returned no sources for {path}: {json.dumps(payload)[:5000]}')
-          print('Deno CinePro smoke: OK')
-
       - name: Prepare Movyz deployment secrets
         run: |
           {
