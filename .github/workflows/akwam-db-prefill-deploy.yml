@@ -174,21 +174,24 @@ jobs:
         with:
           node-version: 22
 
-      - name: Debug Akwam search structure
+      - name: Debug Akwam parser on Interstellar
         run: |
-          curl -L --max-time 25 -sS \
-            -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36' \
-            -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' \
-            -H 'Accept-Language: ar,en;q=0.9' \
-            'https://akwam.ss/search?q=Interstellar' > /tmp/akwam-search.html
-          node - <<'NODE'
-          const fs = require('fs');
-          const html = fs.readFileSync('/tmp/akwam-search.html','utf8');
-          const anchors = [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
-            .map(m => ({href:m[1], text:m[2].replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()}));
-          const hits = anchors.filter(x => /\/movie\/|\/series\/|\/episode\//i.test(x.href));
-          console.log(JSON.stringify({bytes:html.length,anchors:anchors.length,hits:hits.length,sample:hits.slice(0,20)},null,2));
-          NODE
+          npx tsx -e '
+          import { findCandidate, parseCandidates } from "./workers/akwam-prefill/src/index.ts";
+          const env = { SUPABASE_URL:"x", SUPABASE_SERVICE_ROLE_KEY:"x", AKWAM_BASE_URL:"https://akwam.ss", MAX_JOBS_PER_RUN:"1" };
+          const html = await fetch("https://akwam.ss/search?q=Interstellar", {
+            headers: {
+              "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36",
+              "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "Accept-Language":"ar,en;q=0.9",
+              "Referer":"https://akwam.ss"
+            }
+          }).then(r => r.text());
+          const candidates = parseCandidates(html, env);
+          console.log(JSON.stringify({bytes:html.length,candidates:candidates.slice(0,10)},null,2));
+          try { console.log("BEST", await findCandidate(env, ["Interstellar","بين النجوم","Interstellar"], 2014, "movie")); }
+          catch(e) { console.log("FIND_ERROR", String(e)); }
+          ';
 
       - run: npm install --ignore-scripts --no-audit --no-fund
 
