@@ -83,10 +83,13 @@ async function claim(env: Env, workerId: string): Promise<Job | null> {
   return Array.isArray(rows) && rows[0] ? (rows[0] as Job) : null;
 }
 
-async function fetchText(env: Env, url: string, diagnostics?: string[]): Promise<string | null> {
+async function fetchText(env: Env, url: string, diagnostics?: string[], referer?: string): Promise<string | null> {
   try {
     const response = await fetch(url, {
-      headers: headers(env),
+      headers: {
+        ...headers(env),
+        ...(referer ? { Referer: referer } : {}),
+      },
       redirect: "follow",
       signal: AbortSignal.timeout(7000),
     });
@@ -752,8 +755,8 @@ async function validateMedia(env: Env, media: Media) {
   }
 }
 
-async function resolveTarget(env: Env, target: string): Promise<Media | null> {
-  const queue: Array<{ url: string; referer?: string; depth: number }> = [{ url: target, depth: 0 }];
+async function resolveTarget(env: Env, target: string, referer?: string): Promise<Media | null> {
+  const queue: Array<{ url: string; referer?: string; depth: number }> = [{ url: target, referer, depth: 0 }];
   const seen = new Set<string>();
 
   while (queue.length) {
@@ -764,7 +767,7 @@ async function resolveTarget(env: Env, target: string): Promise<Media | null> {
     const direct = mediaFromUrl(current.url, current.referer);
     if (await validateMedia(env, direct)) return direct;
 
-    const html = await fetchText(env, current.url);
+    const html = await fetchText(env, current.url, undefined, current.referer);
     if (!html) continue;
 
     // Akwam's download pages expose the real provider URL through the
@@ -859,8 +862,9 @@ async function discover(env: Env, job: Job, ctx: any) {
   }
 
   const medias: Media[] = [];
+  const sourceReferer = candidate.url;
   for (const target of targets.slice(0, 10)) {
-    const media = await resolveTarget(env, target);
+    const media = await resolveTarget(env, target, sourceReferer);
     if (!media || !(await validateMedia(env, media))) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);
     if (medias.length >= 3) break;
