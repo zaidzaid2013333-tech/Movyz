@@ -67,10 +67,14 @@ async function getCineProPlaybackSources(
         Number(episode.episode_number);
     }
 
+    const tmdbBearer = String(
+      env?.TMDB_API_READ_ACCESS_TOKEN || process.env.TMDB_API_READ_ACCESS_TOKEN || '',
+    ).trim();
     const response = await fetch(endpoint, {
       headers: {
         Accept: 'application/json',
         'User-Agent': 'Movyz-CinePro-Bridge/1.0',
+        ...(tmdbBearer ? { Authorization: 'Bearer ' + tmdbBearer } : {}),
       },
       signal: AbortSignal.timeout(25000),
     });
