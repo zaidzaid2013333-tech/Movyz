@@ -103,7 +103,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
     series.seasons[0];
 
   return (
-    <div className="space-y-12 pb-16 animate-in fade-in duration-300">
+    <div className="movyza-shell space-y-12 pb-20 animate-in fade-in duration-300">
       {/* Toast Notice */}
       {toastMessage && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-amber-500 text-slate-950 font-bold px-4 py-2 rounded-xl shadow-2xl text-xs flex items-center gap-2">
@@ -114,7 +114,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
 
       {/* Bespoke Showcase Frame */}
       <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-2">
-        <div className="relative rounded-3xl overflow-hidden bg-[#07090e] border border-amber-500/15 shadow-2xl">
+        <div className="movyza-detail-hero relative rounded-3xl overflow-hidden bg-[#07090e]">
           {/* Anamorphic Backdrop & Content */}
           <div className="relative min-h-[440px] lg:min-h-[500px] flex flex-col justify-end p-6 sm:p-10 lg:p-12">
             <img
