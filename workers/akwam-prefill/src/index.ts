@@ -48,7 +48,7 @@ function isAkwamUrl(value: string) {
 }
 
 function base(env: Env) {
-  return (env.AKWAM_BASE_URL || "https://akwam.ss").replace(/\/+$/, "");
+  return (env.AKWAM_BASE_URL || "https://akwam.it").replace(/\/+$/, "");
 }
 
 function headers(env: Env) {
