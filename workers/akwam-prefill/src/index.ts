@@ -342,7 +342,7 @@ async function findCandidate(
 function extractMediaLikeUrls(text: string) {
   const decoded = decodeHtml(text);
   return Array.from(new Set(
-    decoded.match(/https?:\\/[^\s"'<>]+/gi) || [],
+    decoded.match(/https?:\/\/[^\s"'<>]+/gi) || [],
   ));
 }
 
@@ -428,7 +428,7 @@ function extractMediaCandidates(text: string, baseUrl: string) {
     addUrlCandidate(out, seen, url, baseUrl, 150, nearby);
   }
 
-  const quotedAbsolute = /["'](https?:\\/\\/[^"'<>\\s]+)["']/gi;
+  const quotedAbsolute = /["'](https?:\/\/[^"'<>]+)["']/gi;
   while ((match = quotedAbsolute.exec(decoded))) {
     const raw = match[1];
     if (isLikelyNavigationUrl(raw)) continue;
