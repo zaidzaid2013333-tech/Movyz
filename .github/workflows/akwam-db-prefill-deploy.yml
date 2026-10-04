@@ -6,7 +6,6 @@ on:
     branches: ["main"]
     paths:
       - "workers/akwam-prefill/**"
-      - "workers/akwam-launcher/**"
       - "scripts/run-akwam-prefill.ts"
       - ".github/workflows/akwam-db-prefill-deploy.yml"
   schedule:
@@ -110,12 +109,6 @@ jobs:
 
       - name: Deploy Akwam DB prefill worker
         run: npx wrangler deploy -c workers/akwam-prefill/wrangler.toml --secrets-file .env.akwam-prefill
-
-      - name: Deploy three Akwam launcher workers into existing Cron slots
-        run: |
-          for name in movyz-akwam-launcher-1 chachty chachty-content-sync; do
-            npx --yes wrangler@4.140.0 deploy -c workers/akwam-launcher/wrangler.toml --name "$name" --secrets-file .env.akwam-prefill
-          done
 
       - name: Inventory existing Cloudflare Cron triggers
         env:
