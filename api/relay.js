@@ -184,6 +184,116 @@ function retryModesFor(target) {
   return preferred ? [preferred, ...modes.filter((mode) => mode !== preferred)] : modes;
 }
 
+function probeHeaders(forwardedHeaders, mode, target, range) {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(forwardedHeaders || {})) {
+    if (!FORWARDED_REQUEST_HEADERS.has(key.toLowerCase())) continue;
+    if (typeof value === 'string') headers.set(key, value);
+  }
+
+  if (mode === 'relaxed') {
+    headers.delete('origin');
+    headers.delete('referer');
+    headers.set('accept', '*/*');
+  }
+
+  if (mode === 'same-origin') {
+    headers.delete('origin');
+    headers.set('referer', target.origin + '/');
+    headers.set('accept', '*/*');
+  }
+
+  if (mode === 'browser') {
+    headers.delete('origin');
+    headers.delete('referer');
+    headers.set('accept', '*/*');
+    headers.set('accept-language', 'en-US,en;q=0.9');
+    headers.set(
+      'user-agent',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    );
+  }
+
+  if (range) headers.set('range', range);
+  return headers;
+}
+
+async function fetchProbeTarget(target, forwardedHeaders, range = '') {
+  const modes = ['original', 'relaxed'];
+  let lastError = null;
+
+  for (const mode of modes) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3500);
+    try {
+      const response = await fetch(target, {
+        method: 'GET',
+        headers: probeHeaders(forwardedHeaders, mode, target, range),
+        redirect: 'follow',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+
+      if (response.ok || response.status === 206) return response;
+      if (![403, 408, 429, 500, 502, 503, 504, 522, 524].includes(response.status)) return response;
+    } catch (error) {
+      lastError = error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  throw lastError || new Error('Probe upstream request failed');
+}
+
+async function probePlayableTarget(rawTarget, forwardedHeaders, depth = 0) {
+  if (depth > 2) return { playable: false, reason: 'max-depth' };
+  const target = validateTarget(rawTarget);
+  const response = await fetchProbeTarget(target, forwardedHeaders);
+
+  if (!(response.status === 200 || response.status === 206)) {
+    return { playable: false, reason: 'status-' + response.status };
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  const manifestLike =
+    /mpegurl|m3u8|vnd\.apple\.mpegurl/i.test(contentType) ||
+    /\.m3u8(?:$|\?)/i.test(target.toString());
+
+  if (!manifestLike) {
+    const sample = await response.arrayBuffer();
+    return { playable: sample.byteLength > 64, reason: 'media-bytes-' + sample.byteLength };
+  }
+
+  const body = await response.text();
+  if (!body.trimStart().startsWith('#EXTM3U')) {
+    return { playable: false, reason: 'invalid-manifest' };
+  }
+
+  const lines = body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+
+  if (!lines.length) return { playable: false, reason: 'empty-manifest' };
+
+  const child = new URL(lines[0], target.toString());
+  if (/\.m3u8(?:$|\?)/i.test(child.toString())) {
+    return probePlayableTarget(child.toString(), forwardedHeaders, depth + 1);
+  }
+
+  const segmentResponse = await fetchProbeTarget(child, forwardedHeaders, 'bytes=0-65535');
+  if (!(segmentResponse.status === 200 || segmentResponse.status === 206)) {
+    return { playable: false, reason: 'segment-status-' + segmentResponse.status };
+  }
+
+  const sample = await segmentResponse.arrayBuffer();
+  return {
+    playable: sample.byteLength > 64,
+    reason: 'segment-bytes-' + sample.byteLength,
+  };
+}
+
 async function fetchUpstream(req, target, forwardedHeaders) {
   const modes = retryModesFor(target);
   let lastResponse = null;
@@ -236,11 +346,12 @@ export default async function handler(req, res) {
 
   const rawUrl = Array.isArray(req.query?.url) ? req.query.url[0] : req.query?.url;
   const rawHeaders = Array.isArray(req.query?.headers) ? req.query.headers[0] : req.query?.headers;
+  const probe = String(Array.isArray(req.query?.probe) ? req.query.probe[0] : req.query?.probe || '') === '1';
 
   if (!rawUrl) {
     return sendJson(res, 200, {
       name: 'Movyz Media Relay',
-      version: '1.0.2',
+      version: '1.0.3',
       status: 'ok',
       runtime: 'vercel-node',
     });
@@ -249,6 +360,16 @@ export default async function handler(req, res) {
   try {
     const target = validateTarget(String(rawUrl));
     const upstreamRequestHeaders = parseHeaders(rawHeaders ? String(rawHeaders) : '');
+
+    if (probe) {
+      const result = await probePlayableTarget(target.toString(), upstreamRequestHeaders);
+      return sendJson(res, result.playable ? 200 : 422, {
+        status: result.playable ? 'ok' : 'unplayable',
+        playable: result.playable,
+        reason: result.reason,
+      });
+    }
+
     const upstream = await fetchUpstream(req, target, upstreamRequestHeaders);
 
     const contentType = upstream.headers.get('content-type') || '';
