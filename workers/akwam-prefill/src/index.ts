@@ -321,8 +321,8 @@ async function findCandidate(
   titles: string[],
   year?: number,
   expected: "movie" | "series" | "episode" = "movie",
-  budget?: RequestBudget,
   expectedSeason?: number,
+  budget?: RequestBudget,
 ) {
   const hosts = [base(env)];
 
