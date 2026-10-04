@@ -25,7 +25,7 @@ const cinepro = new OMSSServer({
     },
   },
   tmdb: {
-    apiKey: process.env.TMDB_API_KEY,
+    apiKey: process.env.TMDB_API_KEY || 'movyz-tmdb-bearer-compat',
     cacheTTL: Number(process.env.TMDB_CACHE_TTL ?? 86400),
   },
   proxyConfig: {
@@ -50,6 +50,85 @@ const cinepro = new OMSSServer({
 });
 
 globalThis.setInterval = nativeSetInterval;
+
+const tmdbBearer = (process.env.TMDB_API_READ_ACCESS_TOKEN || '').trim();
+
+if (tmdbBearer) {
+  const tmdbService = (cinepro as any).tmdbService;
+  const tmdbFetch = async (path: string) => {
+    const response = await fetch('https://api.themoviedb.org/3' + path, {
+      headers: {
+        Authorization: 'Bearer ' + tmdbBearer,
+        Accept: 'application/json',
+        'User-Agent': 'Movyz-CinePro-Core/1.0',
+      },
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`TMDB request failed (${response.status}): ${body.slice(0, 300)}`);
+    }
+    return response.json();
+  };
+
+  tmdbService.validateMovie = async (id: string) => {
+    const movie = await tmdbFetch('/movie/' + encodeURIComponent(id));
+    const releaseDate = String(movie.release_date || '');
+    const released = Boolean(releaseDate) &&
+      new Date(releaseDate) <= new Date() &&
+      movie.status === 'Released';
+    return {
+      exists: true,
+      released,
+      releaseDate,
+      title: String(movie.title || ''),
+    };
+  };
+
+  tmdbService.validateTV = async (id: string) => {
+    const tv = await tmdbFetch('/tv/' + encodeURIComponent(id));
+    const firstAirDate = String(tv.first_air_date || '');
+    return {
+      exists: true,
+      released: Boolean(firstAirDate) && new Date(firstAirDate) <= new Date(),
+      releaseDate: firstAirDate,
+      title: String(tv.name || ''),
+    };
+  };
+
+  tmdbService.validateTVEpisode = async (id: string, season: number, episode: number) => {
+    const tv = await tmdbService.validateTV(id);
+    if (!tv.exists || !tv.released) return tv;
+    const seasonData = await tmdbFetch('/tv/' + encodeURIComponent(id) + '/season/' + season);
+    const episodeData = Array.isArray(seasonData.episodes)
+      ? seasonData.episodes.find((item: any) => Number(item.episode_number) === episode)
+      : undefined;
+    if (!episodeData) {
+      return {
+        exists: false,
+        released: false,
+        message: `Episode ${episode} does not exist in season ${season}`,
+      };
+    }
+    const airDate = episodeData.air_date ? new Date(episodeData.air_date) : null;
+    const released = Boolean(airDate) && airDate! <= new Date();
+    return {
+      exists: true,
+      released,
+      releaseDate: String(episodeData.air_date || ''),
+      title: String(episodeData.name || ''),
+    };
+  };
+
+  tmdbService.getImdbId = async (id: string, type: 'movie' | 'tv') => {
+    try {
+      const endpoint = type === 'movie' ? 'movie' : 'tv';
+      const data = await tmdbFetch('/' + endpoint + '/' + encodeURIComponent(id) + '/external_ids');
+      return data.imdb_id ? String(data.imdb_id) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+}
 
 const registry = cinepro.getRegistry();
 
