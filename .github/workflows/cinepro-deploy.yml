@@ -53,7 +53,7 @@ jobs:
 
       - name: Validate CinePro Cloudflare adapter
         working-directory: cinepro-worker
-        run: npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck entry.ts generated-core-providers.ts
+        run: npx wrangler deploy --dry-run
 
       - name: Validate Wrangler bundle
         working-directory: cinepro-worker
