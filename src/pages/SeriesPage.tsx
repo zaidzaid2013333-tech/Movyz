@@ -82,9 +82,9 @@ export const SeriesPage: React.FC<SeriesPageProps> = ({
   const years = [2026, 2025, 2024, 2023, 2022];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-7 movyza-enter">
+    <div className="movyza-shell max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-7 sm:py-9 space-y-8 movyza-enter">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="movyza-page-intro rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl sm:text-3xl font-cinema-title font-bold text-white tracking-wide">
             {language === 'ar' ? 'المسلسلات التلفزيونية' : 'Series'}
@@ -116,7 +116,7 @@ export const SeriesPage: React.FC<SeriesPageProps> = ({
       </div>
 
       {/* Filter Bar */}
-      <div className="p-3.5 sm:p-4 rounded-2xl bg-white/[0.025] border border-white/[0.07] space-y-3">
+      <div className="movyza-filter-panel p-3.5 sm:p-4 rounded-2xl space-y-3">
         <div className="flex items-center justify-between text-xs border-b border-white/[0.06] pb-2.5">
           <div className="flex items-center gap-2 font-semibold text-slate-300">
             <Filter className="w-3.5 h-3.5 text-amber-400" />
