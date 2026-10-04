@@ -138,11 +138,23 @@ function rewriteManifest(text, upstreamUrl, req, headers) {
   }).join('\n');
 }
 
-function requestHeaders(req, upstreamHeaders) {
+function requestHeaders(req, upstreamHeaders, mode = 'original', target = null) {
   const headers = new Headers();
   for (const [key, value] of Object.entries(upstreamHeaders || {})) {
     if (!FORWARDED_REQUEST_HEADERS.has(key.toLowerCase())) continue;
     if (typeof value === 'string') headers.set(key, value);
+  }
+
+  if (mode === 'relaxed') {
+    headers.delete('origin');
+    headers.delete('referer');
+    headers.set('accept', '*/*');
+  }
+
+  if (mode === 'same-origin' && target) {
+    headers.delete('origin');
+    headers.set('referer', target.origin + '/');
+    headers.set('accept', '*/*');
   }
 
   for (const name of ['range', 'if-range', 'if-none-match', 'if-modified-since']) {
@@ -151,6 +163,35 @@ function requestHeaders(req, upstreamHeaders) {
   }
 
   return headers;
+}
+
+async function fetchUpstream(req, target, forwardedHeaders) {
+  const modes = ['original', 'relaxed', 'same-origin'];
+  let lastResponse = null;
+  let lastError = null;
+
+  for (const mode of modes) {
+    try {
+      const response = await fetch(target, {
+        method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+        headers: requestHeaders(req, forwardedHeaders, mode, target),
+        redirect: 'follow',
+      });
+
+      lastResponse = response;
+      if (response.ok || response.status < 400) return response;
+
+      // Retry an upstream failure with progressively safer CDN headers.
+      if (![400, 401, 403, 404, 408, 409, 425, 429, 500, 502, 503, 504, 522, 524].includes(response.status)) {
+        return response;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastResponse) return lastResponse;
+  throw lastError || new Error('Upstream request failed');
 }
 
 export default async function handler(req, res) {
@@ -177,11 +218,7 @@ export default async function handler(req, res) {
   try {
     const target = validateTarget(String(rawUrl));
     const upstreamRequestHeaders = parseHeaders(rawHeaders ? String(rawHeaders) : '');
-    const upstream = await fetch(target, {
-      method: req.method === 'HEAD' ? 'HEAD' : 'GET',
-      headers: requestHeaders(req, upstreamRequestHeaders),
-      redirect: 'follow',
-    });
+    const upstream = await fetchUpstream(req, target, upstreamRequestHeaders);
 
     const contentType = upstream.headers.get('content-type') || '';
     const isManifest =
