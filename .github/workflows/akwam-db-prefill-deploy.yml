@@ -178,7 +178,11 @@ jobs:
         run: |
           npx tsx -e '
           (async () => {
-            const { findCandidate, parseCandidates } = await import("./workers/akwam-prefill/src/index.ts");
+            const { findCandidate, parseCandidates, isAkwamUrl, candidateKind } = await import("./workers/akwam-prefill/src/index.ts");
+            console.log("CLASSIFY", JSON.stringify({
+              ok:isAkwamUrl("https://akwam.ss/movie/248/interstellar-2"),
+              kind:candidateKind("/movie/248/interstellar-2")
+            }));
             const env = { SUPABASE_URL:"x", SUPABASE_SERVICE_ROLE_KEY:"x", AKWAM_BASE_URL:"https://akwam.ss", MAX_JOBS_PER_RUN:"1" };
             const html = await fetch("https://akwam.ss/search?q=Interstellar", {
               headers: {
@@ -188,6 +192,8 @@ jobs:
                 "Referer":"https://akwam.ss"
               }
             }).then(r => r.text());
+            const mini = parseCandidates('<a href="https://akwam.ss/movie/248/interstellar-2">Interstellar</a>', env);
+            console.log("MINI", JSON.stringify(mini));
             const candidates = parseCandidates(html, env);
             console.log(JSON.stringify({bytes:html.length,candidates:candidates.slice(0,10)},null,2));
             try { console.log("BEST", await findCandidate(env, ["Interstellar","بين النجوم","Interstellar"], 2014, "movie")); }
