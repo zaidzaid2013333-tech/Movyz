@@ -1,12 +1,21 @@
 // Deno Deploy entrypoint for Movyz CinePro.
 import process from "node:process";
-import { MOVYZ_PUBLIC_URL } from "./.deno-cinepro-env.mjs";
 
 process.env.NODE_ENV = process.env.NODE_ENV?.trim() || "production";
 process.env.HOST = process.env.HOST?.trim() || "0.0.0.0";
 process.env.PORT = process.env.PORT?.trim() || "8000";
 
-const configuredPublicUrl = process.env.PUBLIC_URL?.trim() || MOVYZ_PUBLIC_URL?.trim() || "";
+// Prefer an explicitly configured public URL. Otherwise build the default
+// Deno Deploy URL from the built-in application/org slugs.
+const configuredPublicUrl =
+  process.env.PUBLIC_URL?.trim() ||
+  (
+    process.env.DENO_DEPLOY_APP_SLUG &&
+    process.env.DENO_DEPLOY_ORG_SLUG
+      ? `https://${process.env.DENO_DEPLOY_APP_SLUG}.${process.env.DENO_DEPLOY_ORG_SLUG}.deno.net`
+      : ""
+  );
+
 if (configuredPublicUrl) {
   process.env.PUBLIC_URL = configuredPublicUrl.replace(/\/+$/, "");
 }
