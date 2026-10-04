@@ -616,10 +616,10 @@ async function validateMedia(env: Env, media: Media) {
     if (!body.length) return false;
 
     const sample = new TextDecoder().decode(body.slice(0, 8192)).trim();
-    if (/<html\s>]|<!doctype|captcha|cloudflare/i.test(sample)) return false;
+    if (/<html[\s>]|<!doctype|captcha|cloudflare/i.test(sample)) return false;
 
     if (/#EXTM3U/i.test(sample) || /(?:mpegurl|vnd\.apple\.mpegurl)/i.test(ct)) return true;
-    if (/<MPD\s>]|<\?xml[^>]*>\s*<MPD/i.test(sample) || /dash\+xml/i.test(ct)) return true;
+    if (/<MPD[\s>]|<\?xml[^>]*>\s*<MPD/i.test(sample) || /dash\+xml/i.test(ct)) return true;
     if (ct.startsWith("video/")) return true;
     if (ct.includes("webm") || (body[0] === 0x1a && body[1] === 0x45 && body[2] === 0xdf && body[3] === 0xa3)) return true;
 
