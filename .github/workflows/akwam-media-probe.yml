@@ -16,7 +16,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe Worker runtime
+      - name: Inspect Akwam watch and download pages
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error --max-time 30             https://movyz-akwam-prefill.sameranede.workers.dev/__diagnostic/cocktail
+          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          movie='https://akwam.ss/movie/10762/cocktail'
+          watch='https://akwam.ss/watch/170586/10762/cocktail'
+          download='https://akwam.ss/download/170586/10762/cocktail'
+
+          curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: text/html' "$watch" -o /tmp/watch.html
+          curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H "Referer: $movie" -H 'Accept: text/html' "$download" -o /tmp/download.html
+
+          echo '=== WATCH MEDIA SIGNALS ==='
+          grep -Ein 'iframe|video|source|m3u8|mp4|mpd|webm|stream|file|player|data-src|data-url|data-file|href=' /tmp/watch.html | head -300 || true
+
+          echo '=== WATCH EXTERNAL URLS ==='
+          grep -Eoi 'https?://[^"'"' <>]+' /tmp/watch.html | grep -Ei 'm3u8|mp4|mpd|webm|stream|video|player|embed|downet' | head -200 || true
+
+          echo '=== DOWNLOAD JAVASCRIPT MEDIA ==='
+          grep -Ein "attr\(['"]href|\.mp4|\.m3u8|\.mpd|\.webm" /tmp/download.html | head -100 || true
