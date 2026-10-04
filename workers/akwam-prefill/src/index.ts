@@ -97,19 +97,31 @@ function overlap(a: string, b: string) {
 
 function score(c: Candidate, titles: string[], year?: number) {
   const ct = normalize(c.title);
-  let out = 0;
+  let bestTitleScore = 0;
+
   for (const raw of titles) {
     const t = normalize(raw);
     if (!t) continue;
-    if (ct === t) out = Math.max(out, 100);
-    else if (ct.includes(t) || t.includes(ct)) out = Math.max(out, 84);
-    else out = Math.max(out, 40 + overlap(ct, t) * 40);
+
+    if (ct === t) {
+      bestTitleScore = Math.max(bestTitleScore, 100);
+    } else if (ct.includes(t) || t.includes(ct)) {
+      bestTitleScore = Math.max(bestTitleScore, 84);
+    } else {
+      const ov = overlap(ct, t);
+      if (ov >= 0.2) bestTitleScore = Math.max(bestTitleScore, 40 + ov * 40);
+    }
   }
+
+  if (bestTitleScore < 60) return -1000;
+
+  let out = bestTitleScore;
   if (year && c.year) {
     if (year === c.year) out += 15;
     else if (Math.abs(year - c.year) === 1) out += 5;
     else out -= 20;
   }
+
   return Math.min(120, out);
 }
 
