@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { knownThirdPartyProxies } from './thirdPartyProxies.js';
 import { streamPatterns } from './streamPatterns.js';
+import { AkwamProvider } from './providers/akwam/akwam.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -77,7 +78,8 @@ async function main() {
 
     // Register providers
     const registry = server.getRegistry();
-    await registry.discoverProviders(path.join(__dirname, './providers/'));
+    // Akwam is the active provider for this deployment. Other providers remain in the tree for later fallback work.
+    registry.register(new AkwamProvider());
 
     await server.start();
 
