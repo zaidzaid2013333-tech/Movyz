@@ -6,6 +6,7 @@ on:
     branches: ["main"]
     paths:
       - "workers/akwam-prefill/**"
+      - "workers/akwam-launcher/**"
       - ".github/workflows/akwam-db-prefill-deploy.yml"
 
 permissions:
@@ -51,12 +52,19 @@ jobs:
       - name: Deploy Akwam DB prefill worker
         run: npx wrangler deploy -c workers/akwam-prefill/wrangler.toml --secrets-file .env.akwam-prefill
 
+      - name: Deploy four free parallel Akwam launchers
+        run: |
+          for n in 1 2 3 4; do
+            npx wrangler deploy -c workers/akwam-launcher/wrangler.toml --name "movyz-akwam-launcher-$n" --secrets-file .env.akwam-prefill
+          done
+
       - name: Smoke one Akwam prefill batch
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           curl --fail-with-body --max-time 90 -X POST \
             -H "x-movyz-prefill-key: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "x-movyz-prefill-mode: batch" \
             https://movyz-akwam-prefill.sameranede.workers.dev/
 
       - if: always()
