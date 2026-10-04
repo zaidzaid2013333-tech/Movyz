@@ -662,6 +662,22 @@ function extractTargets(html: string, baseUrl: string) {
 
 
 function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null {
+  // Akwam's current download page sets the final CDN URL from JavaScript:
+  // $('a.download').attr('href', 'https://.../file.mp4');
+  const scriptMedia = /(?:\.attr\s*\(\s*["'](?:href|src)["']\s*,|(?:file|source|media|url)\s*[:=]\s*)\s*["'](https?:\/\/[^"'<>]+\.(?:m3u8|mp4|mpd|webm)(?:\?[^"'<>]*)?)["']/gi;
+  const scriptMatch = scriptMedia.exec(html);
+  if (scriptMatch?.[1]) {
+    const url = absoluteUrl(scriptMatch[1], baseUrl);
+    if (url) {
+      return {
+        url,
+        type: mediaTypeFromUrl(url),
+        quality: inferQuality(html),
+        referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
+      };
+    }
+  }
+
   const patterns = [
     /<[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>[\s\S]{0,8000}?<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi,
     /<a\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>/gi,
