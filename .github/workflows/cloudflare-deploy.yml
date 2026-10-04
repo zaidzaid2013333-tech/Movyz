@@ -61,16 +61,41 @@ jobs:
       - name: Validate Cloudflare configuration
         run: npx wrangler deploy --dry-run
 
+      - name: Resolve Vercel media relay URL
+        run: |
+          set -euo pipefail
+          candidates=(
+            "https://movyz.vercel.app"
+            "https://movyz-6dqf.vercel.app"
+            "https://movyz-zaidzaid2013333-1693.vercel.app"
+            "https://movyz-6dqf-zaidzaid2013333-1693.vercel.app"
+          )
+          resolved=""
+          for base in "${candidates[@]}"; do
+            echo "Testing relay candidate: $base"
+            body="$(curl -fsS --max-time 15 "$base/api/relay" 2>/dev/null || true)"
+            if echo "$body" | python -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if d.get("status")=="ok" else 1)' 2>/dev/null; then
+              resolved="$base"
+              break
+            fi
+          done
+          if [ -z "$resolved" ]; then
+            echo "No working Vercel relay candidate found"
+            exit 1
+          fi
+          echo "MEDIA_RELAY_BASE_URL=$resolved" >> "$GITHUB_ENV"
+          echo "Resolved Vercel relay: $resolved"
+
       - name: Deploy MediaMash playback core
         run: |
-          npx wrangler deploy --config integrations/mediamash/wrangler.json --var MEDIA_RELAY_BASE_URL:https://movyz-media-relay.vercel.app
+          npx wrangler deploy --config integrations/mediamash/wrangler.json --var "MEDIA_RELAY_BASE_URL:$MEDIA_RELAY_BASE_URL"
           printf '%s' "$TMDB_API_READ_ACCESS_TOKEN" | npx wrangler secret put TMDB_API_READ_ACCESS_TOKEN --config integrations/mediamash/wrangler.json
 
       - name: Smoke test Node media relay
         run: |
           python - <<'PY'
-          import json, urllib.request
-          url = "https://movyz-media-relay.vercel.app/api/relay"
+          import json, os, urllib.request
+          url = os.environ["MEDIA_RELAY_BASE_URL"] + "/api/relay"
           request = urllib.request.Request(url, headers={"Accept": "application/json"})
           with urllib.request.urlopen(request, timeout=30) as response:
               payload = json.load(response)
@@ -123,7 +148,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var PLAYBACK_CORE_BASE_URL:https://movyz-media-core.sameranede.workers.dev --var MEDIA_RELAY_BASE_URL:https://movyz-media-relay.vercel.app
+          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var PLAYBACK_CORE_BASE_URL:https://movyz-media-core.sameranede.workers.dev --var MEDIA_RELAY_BASE_URL:$MEDIA_RELAY_BASE_URL
 
       - name: End-to-end playback smoke
         run: |
