@@ -34,6 +34,19 @@ type Media = {
   referer?: string;
 };
 
+type RequestBudget = {
+  used: number;
+  max: number;
+};
+
+function consumeRequest(budget?: RequestBudget) {
+  if (!budget) return;
+  budget.used += 1;
+  if (budget.used > budget.max) {
+    throw new Error(`AKWAM_SUBREQUEST_BUDGET_EXCEEDED used=${budget.used} max=${budget.max}`);
+  }
+}
+
 const AKWAM_HOSTS = new Set(["akwam.ss", "www.akwam.ss"]);
 
 function isAkwamUrl(value: string) {
