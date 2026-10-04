@@ -14,6 +14,15 @@ The current `https://akwam.ss` structure was checked against live indexed pages 
 
 Examples verified from the live site include the current One Piece series and episode 1168 pages, and current movie pages such as Interstellar. The site also still exposes legacy `/old/` pages; those are historical pages, not the canonical current catalog path, and must not win candidate selection. citeturn333770search0turn333770search1turn298131search0
 
+### Current canonical-host and link-resolution rules
+- Start from the configured Akwam entrypoint, but accept Akwam canonical redirects/absolute links on `akwam.ss`, `ak.sv`, and `akwam.it` (including `www` variants). These are the same Akwam route family; do not reject a valid content page only because the current canonical host changed.
+- The current CloudStream Akwam extractor independently confirms the current search endpoint as `/search?q=<query>`, content cards under `div.entry-box`, and Akwam quality/download handling. The worker should use the current DOM signals rather than generic guessing. citeturn727110search1
+- For a movie/episode detail page, identify each quality block and prefer its **تحميل** link. The deterministic current route is:
+  `detail page -> /download/... -> download page -> div.btn-loader > a -> final media URL`.
+- If a quality row exposes a `/link/...` action instead of `/download/...`, reconstruct the current Akwam `/download...` target only from the observed link and content path; never fabricate IDs.
+- Only after the download path is unavailable should the worker fall back to the **مشاهدة** / `/watch/` path.
+- A final `btn-loader > a` href can be extensionless. Treat it as `direct` initially and let media validation prove whether it is actually video.
+
 ### Deterministic route
 For **episodes**, the worker must follow:
 `TMDB metadata -> Akwam /series candidate -> exact /episode/ link -> /watch/ or /download/ target -> final media -> validation -> Supabase`
