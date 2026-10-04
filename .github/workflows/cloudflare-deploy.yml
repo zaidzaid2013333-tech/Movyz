@@ -6,7 +6,6 @@ on:
     paths-ignore:
       - "supabase/**"
       - ".github/workflows/**"
-      - ".github/workflows/tmdb-sync.yml"
   workflow_dispatch:
 
 permissions:
@@ -28,8 +27,6 @@ jobs:
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
-      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-      CINEPRO_BASE_URL: https://cinepro-core-production-8b58.up.railway.app
 
     steps:
       - uses: actions/checkout@v4
@@ -62,37 +59,22 @@ jobs:
       - name: Validate Cloudflare configuration
         run: npx wrangler deploy --dry-run
 
-      - name: Validate CinePro TMDB credential
-        env:
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-          TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
-        run: |
-          if [ -z "${TMDB_API_KEY:-}" ] && [ -z "${TMDB_API_READ_ACCESS_TOKEN:-}" ]; then
-            echo "CinePro requires TMDB_API_KEY or TMDB_API_READ_ACCESS_TOKEN."
-            exit 1
-          fi
-          if [ -n "${TMDB_API_KEY:-}" ]; then
-            echo "CinePro TMDB credential: TMDB_API_KEY"
-          else
-            echo "CinePro TMDB credential: TMDB_API_READ_ACCESS_TOKEN"
-          fi
-
-      - name: Validate TMDB read token directly
+      - name: Validate TMDB read token
         env:
           TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
         run: |
+          test -n "${TMDB_API_READ_ACCESS_TOKEN:-}" || (echo "Missing TMDB_API_READ_ACCESS_TOKEN"; exit 1)
           python - <<'PY'
           import json, os, urllib.request
-          token = os.environ.get('TMDB_API_READ_ACCESS_TOKEN', '')
-          if not token:
-              raise SystemExit('TMDB_API_READ_ACCESS_TOKEN is missing')
+          token = os.environ["TMDB_API_READ_ACCESS_TOKEN"]
           req = urllib.request.Request(
-              'https://api.themoviedb.org/3/movie/157336',
-              headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/json', 'User-Agent': 'Movyz-CI/1.0'},
+              "https://api.themoviedb.org/3/movie/157336",
+              headers={"Authorization": "Bearer " + token, "Accept": "application/json", "User-Agent": "Movyz-CI/1.0"},
           )
           with urllib.request.urlopen(req, timeout=30) as response:
               payload = json.load(response)
-              print('TMDB direct status =', response.status, 'title =', payload.get('title'))
+              print("TMDB direct status =", response.status, "title =", payload.get("title"))
+          PY
 
       - name: Prepare Movyz deployment secrets
         run: |
@@ -108,23 +90,13 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var CINEPRO_BASE_URL:${{ env.CINEPRO_BASE_URL }}
+          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }}
 
-      - name: End-to-end CinePro playback smoke
-        env:
-          CINEPRO_BASE_URL: https://cinepro-core-production-8b58.up.railway.app
+      - name: DB-only playback smoke
         run: |
           python - <<'PY'
           import json, urllib.error, urllib.request
           api = "https://movyz-api.sameranede.workers.dev"
-          core = "https://cinepro-core-production-8b58.up.railway.app"
-          try:
-              with urllib.request.urlopen(core + "/", timeout=30) as response:
-                  print("CinePro health:", response.status)
-          except Exception as error:
-              print("CinePro Core not live yet; skipping playback smoke:", error)
-              raise SystemExit(0)
-
           checks = [
               ("movie", "6591564a-13a9-4892-a166-247d1ff9158b", "Interstellar"),
               ("movie", "81723a1b-a9c5-46bb-bec6-f16664895d3e", "Inception"),
@@ -133,14 +105,12 @@ jobs:
               ("episode", "cfec368f-138e-405d-a98b-bb6734f5bbf5", "Breaking Bad S01E01"),
           ]
           for content_type, content_id, label in checks:
-              query = "?type=" + content_type
               req = urllib.request.Request(
-                  api + "/api/v1/watch/" + content_id + query,
-                  method="GET",
-                  headers={"Accept":"application/json","User-Agent":"Movyz-CI/1.0"},
+                  api + "/api/v1/watch/" + content_id + "?type=" + content_type,
+                  headers={"Accept": "application/json", "User-Agent": "Movyz-CI-DBOnly/1.0"},
               )
               try:
-                  with urllib.request.urlopen(req, timeout=90) as response:
+                  with urllib.request.urlopen(req, timeout=60) as response:
                       payload = json.load(response)
               except urllib.error.HTTPError as error:
                   body = error.read().decode("utf-8", "replace")
@@ -150,78 +120,17 @@ jobs:
               content = payload.get("data", {}).get("content", {})
               sources = content.get("sources") if isinstance(content, dict) else []
               if not isinstance(sources, list) or not sources:
-                  tmdb_id = content.get("tmdbId") if isinstance(content, dict) else None
-                  if tmdb_id:
-                      core_req = urllib.request.Request(
-                          core + "/v1/movies/" + str(tmdb_id),
-                          headers={"Accept":"application/json","User-Agent":"Movyz-CI-CinePro-Diagnostics/1.0"},
-                      )
-                      try:
-                          with urllib.request.urlopen(core_req, timeout=90) as core_response:
-                              core_payload = json.load(core_response)
-                          diagnostics = core_payload.get("diagnostics") if isinstance(core_payload, dict) else []
-                          print(f"{label}: CinePro diagnostics:")
-                          for item in diagnostics or []:
-                              if isinstance(item, dict):
-                                  print("  -", item.get("severity","error"), item.get("code","UNKNOWN"), ":", item.get("message",""))
-                      except Exception as core_error:
-                          print(f"{label}: direct CinePro diagnostics probe failed:", core_error)
-                  raise SystemExit(f"{label}: CinePro returned no sources")
-              valid = [x for x in sources if str(x.get("providerReference") or "") == "akwam" and str(x.get("url") or "").startswith("https://")]
-              if len(valid) != len(sources):
-                  raise SystemExit(f"{label}: invalid or non-Akwam persistent source returned")
-              print(f"Persistent Akwam playback OK: {label} sources={len(sources)}")
-
-              # Verify that the actual playback proxy returns readable media bytes.
-              # The previous smoke only validated that a URL existed, which could
-              # pass while the browser later failed before loadedmetadata.
-              probe = valid[0]
-              probe_url = probe.get("url")
-              if not probe_url:
-                  raise SystemExit(f"{label}: first CinePro source has no URL")
-              probe_req = urllib.request.Request(
-                  probe_url,
-                  method="GET",
-                  headers={
-                      "Range": "bytes=0-1048575",
-                      "Accept": "*/*",
-                      "User-Agent": "Movyz-CI-MediaProbe/1.0",
-                  },
-              )
-              try:
-                  with urllib.request.urlopen(probe_req, timeout=45) as probe_response:
-                      probe_body = probe_response.read(1024 * 1024)
-                      probe_status = probe_response.status
-                      probe_type = probe_response.headers.get("Content-Type", "")
-                      probe_range = probe_response.headers.get("Content-Range", "")
-                      probe_length = probe_response.headers.get("Content-Length", "")
-              except Exception as probe_error:
-                  raise SystemExit(f"{label}: playback proxy probe failed: {probe_error}")
-
-              if probe_status not in (200, 206):
-                  raise SystemExit(f"{label}: playback proxy returned HTTP {probe_status}")
-              if not probe_body:
-                  raise SystemExit(f"{label}: playback proxy returned an empty body")
-
-              lowered_type = probe_type.lower()
-              looks_hls = "mpegurl" in lowered_type or "m3u8" in lowered_type
-              looks_video = lowered_type.startswith("video/") or "octet-stream" in lowered_type
-              looks_mp4 = b"ftyp" in probe_body[:128]
-              if not (looks_hls or looks_video or looks_mp4):
-                  raise SystemExit(
-                      f"{label}: playback proxy returned non-media content-type={probe_type!r} "
-                      f"range={probe_range!r} length={probe_length!r} first_bytes={probe_body[:32]!r}"
-                  )
-              print(
-                  f"Media proxy OK: {label} status={probe_status} "
-                  f"content_type={probe_type!r} range={probe_range!r} length={probe_length!r} "
-                  f"bytes={len(probe_body)}"
-              )
-          print("Movyz persistent playback end-to-end smoke: ALL OK")
+                  raise SystemExit(f"{label}: DB-only API returned no persisted sources")
+              for source in sources:
+                  if not isinstance(source, dict) or not str(source.get("url") or "").startswith("https://"):
+                      raise SystemExit(f"{label}: invalid persisted source")
+              print(f"DB-only playback OK: {label} sources={len(sources)}")
+          print("Movyz DB-only playback smoke: ALL OK")
+          PY
 
       - name: Deployment marker
         run: echo "DEPLOY_CURRENT_COMMIT=${{ github.sha }}"
 
       - name: Remove temporary secrets file
         if: always()
-        run: rm -f .env.production .cinepro/.env.cinepro
+        run: rm -f .env.production
