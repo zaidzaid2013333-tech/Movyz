@@ -371,7 +371,9 @@ function absoluteUrl(raw: string, baseUrl: string) {
 
 function isLikelyNavigationUrl(url: string) {
   try {
-    const path = new URL(url).pathname.toLowerCase();
+    const parsed = new URL(url);
+    if (!AKWAM_HOSTS.has(parsed.hostname.toLowerCase())) return false;
+    const path = parsed.pathname.toLowerCase();
     return /^\/(?:download|link|watch|episode|show\/episode|movie|series)\//i.test(path);
   } catch {
     return false;
