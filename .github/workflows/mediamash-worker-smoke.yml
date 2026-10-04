@@ -67,11 +67,14 @@ jobs:
               raise SystemExit("MediaMash Worker returned zero Breaking Bad sources")
           PY
 
-      - name: Probe ranked HLS playlist
+      - name: Probe HLS playlist and first media segment
         run: |
           python - <<'PY'
           import json, subprocess
           p=json.load(open('/tmp/interstellar.json'))
+          working=None
+          playlist_body=None
+
           for idx, source in enumerate(p.get('sources', [])[:6]):
               url=source.get('url')
               if not url: continue
@@ -79,11 +82,38 @@ jobs:
                 ['curl','-L','-sS','--max-time','30','-o',f'/tmp/playlist-{idx}.txt','-w','%{http_code} %{content_type} %{size_download}',url],
                 text=True,capture_output=True
               )
-              body=open(f'/tmp/playlist-{idx}.txt','r',errors='replace').read(8192)
+              body=open(f'/tmp/playlist-{idx}.txt','r',errors='replace').read(16384)
               print("PROXY_PROBE", idx, source.get('provider',{}).get('name'), probe.stdout, "EXTM3U=", "#EXTM3U" in body)
               if probe.returncode == 0 and probe.stdout.startswith('200 ') and '#EXTM3U' in body:
-                  print("WORKING_PLAYBACK_SOURCE", json.dumps(source, ensure_ascii=False)[:12000])
+                  working=source
+                  playlist_body=body
                   break
-          else:
+
+          if not working:
               raise SystemExit("MediaMash Worker proxy did not return a valid HLS playlist")
+
+          print("WORKING_PLAYBACK_SOURCE", json.dumps(working, ensure_ascii=False)[:12000])
+
+          import re
+          segment = None
+          for line in playlist_body.splitlines():
+              line=line.strip()
+              if line and not line.startswith('#'):
+                  segment=line
+                  break
+
+          if not segment:
+              raise SystemExit("No media segment found in HLS playlist")
+
+          from urllib.parse import urljoin
+          upstream_playlist=working['url']
+          segment_url=urljoin(upstream_playlist, segment)
+
+          segprobe=subprocess.run(
+            ['curl','-L','-sS','--max-time','30','-o','/tmp/segment.bin','-w','%{http_code} %{content_type} %{size_download}',segment_url],
+            text=True,capture_output=True
+          )
+          print("SEGMENT_PROBE", segprobe.stdout, "bytes=", len(open('/tmp/segment.bin','rb').read()))
+          if segprobe.returncode != 0 or not segprobe.stdout.startswith(('200 ','206 ')) or len(open('/tmp/segment.bin','rb').read()) < 32:
+              raise SystemExit("Media segment probe failed")
           PY
