@@ -224,11 +224,18 @@ function score(c: Candidate, titles: string[], year?: number, expected?: "movie"
   let out = bestTitleScore;
   if (expected === c.kind) out += 18;
   if (year && c.year) {
-    if (year === c.year) out += 12;
-    else if (Math.abs(year - c.year) === 1) out += 4;
-    else out -= 16;
+    if (year === c.year) out += 24;
+    else if (Math.abs(year - c.year) === 1) out += 6;
+    else return -1000;
   }
-  return Math.min(140, out);
+  if (expected === "series" && expectedSeason) {
+    const declared = explicitSeason(c.title + " " + c.url);
+    if (declared !== undefined) {
+      if (declared !== expectedSeason) return -1000;
+      out += 28;
+    }
+  }
+  return Math.min(160, out);
 }
 
 function parseCandidates(html: string, env: Env): Candidate[] {
@@ -289,7 +296,14 @@ async function findCandidate(
 
   let best: { item: Candidate; score: number } | null = null;
   const diagnostics: string[] = [];
-  const variants = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
+  const seeds = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
+  const variants = Array.from(new Set([
+    ...seeds,
+    year && seeds[0] ? \`\${seeds[0]} \${year}\` : "",
+    expectedSeason && seeds[0] ? \`\${seeds[0]} season \${expectedSeason}\` : "",
+    expectedSeason && seeds[0] ? \`\${seeds[0]} الموسم \${expectedSeason}\` : "",
+    expectedSeason && seeds[0] ? \`\${seeds[0]} S\${String(expectedSeason).padStart(2, "0")}\` : "",
+  ].filter(Boolean))).slice(0, 7);
 
   for (const host of hosts) {
     for (const title of variants) {
@@ -304,7 +318,6 @@ async function findCandidate(
 
       if (best && best.score >= 128) return best.item;
     }
-
     // Legacy search is allowed only on the single verified host, as a last resort.
     if (host === base(env)) {
       for (const title of variants.slice(0, 1)) {
@@ -456,7 +469,7 @@ function extractTargets(html: string, baseUrl: string) {
       if (!isAkwamUrl(observed.href)) return;
 
       if (/^\/download\//i.test(observed.pathname)) {
-        add(observed.href, 155);
+        add(observed.href, 180);
         return;
       }
 
@@ -471,7 +484,9 @@ function extractTargets(html: string, baseUrl: string) {
         return;
       }
 
-      if (/^\/watch\//i.test(observed.pathname)) {
+      if (/(?:تحميل|download)/i.test(text)) {
+        add(observed.href, 165);
+      } else if (/^\/watch\//i.test(observed.pathname)) {
         add(observed.href, 120);
       } else if (/\/episode\//i.test(observed.pathname)) {
         add(observed.href, 20);
@@ -501,8 +516,10 @@ function extractTargets(html: string, baseUrl: string) {
 
 function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null {
   const patterns = [
-    /<div\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["']/gi,
-    /<a\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*href=["']([^"']+)["']/gi,
+    /<[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>[\s\S]{0,8000}?<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi,
+    /<a\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>/gi,
+    /<a\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>/gi,
+    /<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?(?:تحميل|Download|تحميل الآن)[\s\S]*?<\/a>/gi,
   ];
 
   for (const re of patterns) {
@@ -513,7 +530,23 @@ function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null
       return {
         url,
         type: mediaTypeFromUrl(url),
-        quality: inferQuality(match[0] + " " + html.slice(Math.max(0, match.index - 900), match.index + 900)),
+        quality: inferQuality(match[0] + " " + html.slice(Math.max(0, match.index - 1200), match.index + 1800)),
+        referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
+      };
+    } catch {}
+  }
+
+  const attrs = /(?:href|src|data-src|data-file|data-video|data-url|data-href)=["']([^"']+)["']/gi;
+  let attr: RegExpExecArray | null;
+  while ((attr = attrs.exec(html))) {
+    const raw = decodeHtml(attr[1]);
+    if (!/(?:\.m3u8|\.mp4|\.mpd|\.webm)(?:\?|$)/i.test(raw)) continue;
+    try {
+      const url = new URL(raw, baseUrl).href;
+      return {
+        url,
+        type: mediaTypeFromUrl(url),
+        quality: inferQuality(html.slice(Math.max(0, attr.index - 1000), attr.index + 1000)),
         referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
       };
     } catch {}
@@ -695,27 +728,17 @@ async function providerId(env: Env) {
 }
 
 async function persist(env: Env, job: Job, sources: Media[], provider: string, workerId: string) {
-  const now = new Date().toISOString();
-  await sb(env, `/rest/v1/playback_sources?provider_id=eq.${provider}&content_type=eq.${job.content_type}&content_id=eq.${job.content_id}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ is_working: false, last_checked_at: now }),
-  });
-
   const rows = sources.map((s, i) => ({
-    provider_id: provider,
-    content_type: job.content_type,
     source_type: s.type,
     content_id: job.content_id,
     url: s.url,
     provider_reference: "akwam",
     quality: s.quality || "Auto",
     language: "und",
-    label_ar: `Akwam • ${s.quality || "Auto"}`,
-    label_en: `Akwam • ${s.quality || "Auto"}`,
+    label_ar: \`Akwam • \${s.quality || "Auto"}\`,
+    label_en: \`Akwam • \${s.quality || "Auto"}\`,
     expires_at: null,
     is_working: true,
-    last_checked_at: now,
     failure_count: 0,
     subtitle_url: null,
     subtitle_type: null,
@@ -725,30 +748,21 @@ async function persist(env: Env, job: Job, sources: Media[], provider: string, w
     subtitle_default: i === 0,
   }));
 
-  await sb(env, "/rest/v1/playback_sources?on_conflict=provider_id,content_type,content_id,url", {
+  const result = await sb(env, "/rest/v1/rpc/persist_akwam_prefill_job", {
     method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify(rows),
-  });
-
-  await sb(env, `/rest/v1/playback_source_jobs?id=eq.${job.id}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
     body: JSON.stringify({
-      status: "succeeded",
-      source_count: rows.length,
-      attempts: 0,
-      locked_at: null,
-      locked_by: null,
-      last_success_at: now,
-      next_check_at: new Date(Date.now() + 86400000).toISOString(),
-      updated_at: now,
-      last_error: null,
-      details: { provider: "akwam", mode: "db-only-prefill", worker: workerId, stored: rows.length },
+      p_job_id: job.id,
+      p_provider_id: provider,
+      p_sources: rows,
+      p_worker_id: workerId,
     }),
   });
 
-  return rows.length;
+  const stored = Number(result?.[0]?.persist_akwam_prefill_job ?? 0);
+  if (!Number.isFinite(stored) || stored !== rows.length) {
+    throw new Error(\`AKWAM_PERSIST_VERIFY_FAILED expected=\${rows.length} stored=\${stored}\`);
+  }
+  return stored;
 }
 
 async function fail(env: Env, job: Job, error: unknown, workerId: string) {
