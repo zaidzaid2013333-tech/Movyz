@@ -14,6 +14,7 @@ app.disable('x-powered-by');
 // User playback requests read validated persisted rows from Supabase and never
 // trigger live provider discovery or any external source resolver.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
+const MOVYZ_PLAYBACK_CONTRACT = 'db-v2';
 
 function normalizePlaybackQuality(value: unknown) {
   const raw = String(value ?? '').trim();
@@ -41,7 +42,7 @@ async function getFreshPlaybackSourcesForContent(
       .order('last_checked_at', { ascending: false });
 
     if (error) {
-      console.warn('[playback-cache] source lookup failed:', error.message);
+      console.warn(`[playback-cache:${MOVYZ_PLAYBACK_CONTRACT}] source lookup failed:`, error.message);
       return [];
     }
 
