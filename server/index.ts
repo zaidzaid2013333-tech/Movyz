@@ -10,74 +10,127 @@ const api = '/api/v1';
 
 app.disable('x-powered-by');
 
-// Playback backend: MediaMash Core only; legacy source adapters removed. End-to-end verification uses the live /api/v1/watch path.
+// Playback backend: CinePro Core only.
 
-// Production diagnostics for the selected playback-sites path. MediaMash fallback enabled.
+// Production diagnostics for the selected playback-sites path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
-async function getPlaybackCoreSources(contentType: 'movie' | 'episode', contentId: string, env?: Record<string, unknown>) {
-  const runtimeBase = env?.PLAYBACK_CORE_BASE_URL || process.env.PLAYBACK_CORE_BASE_URL || 'https://movyz-media-core.sameranede.workers.dev';
+async function getCineProPlaybackSources(
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  env?: Record<string, unknown>,
+) {
+  const runtimeBase = env?.CINEPRO_BASE_URL || process.env.CINEPRO_BASE_URL || 'https://movyz-cinepro.sameranede.workers.dev';
   const baseUrl = String(runtimeBase).trim().replace(/\/+$/, '');
   if (!baseUrl) return [];
+
   try {
     let endpoint = '';
+
     if (contentType === 'movie') {
-      const { data, error } = await adminSupabase.from('movies').select('tmdb_id').eq('id', contentId).maybeSingle();
+      const { data, error } = await adminSupabase
+        .from('movies')
+        .select('tmdb_id')
+        .eq('id', contentId)
+        .maybeSingle();
       if (error || !data?.tmdb_id) return [];
       endpoint = baseUrl + '/v1/movies/' + Number(data.tmdb_id);
     } else {
-      const { data: episode, error: episodeError } = await adminSupabase.from('episodes').select('episode_number,season_id').eq('id', contentId).maybeSingle();
+      const { data: episode, error: episodeError } = await adminSupabase
+        .from('episodes')
+        .select('episode_number,season_id')
+        .eq('id', contentId)
+        .maybeSingle();
       if (episodeError || !episode?.season_id) return [];
-      const { data: season, error: seasonError } = await adminSupabase.from('seasons').select('season_number,series_id').eq('id', episode.season_id).maybeSingle();
+
+      const { data: season, error: seasonError } = await adminSupabase
+        .from('seasons')
+        .select('season_number,series_id')
+        .eq('id', episode.season_id)
+        .maybeSingle();
       if (seasonError || season?.season_number == null || !season?.series_id) return [];
-      const { data: series, error: seriesError } = await adminSupabase.from('series').select('tmdb_id').eq('id', season.series_id).maybeSingle();
+
+      const { data: series, error: seriesError } = await adminSupabase
+        .from('series')
+        .select('tmdb_id')
+        .eq('id', season.series_id)
+        .maybeSingle();
       if (seriesError || !series?.tmdb_id) return [];
-      endpoint = baseUrl + '/v1/tv/' + Number(series.tmdb_id) + '/seasons/' + Number(season.season_number) + '/episodes/' + Number(episode.episode_number);
+
+      endpoint =
+        baseUrl +
+        '/v1/tv/' +
+        Number(series.tmdb_id) +
+        '/seasons/' +
+        Number(season.season_number) +
+        '/episodes/' +
+        Number(episode.episode_number);
     }
-    const core = env?.MEDIAMASH_CORE as { fetch(request: Request): Promise<Response> } | undefined;
-    const request = new Request(endpoint, {
+
+    const response = await fetch(endpoint, {
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
+        'User-Agent': 'Movyz-CinePro-Bridge/1.0',
       },
+      signal: AbortSignal.timeout(25000),
     });
-    const responseToPayload = async (response: Response) => {
-      if (!response.ok) return null;
-      try {
-        return await response.json() as { sources?: Array<{ url?: string; type?: string; quality?: string | number; provider?: { name?: string; id?: string }; audioTracks?: Array<{ language?: string; label?: string }> }> };
-      } catch {
-        return null;
-      }
+
+    if (!response.ok) return [];
+
+    const payload = (await response.json()) as {
+      sources?: Array<{
+        url?: string;
+        type?: string;
+        quality?: string | number;
+        provider?: { name?: string; id?: string };
+        audioTracks?: Array<{ language?: string; label?: string }>;
+      }>;
     };
-    // Prefer the same public MediaMash endpoint used by deployment smoke tests.
-    // Service Binding remains a fallback so /watch cannot silently diverge from
-    // the live playback core source list.
-    let response = await fetch(request, { signal: AbortSignal.timeout(25000) });
-    let payload = await responseToPayload(response);
-    if (!response.ok || !Array.isArray(payload?.sources) || payload.sources.length === 0) {
-      if (core) {
-        response = await core.fetch(request);
-        payload = await responseToPayload(response);
-      }
-    }
-    if (!response.ok || !payload) return [];
-    return (Array.isArray(payload.sources) ? payload.sources : []).map((source, index) => {
-      const url = String(source.url || '').trim();
-      if (!/^https:\/\//i.test(url)) return null;
-      const sourceType = String(source.type || '').trim().toLowerCase();
-      const type = ['hls', 'dash', 'mp4', 'webm'].includes(sourceType) ? sourceType : 'direct';
-      const rawQuality = String(source.quality ?? '').trim();
-      const qualityMatch = rawQuality.match(/(2160|1440|1080|720|576|480|360|240)/);
-      const quality = qualityMatch ? qualityMatch[1] + 'p' : '720p';
-      const providerName = String(source.provider?.name || source.provider?.id || 'MediaMash').trim();
-      const track = Array.isArray(source.audioTracks) ? source.audioTracks[0] : undefined;
-      return { id: 'playback-' + contentType + '-' + contentId + '-' + index, type, quality, language: String(track?.language || 'und').trim(), label: providerName, labelEn: providerName, url, isWorking: true, provider: providerName, providerKey: String(source.provider?.id || providerName).trim(), providerReference: 'mediamash', expiresAt: null };
-    }).filter((source): source is NonNullable<typeof source> => source !== null).sort((a,b) => Number.parseInt(b.quality,10)-Number.parseInt(a.quality,10));
-  } catch (error) { console.warn('[playback-core-bridge]', error instanceof Error ? error.message : String(error)); return []; }
+
+    return (Array.isArray(payload.sources) ? payload.sources : [])
+      .map((source, index) => {
+        const url = String(source.url || '').trim();
+        if (!/^https:\/\//i.test(url)) return null;
+
+        const sourceType = String(source.type || '').trim().toLowerCase();
+        const type = ['hls', 'dash', 'mp4', 'webm'].includes(sourceType) ? sourceType : 'direct';
+
+        const rawQuality = String(source.quality ?? '').trim();
+        const qualityMatch = rawQuality.match(/(2160|1440|1080|720|576|480|360|240)/);
+        const quality = qualityMatch ? qualityMatch[1] + 'p' : '720p';
+
+        const providerName = String(source.provider?.name || source.provider?.id || 'CinePro').trim();
+        const track = Array.isArray(source.audioTracks) ? source.audioTracks[0] : undefined;
+
+        return {
+          id: 'cinepro-' + contentType + '-' + contentId + '-' + index,
+          type,
+          quality,
+          language: String(track?.language || 'und').trim(),
+          label: 'CinePro • ' + providerName,
+          labelEn: 'CinePro • ' + providerName,
+          url,
+          isWorking: true,
+          provider: providerName,
+          providerKey: String(source.provider?.id || providerName).trim(),
+          providerReference: 'cinepro',
+          expiresAt: null,
+        };
+      })
+      .filter((source): source is NonNullable<typeof source> => source !== null)
+      .sort((a, b) => Number.parseInt(b.quality, 10) - Number.parseInt(a.quality, 10));
+  } catch (error) {
+    console.warn('[cinepro-bridge]', error instanceof Error ? error.message : String(error));
+    return [];
+  }
 }
 
-async function getFreshPlaybackSourcesForContent(contentType: 'movie' | 'episode', contentId: string, env?: Record<string, unknown>) {
-  return getPlaybackCoreSources(contentType, contentId, env);
+async function getFreshPlaybackSourcesForContent(
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  env?: Record<string, unknown>,
+) {
+  return getCineProPlaybackSources(contentType, contentId, env);
 }
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   const origin = req.headers.get('origin');
