@@ -104,7 +104,7 @@ jobs:
             echo "VERCEL_TOKEN GitHub secret is required to deploy CinePro Core to Vercel."
             exit 1
           fi
-          npx --yes vercel@latest deploy --cwd cinepro-vercel --prod --yes --token "$VERCEL_TOKEN" --project "$VERCEL_PROJECT_ID"
+          npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN" --project "$VERCEL_PROJECT_ID"
 
       - name: Verify CinePro Core on Vercel
         env:
