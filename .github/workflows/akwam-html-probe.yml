@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths:
       - ".github/workflows/akwam-html-probe.yml"
+      - "workers/akwam-prefill/**"
 
 permissions:
   contents: read
@@ -30,3 +31,24 @@ jobs:
           grep -Ein 'iframe|video|source|m3u8|mp4|player|watch|download|stream|file|videoUrl|video_url|data-src|data-url|data-href|jwplayer|plyr|hls|dash' /tmp/watch.html | head -250 || true
           echo '=== relevant href/src/data attrs ==='
           grep -Eio "(href|src|data-src|data-url|data-href|data-file|data-video)=[\"'][^\"']+[\"']" /tmp/watch.html | grep -Ei 'watch|download|link|m3u8|mp4|stream|player' | head -200 || true
+
+          echo '=== download candidates from episode ==='
+          python - <<'PY'
+          import re
+          html = open('/tmp/episode.html', encoding='utf-8', errors='ignore').read()
+          hrefs = re.findall(r'href=["\']([^"\']+)["\']', html, flags=re.I)
+          candidates = [x for x in hrefs if '/download/' in x or '/link/' in x]
+          print('\n'.join(candidates[:20]))
+          open('/tmp/download-url.txt', 'w', encoding='utf-8').write(candidates[0] if candidates else '')
+          PY
+          download=$(cat /tmp/download-url.txt)
+          test -n "$download"
+          case "$download" in
+            http*) ;;
+            /*) download="https://akwam.ss$download" ;;
+            *) download="https://akwam.ss/$download" ;;
+          esac
+          curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H "Referer: $episode" -H 'Accept: text/html' "$download" -o /tmp/download.html
+          echo '=== download page extraction markers ==='
+          grep -Ein 'btn-loader|download-link|m3u8|mp4|mpd|webm|data-file|data-video|data-url|href=' /tmp/download.html | head -200 || true
+          grep -Eiq 'btn-loader|download-link|m3u8|mp4|mpd|webm|data-file|data-video|data-url' /tmp/download.html
