@@ -150,6 +150,22 @@ jobs:
               content = payload.get("data", {}).get("content", {})
               sources = content.get("sources") if isinstance(content, dict) else []
               if not isinstance(sources, list) or not sources:
+                  tmdb_id = content.get("tmdbId") if isinstance(content, dict) else None
+                  if tmdb_id:
+                      core_req = urllib.request.Request(
+                          core + "/v1/movies/" + str(tmdb_id),
+                          headers={"Accept":"application/json","User-Agent":"Movyz-CI-CinePro-Diagnostics/1.0"},
+                      )
+                      try:
+                          with urllib.request.urlopen(core_req, timeout=90) as core_response:
+                              core_payload = json.load(core_response)
+                          diagnostics = core_payload.get("diagnostics") if isinstance(core_payload, dict) else []
+                          print(f"{label}: CinePro diagnostics:")
+                          for item in diagnostics or []:
+                              if isinstance(item, dict):
+                                  print("  -", item.get("severity","error"), item.get("code","UNKNOWN"), ":", item.get("message",""))
+                      except Exception as core_error:
+                          print(f"{label}: direct CinePro diagnostics probe failed:", core_error)
                   raise SystemExit(f"{label}: CinePro returned no sources")
               valid = [x for x in sources if str(x.get("providerReference") or "") == "cinepro" and str(x.get("url") or "").startswith("https://")]
               if len(valid) != len(sources):
