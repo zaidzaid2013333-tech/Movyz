@@ -877,7 +877,7 @@ async function getContext(env: Env, job: Job) {
   };
 }
 
-async function discover(env: Env, job: Job, ctx: any) {
+async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   const expected = job.content_type === "episode" ? "series" : "movie";
   const candidate = await findCandidate(
     env,
@@ -885,10 +885,11 @@ async function discover(env: Env, job: Job, ctx: any) {
     ctx.year,
     expected,
     job.content_type === "episode" ? (ctx.seasonNumber || job.season_number || 1) : undefined,
+    budget,
   );
   if (!candidate) throw new Error("AKWAM_NOT_FOUND");
 
-  const detail = await fetchText(env, candidate.url);
+  const detail = await fetchText(env, candidate.url, undefined, undefined, budget);
   if (!detail) throw new Error("AKWAM_DETAIL_FETCH_FAILED");
 
   let targets: string[] = [];
@@ -905,7 +906,7 @@ async function discover(env: Env, job: Job, ctx: any) {
       throw new Error("AKWAM_EPISODE_NOT_INDEXED candidate=" + candidate.url + " season=" + season + " episode=" + ep);
     }
 
-    const episodeHtml = await fetchText(env, exactEpisode);
+    const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget);
     if (!episodeHtml) throw new Error("AKWAM_EPISODE_FETCH_FAILED");
 
     targets = extractTargets(episodeHtml, exactEpisode);
@@ -916,10 +917,10 @@ async function discover(env: Env, job: Job, ctx: any) {
 
   const medias: Media[] = [];
   const sourceReferer = candidate.url;
-  const resolutionTargets = usefulResolutionTargets(targets, 6);
+  const resolutionTargets = usefulResolutionTargets(targets, 3);
   for (const target of resolutionTargets) {
-    const media = await resolveTarget(env, target, sourceReferer);
-    if (!media || !(await validateMedia(env, media))) continue;
+    const media = await resolveTarget(env, target, sourceReferer, budget);
+    if (!media) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);
     if (medias.length >= 3) break;
   }
@@ -1031,8 +1032,9 @@ async function fail(env: Env, job: Job, error: unknown, workerId: string) {
 
 async function processJob(env: Env, job: Job, workerId: string, provider: string) {
   try {
+    const budget: RequestBudget = { used: 0, max: 180 };
     const context = await getContext(env, job);
-    const sources = await discover(env, job, context);
+    const sources = await discover(env, job, context, budget);
     const count = await persist(env, job, sources, provider, workerId);
     return { ok: true, count };
   } catch (error) {
