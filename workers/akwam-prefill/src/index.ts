@@ -502,7 +502,13 @@ async function run(env: Env, workerId: string) {
   const jobs = claimed.filter((job): job is Job => Boolean(job));
   if (!jobs.length) return { workerId, processed: 0, saved: 0, failed: 0 };
 
-  const provider = await providerId(env);
+  let provider: string;
+  try {
+    provider = await providerId(env);
+  } catch (error) {
+    throw new Error("AKWAM_PROVIDER_INIT_FAILED: " + String(error).slice(0, 1200));
+  }
+
   const results = await Promise.all(
     jobs.map((job) => processJob(env, job, workerId, provider))
   );
@@ -536,20 +542,29 @@ async function fanout(env: Env) {
 }
 export default {
   async fetch(request: Request, env: Env) {
-    if (request.method === "POST" && request.headers.get("x-movyz-prefill-key") === env.SUPABASE_SERVICE_ROLE_KEY) {
-      const mode = request.headers.get("x-movyz-prefill-mode") || "batch";
+    try {
+      if (request.method === "POST" && request.headers.get("x-movyz-prefill-key") === env.SUPABASE_SERVICE_ROLE_KEY) {
+        const mode = request.headers.get("x-movyz-prefill-mode") || "batch";
 
-      if (mode === "fanout") {
-        const result = await fanout(env);
-        return Response.json({ ok: true, trigger: "fanout", ...result });
+        if (mode === "fanout") {
+          const result = await fanout(env);
+          return Response.json({ ok: true, trigger: "fanout", ...result });
+        }
+
+        const workerId = "prefill-" + crypto.randomUUID();
+        const result = await run(env, workerId);
+        return Response.json({ ok: true, trigger: "batch", ...result });
       }
 
-      const workerId = "prefill-" + crypto.randomUUID();
-      const result = await run(env, workerId);
-      return Response.json({ ok: true, trigger: "batch", ...result });
+      return Response.json({ ok: true, service: "movyz-akwam-prefill", mode: "db-only", parallel_jobs: 3, fanout: 6 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[akwam-prefill]", message);
+      return Response.json(
+        { ok: false, service: "movyz-akwam-prefill", error: message.slice(0, 1800) },
+        { status: 500 }
+      );
     }
-
-    return Response.json({ ok: true, service: "movyz-akwam-prefill", mode: "db-only", parallel_jobs: 3, fanout: 6 });
   },
 
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
