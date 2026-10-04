@@ -1,4 +1,5 @@
 // MediaMash Core is the only playback source backend; Movyz only bridges catalog metadata to it.
+// Playback diagnostics are validated in CI before production verification.
 // Production playback core: MediaMash Core -> prepared API -> Worker proxy -> HLS playback.
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
