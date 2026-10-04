@@ -1,4 +1,4 @@
-// CinePro Core is the only playback source backend; Movyz only bridges catalog metadata to it. Final CinePro smoke coverage uses the TMDB bearer credential and Worker-safe source validation before frontend deploy.
+// CinePro Core is the only playback source backend; Movyz only bridges catalog metadata to it. Final CinePro smoke coverage uses the TMDB bearer credential and Worker-safe source diagnostics before frontend deploy.
 // CI smoke coverage: Interstellar -> Inception -> Fight Club -> The Shawshank Redemption -> Breaking Bad S01E01.
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
