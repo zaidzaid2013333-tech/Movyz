@@ -442,7 +442,12 @@ async function run(env: Env, workerId: string) {
 }
 
 export default {
-  async fetch(_request: Request, env: Env) {
+  async fetch(request: Request, env: Env) {
+    if (request.method === "POST" && request.headers.get("x-movyz-prefill-key") === env.SUPABASE_SERVICE_ROLE_KEY) {
+      const workerId = "manual-" + crypto.randomUUID();
+      const result = await run(env, workerId);
+      return Response.json({ ok: true, trigger: "manual", ...result });
+    }
     return Response.json({ ok: true, service: "movyz-akwam-prefill", mode: "db-only" });
   },
 
