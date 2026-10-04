@@ -19,7 +19,7 @@ function normalizePlaybackQuality(value: unknown) {
   const raw = String(value ?? '').trim();
   if (!raw) return 'Auto';
   if (/^auto$/i.test(raw)) return 'Auto';
-  const match = raw.match(/(?:^|\\D)(2160|1440|1080|720|576|480|360|240)(?:p)?(?:$|\\D)/i);
+  const match = raw.match(/(?:^|\D)(2160|1440|1080|720|576|480|360|240)(?:p)?(?:$|\D)/i);
   return match?.[1] ? `${match[1]}p` : raw;
 }
 
