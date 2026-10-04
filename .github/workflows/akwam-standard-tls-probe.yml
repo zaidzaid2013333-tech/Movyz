@@ -1,0 +1,30 @@
+name: Akwam Standard TLS Probe
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/akwam-standard-tls-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Test standard HTTPS validation
+        run: |
+          set +e
+          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          media='https://s303d1.downet.net/download/1791242638/6ac2e00ef32bd/Cocktail.2012720p.WEB-DL.AKWAM.mp4'
+          curl -L --silent --show-error --max-time 30             -A "$ua"             -H 'Referer: https://akwam.ss/watch/170586/10762/cocktail'             -H 'Accept: */*'             -H 'Range: bytes=0-8191'             -o /tmp/standard.bin             -D /tmp/standard.headers             -w 'status=%{http_code} type=%{content_type} bytes=%{size_download}\n'             "$media"
+          rc=$?
+          echo "curl_exit=$rc"
+          echo '=== headers ==='
+          cat /tmp/standard.headers 2>/dev/null || true
+          echo '=== bytes ==='
+          wc -c /tmp/standard.bin 2>/dev/null || true
+          exit 0
