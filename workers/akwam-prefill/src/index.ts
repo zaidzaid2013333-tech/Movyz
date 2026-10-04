@@ -48,6 +48,7 @@ function consumeRequest(budget?: RequestBudget) {
 }
 
 const AKWAM_HOSTS = new Set(["akwam.ss", "www.akwam.ss"]);
+const BUILD_MARKER = "akwam-prefill-media-v1";
 
 function isAkwamUrl(value: string) {
   try {
@@ -754,6 +755,15 @@ async function validateMedia(env: Env, media: Media, budget?: RequestBudget) {
     if (ct.startsWith("video/")) return true;
     if (ct.includes("webm") || (body[0] === 0x1a && body[1] === 0x45 && body[2] === 0xdf && body[3] === 0xa3)) return true;
 
+    // Some Akwam CDN download links return HTTP 200 with a generic content type.
+    // For an explicit MP4 URL, accept a real binary prefix after rejecting HTML/challenges.
+    if (
+      response.status === 200 &&
+      media.type === "mp4" &&
+      body.length >= 4096 &&
+      !/^(?:text\/|application\/json|application\/javascript|text\/html)/i.test(ct)
+    ) return true;
+
     // Akwam's direct video endpoints can legitimately return 206 + octet-stream
     // without a recognizable container signature in the first bytes. Some download
     // endpoints also return 200 + octet-stream for a large attachment after redirect.
@@ -1108,6 +1118,7 @@ export default {
       return Response.json({
         ok: true,
         service: "movyz-akwam-prefill",
+        build: BUILD_MARKER,
         mode: "db-only",
         executor: "cloudflare-worker",
         max_jobs_per_request: Number(env.MAX_JOBS_PER_RUN || 1),
