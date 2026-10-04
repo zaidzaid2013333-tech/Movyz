@@ -150,9 +150,17 @@ function candidateKind(pathname: string): Candidate["kind"] {
   return "other";
 }
 
+function decodeUrlPath(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function candidateSignals(c: Candidate) {
   try {
-    const pathname = decodeHtml(new URL(c.url).pathname);
+    const pathname = decodeUrlPath(decodeHtml(new URL(c.url).pathname));
     const parts = pathname.split("/").filter(Boolean);
     const slug = parts.at(-1) || "";
     return [c.title, slug.replace(/[-_]+/g, " ")].filter(Boolean);
@@ -162,7 +170,7 @@ function candidateSignals(c: Candidate) {
 }
 
 function explicitSeason(value: string): number | undefined {
-  const text = normalize(value);
+  const text = normalize(decodeUrlPath(value));
   const digit = text.match(/(?:season|الموسم)\s*([0-9]+)/i);
   if (digit?.[1]) return Number(digit[1]);
   const words: Record<string, number> = {
@@ -252,7 +260,7 @@ function parseCandidates(html: string, env: Env): Candidate[] {
       .trim();
 
     const parts = u.pathname.split("/").filter(Boolean);
-    const slug = (parts[parts.length - 1] || "").replace(/[-_]+/g, " ");
+    const slug = decodeUrlPath(parts[parts.length - 1] || "").replace(/[-_]+/g, " ");
     const title = [rawText, slug].filter(Boolean).join(" || ");
 
     const yearMatch = (rawText.match(/(?:19|20)[0-9]{2}/) || [])[0];
@@ -396,7 +404,10 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
     try { rawPath = decodeURIComponent(new URL(link.url).pathname); } catch { rawPath = link.url; }
     if (/^\/old(?:\/|$)/i.test(rawPath)) continue;
 
-    const hay = decodeHtml(link.text + " " + rawPath);
+    const hay = decodeUrlPath(decodeHtml(link.text + " " + rawPath));
+    const declaredSeason = explicitSeason(hay);
+    if (declaredSeason !== undefined && declaredSeason !== season) continue;
+
     const looksLikeEpisode =
       /(?:حلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay) ||
       /\/(?:episode|show\/episode|watch)\//i.test(rawPath);
@@ -406,7 +417,9 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
     const exactEpisode =
       new RegExp("(?:الحلقة|الحلقه|episode|ep(?:isode)?)[-_\\s]*(?:رقم[-_\\s]*)?0*" + episode + "(?![0-9.])", "i").test(hay) ||
       new RegExp("(?:^|[^0-9.])0*" + episode + "(?:$|[^0-9.])", "i").test(rawPath);
-    const exactSeasonEpisode = new RegExp("s0*" + season + "e0*" + episode + "(?![0-9])", "i").test(hay + " " + rawPath);
+    const exactSeasonEpisode =
+      new RegExp("s0*" + season + "e0*" + episode + "(?![0-9])", "i").test(hay + " " + rawPath) ||
+      new RegExp("(?:season|الموسم)[-_\\s]*0*" + season + "[^0-9]*(?:episode|ep|الحلقة|الحلقه)[-_\\s]*0*" + episode + "(?![0-9])", "i").test(hay);
     const seasonMatch =
       new RegExp("(?:season|الموسم)[-_\\s]*0*" + season + "(?:\\D|$)", "i").test(hay) ||
       new RegExp("(?:s)0*" + season + "(?:\\D|$)", "i").test(rawPath);
