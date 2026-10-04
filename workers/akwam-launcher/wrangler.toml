@@ -1,0 +1,6 @@
+name = "movyz-akwam-launcher"
+main = "src/index.ts"
+compatibility_date = "2026-10-04"
+
+[triggers]
+crons = ["* * * * *"]
