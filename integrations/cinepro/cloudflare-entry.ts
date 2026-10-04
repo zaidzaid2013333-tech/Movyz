@@ -101,21 +101,15 @@ try {
 
 const app = cinepro.getInstance();
 
-let ready: Promise<void> | undefined;
-
-async function ensureReady() {
-  if (!ready) {
-    ready = app.ready();
-  }
-  await ready;
-}
-
-const bridgeServer = createServer(async (request, response) => {
+// OMSSServer registers CinePro routes synchronously in its constructor.
+// In Workers, waiting on Fastify/Avvio's full boot queue can deadlock on Node
+// lifecycle ticks. The HTTP bridge can safely enter Fastify's request listener
+// directly because the route graph is already registered.
+const bridgeServer = createServer((request, response) => {
   try {
-    await ensureReady();
     app.server.emit('request', request, response);
   } catch (error) {
-    console.error('[CinePro] request bridge failed', error);
+    console.error('[CinePro] request dispatch failed', error);
     if (!response.headersSent) {
       response.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
     }
