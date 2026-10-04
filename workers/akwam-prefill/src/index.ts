@@ -580,10 +580,10 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
 function targetResolutionScore(raw: string) {
   try {
     const path = new URL(raw).pathname.toLowerCase();
-    if (/(?:\\.m3u8|\\.mp4|\\.mpd|\\.webm)(?:\\?|$)/i.test(path)) return 260;
-    if (/^\\/(?:download|link)\\//i.test(path)) return 220;
-    if (/^\\/watch\\//i.test(path)) return 170;
-    if (/^\\/(?:episode|show\\/episode)\\//i.test(path)) return 150;
+    if (/(?:\.m3u8|\.mp4|\.mpd|\.webm)(?:\?|$)/i.test(path)) return 260;
+    if (/^\/(?:download|link)\//i.test(path)) return 220;
+    if (/^\/watch\//i.test(path)) return 170;
+    if (/^\/(?:episode|show\/episode)\//i.test(path)) return 150;
     return 10;
   } catch {
     return 0;
