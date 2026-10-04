@@ -153,6 +153,39 @@ export default {
         });
       }
 
+      const debugMovieMatch = url.pathname.match(/^\/v1\/debug\/movie\/([^/]+)$/);
+      if (debugMovieMatch) {
+        const tmdbId = decodeURIComponent(debugMovieMatch[1]);
+        const tmdbService = (cinepro as any).tmdbService;
+        const media = await tmdbService.getMediaObject('movie', tmdbId);
+        media.imdbId = (await tmdbService.getImdbId(tmdbId, 'movie')) ?? '';
+        const results = [];
+        for (const provider of registry.getEnabledProviders()) {
+          const started = Date.now();
+          try {
+            const result = await provider.getMovieSources(media);
+            results.push({
+              id: provider.id,
+              name: provider.name,
+              enabled: provider.enabled,
+              sources: Array.isArray(result?.sources) ? result.sources.length : 0,
+              diagnostics: result?.diagnostics ?? [],
+              ms: Date.now() - started,
+            });
+          } catch (error) {
+            results.push({
+              id: provider.id,
+              name: provider.name,
+              enabled: provider.enabled,
+              sources: 0,
+              diagnostics: [{ message: error instanceof Error ? error.message : String(error) }],
+              ms: Date.now() - started,
+            });
+          }
+        }
+        return json({ tmdbId, media, results });
+      }
+
       const movieMatch = url.pathname.match(/^\/v1\/movies\/([^/]+)$/);
       if (movieMatch) {
         return json(await sourceService.getMovieSources(decodeURIComponent(movieMatch[1])));
