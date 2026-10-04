@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 import { OMSSServer } from '@omss/framework';
-import { resolveAkwamPlayback } from './arprov/arprov-akwam.js';
+import { debugAkwamMovie, resolveAkwamPlayback } from './arprov/arprov-akwam.js';
 
 import { IcefyProvider } from './core/src/providers/icefy/icefy.js';
 import { CineSuProvider } from './core/src/providers/cinesu/cinesu.js';
@@ -209,6 +209,32 @@ export default {
           version: '1.0.0',
           status: 'ok',
           providers: registry.getEnabledProviders().map((provider: any) => provider.name),
+        });
+      }
+
+      const debugTvMatch = url.pathname.match(/^\/v1\/debug\/tv\/([^/]+)\/seasons\/(\d+)\/episodes\/(\d+)$/);
+      if (debugTvMatch) {
+        const tmdbId = decodeURIComponent(debugTvMatch[1]);
+        const season = Number.parseInt(debugTvMatch[2], 10);
+        const episode = Number.parseInt(debugTvMatch[3], 10);
+        const tmdbService = (cinepro as any).tmdbService;
+        const media = await tmdbService.getMediaObject('tv', tmdbId, season, episode);
+        const seriesMeta = await tmdbService.validateTV(tmdbId);
+        const context = {
+          tmdbId: Number(tmdbId),
+          title: seriesMeta.title || media.title,
+          originalTitle: seriesMeta.title || media.title,
+          releaseYear: Number(seriesMeta.releaseYear) || undefined,
+          imdbId: media.imdbId,
+          seasonNumber: season,
+          episodeNumber: episode,
+          episodeTitle: media.title,
+        };
+        return json({
+          context,
+          trace: await debugAkwamMovie(context, {
+            tmdbApiToken: process.env.TMDB_API_READ_ACCESS_TOKEN,
+          }),
         });
       }
 
