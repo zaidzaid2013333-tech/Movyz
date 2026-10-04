@@ -1,20 +1,7 @@
 import { Readable } from 'node:stream';
 import { OMSSServer } from '@omss/framework';
 
-import { IcefyProvider } from './core/src/providers/icefy/icefy.js';
-import { CineSuProvider } from './core/src/providers/cinesu/cinesu.js';
-import { TulnexProvider } from './core/src/providers/tulnex/tulnex.js';
-import { VidApiProvider } from './core/src/providers/vidapi/vidapi.js';
-import { FsharetvProvider } from './core/src/providers/fshare/fshare.js';
-import { PoprProvider } from './core/src/providers/popr/popr.js';
-import { VidSrcProvider } from './core/src/providers/vidsrc/vidsrc.js';
-import { VidZeeProvider } from './core/src/providers/vidzee/vidzee.js';
-import { VidRockProvider } from './core/src/providers/vidrock/vidrock.js';
-import { VidNestProvider } from './core/src/providers/vidnest/vidnest.js';
-import { VideasyProvider } from './core/src/providers/videasy/videasy.js';
-import { VixSrcProvider } from './core/src/providers/vixsrc/vixsrc.js';
-import { PeachifyProvider } from './core/src/providers/peachify/peachify.js';
-import { StreamMafiaProvider } from './core/src/providers/streammafia/streammafia.js';
+import { discoverCoreProviders } from './generated-core-providers.js';
 
 const nativeSetInterval = globalThis.setInterval;
 globalThis.setInterval = (() => ({ unref() {} })) as unknown as typeof setInterval;
@@ -65,24 +52,8 @@ const cinepro = new OMSSServer({
 globalThis.setInterval = nativeSetInterval;
 
 const registry = cinepro.getRegistry();
-const providers = [
-  new IcefyProvider(),
-  new CineSuProvider(),
-  new TulnexProvider(),
-  new VidApiProvider(),
-  new FsharetvProvider(),
-  new PoprProvider(),
-  new VidSrcProvider(),
-  new VidZeeProvider(),
-  new VidRockProvider(),
-  new VidNestProvider(),
-  new VideasyProvider(),
-  new VixSrcProvider(),
-  new PeachifyProvider(),
-  new StreamMafiaProvider(),
-];
 
-for (const provider of providers) {
+for (const provider of discoverCoreProviders()) {
   registry.register(provider);
 }
 
