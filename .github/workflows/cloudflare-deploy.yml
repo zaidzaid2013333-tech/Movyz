@@ -255,13 +255,20 @@ jobs:
           import json, urllib.request
           base = "https://movyz-cinepro.sameranede.workers.dev"
           headers = {"Accept":"application/json","User-Agent":"Movyz-CI/1.0"}
+          from urllib.error import HTTPError
+
           for path in ["/v1/health", "/v1/movies/157336", "/v1/tv/1399/1/1"]:
               req = urllib.request.Request(base + path, headers=headers)
-              with urllib.request.urlopen(req, timeout=45) as response:
-                  payload = json.load(response)
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as response:
+                      payload = json.load(response)
+              except HTTPError as error:
+                  body = error.read().decode("utf-8", "replace")
+                  print(path, "HTTP", error.code, "body=", body[:6000])
+                  raise
               print(path, "sources=", len(payload.get("sources", [])) if isinstance(payload, dict) else -1)
               if path != "/v1/health" and not payload.get("sources"):
-                  raise SystemExit(f"CinePro returned no sources for {path}")
+                  raise SystemExit(f"CinePro returned no sources for {path}: {json.dumps(payload)[:6000]}")
           print("CinePro Core source smoke: OK")
 
       - name: Prepare Movyz deployment secrets
