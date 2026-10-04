@@ -15,13 +15,12 @@ permissions:
   contents: read
   actions: write
 
-concurrency:
-  group: movyz-akwam-prefill-deploy-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   deploy:
     if: github.event_name != 'schedule'
+    concurrency:
+      group: movyz-akwam-deploy-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -135,6 +134,10 @@ jobs:
         run: rm -f .env.akwam-prefill
 
   prefill:
+    if: github.event_name != 'push'
+    concurrency:
+      group: movyz-akwam-prefill-${{ github.ref }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
