@@ -115,17 +115,25 @@ jobs:
               ("episode", "cfec368f-138e-405d-a98b-bb6734f5bbf5", "Breaking Bad S01E01"),
           ]
 
+          headers = {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36",
+              "Accept": "application/json, text/plain, */*",
+          }
           opener = urllib.request.build_opener()
-          opener.addheaders = [("User-Agent", "Movyz-CI/1.0")]
+          opener.addheaders = list(headers.items())
 
-          def fetch_json(req):
-              with opener.open(req, timeout=45) as response:
+          def fetch_json(url):
+              req = urllib.request.Request(url, headers=headers)
+              with opener.open(req, timeout=60) as response:
                   return response.status, json.load(response)
 
           def fetch_text(url):
-              req = urllib.request.Request(url, headers={"Accept":"application/vnd.apple.mpegurl"})
-              with opener.open(req, timeout=45) as response:
-                  return response.status, response.headers.get("content-type",""), response.read(20000).decode("utf-8","replace")
+              req = urllib.request.Request(url, headers={
+                  **headers,
+                  "Accept": "application/vnd.apple.mpegurl, application/x-mpegURL, */*",
+              })
+              with opener.open(req, timeout=60) as response:
+                  return response.status, response.headers.get("content-type", ""), response.read(20000).decode("utf-8", "replace")
 
           def probe_media(url, depth=0):
               if depth > 4:
@@ -142,7 +150,6 @@ jobs:
                       continue
                   nested = urljoin(url, line)
                   parsed = urlparse(nested)
-
                   if parsed.path.lower().endswith(".m3u8") or "m3u8" in nested.lower():
                       try:
                           if probe_media(nested, depth + 1):
@@ -151,10 +158,8 @@ jobs:
                           continue
                   else:
                       try:
-                          with opener.open(
-                              urllib.request.Request(nested, headers={"Range":"bytes=0-2047"}),
-                              timeout=45,
-                          ) as response:
+                          req = urllib.request.Request(nested, headers={"Range": "bytes=0-2047", "User-Agent": headers["User-Agent"]})
+                          with opener.open(req, timeout=60) as response:
                               sample = response.read(4096)
                               if response.status in (200, 206) and len(sample) > 32:
                                   return True
@@ -163,20 +168,20 @@ jobs:
               return False
 
           for content_type, content_id, label in checks:
-              payload = json.dumps({"contentType": content_type, "contentId": content_id}).encode()
-              req = urllib.request.Request(
-                  api + "/api/v1/playback/prepared",
-                  method="POST",
-                  data=payload,
-                  headers={"Accept":"application/json","Content-Type":"application/json","User-Agent":"Movyz-CI/1.0"},
-              )
-              status, response = fetch_json(req)
-              if status != 200 or response.get("success") is not True:
-                  raise SystemExit(f"{label}: prepared endpoint failed")
+              url = api + "/api/v1/watch/" + content_id + "?type=" + content_type
+              try:
+                  status, response = fetch_json(url)
+              except Exception as exc:
+                  raise SystemExit(f"{label}: watch endpoint request failed: {exc}")
 
-              sources = response.get("data") if isinstance(response.get("data"), list) else []
-              if not sources:
+              if status != 200 or response.get("success") is not True:
+                  raise SystemExit(f"{label}: watch endpoint failed: {status}")
+
+              content = response.get("data", {}).get("content", {})
+              sources = content.get("sources") if isinstance(content, dict) else []
+              if not isinstance(sources, list) or not sources:
                   raise SystemExit(f"{label}: no playback sources")
+
               if not all(str(s.get("providerReference") or "") == "mediamash" for s in sources):
                   raise SystemExit(f"{label}: legacy provider leaked into playback")
 
@@ -192,6 +197,7 @@ jobs:
                           break
                   except Exception as exc:
                       print(f"PROBE_FAIL {label}: {exc}")
+
               if not working:
                   raise SystemExit(f"{label}: no playable HLS/source survived end-to-end probe")
 
