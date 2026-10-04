@@ -1,0 +1,40 @@
+name: Movyz Akwam Persistent Prefill
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"
+  push:
+    branches: ["main"]
+    paths:
+      - "scripts/akwam-prefill-worker.mjs"
+      - ".github/workflows/akwam-persistent-prefill.yml"
+      - "server/index.ts"
+      - "supabase/migrations/20261004194000_akwam_prefill_persistent_sources.sql"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-akwam-persistent-prefill
+  cancel-in-progress: false
+
+jobs:
+  worker:
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        worker: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
+    runs-on: ubuntu-slim
+    timeout-minutes: 350
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      CINEPRO_BASE_URL: "https://cinepro-core-production-8b58.up.railway.app"
+      PREFILL_WORKER_ID: "akwam-${{ matrix.worker }}"
+      MAX_SOURCES_PER_ITEM: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run persistent Akwam worker
+        run: node scripts/akwam-prefill-worker.mjs
