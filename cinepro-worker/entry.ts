@@ -16,7 +16,10 @@ import { VixSrcProvider } from './core/src/providers/vixsrc/vixsrc.js';
 import { PeachifyProvider } from './core/src/providers/peachify/peachify.js';
 import { StreamMafiaProvider } from './core/src/providers/streammafia/streammafia.js';
 
-const nativeSetInterval = globalThis.setInterval;\nglobalThis.setInterval = (() => ({ unref() {} })) as unknown as typeof setInterval;\n\nconst cinepro = new OMSSServer({
+const nativeSetInterval = globalThis.setInterval;
+globalThis.setInterval = (() => ({ unref() {} })) as unknown as typeof setInterval;
+
+const cinepro = new OMSSServer({
   name: 'Movyz CinePro',
   version: '1.0.0',
   host: process.env.HOST ?? '0.0.0.0',
