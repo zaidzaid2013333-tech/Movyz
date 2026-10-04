@@ -100,15 +100,29 @@ export class AkwamProvider extends BaseProvider {
             }
 
             const results = await Promise.allSettled(
-                targets.slice(0, 16).map((target) => this.resolveTarget(target))
+                targets.slice(0, 12).map((target) => this.resolveTarget(target))
             );
 
+            const mediaResults = results
+                .filter(
+                    (result): result is PromiseFulfilledResult<MediaResult | null> =>
+                        result.status === 'fulfilled' && Boolean(result.value)
+                )
+                .map((result) => result.value)
+                .filter((value): value is MediaResult => Boolean(value));
+
+            const uniqueResults = Array.from(
+                new Map(mediaResults.map((result) => [result.url, result])).values()
+            );
+
+            // A resolved URL is not necessarily playable. Some Akwam mirrors can
+            // return a URL that stalls or fails only when the browser starts a
+            // range request. Validate a small byte range before exposing it.
+            const validatedResults = await this.validateMediaResults(uniqueResults);
+
             const sourceMap = new Map<string, Source>();
-
-            for (const result of results) {
-                if (result.status !== 'fulfilled' || !result.value) continue;
-
-                const source = this.toSource(result.value);
+            for (const result of validatedResults) {
+                const source = this.toSource(result);
                 if (source && !sourceMap.has(source.url)) {
                     sourceMap.set(source.url, source);
                 }
@@ -118,8 +132,12 @@ export class AkwamProvider extends BaseProvider {
 
             if (!sources.length) {
                 return this.emptyResult(
-                    'Akwam targets did not expose a supported media URL',
-                    'AKWAM_NO_MEDIA'
+                    uniqueResults.length
+                        ? 'Akwam exposed media URLs, but none passed the playback health check'
+                        : 'Akwam targets did not expose a supported media URL',
+                    uniqueResults.length
+                        ? 'AKWAM_MEDIA_UNREACHABLE'
+                        : 'AKWAM_NO_MEDIA'
                 );
             }
 
@@ -134,6 +152,72 @@ export class AkwamProvider extends BaseProvider {
                 'AKWAM_PROVIDER_ERROR'
             );
         }
+    }
+
+    private async validateMediaResults(results: MediaResult[]): Promise<MediaResult[]> {
+        const checks = await Promise.all(
+            results.slice(0, 12).map(async (result) => {
+                try {
+                    const response = await fetch(result.url, {
+                        method: 'GET',
+                        headers: {
+                            ...this.HEADERS,
+                            Accept:
+                                result.type === 'hls'
+                                    ? 'application/vnd.apple.mpegurl,application/x-mpegURL,*/*;q=0.8'
+                                    : 'video/mp4,video/webm,application/octet-stream,*/*;q=0.8',
+                            Range: 'bytes=0-65535'
+                        },
+                        redirect: 'follow',
+                        signal: AbortSignal.timeout(8000)
+                    });
+
+                    if (!response.ok && response.status !== 206) return null;
+
+                    const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+                    const reader = response.body?.getReader();
+                    const firstChunk = reader
+                        ? await reader.read().finally(() => {
+                              void reader.cancel().catch(() => undefined);
+                          })
+                        : { value: undefined };
+
+                    const bytes = firstChunk.value ?? new Uint8Array();
+                    if (!bytes.length) return null;
+
+                    if (result.type === 'hls') {
+                        const text = new TextDecoder().decode(bytes);
+                        return /#EXTM3U/i.test(text) ? result : null;
+                    }
+
+                    const looksLikeMedia =
+                        contentType.startsWith('video/') ||
+                        contentType.includes('octet-stream') ||
+                        this.hasMp4Signature(bytes);
+
+                    return looksLikeMedia ? result : null;
+                } catch {
+                    return null;
+                }
+            })
+        );
+
+        return checks.filter((value): value is MediaResult => Boolean(value));
+    }
+
+    private hasMp4Signature(bytes: Uint8Array): boolean {
+        const limit = Math.min(bytes.length - 4, 256);
+        for (let index = 0; index <= limit; index += 1) {
+            if (
+                bytes[index] === 0x66 &&
+                bytes[index + 1] === 0x74 &&
+                bytes[index + 2] === 0x79 &&
+                bytes[index + 3] === 0x70
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private async findCandidate(
