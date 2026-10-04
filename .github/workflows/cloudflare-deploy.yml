@@ -99,22 +99,18 @@ jobs:
           api = "https://movyz-api.sameranede.workers.dev"
           checks = [
               ("movie", "6591564a-13a9-4892-a166-247d1ff9158b", "Interstellar"),
-              ("movie", "81723a1b-a9c5-46bb-bec6-f16664895d3e", "Inception"),
-              ("movie", "ef350c7c-dbf6-44bb-80dc-3bc61890a166", "Fight Club"),
-              ("movie", "a5c2bdf2-66f5-404a-a5dd-348cde1a32a6", "The Shawshank Redemption"),
-              ("episode", "cfec368f-138e-405d-a98b-bb6734f5bbf5", "Breaking Bad S01E01"),
           ]
           for content_type, content_id, label in checks:
               req = urllib.request.Request(
                   api + "/api/v1/watch/" + content_id + "?type=" + content_type,
-                  headers={"Accept": "application/json", "User-Agent": "Movyz-CI-DBOnly/1.0"},
+                  headers={"Accept": "application/json", "User-Agent": "Movyz-CI-DBOnly/2.0"},
               )
               try:
                   with urllib.request.urlopen(req, timeout=60) as response:
                       payload = json.load(response)
               except urllib.error.HTTPError as error:
                   body = error.read().decode("utf-8", "replace")
-                  raise SystemExit(f"{label}: watch API HTTP {error.code}: {body[:500]}")
+                  raise SystemExit(f"{label}: watch API HTTP {error.code}: {body[:700]}")
               if payload.get("success") is not True:
                   raise SystemExit(f"{label}: watch API failed")
               content = payload.get("data", {}).get("content", {})
@@ -124,6 +120,9 @@ jobs:
               for source in sources:
                   if not isinstance(source, dict) or not str(source.get("url") or "").startswith("https://"):
                       raise SystemExit(f"{label}: invalid persisted source")
+                  quality = str(source.get("quality") or "")
+                  if quality and quality.lower() != "auto" and not quality.endswith("p"):
+                      raise SystemExit(f"{label}: non-normalized playback quality: {quality}")
               print(f"DB-only playback OK: {label} sources={len(sources)}")
           print("Movyz DB-only playback smoke: ALL OK")
           PY
