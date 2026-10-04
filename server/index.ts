@@ -10,7 +10,7 @@ const api = '/api/v1';
 
 app.disable('x-powered-by');
 
-// Playback backend: CinePro Core only. TMDB/Supabase remain the Movyz catalog layer; CinePro owns source discovery and streaming proxying.
+// Playback backend: CinePro Core only. TMDB/Supabase remain the Movyz catalog layer; CinePro owns source discovery and streaming proxying; legacy MediaMash relay is not part of playback.
 
 // Production diagnostics for the selected playback-sites path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
