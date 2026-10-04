@@ -560,7 +560,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   };
 
   // Automatic source failover is intentionally disabled.
-  // A failed source must remain stable so the player never enters a quality-switch loop.
+  // A failed source remains selected until the user manually chooses another source.
   const markPlaybackSourceFailed = () => {
   };
 
@@ -649,28 +649,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       directUrl: undefined,
       fallbackUrl: undefined,
     });
-    return true;
-  };
-
-  const tryNextStartupSource = (currentUrl: string) => {
-    const next = availableSources.find(
-      (source) =>
-        source.url !== currentUrl &&
-        !startupTriedUrlsRef.current.has(source.url),
-    );
-    if (!next) return false;
-
-    startupTriedUrlsRef.current.add(next.url);
-    qualityResumeTimeRef.current = 0;
-    qualitySwitchPendingRef.current = false;
-    resumeAfterQualitySwitchRef.current = false;
-    playbackStartedRef.current = false;
-    setPlaybackError(null);
-    setPlayerReady(false);
-    setPlayerCurrentTime(0);
-    setPlayerDuration(0);
-    setPlayerBufferedEnd(0);
-    setRemotePlaybackSource(next);
     return true;
   };
 
@@ -814,24 +792,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     void attachPlayback();
 
-    // Give a slow MP4 source a bounded startup window. If metadata still has
-    // not arrived, automatically try the next prepared quality instead of
-    // leaving the player in a permanent spinner.
-    startupGuardTimerRef.current = window.setTimeout(() => {
-      if (cancelled) return;
-      const currentVideo = videoRef.current;
-      if (!currentVideo || currentVideo.readyState >= HTMLMediaElement.HAVE_METADATA) return;
-
-      if (tryNextStartupSource(playbackUrl)) {
-        return;
-      }
-
-      setPlaybackError(
-        language === 'ar'
-          ? 'تعذر تحميل المصدر الحالي. جرّب إعادة المحاولة أو جودة أخرى.'
-          : 'The current source could not be loaded. Retry or try another quality.',
-      );
-    }, 15000);
+    // Do not automatically switch sources. A failed source stays selected
+    // so the user can retry or choose another quality/provider manually.
 
     return () => {
       cancelled = true;
@@ -1320,12 +1282,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   // FastPath: try the same source through Movyz only when the
                   // direct/raw URL is rejected by the browser or upstream.
                   if (tryDirectFallback(playbackUrl)) {
-                    return;
-                  }
-
-                  // Sequential bounded failover: never revisit a URL, and never
-                  // loop between qualities.
-                  if (tryNextStartupSource(playbackUrl)) {
                     return;
                   }
 
