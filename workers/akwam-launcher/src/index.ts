@@ -7,7 +7,7 @@ type Env = {
 };
 
 const TARGET = "https://movyz-akwam-prefill.sameranede.workers.dev/";
-const BATCHES_PER_TICK = 15;
+const BATCHES_PER_TICK = 15; // 15 single-job executions per launcher tick
 
 async function dispatch(env: Env) {
   const requests = Array.from({ length: BATCHES_PER_TICK }, () =>
