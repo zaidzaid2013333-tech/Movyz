@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2026-10-04"
 
 [vars]
-AKWAM_BASE_URL = "https://akwam.ss"
+AKWAM_BASE_URL = "https://akwam.it"
 MAX_JOBS_PER_RUN = "1"
 
 [triggers]
