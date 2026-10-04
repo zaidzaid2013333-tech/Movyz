@@ -1,6 +1,5 @@
-// MediaMash Core is the only playback source backend; Movyz only bridges catalog metadata to it.
-// Playback diagnostics are validated in CI before production verification.
-// Production playback core: MediaMash Core -> prepared API -> Worker proxy -> HLS playback.
+// Production playback core: CinePro Core -> prepared API -> Movyz player.
+// CinePro is the only playback source backend; Supabase/TMDB remain the catalog layer.
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
 
@@ -14,8 +13,6 @@ type ExecutionContextLike = {
 
 type MovyzEnvironment = WorkerEnvironment & {
   ASSETS: { fetch(request: Request): Promise<Response> };
-  WATCH_API?: ServiceBinding;
-  MEDIAMASH_CORE?: ServiceBinding;
 };
 
 
@@ -57,6 +54,3 @@ export default {
 
 };
 
-
-// Playback backend is CinePro Core; CI deploys and smoke-tests the upstream backend before Movyz verification.
-// CI concurrency: only the newest production verification should run.
