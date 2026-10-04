@@ -98,6 +98,13 @@ jobs:
         run: |
           npx wrangler deploy             --secrets-file .cinepro-secrets             --var PUBLIC_URL:$CINEPRO_URL
 
+      - name: Probe CinePro TMDB runtime
+        continue-on-error: true
+        run: |
+          curl -sS -D /tmp/cinepro-tmdb-headers.txt             -H "Accept: application/json"             -H "User-Agent: Movyz-CinePro-Debug/1.0"             "https://movyz-cinepro.sameranede.workers.dev/v1/debug/tmdb"             -o /tmp/cinepro-tmdb-body.txt || true
+          cat /tmp/cinepro-tmdb-headers.txt || true
+          cat /tmp/cinepro-tmdb-body.txt || true
+
       - name: Smoke test CinePro Core
         run: |
           python - <<'PY'
