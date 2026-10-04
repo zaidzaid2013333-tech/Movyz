@@ -5,6 +5,7 @@ const env = {
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   AKWAM_BASE_URL: "https://akwam.ss",
   MAX_JOBS_PER_RUN: process.env.MAX_JOBS_PER_RUN || "50",
+  PREFILL_CONCURRENCY: process.env.PREFILL_CONCURRENCY || "8",
 };
 
 if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
