@@ -335,7 +335,7 @@ async function findCandidate(
     expectedSeason && seeds[0] ? `${seeds[0]} season ${expectedSeason}` : "",
     expectedSeason && seeds[0] ? `${seeds[0]} الموسم ${expectedSeason}` : "",
     expectedSeason && seeds[0] ? `${seeds[0]} S${String(expectedSeason).padStart(2, "0")}` : "",
-  ].filter(Boolean))).slice(0, 7);
+  ].filter(Boolean))).slice(0, 4);
 
   for (const host of hosts) {
     for (const title of variants) {
@@ -833,7 +833,7 @@ async function resolveTarget(
     }
 
     const mediaCandidates = extractMediaCandidates(html, current.url);
-    for (const candidate of mediaCandidates.slice(0, 4)) {
+    for (const candidate of mediaCandidates.slice(0, 2)) {
       const media = mediaFromUrl(
         candidate.url,
         candidate.referer || current.url,
@@ -845,7 +845,7 @@ async function resolveTarget(
     if (current.depth >= 2) continue;
     const nestedTargets = usefulResolutionTargets(
       extractTargets(html, current.url),
-      2,
+      1,
     );
     for (const nested of nestedTargets) {
       if (seen.has(nested)) continue;
@@ -917,7 +917,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
 
   const medias: Media[] = [];
   const sourceReferer = candidate.url;
-  const resolutionTargets = usefulResolutionTargets(targets, 3);
+  const resolutionTargets = usefulResolutionTargets(targets, 2);
   for (const target of resolutionTargets) {
     const media = await resolveTarget(env, target, sourceReferer, budget);
     if (!media) continue;
@@ -1032,7 +1032,7 @@ async function fail(env: Env, job: Job, error: unknown, workerId: string) {
 
 async function processJob(env: Env, job: Job, workerId: string, provider: string) {
   try {
-    const budget: RequestBudget = { used: 0, max: 180 };
+    const budget: RequestBudget = { used: 0, max: 50 };
     const context = await getContext(env, job);
     const sources = await discover(env, job, context, budget);
     const count = await persist(env, job, sources, provider, workerId);
