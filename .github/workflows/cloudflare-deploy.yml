@@ -94,6 +94,84 @@ jobs:
               print('TMDB direct status =', response.status, 'title =', payload.get('title'), 'release_date =', payload.get('release_date'), 'status =', payload.get('status'))
           PY
 
+      - name: Configure Vercel project routing for CinePro
+        env:
+          VERCEL_TOKEN: \${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
+          VERCEL_TEAM_ID: team_k6ix2FuZObAmwiIzZfdjyz0U
+        run: |
+          python - <<'PY'
+          import json, os, urllib.parse, urllib.request
+
+          token = os.environ.get('VERCEL_TOKEN', '').strip()
+          project_id = os.environ['VERCEL_PROJECT_ID']
+          team_id = os.environ['VERCEL_TEAM_ID']
+          if not token:
+              raise SystemExit('VERCEL_TOKEN GitHub secret is required.')
+
+          base = f'https://api.vercel.com/v1/projects/{project_id}/routes'
+          query = urllib.parse.urlencode({'teamId': team_id})
+          headers = {
+              'Authorization': 'Bearer ' + token,
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+              'User-Agent': 'Movyz-CinePro-CI/1.0',
+          }
+
+          def request(method, url, body=None):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(url, method=method, data=data, headers=headers)
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  raw = response.read().decode('utf-8')
+                  return response.status, json.loads(raw) if raw else {}
+
+          status, current = request('GET', base + '?' + query)
+          routes = current.get('routes', []) if isinstance(current, dict) else []
+          target = next(
+              (
+                  r for r in routes
+                  if isinstance(r, dict)
+                  and r.get('name') == 'Movyz CinePro catch-all'
+                  and isinstance(r.get('route'), dict)
+                  and r['route'].get('src') == '/(.*)'
+                  and r['route'].get('dest') == '/api'
+              ),
+              None,
+          )
+
+          if target and not target.get('staged'):
+              print('Vercel CinePro project route already live:', target.get('id'))
+              raise SystemExit(0)
+
+          payload = {
+              'route': {
+                  'name': 'Movyz CinePro catch-all',
+                  'description': 'Route all CinePro paths to the existing /api function without requiring a new deployment.',
+                  'enabled': True,
+                  'srcSyntax': 'regex',
+                  'route': {
+                      'src': '/(.*)',
+                      'dest': '/api',
+                  },
+              }
+          }
+
+          if target and target.get('staged'):
+              version = (current.get('version') or {}).get('id')
+              if not version:
+                  raise SystemExit('A staged CinePro route exists but its version id was not returned.')
+              _, promoted = request('POST', base + '/versions?' + query, {'id': version, 'action': 'promote'})
+              print('Promoted staged Vercel CinePro route:', promoted.get('version', {}).get('id', version))
+              raise SystemExit(0)
+
+          status, added = request('POST', base + '?' + query, payload)
+          version = (added.get('version') or {}).get('id')
+          if not version:
+              raise SystemExit('Vercel route was created without a version id: ' + json.dumps(added)[:2000])
+          _, promoted = request('POST', base + '/versions?' + query, {'id': version, 'action': 'promote'})
+          print('Created and promoted Vercel CinePro route:', promoted.get('version', {}).get('id', version))
+          PY
+
       - name: Deploy CinePro Core to Vercel
         # Deploy directly to the linked Vercel project; GitHub secret VERCEL_TOKEN carries the token value.
         env:
