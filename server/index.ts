@@ -10,9 +10,9 @@ const api = '/api/v1';
 
 app.disable('x-powered-by');
 
-// Playback backend: precomputed sources only.
-// CinePro/Akwam is used by the background prefill worker. User playback requests
-// read validated rows from Supabase and never trigger live provider discovery.
+// Playback backend: DB-only.
+// User playback requests read validated persisted rows from Supabase and never
+// trigger live provider discovery or any external source resolver.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
 async function getFreshPlaybackSourcesForContent(
@@ -1167,5 +1167,4 @@ app.use((err: any, _req: HttpRequest, res: HttpResponse, _next: NextFunction) =>
 
   return fail(res, 500, 'INTERNAL_ERROR', 'Internal server error');
 });
-// CI deploy sync marker: CinePro output-directory fix ready; redeploy with live v1 route.
-// CI media-proxy validation is enabled in cloudflare-deploy workflow.
+// Playback runtime is intentionally DB-only; persisted Supabase sources are authoritative.
