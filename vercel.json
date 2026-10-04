@@ -14,7 +14,7 @@
   "rewrites": [
     {
       "source": "/v1/:path*",
-      "destination": "/api/cinepro/v1/:path*"
+      "destination": "/api/cinepro"
     }
   ]
 }
