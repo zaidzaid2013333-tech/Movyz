@@ -167,10 +167,10 @@ jobs:
                       except Exception as core_error:
                           print(f"{label}: direct CinePro diagnostics probe failed:", core_error)
                   raise SystemExit(f"{label}: CinePro returned no sources")
-              valid = [x for x in sources if str(x.get("providerReference") or "") == "cinepro" and str(x.get("url") or "").startswith("https://")]
+              valid = [x for x in sources if str(x.get("providerReference") or "") == "akwam" and str(x.get("url") or "").startswith("https://")]
               if len(valid) != len(sources):
-                  raise SystemExit(f"{label}: invalid or non-CinePro source returned")
-              print(f"CinePro playback OK: {label} sources={len(sources)}")
+                  raise SystemExit(f"{label}: invalid or non-Akwam persistent source returned")
+              print(f"Persistent Akwam playback OK: {label} sources={len(sources)}")
 
               # Verify that the actual playback proxy returns readable media bytes.
               # The previous smoke only validated that a URL existed, which could
@@ -217,7 +217,7 @@ jobs:
                   f"content_type={probe_type!r} range={probe_range!r} length={probe_length!r} "
                   f"bytes={len(probe_body)}"
               )
-          print("Movyz CinePro end-to-end smoke: ALL OK")
+          print("Movyz persistent playback end-to-end smoke: ALL OK")
 
       - name: Deployment marker
         run: echo "DEPLOY_CURRENT_COMMIT=${{ github.sha }}"
