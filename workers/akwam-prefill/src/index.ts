@@ -778,4 +778,4 @@ export default {
   }
 };
 
-export { run };
+export { run, findCandidate, parseCandidates };
