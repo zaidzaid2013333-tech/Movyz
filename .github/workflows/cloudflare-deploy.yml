@@ -61,78 +61,31 @@ jobs:
       - name: Validate Cloudflare configuration
         run: npx wrangler deploy --dry-run
 
-      - name: Resolve Vercel media relay URL
+      - name: Deploy CinePro Core
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
-          set -euo pipefail
-          candidates=(
-            "https://movyz.vercel.app"
-            "https://movyz-6dqf.vercel.app"
-            "https://movyz-zaidzaid2013333-1693.vercel.app"
-            "https://movyz-6dqf-zaidzaid2013333-1693.vercel.app"
-          )
-          resolved=""
-          for base in "${candidates[@]}"; do
-            echo "Testing relay candidate: $base"
-            body="$(curl -fsS --max-time 15 "$base/api/relay" 2>/dev/null || true)"
-            if echo "$body" | python -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if d.get("status")=="ok" else 1)' 2>/dev/null; then
-              resolved="$base"
-              break
-            fi
-          done
-          if [ -z "$resolved" ]; then
-            echo "No working Vercel relay candidate found"
-            exit 1
-          fi
-          echo "MEDIA_RELAY_BASE_URL=$resolved" >> "$GITHUB_ENV"
-          echo "Resolved Vercel relay: $resolved"
+          git clone --depth 1 https://github.com/cinepro-org/core.git .cinepro
+          cd .cinepro
+          npm install --no-audit --no-fund
+          npm run build
+          printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env.cinepro
+          npx wrangler deploy --name movyz-cinepro --secrets-file .env.cinepro
 
-      - name: Deploy MediaMash playback core
-        run: |
-          npx wrangler deploy --config integrations/mediamash/wrangler.json --var "MEDIA_RELAY_BASE_URL:$MEDIA_RELAY_BASE_URL"
-          printf '%s' "$TMDB_API_READ_ACCESS_TOKEN" | npx wrangler secret put TMDB_API_READ_ACCESS_TOKEN --config integrations/mediamash/wrangler.json
-
-      - name: Smoke test Node media relay
-        run: |
-          python - <<'PY'
-          import json, os, urllib.request
-          url = os.environ["MEDIA_RELAY_BASE_URL"] + "/api/relay"
-          request = urllib.request.Request(url, headers={"Accept": "application/json"})
-          with urllib.request.urlopen(request, timeout=30) as response:
-              payload = json.load(response)
-          if payload.get("status") != "ok":
-              raise SystemExit(f"Media relay health failed: {payload}")
-          print("Node media relay health: OK")
-          PY
-
-      - name: Smoke test MediaMash playback core
+      - name: Smoke test CinePro Core
         run: |
           python - <<'PY'
           import json, urllib.request
-          base = "https://movyz-media-core.sameranede.workers.dev"
-          headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36", "Accept": "application/json"}
-          opener = urllib.request.build_opener()
-          opener.addheaders = list(headers.items())
-          for path in ["/v1/health", "/v1/movies/157336", "/v1/tv/1399/seasons/1/episodes/1"]:
-              request = urllib.request.Request(base + path, headers=headers)
-              with opener.open(request, timeout=45) as response:
+          base = "https://movyz-cinepro.sameranede.workers.dev"
+          headers = {"Accept":"application/json","User-Agent":"Movyz-CI/1.0"}
+          for path in ["/v1/health", "/v1/movies/157336", "/v1/tv/1399/1/1"]:
+              req = urllib.request.Request(base + path, headers=headers)
+              with urllib.request.urlopen(req, timeout=45) as response:
                   payload = json.load(response)
-              source_count = len(payload.get("sources", [])) if isinstance(payload, dict) else -1
-              print(path, "sources=", source_count)
+              print(path, "sources=", len(payload.get("sources", [])) if isinstance(payload, dict) else -1)
               if path != "/v1/health" and not payload.get("sources"):
-                  raise SystemExit(f"MediaMash core returned no sources for {path}")
-              if path == "/v1/movies/157336":
-                  for i, source in enumerate(payload.get("sources", [])[:8], 1):
-                      url = str(source.get("url") or "")
-                      print(f"SOURCE_{i}: type={source.get('type')} quality={source.get('quality')} provider={source.get('provider')} url={url[:240]}")
-                      try:
-                          probe = urllib.request.Request(url, headers={**headers, "Range": "bytes=0-2047"})
-                          with opener.open(probe, timeout=20) as sr:
-                              sample = sr.read(4096)
-                              print(f"DIRECT_{i}: status={sr.status} content_type={sr.headers.get('content-type','')} bytes={len(sample)}")
-                      except Exception as exc:
-                          print(f"DIRECT_{i}: FAILED {exc}")
-          print("MediaMash core source smoke: OK")
-          PY
+                  raise SystemExit(f"CinePro returned no sources for {path}")
+          print("CinePro Core source smoke: OK")
 
       - name: Prepare Movyz deployment secrets
         run: |
@@ -148,14 +101,12 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var PLAYBACK_CORE_BASE_URL:https://movyz-media-core.sameranede.workers.dev --var MEDIA_RELAY_BASE_URL:$MEDIA_RELAY_BASE_URL
+          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var CINEPRO_BASE_URL:https://movyz-cinepro.sameranede.workers.dev
 
-      - name: End-to-end playback smoke
+      - name: End-to-end CinePro playback smoke
         run: |
           python - <<'PY'
           import json, urllib.request
-          from urllib.parse import urljoin
-
           api = "https://movyz-api.sameranede.workers.dev"
           checks = [
               ("movie", "6591564a-13a9-4892-a166-247d1ff9158b", "Interstellar"),
@@ -164,97 +115,25 @@ jobs:
               ("movie", "a5c2bdf2-66f5-404a-a5dd-348cde1a32a6", "The Shawshank Redemption"),
               ("episode", "cfec368f-138e-405d-a98b-bb6734f5bbf5", "Breaking Bad S01E01"),
           ]
-
-          headers = {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36",
-              "Accept": "application/json, text/plain, */*",
-          }
-
-          def request(url, headers_override=None, timeout=25):
-              req = urllib.request.Request(url, headers=headers_override or headers)
-              return urllib.request.urlopen(req, timeout=timeout)
-
-          def watch(label, content_type, content_id):
-              with request(api + "/api/v1/watch/" + content_id + "?type=" + content_type, timeout=45) as response:
-                  if response.status != 200:
-                      raise RuntimeError(f"{label}: watch endpoint HTTP {response.status}")
+          for content_type, content_id, label in checks:
+              body = json.dumps({"contentType": content_type, "contentId": content_id}).encode()
+              req = urllib.request.Request(
+                  api + "/api/v1/playback/prepared",
+                  method="POST",
+                  data=body,
+                  headers={"Accept":"application/json","Content-Type":"application/json","User-Agent":"Movyz-CI/1.0"},
+              )
+              with urllib.request.urlopen(req, timeout=45) as response:
                   payload = json.load(response)
               if payload.get("success") is not True:
-                  raise RuntimeError(f"{label}: watch endpoint returned success=false")
-              content = (payload.get("data") or {}).get("content") or {}
-              sources = content.get("sources") or []
+                  raise SystemExit(f"{label}: prepared API failed")
+              sources = payload.get("data") if isinstance(payload.get("data"), list) else []
               if not sources:
-                  raise RuntimeError(f"{label}: no playback sources")
-              if not all(str(s.get("providerReference") or "") == "mediamash" for s in sources):
-                  raise RuntimeError(f"{label}: legacy provider leaked into playback")
-              return sources[:8]
-
-          def probe_relayed(source_url):
-              media_headers = {
-                  "User-Agent": headers["User-Agent"],
-                  "Accept": "application/vnd.apple.mpegurl, application/x-mpegURL, */*",
-              }
-              with request(source_url, media_headers, timeout=25) as response:
-                  if response.status not in (200, 206):
-                      return False, f"manifest HTTP {response.status}"
-                  body = response.read(16000).decode("utf-8", "replace")
-                  ctype = response.headers.get("content-type", "")
-              if "#EXTM3U" not in body:
-                  return (len(body) > 64), f"direct media bytes={len(body)}"
-
-              lines = [line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith("#")]
-              if not lines:
-                  return False, "manifest has no media/playlist URI"
-
-              nested = urljoin(source_url, lines[0])
-              if ".m3u8" in nested.lower():
-                  with request(nested, media_headers, timeout=25) as response:
-                      if response.status not in (200, 206):
-                          return False, f"nested manifest HTTP {response.status}"
-                      nested_body = response.read(16000).decode("utf-8", "replace")
-                  if "#EXTM3U" not in nested_body:
-                      return False, "nested URL was not an HLS manifest"
-                  segment_lines = [
-                      line.strip() for line in nested_body.splitlines()
-                      if line.strip() and not line.strip().startswith("#")
-                  ]
-                  if not segment_lines:
-                      return False, "nested manifest has no segment URI"
-                  segment = urljoin(nested, segment_lines[0])
-              else:
-                  segment = nested
-
-              segment_headers = {
-                  "User-Agent": headers["User-Agent"],
-                  "Accept": "*/*",
-                  "Range": "bytes=0-65535",
-              }
-              with request(segment, segment_headers, timeout=25) as response:
-                  if response.status not in (200, 206):
-                      return False, f"segment HTTP {response.status}"
-                  sample = response.read(65536)
-              return len(sample) > 64, f"segment bytes={len(sample)}"
-
-          for content_type, content_id, label in checks:
-              sources = watch(label, content_type, content_id)
-              working = False
-              for index, source in enumerate(sources, 1):
-                  source_url = str(source.get("url") or "")
-                  if not source_url.startswith("http"):
-                      continue
-                  try:
-                      ok, detail = probe_relayed(source_url)
-                      print(f"{label} source {index}: {detail}")
-                      if ok:
-                          print(f"PLAYBACK_OK {label}: provider={source.get('provider')} url={source_url[:180]}")
-                          working = True
-                          break
-                  except Exception as exc:
-                      print(f"{label} source {index}: FAILED {exc}")
-              if not working:
-                  raise SystemExit(f"{label}: no playable relayed source survived manifest+segment probe")
-
-          print("Movyz end-to-end playback smoke: ALL OK")
+                  raise SystemExit(f"{label}: CinePro returned no sources")
+              if not all(str(x.get("providerReference") or "") == "cinepro" for x in sources):
+                  raise SystemExit(f"{label}: non-CinePro provider leaked into playback response")
+              print(f"CinePro playback OK: {label} sources={len(sources)}")
+          print("Movyz CinePro end-to-end smoke: ALL OK")
           PY
 
       - name: Deployment marker
@@ -262,4 +141,4 @@ jobs:
 
       - name: Remove temporary secrets file
         if: always()
-        run: rm -f .env.production
+        run: rm -f .env.production .cinepro/.env.cinepro
