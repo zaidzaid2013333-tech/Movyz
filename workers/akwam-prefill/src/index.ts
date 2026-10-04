@@ -29,6 +29,24 @@ type Media = {
   referer?: string;
 };
 
+const AKWAM_HOSTS = new Set([
+  "akwam.ss",
+  "www.akwam.ss",
+  "ak.sv",
+  "www.ak.sv",
+  "akwam.it",
+  "www.akwam.it",
+]);
+
+function isAkwamUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && AKWAM_HOSTS.has(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 function base(env: Env) {
   return (env.AKWAM_BASE_URL || "https://akwam.ss").replace(/\/+$/, "");
 }
@@ -176,14 +194,13 @@ function score(c: Candidate, titles: string[], year?: number, expected?: "movie"
 }
 
 function parseCandidates(html: string, env: Env): Candidate[] {
-  const host = new URL(base(env)).hostname;
   const out: Candidate[] = [];
   const re = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) {
     try {
       const u = new URL(decodeHtml(m[1]), base(env));
-      if (u.hostname !== host) continue;
+      if (!isAkwamUrl(u.href)) continue;
       const kind = candidateKind(u.pathname);
       if (kind === "other" || kind === "watch") continue;
 
@@ -256,7 +273,7 @@ function extractMedia(text: string, baseUrl: string): Media | null {
   const direct = extractMediaLikeUrls(decoded)[0];
   if (direct) {
     return { url: direct, type: mediaTypeFromUrl(direct), quality: inferQuality(decoded),
-      referer: (() => { try { return new URL(baseUrl).origin === "https://akwam.ss" ? baseUrl : undefined; } catch { return undefined; } })() };
+      referer: isAkwamUrl(baseUrl) ? baseUrl : undefined };
   }
 
   const embedded = decoded.match(/<(?:iframe|video|source)\b[^>]+(?:src|data-src)=["']([^"']+)["']/i)?.[1];
@@ -264,7 +281,7 @@ function extractMedia(text: string, baseUrl: string): Media | null {
     try {
       const url = new URL(decodeHtml(embedded), baseUrl).href;
       return { url, type: mediaTypeFromUrl(url), quality: inferQuality(decoded),
-        referer: (() => { try { return new URL(baseUrl).origin === "https://akwam.ss" ? baseUrl : undefined; } catch { return undefined; } })() };
+        referer: isAkwamUrl(baseUrl) ? baseUrl : undefined };
     } catch {}
   }
 
@@ -296,7 +313,7 @@ function extractPageLinks(html: string, baseUrl: string) {
   while ((m = re.exec(html))) {
     try {
       const url = new URL(m[1], baseUrl).href;
-      if (new URL(url).hostname !== new URL(baseUrl).hostname) continue;
+      if (!isAkwamUrl(url)) continue;
       out.push({ url, text: cleanHtmlText(m[2]) });
     } catch {}
   }
@@ -307,7 +324,7 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
   const links = extractPageLinks(html, baseUrl).filter((item) => {
     try {
       const url = new URL(item.url);
-      return url.hostname === new URL(baseUrl).hostname &&
+      return isAkwamUrl(url.href) &&
         /^\/episode\//i.test(url.pathname) &&
         !/^\/old(?:\/|$)/i.test(url.pathname);
     } catch { return false; }
@@ -349,9 +366,9 @@ function extractTargets(html: string, baseUrl: string) {
       const path = url.pathname;
       const text = cleanHtmlText(decodeHtml(m[2]));
       let scoreValue = 0;
-      if (/^\/watch\//i.test(path)) scoreValue += 120;
-      else if (/^\/download\//i.test(path)) scoreValue += 80;
-      else if (/^\/link\//i.test(path)) scoreValue += 60;
+      if (/^\/download\//i.test(path)) scoreValue += 140;
+      else if (/^\/watch\//i.test(path)) scoreValue += 110;
+      else if (/^\/link\//i.test(path)) scoreValue += 90;
       else if (/\/episode\//i.test(path)) scoreValue += 20;
       else continue;
       if (/(2160|1440|1080|720|576|480|360|240)\s*p?/i.test(text + " " + url.href)) scoreValue += 15;
@@ -366,21 +383,57 @@ function extractTargets(html: string, baseUrl: string) {
   return ranked.sort((a, b) => b.score - a.score).map((x) => x.url).slice(0, 12);
 }
 
+function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null {
+  const patterns = [
+    /<div\\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>[\\s\\S]*?<a\\b[^>]*href=["']([^"']+)["']/gi,
+    /<a\\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*href=["']([^"']+)["']/gi,
+  ];
+
+  for (const re of patterns) {
+    const match = re.exec(html);
+    if (!match?.[1]) continue;
+    try {
+      const url = new URL(decodeHtml(match[1]), baseUrl).href;
+      return {
+        url,
+        type: mediaTypeFromUrl(url),
+        quality: inferQuality(match[0] + " " + html.slice(Math.max(0, match.index - 900), match.index + 900)),
+        referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
+      };
+    } catch {}
+  }
+
+  return null;
+}
+
 async function resolveTarget(env: Env, target: string): Promise<Media | null> {
   const direct = extractMedia(target, target);
   if (direct) return direct;
+
   const html = await fetchText(env, target);
   if (!html) return null;
+
+  // Akwam's current deterministic path: /download -> div.btn-loader > a -> final media.
+  const buttonMedia = extractDownloadButtonMedia(html, target);
+  if (buttonMedia) return buttonMedia;
+
   const media = extractMedia(html, target);
   if (media) return media;
+
   for (const nested of extractTargets(html, target).slice(0, 3)) {
     const directNested = extractMedia(nested, nested);
     if (directNested) return directNested;
+
     const nestedHtml = await fetchText(env, nested);
     if (!nestedHtml) continue;
+
+    const nestedButton = extractDownloadButtonMedia(nestedHtml, nested);
+    if (nestedButton) return nestedButton;
+
     const nestedMedia = extractMedia(nestedHtml, nested);
     if (nestedMedia) return nestedMedia;
   }
+
   return null;
 }
 
