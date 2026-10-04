@@ -29,6 +29,7 @@
   },
   "exclude": [
     "cinepro-worker",
-    "integrations/cinepro"
+    "integrations/cinepro",
+    "integrations/mediamash"
   ]
 }
