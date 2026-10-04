@@ -96,7 +96,7 @@ jobs:
 
       - name: Configure Vercel project routing for CinePro
         env:
-          VERCEL_TOKEN: \${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
           VERCEL_TEAM_SLUG: zaidzaid2013333-1693
         run: |
