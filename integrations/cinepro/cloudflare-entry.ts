@@ -172,6 +172,7 @@ export default {
           error: {
             code: 'CINEPRO_RUNTIME_ERROR',
             message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
           },
         },
         500,
