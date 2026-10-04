@@ -95,7 +95,7 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({
   const overview = language === 'ar' ? movie.overview : movie.overviewEn;
 
   return (
-    <div className="space-y-12 pb-16 animate-in fade-in duration-300">
+    <div className="movyza-shell space-y-12 pb-20 animate-in fade-in duration-300">
       {/* Toast Notice */}
       {toastMessage && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-amber-500 text-slate-950 font-bold px-4 py-2 rounded-xl shadow-2xl text-xs flex items-center gap-2">
@@ -106,7 +106,7 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({
 
       {/* Cinematic Showcase Frame */}
       <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-2">
-        <div className="relative rounded-3xl overflow-hidden bg-[#07090e] border border-amber-500/15 shadow-2xl">
+        <div className="movyza-detail-hero relative rounded-3xl overflow-hidden bg-[#07090e]">
           {/* Banner Media Backdrop */}
           <div className="relative min-h-[460px] lg:h-[62vh] max-h-[680px] overflow-hidden">
             <img
@@ -120,7 +120,7 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({
 
             <div className="relative h-full max-w-6xl mx-auto px-6 lg:px-10 flex flex-col lg:flex-row items-end lg:items-center gap-8 pt-16 pb-12 z-10">
               {/* Poster Art with Gold Brackets */}
-              <div className="hidden sm:block w-48 lg:w-60 aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl shadow-black border border-amber-500/30 shrink-0">
+              <div className="movyza-detail-poster hidden sm:block w-48 lg:w-60 aspect-[2/3] rounded-2xl overflow-hidden border border-amber-500/30 shrink-0">
                 <img
                   src={movie.posterUrl}
                   alt={titlePrimary}
