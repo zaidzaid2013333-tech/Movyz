@@ -156,11 +156,39 @@ function candidateSignals(c: Candidate) {
   }
 }
 
-function score(c: Candidate, titles: string[], year?: number, expected?: "movie" | "series" | "episode") {
+function explicitSeason(value: string): number | undefined {
+  const text = normalize(value);
+  const digit = text.match(/(?:season|الموسم)\s*([0-9]+)/i);
+  if (digit?.[1]) return Number(digit[1]);
+  const words: Record<string, number> = {
+    "الاول": 1, "الاولي": 1,
+    "الثاني": 2, "الثانيه": 2, "الثانية": 2,
+    "الثالث": 3, "الثالثه": 3, "الثالثة": 3,
+    "الرابع": 4, "الرابعه": 4, "الرابعة": 4,
+    "الخامس": 5, "الخامسه": 5, "الخامسة": 5,
+    "السادس": 6, "السادسه": 6, "السادسة": 6,
+    "السابع": 7, "السابعة": 7, "السابعـة": 7,
+    "الثامن": 8, "الثامنة": 8,
+    "التاسع": 9, "التاسعة": 9,
+    "العاشر": 10, "العاشرة": 10,
+  };
+  for (const [word, n] of Object.entries(words)) {
+    if (text.includes("الموسم " + word)) return n;
+  }
+  const s = text.match(/\bs0*([0-9]{1,2})\b/i);
+  return s?.[1] ? Number(s[1]) : undefined;
+}
+
+function score(c: Candidate, titles: string[], year?: number, expected?: "movie" | "series" | "episode", expectedSeason?: number) {
   if (c.kind === "other" || c.kind === "watch") return -1000;
   if (expected === "movie" && c.kind !== "movie") return -1000;
   if (expected === "series" && c.kind !== "series") return -1000;
   if (expected === "episode" && c.kind !== "series" && c.kind !== "episode") return -1000;
+
+  if (expected === "series" && expectedSeason) {
+    const declared = explicitSeason(c.title + " " + c.url);
+    if (declared !== undefined && declared !== expectedSeason) return -1000;
+  }
 
   let bestTitleScore = 0;
   for (const rawCandidate of candidateSignals(c)) {
@@ -242,6 +270,7 @@ async function findCandidate(
   titles: string[],
   year?: number,
   expected: "movie" | "series" | "episode" = "movie",
+  expectedSeason?: number,
 ) {
   const hosts = [base(env)];
 
@@ -256,7 +285,7 @@ async function findCandidate(
       if (!html) continue;
 
       for (const item of parseCandidates(html, env)) {
-        const itemScore = score(item, titles, year, expected);
+        const itemScore = score(item, titles, year, expected, expectedSeason);
         if (!best || itemScore > best.score) best = { item, score: itemScore };
       }
 
@@ -269,7 +298,7 @@ async function findCandidate(
         const html = await fetchText(env, host + "/old/search/" + encodeURIComponent(title), diagnostics);
         if (!html) continue;
         for (const item of parseCandidates(html, env)) {
-          const itemScore = score(item, titles, year, expected);
+          const itemScore = score(item, titles, year, expected, expectedSeason);
           if (!best || itemScore > best.score) best = { item, score: itemScore };
         }
         if (best && best.score >= 128) return best.item;
@@ -565,7 +594,13 @@ async function getContext(env: Env, job: Job) {
 
 async function discover(env: Env, job: Job, ctx: any) {
   const expected = job.content_type === "episode" ? "series" : "movie";
-  const candidate = await findCandidate(env, ctx.titles, ctx.year, expected);
+  const candidate = await findCandidate(
+    env,
+    ctx.titles,
+    ctx.year,
+    expected,
+    job.content_type === "episode" ? (ctx.seasonNumber || job.season_number || 1) : undefined,
+  );
   if (!candidate) throw new Error("AKWAM_NOT_FOUND");
 
   const detail = await fetchText(env, candidate.url);
