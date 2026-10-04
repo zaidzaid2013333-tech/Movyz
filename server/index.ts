@@ -1231,4 +1231,4 @@ app.use((err: any, _req: HttpRequest, res: HttpResponse, _next: NextFunction) =>
 
   return fail(res, 500, 'INTERNAL_ERROR', 'Internal server error');
 });
-// CI deploy sync marker: CinePro exact api/cinepro probe enabled.
+// CI deploy sync marker: CinePro v1 exact-function rewrite smoke.
