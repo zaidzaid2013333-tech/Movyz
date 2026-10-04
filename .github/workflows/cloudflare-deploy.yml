@@ -95,6 +95,7 @@ jobs:
           PY
 
       - name: Deploy CinePro Core to Vercel
+        # Deploy directly to the linked Vercel project; GitHub secret VERCEL_TOKEN carries the token value.
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
