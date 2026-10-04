@@ -1,0 +1,41 @@
+name: Movyz Akwam GitHub Prefill
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "workers/akwam-prefill/**"
+      - "scripts/run-akwam-prefill.ts"
+      - ".github/workflows/akwam-gh-prefill.yml"
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-akwam-gh-prefill
+  cancel-in-progress: false
+
+jobs:
+  prefill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MAX_JOBS_PER_RUN: "50"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Run deterministic Akwam prefill
+        run: npx tsx scripts/run-akwam-prefill.ts
