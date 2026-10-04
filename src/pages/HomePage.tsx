@@ -71,7 +71,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
   }
 
   return (
-    <div className="space-y-7 pb-20 movyza-enter">
+    <div className="movyza-shell space-y-9 pb-24 movyza-enter">
       <HeroBanner
         item={hero}
         onWatch={() => onNavigate(hero.type === 'movie' ? `/watch/movie/${hero.id}` : `/watch/tv/${hero.id}/1/1`)}
@@ -128,7 +128,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
       </SectionRow>
 
       {genres.length > 0 && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-2">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-3 movyza-page-intro rounded-2xl p-4">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-amber-300" />
             <h3 className="text-sm sm:text-base font-bold font-cinema-title text-white">
