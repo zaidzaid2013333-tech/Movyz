@@ -317,8 +317,6 @@ async function sourcesFor(type, id, season, episode, requestUrl, env) {
       subtitles: [],
       diagnostics: diagnostics.length ? diagnostics : undefined,
     };
-  } finally {
-    clearTimeout(timer);
   }
 }
 
