@@ -179,6 +179,40 @@ export default {
       );
     } catch (error) {
       console.error('[CinePro] request failed', error);
+
+      if (url.pathname === '/v1/movies/157336' && error instanceof Error && error.message.includes('No streaming sources found')) {
+        try {
+          const internal = cinepro as any;
+          const media = await internal.tmdbService.getMediaObject('movie', '157336');
+          const providerResults = await internal.sourceService.fetchFromProviders('movie', media);
+          return json(
+            {
+              error: {
+                code: 'NO_SOURCES_DEBUG',
+                message: error.message,
+                providers: providerResults.map((result: any, index: number) => ({
+                  index,
+                  sourceCount: Array.isArray(result?.sources) ? result.sources.length : -1,
+                  diagnostics: result?.diagnostics ?? [],
+                })),
+              },
+            },
+            502,
+          );
+        } catch (debugError) {
+          return json(
+            {
+              error: {
+                code: 'NO_SOURCES_DEBUG_FAILED',
+                message: debugError instanceof Error ? debugError.message : String(debugError),
+                stack: debugError instanceof Error ? debugError.stack : undefined,
+              },
+            },
+            502,
+          );
+        }
+      }
+
       return json(
         {
           error: {
