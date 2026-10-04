@@ -142,9 +142,9 @@ function overlap(a: string, b: string) {
 function candidateKind(pathname: string): Candidate["kind"] {
   const path = pathname.toLowerCase();
   if (/^\/old(?:\/|$)/i.test(path)) return "other";
-  if (/^\/series\//i.test(path)) return "series";
+  if (/^\/(?:series|shows?)\//i.test(path)) return "series";
   if (/^\/movie\//i.test(path)) return "movie";
-  if (/^\/episode\//i.test(path)) return "episode";
+  if (/^\/(?:episode|show\/episode)\//i.test(path)) return "episode";
   if (/^\/watch\//i.test(path)) return "watch";
   return "other";
 }
@@ -852,7 +852,8 @@ export default {
         executor: "cloudflare-worker",
         max_jobs_per_request: Number(env.MAX_JOBS_PER_RUN || 1),
         akwam_host: "akwam.ss",
-      }); catch (error) {
+      });
+    } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("[akwam-prefill]", message);
       return Response.json(
