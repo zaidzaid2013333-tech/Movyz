@@ -727,7 +727,11 @@ async function persist(env: Env, job: Job, sources: Media[], provider: string, w
 
 async function fail(env: Env, job: Job, error: unknown, workerId: string) {
   const message = String(error).slice(0, 1800);
-  const terminal = job.attempts >= 3 && /AKWAM_NOT_FOUND|AKWAM_NO_PLAYABLE_SOURCE|AKWAM_DETAIL_FETCH_FAILED/.test(message);
+  const episodeNotIndexed = /AKWAM_EPISODE_NOT_INDEXED/.test(message);
+  const terminal = (
+    (episodeNotIndexed ? job.attempts >= 2 : job.attempts >= 3) &&
+    /AKWAM_NOT_FOUND|AKWAM_NO_PLAYABLE_SOURCE|AKWAM_DETAIL_FETCH_FAILED|AKWAM_EPISODE_NOT_INDEXED/.test(message)
+  );
   const delaySeconds = Math.min(3600, 60 * Math.pow(2, Math.max(0, job.attempts - 1)));
   const now = new Date().toISOString();
 
