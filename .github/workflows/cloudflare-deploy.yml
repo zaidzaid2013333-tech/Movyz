@@ -76,6 +76,24 @@ jobs:
             echo "CinePro TMDB credential: TMDB_API_READ_ACCESS_TOKEN"
           fi
 
+      - name: Validate TMDB read token directly
+        env:
+          TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          token = os.environ.get('TMDB_API_READ_ACCESS_TOKEN', '')
+          if not token:
+              raise SystemExit('TMDB_API_READ_ACCESS_TOKEN is missing')
+          req = urllib.request.Request(
+              'https://api.themoviedb.org/3/movie/157336',
+              headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/json', 'User-Agent': 'Movyz-CI/1.0'},
+          )
+          with urllib.request.urlopen(req, timeout=30) as response:
+              payload = json.load(response)
+              print('TMDB direct status =', response.status, 'title =', payload.get('title'), 'release_date =', payload.get('release_date'), 'status =', payload.get('status'))
+          PY
+
       - name: Reference-test CinePro Core on Node runtime
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
