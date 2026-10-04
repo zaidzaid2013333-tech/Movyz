@@ -1,0 +1,18 @@
+import { run } from "../workers/akwam-prefill/src/index.ts";
+
+const env = {
+  SUPABASE_URL: process.env.SUPABASE_URL || "",
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+  AKWAM_BASE_URL: "https://akwam.ss",
+  MAX_JOBS_PER_RUN: process.env.MAX_JOBS_PER_RUN || "50",
+};
+
+if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error("Missing Supabase runner secrets");
+}
+
+const workerId = `gha-prefill-${process.env.GITHUB_RUN_ID || Date.now()}-${process.env.GITHUB_RUN_ATTEMPT || 1}`;
+const result = await run(env, workerId);
+console.log(JSON.stringify(result));
+
+if (result.failed > 0) process.exitCode = 1;
