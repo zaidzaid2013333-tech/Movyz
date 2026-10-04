@@ -328,26 +328,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       return () => { active = false; };
     }
 
-    setResolverLoading(true);
-    setPlaybackError(null);
-
-    void MovyzaApi.getPreparedPlaybackSources(targetType, targetId)
-      .then((resolved) => {
-        if (!active) return;
-
-        const ready = collapseProviderQualityDuplicates(
-          resolved
-            .filter(isPlayableHttpSource)
-            .filter((source) => source.isWorking !== false)
-            .slice(0, 20),
-        );
-
-        applySources(ready);
-      })
-      .catch(() => {
-        if (!active) return;
-        applySources(fallback);
-      });
+    setResolverLoading(false);
+    setRemotePlaybackSources([]);
+    setRemotePlaybackSource(null);
+    setPlayerUnlocked(false);
+    setPlaybackError(
+      language === 'ar'
+        ? 'لا يوجد مصدر تشغيل متاح من CinePro لهذا العمل حاليًا.'
+        : 'CinePro returned no playable source for this title.',
+    );
 
     return () => {
       active = false;
