@@ -20,8 +20,13 @@ if (configuredPublicUrl) {
   process.env.PUBLIC_URL = configuredPublicUrl.replace(/\/+$/, "");
 }
 
+console.log("[Movyz/Deno] HOST:", process.env.HOST);
+console.log("[Movyz/Deno] PORT:", process.env.PORT);
 console.log("[Movyz/Deno] PUBLIC_URL:", process.env.PUBLIC_URL || "missing");
 
-// Use a dynamic import so all runtime environment overrides are applied
-// before CinePro constructs its OMSS server.
+// CinePro starts its HTTP server from src/server.ts. Keep this entrypoint
+// alive after loading CinePro so Deno's warm-up does not race the async
+// provider discovery/server.start() sequence.
 await import("./.deno-cinepro/core/dist/server.js");
+
+await new Promise(() => {});
