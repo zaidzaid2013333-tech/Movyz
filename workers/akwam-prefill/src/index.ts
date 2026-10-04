@@ -387,29 +387,40 @@ function extractPageLinks(html: string, baseUrl: string) {
 }
 
 function extractEpisodeTarget(html: string, baseUrl: string, season: number, episode: number) {
-  const links = extractPageLinks(html, baseUrl).filter((item) => {
-    try {
-      const url = new URL(item.url);
-      return isAkwamUrl(url.href) &&
-        /^\/episode\//i.test(url.pathname) &&
-        !/^\/old(?:\/|$)/i.test(url.pathname);
-    } catch { return false; }
-  });
-
+  const links = extractPageLinks(html, baseUrl);
   let best: { url: string; score: number } | null = null;
+
   for (const link of links) {
     let rawPath = "";
     try { rawPath = decodeURIComponent(new URL(link.url).pathname); } catch { rawPath = link.url; }
+    if (/^\/old(?:\/|$)/i.test(rawPath)) continue;
+
     const hay = decodeHtml(link.text + " " + rawPath);
+    const looksLikeEpisode =
+      /(?:حلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay) ||
+      /\/(?:episode|show\/episode|watch)\//i.test(rawPath);
+    if (!looksLikeEpisode) continue;
+
     let scoreValue = 0;
     const exactEpisode =
-      new RegExp("(?:الحلقة[-_ ]*|episode[-_ ]*|ep[-_ ]*)0*" + episode + "(?![0-9.])", "i").test(hay) ||
+      new RegExp("(?:الحلقة|الحلقه|episode|ep(?:isode)?)[-_\\s]*(?:رقم[-_\\s]*)?0*" + episode + "(?![0-9.])", "i").test(hay) ||
       new RegExp("(?:^|[^0-9.])0*" + episode + "(?:$|[^0-9.])", "i").test(rawPath);
-    if (exactEpisode) scoreValue += 180;
-    if (new RegExp("s0*" + season + "e0*" + episode + "(?![0-9])", "i").test(hay)) scoreValue += 100;
-    if (new RegExp("(?:season|الموسم)\\s*0*" + season + "(?:\\D|$)", "i").test(hay)) scoreValue += 35;
-    if (scoreValue > 0 && (!best || scoreValue > best.score)) best = { url: link.url, score: scoreValue };
+    const exactSeasonEpisode = new RegExp("s0*" + season + "e0*" + episode + "(?![0-9])", "i").test(hay + " " + rawPath);
+    const seasonMatch =
+      new RegExp("(?:season|الموسم)[-_\\s]*0*" + season + "(?:\\D|$)", "i").test(hay) ||
+      new RegExp("(?:s)0*" + season + "(?:\\D|$)", "i").test(rawPath);
+
+    if (exactSeasonEpisode) scoreValue += 260;
+    if (exactEpisode) scoreValue += 210;
+    if (seasonMatch) scoreValue += 55;
+    if (/\/(?:episode|show\/episode)\//i.test(rawPath)) scoreValue += 35;
+    if (/\/watch\//i.test(rawPath)) scoreValue += 20;
+
+    if (scoreValue > 0 && (!best || scoreValue > best.score)) {
+      best = { url: link.url, score: scoreValue };
+    }
   }
+
   return best?.url || null;
 }
 
@@ -437,12 +448,11 @@ function extractTargets(html: string, baseUrl: string) {
 
       const marker = observed.pathname.indexOf("/link");
       if (marker >= 0) {
-        // Mirrors the verified CloudStream extraction strategy:
-        // an observed /link/... action is promoted to /download... using
-        // the observed content pathname. Never invent IDs or paths.
         const contentPath = new URL(baseUrl).pathname.replace(/\/$/, "");
-        const suffix = observed.pathname.slice(marker + "/link".length);
-        const download = new URL(new URL(baseUrl).origin + "/download" + suffix + contentPath);
+        const suffixMatch = contentPath.match(/\/(?:movie|episode|shows|show\/episode)(\/.*)?$/i);
+        const contentSuffix = suffixMatch?.[1] || "";
+        const linkSuffix = observed.pathname.slice(marker + "/link".length);
+        const download = new URL(new URL(baseUrl).origin + "/download" + linkSuffix + contentSuffix);
         add(download.href, 150);
         return;
       }
@@ -713,6 +723,7 @@ async function persist(env: Env, job: Job, sources: Media[], provider: string, w
     body: JSON.stringify({
       status: "succeeded",
       source_count: rows.length,
+      attempts: 0,
       locked_at: null,
       locked_by: null,
       last_success_at: now,
@@ -729,25 +740,32 @@ async function persist(env: Env, job: Job, sources: Media[], provider: string, w
 async function fail(env: Env, job: Job, error: unknown, workerId: string) {
   const message = String(error).slice(0, 1800);
   const episodeNotIndexed = /AKWAM_EPISODE_NOT_INDEXED/.test(message);
-  const terminal = (
-    (episodeNotIndexed ? job.attempts >= 2 : job.attempts >= 3) &&
-    /AKWAM_NOT_FOUND|AKWAM_NO_PLAYABLE_SOURCE|AKWAM_DETAIL_FETCH_FAILED|AKWAM_EPISODE_NOT_INDEXED/.test(message)
-  );
-  const delaySeconds = Math.min(3600, 60 * Math.pow(2, Math.max(0, job.attempts - 1)));
+  const searchEmpty = /AKWAM_SEARCH_EMPTY/.test(message);
+  const noPlayable = /AKWAM_NO_PLAYABLE_SOURCE/.test(message);
+  const baseDelay = episodeNotIndexed ? 900 : searchEmpty ? 300 : noPlayable ? 600 : 120;
+  const delaySeconds = Math.min(21600, baseDelay * Math.pow(2, Math.min(6, Math.max(0, job.attempts - 1))));
   const now = new Date().toISOString();
+  const next = new Date(Date.now() + delaySeconds * 1000).toISOString();
 
   await sb(env, `/rest/v1/playback_source_jobs?id=eq.${job.id}`, {
     method: "PATCH",
     headers: { Prefer: "return=minimal" },
     body: JSON.stringify({
-      status: terminal ? "failed" : "pending",
+      status: "pending",
       source_count: 0,
       locked_at: null,
       locked_by: null,
       last_error: message,
-      available_at: terminal ? now : new Date(Date.now() + delaySeconds * 1000).toISOString(),
+      available_at: next,
       updated_at: now,
-      details: { provider: "akwam", mode: "db-only-prefill", worker: workerId, terminal },
+      details: {
+        provider: "akwam",
+        mode: "db-only-prefill",
+        worker: workerId,
+        retryable: true,
+        delay_seconds: delaySeconds,
+        error_class: episodeNotIndexed ? "episode_not_indexed" : searchEmpty ? "search_empty" : noPlayable ? "no_playable_source" : "transient",
+      },
     }),
   });
 }
@@ -764,13 +782,7 @@ async function processJob(env: Env, job: Job, workerId: string, provider: string
   }
 }
 async function run(env: Env, workerId: string) {
-  const max = Math.max(1, Math.min(50, Number(env.MAX_JOBS_PER_RUN || 1)));
-
-  const claimed = await Promise.all(
-    Array.from({ length: max }, () => claim(env, workerId))
-  );
-  const jobs = claimed.filter((job): job is Job => Boolean(job));
-  if (!jobs.length) return { workerId, processed: 0, saved: 0, failed: 0 };
+  const target = Math.max(1, Math.min(100, Number(env.MAX_JOBS_PER_RUN || 1)));
 
   let provider: string;
   try {
@@ -780,19 +792,18 @@ async function run(env: Env, workerId: string) {
   }
 
   const results: Array<{ ok: boolean; count?: number; error?: string }> = [];
-  const concurrency = Math.max(1, Math.min(12, Number(env.PREFILL_CONCURRENCY || 8)));
-  const target = Math.max(1, Math.min(100, max));
+  const concurrency = Math.max(1, Math.min(12, Number(env.PREFILL_CONCURRENCY || 1)));
 
   while (results.length < target) {
     const slots = Math.min(concurrency, target - results.length);
     const batch = await Promise.all(
       Array.from({ length: slots }, () => claim(env, workerId))
     );
-    const nextJobs = batch.filter((job): job is Job => Boolean(job));
-    if (!nextJobs.length) break;
+    const jobs = batch.filter((job): job is Job => Boolean(job));
+    if (!jobs.length) break;
 
     const batchResults = await Promise.all(
-      nextJobs.map((job) => processJob(env, job, workerId, provider))
+      jobs.map((job) => processJob(env, job, workerId, provider))
     );
     results.push(...batchResults);
   }
@@ -829,18 +840,19 @@ export default {
     try {
       if (request.method === "POST" && request.headers.get("x-movyz-prefill-key") === env.SUPABASE_SERVICE_ROLE_KEY) {
         const mode = request.headers.get("x-movyz-prefill-mode") || "batch";
-
-        return Response.json({
-          ok: true,
-          disabled: true,
-          executor: "github-actions",
-          trigger: mode,
-          message: "Akwam source preparation runs in GitHub Actions; this Worker is kept only for compatibility.",
-        });
+        const workerId = `cf-prefill-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+        const result = await run(env, workerId);
+        return Response.json({ ok: true, executor: "cloudflare-worker", trigger: mode, ...result });
       }
 
-      return Response.json({ ok: true, service: "movyz-akwam-prefill", mode: "db-only", parallel_jobs: 1, fanout: 6, akwam_host: "akwam.ss" });
-    } catch (error) {
+      return Response.json({
+        ok: true,
+        service: "movyz-akwam-prefill",
+        mode: "db-only",
+        executor: "cloudflare-worker",
+        max_jobs_per_request: Number(env.MAX_JOBS_PER_RUN || 1),
+        akwam_host: "akwam.ss",
+      }); catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("[akwam-prefill]", message);
       return Response.json(
@@ -850,8 +862,9 @@ export default {
     }
   },
 
-  async scheduled(_event: unknown, _env: Env, ctx: ExecutionContextLike) {
-    ctx.waitUntil(Promise.resolve(console.log("[akwam-prefill] executor=github-actions; scheduled worker disabled")));
+  async scheduled(_event: unknown, env: Env, ctx: ExecutionContextLike) {
+    const workerId = `cf-cron-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    ctx.waitUntil(run(env, workerId).catch((error) => console.error("[akwam-prefill]", String(error))));
   }
 };
 
