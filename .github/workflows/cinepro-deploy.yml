@@ -46,6 +46,43 @@ jobs:
         working-directory: cinepro-worker
         run: node patch-core.mjs
 
+      - name: Test CinePro Core providers directly
+        continue-on-error: true
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          node --input-type=module <<'JS'
+          import { IcefyProvider } from './cinepro-worker/core/src/providers/icefy/icefy.js';
+          import { CineSuProvider } from './cinepro-worker/core/src/providers/cinesu/cinesu.js';
+          import { TulnexProvider } from './cinepro-worker/core/src/providers/tulnex/tulnex.js';
+          import { VidApiProvider } from './cinepro-worker/core/src/providers/vidapi/vidapi.js';
+          import { FsharetvProvider } from './cinepro-worker/core/src/providers/fshare/fshare.js';
+          import { PoprProvider } from './cinepro-worker/core/src/providers/popr/popr.js';
+          import { VidSrcProvider } from './cinepro-worker/core/src/providers/vidsrc/vidsrc.js';
+          import { VidZeeProvider } from './cinepro-worker/core/src/providers/vidzee/vidzee.js';
+          import { VidRockProvider } from './cinepro-worker/core/src/providers/vidrock/vidrock.js';
+          import { VidNestProvider } from './cinepro-worker/core/src/providers/vidnest/vidnest.js';
+          import { VideasyProvider } from './cinepro-worker/core/src/providers/videasy/videasy.js';
+          import { VixSrcProvider } from './cinepro-worker/core/src/providers/vixsrc/vixsrc.js';
+          import { PeachifyProvider } from './cinepro-worker/core/src/providers/peachify/peachify.js';
+          import { StreamMafiaProvider } from './cinepro-worker/core/src/providers/streammafia/streammafia.js';
+          const tmdb = await fetch('https://api.themoviedb.org/3/movie/27205?api_key=' + encodeURIComponent(process.env.TMDB_API_KEY));
+          const movie = await tmdb.json();
+          const ext = await fetch('https://api.themoviedb.org/3/movie/27205/external_ids?api_key=' + encodeURIComponent(process.env.TMDB_API_KEY));
+          const extJson = await ext.json();
+          const media = { type: 'movie', tmdbId: '27205', imdbId: extJson.imdb_id || '', title: movie.title || 'Inception', releaseYear: String(movie.release_date || '').slice(0,4) };
+          const providers = [new IcefyProvider(), new CineSuProvider(), new TulnexProvider(), new VidApiProvider(), new FsharetvProvider(), new PoprProvider(), new VidSrcProvider(), new VidZeeProvider(), new VidRockProvider(), new VidNestProvider(), new VideasyProvider(), new VixSrcProvider(), new PeachifyProvider(), new StreamMafiaProvider()];
+          for (const provider of providers) {
+            const started = Date.now();
+            try {
+              const result = await provider.getMovieSources(media);
+              console.log(JSON.stringify({ id: provider.id, sources: Array.isArray(result?.sources) ? result.sources.length : 0, diagnostics: result?.diagnostics ?? [], ms: Date.now() - started }));
+            } catch (e) {
+              console.log(JSON.stringify({ id: provider.id, sources: 0, error: e instanceof Error ? e.message : String(e), ms: Date.now() - started }));
+            }
+          }
+          JS
+
       - name: Validate CinePro adapter
         working-directory: cinepro-worker
         run: npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck entry.ts cloudflare-node.d.ts
