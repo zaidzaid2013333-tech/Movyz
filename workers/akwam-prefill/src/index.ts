@@ -48,7 +48,7 @@ function isAkwamUrl(value: string) {
 }
 
 function base(env: Env) {
-  return (env.AKWAM_BASE_URL || "https://akwam.it").replace(/\/+$/, "");
+  return (env.AKWAM_BASE_URL || "https://ak.sv").replace(/\/+$/, "");
 }
 
 function headers(env: Env) {
@@ -350,6 +350,7 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
 function extractTargets(html: string, baseUrl: string) {
   const ranked: Array<{ url: string; score: number }> = [];
   const seen = new Set<string>();
+
   const add = (raw: string, scoreValue: number) => {
     try {
       const url = new URL(decodeHtml(raw), baseUrl).href;
@@ -358,22 +359,47 @@ function extractTargets(html: string, baseUrl: string) {
     } catch {}
   };
 
+  const addLinkAsDownload = (href: string, text: string) => {
+    try {
+      const observed = new URL(decodeHtml(href), baseUrl);
+      if (!isAkwamUrl(observed.href)) return;
+
+      if (/^\/download\//i.test(observed.pathname)) {
+        add(observed.href, 155);
+        return;
+      }
+
+      const marker = observed.pathname.indexOf("/link");
+      if (marker >= 0) {
+        // Mirrors the verified CloudStream extraction strategy:
+        // an observed /link/... action is promoted to /download... using
+        // the observed content pathname. Never invent IDs or paths.
+        const contentPath = new URL(baseUrl).pathname.replace(/\/$/, "");
+        const suffix = observed.pathname.slice(marker + "/link".length);
+        const download = new URL(new URL(baseUrl).origin + "/download" + suffix + contentPath);
+        add(download.href, 150);
+        return;
+      }
+
+      if (/^\/watch\//i.test(observed.pathname)) {
+        add(observed.href, 120);
+      } else if (/\/episode\//i.test(observed.pathname)) {
+        add(observed.href, 20);
+      }
+    } catch {}
+  };
+
   const anchors = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
   while ((m = anchors.exec(html))) {
-    try {
-      const url = new URL(decodeHtml(m[1]), baseUrl);
-      const path = url.pathname;
-      const text = cleanHtmlText(decodeHtml(m[2]));
-      let scoreValue = 0;
-      if (/^\/download\//i.test(path)) scoreValue += 140;
-      else if (/^\/watch\//i.test(path)) scoreValue += 110;
-      else if (/^\/link\//i.test(path)) scoreValue += 90;
-      else if (/\/episode\//i.test(path)) scoreValue += 20;
-      else continue;
-      if (/(2160|1440|1080|720|576|480|360|240)\s*p?/i.test(text + " " + url.href)) scoreValue += 15;
-      add(url.href, scoreValue);
-    } catch {}
+    const text = cleanHtmlText(decodeHtml(m[2]));
+    addLinkAsDownload(m[1], text);
+    if (/(2160|1440|1080|720|576|480|360|240)\s*p?/i.test(text + " " + m[1])) {
+      try {
+        const observed = new URL(decodeHtml(m[1]), baseUrl);
+        add(observed.href, 20);
+      } catch {}
+    }
   }
 
   const mediaTags = /<(?:iframe|video|source)\b[^>]*(?:src|data-src|data-url)=["']([^"']+)["'][^>]*>/gi;
