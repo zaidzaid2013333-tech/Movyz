@@ -108,11 +108,15 @@ const json = (body: unknown, status = 200, extraHeaders?: Record<string, string>
   return new Response(JSON.stringify(body), { status, headers });
 };
 
-async function resolveAkwamMovieOrEpisode(media: any, episode?: { season: number; episode: number }) {
+async function resolveAkwamMovieOrEpisode(
+  media: any,
+  episode?: { season: number; episode: number },
+  seriesTitle?: string,
+) {
   const context: any = {
     tmdbId: Number(media.tmdbId),
-    title: media.title,
-    originalTitle: media.title,
+    title: seriesTitle || media.title,
+    originalTitle: seriesTitle || media.title,
     releaseYear: Number(media.releaseYear) || undefined,
     imdbId: media.imdbId,
   };
@@ -275,8 +279,13 @@ export default {
         const tmdbService = (cinepro as any).tmdbService;
         const media = await tmdbService.getMediaObject('tv', tmdbId, season, episode);
         media.imdbId = (await tmdbService.getImdbId(tmdbId, 'tv')) ?? '';
+        const seriesMeta = await tmdbService.validateTV(tmdbId);
 
-        const akwamSources = await resolveAkwamMovieOrEpisode(media, { season, episode });
+        const akwamSources = await resolveAkwamMovieOrEpisode(
+          media,
+          { season, episode },
+          seriesMeta.title || media.title,
+        );
         if (akwamSources.length) {
           return json({
             responseId: crypto.randomUUID(),
