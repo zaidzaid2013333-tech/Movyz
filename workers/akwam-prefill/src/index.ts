@@ -791,52 +791,69 @@ async function validateMedia(env: Env, media: Media, budget?: RequestBudget) {
   }
 }
 
-async function resolveTarget(env: Env, target: string, referer?: string): Promise<Media | null> {
-  const queue: Array<{ url: string; referer?: string; depth: number }> = [{ url: target, referer, depth: 0 }];
+async function resolveTarget(
+  env: Env,
+  target: string,
+  referer?: string,
+  budget?: RequestBudget,
+): Promise<Media | null> {
+  const queue: Array<{ url: string; referer?: string; depth: number }> = [
+    { url: target, referer, depth: 0 },
+  ];
   const seen = new Set<string>();
 
   while (queue.length) {
     const current = queue.shift();
-    if (!current || seen.has(current.url) || current.depth > 3) continue;
+    if (!current || seen.has(current.url) || current.depth > 2) continue;
     seen.add(current.url);
 
+    const navigation = isLikelyNavigationUrl(current.url);
     const direct = mediaFromUrl(current.url, current.referer);
-    if (await validateMedia(env, direct)) return direct;
+    if (!navigation && await validateMedia(env, direct, budget)) return direct;
 
-    const html = await fetchText(env, current.url, undefined, current.referer);
+    const html = await fetchText(env, current.url, undefined, current.referer, budget);
     if (!html) continue;
 
-    // Akwam's download pages expose the real provider URL through the
-    // deterministic .btn-loader link path. Keep this before generic extraction.
     const buttonMedia = extractDownloadButtonMedia(html, current.url);
-    if (buttonMedia) {
-      if (await validateMedia(env, buttonMedia)) return buttonMedia;
+    if (buttonMedia && await validateMedia(env, buttonMedia, budget)) {
+      return buttonMedia;
+    }
 
-      // Akwam's download button can point to an intermediate /link or /download
-      // page rather than the media file itself. Follow it as a nested target
-      // instead of discarding it after the first validation miss.
+    if (buttonMedia && current.depth < 2) {
       try {
         const buttonUrl = new URL(buttonMedia.url);
-        if (buttonUrl.protocol === "https:" && !seen.has(buttonUrl.href) && current.depth < 3) {
-          queue.push({ url: buttonUrl.href, referer: current.url, depth: current.depth + 1 });
+        if (buttonUrl.protocol === "https:" && !seen.has(buttonUrl.href)) {
+          queue.push({
+            url: buttonUrl.href,
+            referer: current.url,
+            depth: current.depth + 1,
+          });
         }
       } catch {}
     }
 
     const mediaCandidates = extractMediaCandidates(html, current.url);
-    for (const candidate of mediaCandidates.slice(0, 8)) {
-      const media = mediaFromUrl(candidate.url, candidate.referer || current.url, html);
-      if (await validateMedia(env, media)) return media;
+    for (const candidate of mediaCandidates.slice(0, 4)) {
+      const media = mediaFromUrl(
+        candidate.url,
+        candidate.referer || current.url,
+        html,
+      );
+      if (await validateMedia(env, media, budget)) return media;
     }
 
-    if (current.depth >= 3) continue;
-    const nestedTargets = usefulResolutionTargets(extractTargets(html, current.url), 6);
+    if (current.depth >= 2) continue;
+    const nestedTargets = usefulResolutionTargets(
+      extractTargets(html, current.url),
+      2,
+    );
     for (const nested of nestedTargets) {
       if (seen.has(nested)) continue;
-      let nestedUrl: URL;
-      try { nestedUrl = new URL(nested); } catch { continue; }
-      if (nestedUrl.protocol !== "https:") continue;
-      queue.push({ url: nested, referer: current.url, depth: current.depth + 1 });
+      queue.push({
+        url: nested,
+        referer: current.url,
+        depth: current.depth + 1,
+      });
     }
   }
 
