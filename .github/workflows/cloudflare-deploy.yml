@@ -119,7 +119,7 @@ jobs:
           api = "https://movyz-api.sameranede.workers.dev"
           core = "https://cinepro-core-production-8b58.up.railway.app"
           try:
-              with urllib.request.urlopen(core + "/v1/health", timeout=30) as response:
+              with urllib.request.urlopen(core + "/", timeout=30) as response:
                   print("CinePro health:", response.status)
           except Exception as error:
               print("CinePro Core not live yet; skipping playback smoke:", error)
