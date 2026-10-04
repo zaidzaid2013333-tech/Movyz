@@ -59,7 +59,6 @@ const pickPlaybackSources = (content: Movie | Series, episode?: Episode) => {
   const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
   return candidates
     .filter(isPlayableHttpSource)
-    .sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b))
     .slice(0, 5);
 };
 
@@ -294,15 +293,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     () => (content ? pickPlaybackSources(content, currentEpisode) : []),
     [content, currentEpisode],
   );
-  const storedPlaybackSource = [...storedPlaybackSources]
-    .filter((source) => source.isWorking !== false)
-    .sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b))
-    .find((source) => /1080p/i.test(source.quality || source.labelEn || ''))
-    ?? [...storedPlaybackSources]
-      .filter((source) => source.isWorking !== false)
-      .sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b))[0]
-    ?? storedPlaybackSources[0]
-    ?? null;
+  const storedPlaybackSource = storedPlaybackSources.find(
+    (source) => source.isWorking !== false,
+  ) ?? storedPlaybackSources[0] ?? null;
   useEffect(() => {
     let active = true;
 
@@ -320,8 +313,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     const applySources = (ready: typeof fallback) => {
       const preferred =
-        ready.find((source) => /1080p/i.test(source.quality || source.labelEn || '')) ||
-        ready.find((source) => /720p/i.test(source.quality || source.labelEn || '')) ||
+        storedPlaybackSources.find((source) =>
+          source.isWorking !== false && isPlayableHttpSource(source),
+        ) ||
         ready[0] ||
         null;
 
