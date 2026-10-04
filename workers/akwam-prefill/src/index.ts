@@ -735,14 +735,21 @@ async function run(env: Env, workerId: string) {
     throw new Error("AKWAM_PROVIDER_INIT_FAILED: " + String(error).slice(0, 1200));
   }
 
-  const results = await Promise.all(
-    jobs.map((job) => processJob(env, job, workerId, provider))
-  );
+  const results: Array<{ ok: boolean; count?: number; error?: string }> = [];
+  const concurrency = 5;
+
+  for (let i = 0; i < jobs.length; i += concurrency) {
+    const chunk = jobs.slice(i, i + concurrency);
+    const chunkResults = await Promise.all(
+      chunk.map((job) => processJob(env, job, workerId, provider))
+    );
+    results.push(...chunkResults);
+  }
 
   return {
     workerId,
     processed: results.length,
-    saved: results.reduce((sum, r) => sum + (r.ok ? r.count : 0), 0),
+    saved: results.reduce((sum, r) => sum + (r.ok ? (r.count || 0) : 0), 0),
     failed: results.filter((r) => !r.ok).length,
   };
 }
