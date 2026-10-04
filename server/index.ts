@@ -12,7 +12,7 @@ app.disable('x-powered-by');
 
 // Playback backend: MediaMash Core only; legacy source adapters removed. End-to-end verification uses the live /api/v1/watch path.
 
-// Production diagnostics for the selected playback-sites path.
+// Production diagnostics for the selected playback-sites path. MediaMash fallback enabled.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
 async function getPlaybackCoreSources(contentType: 'movie' | 'episode', contentId: string, env?: Record<string, unknown>) {
