@@ -213,20 +213,38 @@ jobs:
               "Authorization": "Bearer " + token,
               "User-Agent": "Movyz-CinePro-Vercel-CI/1.0",
           }
-          for path in ["/v1/health", "/v1/movies/157336", "/v1/tv/1399/seasons/1/episodes/1"]:
+          candidates = [
+              ("public", "/v1/health", "/v1/movies/157336", "/v1/tv/1399/seasons/1/episodes/1"),
+              ("function", "/api/v1/health", "/api/v1/movies/157336", "/api/v1/tv/1399/seasons/1/episodes/1"),
+          ]
+          working = None
+          for label, health, movie, episode in candidates:
+              try:
+                  req = urllib.request.Request(base + health, headers=headers)
+                  with urllib.request.urlopen(req, timeout=60) as response:
+                      payload = json.load(response)
+                  print(label, health, "OK", payload)
+                  working = (label, movie, episode)
+                  break
+              except Exception as error:
+                  print(label, health, "FAILED:", error)
+          if not working:
+              raise SystemExit("CinePro Vercel health is unreachable on both public and /api paths")
+          label, movie_path, episode_path = working
+          for path in [movie_path, episode_path]:
               req = urllib.request.Request(base + path, headers=headers)
               try:
-                  with urllib.request.urlopen(req, timeout=60) as response:
+                  with urllib.request.urlopen(req, timeout=90) as response:
                       payload = json.load(response)
               except Exception as error:
                   print(path, "FAILED:", error)
                   raise
               sources = payload.get("sources", []) if isinstance(payload, dict) else []
               print(path, "sources=", len(sources))
-              if path != "/v1/health" and not sources:
+              if not sources:
                   raise SystemExit(f"Vercel CinePro returned no sources for {path}: {json.dumps(payload)[:6000]}")
-          print("Vercel CinePro source smoke: OK")
-
+          print("Vercel CinePro source smoke: OK via", label)
+          PY
       - name: Deploy CinePro Core (legacy Cloudflare adapter) [DISABLED]
         if: false
         run: echo "Legacy Cloudflare CinePro deployment disabled; Vercel is the CinePro server."
