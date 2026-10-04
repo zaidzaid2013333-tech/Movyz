@@ -35,8 +35,8 @@ async function tmdb(type, id, env) {
   return response.json();
 }
 
-async function bingrStream(type, tmdbId, meta, season, episode, server, signal) {
-  const query = {
+async function bingrStream(type, tmdbId, meta, season, episode, server, signal, queryOverride) {
+  const query = queryOverride || {
     ...(meta.title ? { title: meta.title } : {}),
     ...(meta.year ? { year: meta.year } : {}),
     ...(type === 'tv' ? { season: String(season), episode: String(episode) } : {}),
@@ -139,8 +139,6 @@ async function probePlayableSource(source) {
     return true;
   } catch {
     return false;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -198,6 +196,55 @@ async function handleProxy(request) {
   });
 }
 
+async function bingrStreamWithRetry(type, tmdbId, meta, season, episode, server) {
+  const queryVariants = [
+    {
+      ...(meta.title ? { title: meta.title } : {}),
+      ...(meta.year ? { year: meta.year } : {}),
+      ...(type === 'tv' ? { season: String(season), episode: String(episode) } : {}),
+    },
+    {
+      ...(meta.title ? { title: meta.title } : {}),
+      ...(type === 'tv' ? { season: String(season), episode: String(episode) } : {}),
+    },
+  ];
+
+  const diagnostics = [];
+  for (let attempt = 0; attempt < queryVariants.length; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+      const result = await bingrStream(
+        type,
+        tmdbId,
+        meta,
+        season,
+        episode,
+        server,
+        controller.signal,
+        queryVariants[attempt],
+      );
+      if (result.sources.length) return result;
+      if (result.diagnostic) diagnostics.push(result.diagnostic);
+    } catch (error) {
+      diagnostics.push(
+        'Bingr/' + server + ': ' + (error instanceof Error ? error.message : String(error)),
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (attempt + 1 < queryVariants.length) {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+  }
+
+  return {
+    sources: [],
+    diagnostic: diagnostics.join(' | ') || ('Bingr/' + server + ': no sources'),
+  };
+}
+
 async function sourcesFor(type, id, season, episode, requestUrl, env) {
   const media = await tmdb(type === 'movie' ? 'movie' : 'tv', id, env);
   const meta = {
@@ -207,13 +254,10 @@ async function sourcesFor(type, id, season, episode, requestUrl, env) {
       : String(media.first_air_date || '').slice(0, 4),
   };
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000);
-
   try {
     const results = await Promise.all(
       BINGR_SERVERS.map((server) =>
-        bingrStream(type, id, meta, season, episode, server, controller.signal),
+        bingrStreamWithRetry(type, id, meta, season, episode, server),
       ),
     );
 
