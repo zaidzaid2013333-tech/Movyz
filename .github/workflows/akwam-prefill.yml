@@ -1,4 +1,4 @@
-name: Movyz Akwam Prefill Smoke
+name: Movyz Akwam Smoke
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Prefill mode (bulk remains locked until smoke review)"
+        description: "Smoke mode only"
         required: true
         default: "smoke"
         type: choice
@@ -24,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyz-akwam-prefill
+  group: movyz-akwam-smoke
   cancel-in-progress: true
 
 jobs:
@@ -54,5 +54,5 @@ jobs:
           test -n "$SUPABASE_ANON_KEY" || (echo "Missing SUPABASE_ANON_KEY"; exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY"; exit 1)
 
-      - name: Run Akwam smoke prefill
+      - name: Run Akwam smoke
         run: npx tsx scripts/prefill-akwam.ts
