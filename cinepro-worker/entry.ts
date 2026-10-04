@@ -91,11 +91,14 @@ for (const provider of providers) {
 const app = cinepro.getInstance();
 const port = Number(process.env.PORT ?? 8787);
 
-void app.ready().then(() => {
-  app.server.listen(port);
-}).catch((error) => {
-  console.error('[Movyz CinePro] Fastify ready failed:', error);
-});
+void app.ready().then(
+  () => {
+    app.server.listen(port);
+  },
+  (error) => {
+    console.error('[Movyz CinePro] Fastify ready failed:', error);
+  },
+);
 
 console.log('[Movyz CinePro] Cloudflare adapter booting on port', port);
 export default httpServerHandler({ port });
