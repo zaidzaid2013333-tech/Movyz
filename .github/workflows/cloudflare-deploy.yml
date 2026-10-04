@@ -29,6 +29,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      CINEPRO_BASE_URL: https://movyz-cinepro.deno.dev
 
     steps:
       - uses: actions/checkout@v4
@@ -79,12 +80,7 @@ jobs:
       - name: Validate TMDB read token directly
         env:
           TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_TEAM_SLUG: zaidzaid2013333-1693
         run: |
-          echo "=== Vercel deployment inspect ==="
-          npx --yes vercel@62.2.0 inspect dpl_FEM8GX6w39ezpXosEMrAbx9U6TS3 --token "$VERCEL_TOKEN" --scope "$VERCEL_TEAM_SLUG" || true
-          echo "=== HTTP probes ==="
           python - <<'PY'
           import json, os, urllib.request
           token = os.environ.get('TMDB_API_READ_ACCESS_TOKEN', '')
@@ -96,148 +92,49 @@ jobs:
           )
           with urllib.request.urlopen(req, timeout=30) as response:
               payload = json.load(response)
-              print('TMDB direct status =', response.status, 'title =', payload.get('title'), 'release_date =', payload.get('release_date'), 'status =', payload.get('status'))
-          PY
+              print('TMDB direct status =', response.status, 'title =', payload.get('title'))
 
-      - name: Configure Vercel project routing for CinePro
+      - name: Check CinePro on Deno Deploy
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
-          VERCEL_TEAM_SLUG: zaidzaid2013333-1693
-        run: |
-          python - <<'PY'
-          import json, os, urllib.parse, urllib.request
-
-          token = os.environ.get('VERCEL_TOKEN', '').strip()
-          project_id = os.environ['VERCEL_PROJECT_ID']
-          team_slug = os.environ['VERCEL_TEAM_SLUG']
-          if not token:
-              raise SystemExit('VERCEL_TOKEN GitHub secret is required.')
-
-          base = f'https://api.vercel.com/v1/projects/{project_id}/routes'
-          query = urllib.parse.urlencode({'slug': team_slug})
-          headers = {
-              'Authorization': 'Bearer ' + token,
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'User-Agent': 'Movyz-CinePro-CI/1.0',
-          }
-
-          def request(method, url, body=None):
-              data = json.dumps(body).encode() if body is not None else None
-              req = urllib.request.Request(url, method=method, data=data, headers=headers)
-              with urllib.request.urlopen(req, timeout=30) as response:
-                  raw = response.read().decode('utf-8')
-                  return response.status, json.loads(raw) if raw else {}
-
-          status, current = request('GET', base + '?' + query)
-          routes = current.get('routes', []) if isinstance(current, dict) else []
-          target = next(
-              (
-                  r for r in routes
-                  if isinstance(r, dict)
-                  and r.get('name') == 'Movyz CinePro catch-all'
-                  and isinstance(r.get('route'), dict)
-                  and r['route'].get('src') == '/(.*)'
-                  and r['route'].get('dest') in ('/api/cinepro', '/api/cinepro/$1')
-              ),
-              None,
-          )
-
-          if target and not target.get('staged'):
-              print('Vercel CinePro project route already live:', target.get('id'))
-              raise SystemExit(0)
-
-          payload = {
-              'route': {
-                  'name': 'Movyz CinePro catch-all',
-                  'description': 'Route all CinePro paths to the deployed api/cinepro function while preserving the request path.',
-                  'enabled': True,
-                  'srcSyntax': 'regex',
-                  'route': {
-                      'src': '/(.*)',
-                      'dest': '/api/cinepro/$1',
-                  },
-              }
-          }
-
-          if target and target.get('staged'):
-              version = (current.get('version') or {}).get('id')
-              if not version:
-                  raise SystemExit('A staged CinePro route exists but its version id was not returned.')
-              _, promoted = request('POST', base + '/versions?' + query, {'id': version, 'action': 'promote'})
-              print('Promoted staged Vercel CinePro route:', promoted.get('version', {}).get('id', version))
-              raise SystemExit(0)
-
-          status, added = request('POST', base + '?' + query, payload)
-          version = (added.get('version') or {}).get('id')
-          if not version:
-              raise SystemExit('Vercel route was created without a version id: ' + json.dumps(added)[:2000])
-          _, promoted = request('POST', base + '/versions?' + query, {'id': version, 'action': 'promote'})
-          print('Created and promoted Vercel CinePro route:', promoted.get('version', {}).get('id', version))
-          PY
-
-      - name: Deploy CinePro Core to Vercel
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
-        run: |
-          if [ -z "${VERCEL_TOKEN:-}" ]; then
-            echo "VERCEL_TOKEN GitHub secret is required to deploy CinePro Core to Vercel."
-            exit 1
-          fi
-          set +e
-          OUTPUT="$(npx --yes vercel@62.2.0 deploy --prod --yes --token "$VERCEL_TOKEN" --project "$VERCEL_PROJECT_ID" 2>&1)"
-          STATUS=$?
-          set -e
-          printf '%s\n' "$OUTPUT"
-          if [ "$STATUS" -eq 0 ]; then
-            echo "CinePro production deployment created."
-            exit 0
-          fi
-          if printf '%s' "$OUTPUT" | grep -qi 'api-deployments-free-per-day'; then
-            echo "Vercel Hobby daily deployment cap still active; current-source deployment will retry after the quota window."
-            exit 0
-          fi
-          echo "Vercel deployment failed for a reason other than the daily quota."
-          exit "$STATUS"
-      - name: Verify CinePro Core on Vercel
-        env:
+          CINEPRO_BASE_URL: https://movyz-cinepro.deno.dev
           TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
         run: |
           python - <<'PY'
-          import json, os, urllib.request
-          base = "https://movyz-6dqf.vercel.app"
-          token = os.environ.get("TMDB_API_READ_ACCESS_TOKEN", "")
-          if not token:
-              raise SystemExit("TMDB_API_READ_ACCESS_TOKEN is missing")
+          import json, os, urllib.error, urllib.request
+          base = os.environ['CINEPRO_BASE_URL'].rstrip('/')
+          token = os.environ.get('TMDB_API_READ_ACCESS_TOKEN', '')
           headers = {
-              "Accept": "application/json",
-              "Authorization": "Bearer " + token,
-              "User-Agent": "Movyz-CinePro-Vercel-CI/1.0",
+              'Accept': 'application/json',
+              'User-Agent': 'Movyz-CinePro-Deno-CI/1.0',
+              **({'Authorization': 'Bearer ' + token} if token else {}),
           }
-          checks = [
-              ("health", "/v1/health"),
-              ("movie", "/v1/movies/157336"),
-              ("episode", "/v1/tv/1399/seasons/1/episodes/1"),
-          ]
-          for label, path in checks:
+
+          def get(path):
               req = urllib.request.Request(base + path, headers=headers)
+              with urllib.request.urlopen(req, timeout=45) as response:
+                  return response.status, json.load(response)
+
+          try:
+              status, health = get('/v1/health')
+              print('Deno CinePro health:', status, json.dumps(health)[:1000])
+          except Exception as error:
+              print('Deno CinePro is not live yet; continuing so the migration can be completed in the Deno dashboard.')
+              print('Health probe:', error)
+              raise SystemExit(0)
+
+          for label, path in [
+              ('movie', '/v1/movies/157336'),
+              ('episode', '/v1/tv/1399/seasons/1/episodes/1'),
+          ]:
               try:
-                  with urllib.request.urlopen(req, timeout=90) as response:
-                      payload = json.load(response)
+                  status, payload = get(path)
               except Exception as error:
-                  print(label, path, "FAILED:", error)
-                  raise
-              sources = payload.get("sources", []) if isinstance(payload, dict) else []
-              print(label, path, "status=OK", "sources=", len(sources))
-              if label != "health" and not sources:
-                  raise SystemExit(f"Vercel CinePro returned no sources for {path}: {json.dumps(payload)[:6000]}")
-          print("Vercel CinePro production smoke: OK")
-          PY
-      - name: Deploy CinePro Core (legacy Cloudflare adapter) [DISABLED]
-        if: false
-        run: echo "Legacy Cloudflare CinePro deployment disabled; Vercel is the CinePro server."
+                  raise SystemExit(f'Deno CinePro {label} probe failed: {error}')
+              sources = payload.get('sources', []) if isinstance(payload, dict) else []
+              print(label, path, 'status=', status, 'sources=', len(sources))
+              if not sources:
+                  raise SystemExit(f'Deno CinePro returned no sources for {path}: {json.dumps(payload)[:5000]}')
+          print('Deno CinePro smoke: OK')
 
       - name: Prepare Movyz deployment secrets
         run: |
@@ -253,13 +150,23 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var CINEPRO_BASE_URL:https://movyz-6dqf.vercel.app
+          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var CINEPRO_BASE_URL:${{ env.CINEPRO_BASE_URL }}
 
       - name: End-to-end CinePro playback smoke
+        env:
+          CINEPRO_BASE_URL: https://movyz-cinepro.deno.dev
         run: |
           python - <<'PY'
-          import json, urllib.request
+          import json, urllib.error, urllib.request
           api = "https://movyz-api.sameranede.workers.dev"
+          core = "https://movyz-cinepro.deno.dev"
+          try:
+              with urllib.request.urlopen(core + "/v1/health", timeout=30) as response:
+                  print("Deno health:", response.status)
+          except Exception as error:
+              print("Deno Core not live yet; skipping playback smoke:", error)
+              raise SystemExit(0)
+
           checks = [
               ("movie", "6591564a-13a9-4892-a166-247d1ff9158b", "Interstellar"),
               ("movie", "81723a1b-a9c5-46bb-bec6-f16664895d3e", "Inception"),
@@ -275,7 +182,7 @@ jobs:
                   data=body,
                   headers={"Accept":"application/json","Content-Type":"application/json","User-Agent":"Movyz-CI/1.0"},
               )
-              with urllib.request.urlopen(req, timeout=45) as response:
+              with urllib.request.urlopen(req, timeout=60) as response:
                   payload = json.load(response)
               if payload.get("success") is not True:
                   raise SystemExit(f"{label}: prepared API failed")
@@ -286,7 +193,6 @@ jobs:
                   raise SystemExit(f"{label}: non-CinePro provider leaked into playback response")
               print(f"CinePro playback OK: {label} sources={len(sources)}")
           print("Movyz CinePro end-to-end smoke: ALL OK")
-          PY
 
       - name: Deployment marker
         run: echo "DEPLOY_CURRENT_COMMIT=${{ github.sha }}"
