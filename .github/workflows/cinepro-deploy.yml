@@ -1,10 +1,9 @@
-name: Movyz CinePro Deploy
+name: Movyz CinePro Core Deploy
 
 on:
   push:
     branches: ["main"]
     paths:
-      - "cinepro-worker/**"
       - ".github/workflows/cinepro-deploy.yml"
   workflow_dispatch:
 
@@ -12,122 +11,61 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyz-cinepro
+  group: movyz-cinepro-core
   cancel-in-progress: true
 
 jobs:
   deploy:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY || secrets.TMDB_API_READ_ACCESS_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
+      CINEPRO_URL: https://movyz-cinepro.sameranede.workers.dev
 
-      - uses: actions/setup-node@v4
+    steps:
+      - name: Clone official CinePro Core
+        run: git clone --depth 1 https://github.com/cinepro-org/core.git cinepro-core
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: cinepro-core/package-lock.json
 
-      - name: Install root dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-
-      - name: Clone CinePro Core
-        run: |
-          rm -rf cinepro-worker/core
-          git clone --depth 1 https://github.com/cinepro-org/core.git cinepro-worker/core
-
-      - name: Install CinePro dependencies
-        working-directory: cinepro-worker
+      - name: Install CinePro Core
+        working-directory: cinepro-core
         run: npm install --no-audit --no-fund
 
-      - name: Patch CinePro runtime compatibility
-        working-directory: cinepro-worker
-        run: node patch-core.mjs
+      - name: Build CinePro Core
+        working-directory: cinepro-core
+        run: npm run build
 
-      - name: Test CinePro Core providers directly
-        continue-on-error: true
+      - name: Validate official CinePro configuration
+        working-directory: cinepro-core
         run: |
-          npx tsx <<'TS'
-          import { IcefyProvider } from './cinepro-worker/core/src/providers/icefy/icefy.ts';
-          import { CineSuProvider } from './cinepro-worker/core/src/providers/cinesu/cinesu.ts';
-          import { TulnexProvider } from './cinepro-worker/core/src/providers/tulnex/tulnex.ts';
-          import { VidApiProvider } from './cinepro-worker/core/src/providers/vidapi/vidapi.ts';
-          import { FsharetvProvider } from './cinepro-worker/core/src/providers/fshare/fshare.ts';
-          import { PoprProvider } from './cinepro-worker/core/src/providers/popr/popr.ts';
-          import { VidSrcProvider } from './cinepro-worker/core/src/providers/vidsrc/vidsrc.ts';
-          import { VidZeeProvider } from './cinepro-worker/core/src/providers/vidzee/vidzee.ts';
-          import { VidRockProvider } from './cinepro-worker/core/src/providers/vidrock/vidrock.ts';
-          import { VidNestProvider } from './cinepro-worker/core/src/providers/vidnest/vidnest.ts';
-          import { VideasyProvider } from './cinepro-worker/core/src/providers/videasy/videasy.ts';
-          import { VixSrcProvider } from './cinepro-worker/core/src/providers/vixsrc/vixsrc.ts';
-          import { PeachifyProvider } from './cinepro-worker/core/src/providers/peachify/peachify.ts';
-          import { StreamMafiaProvider } from './cinepro-worker/core/src/providers/streammafia/streammafia.ts';
-          const media = { type: 'movie', tmdbId: '27205', imdbId: 'tt1375666', title: 'Inception', releaseYear: '2010' };
-          const providers = [new IcefyProvider(), new CineSuProvider(), new TulnexProvider(), new VidApiProvider(), new FsharetvProvider(), new PoprProvider(), new VidSrcProvider(), new VidZeeProvider(), new VidRockProvider(), new VidNestProvider(), new VideasyProvider(), new VixSrcProvider(), new PeachifyProvider(), new StreamMafiaProvider()];
-          const run = async (provider) => {
-            const started = Date.now();
-            try {
-              const result = await Promise.race([
-                provider.getMovieSources(media),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000)),
-              ]);
-              return { id: provider.id, sources: Array.isArray(result?.sources) ? result.sources.length : 0, diagnostics: result?.diagnostics ?? [], ms: Date.now() - started };
-            } catch (e) {
-              return { id: provider.id, sources: 0, error: e instanceof Error ? e.message : String(e), ms: Date.now() - started };
-            }
-          };
-          console.log(JSON.stringify(await Promise.all(providers.map(run)), null, 2));
-          TS
+          test -f wrangler.json
+          test -f dist/server.js
+          node -e "const c=require('./wrangler.json'); if(c.main!=='dist/server.js') process.exit(1); console.log('CinePro official wrangler main =', c.main)"
 
-      - name: Validate CinePro adapter
-        working-directory: cinepro-worker
-        run: npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck entry.ts cloudflare-node.d.ts
-
-      - name: Validate Wrangler bundle
-        working-directory: cinepro-worker
-        run: npx wrangler deploy --dry-run
-
-      - name: Prepare CinePro secrets
-        working-directory: cinepro-worker
+      - name: Prepare CinePro Core secrets
+        working-directory: cinepro-core
         run: |
           umask 077
           printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .cinepro-secrets
 
-      - name: Deploy CinePro Worker
-        working-directory: cinepro-worker
-        run: npx wrangler deploy --secrets-file .cinepro-secrets
+      - name: Dry-run official CinePro deployment
+        working-directory: cinepro-core
+        run: npx wrangler deploy --dry-run --config wrangler.json --name movyz-cinepro
 
-      - name: Remove CinePro secrets
-        if: ${{ always() }}
-        working-directory: cinepro-worker
-        run: rm -f .cinepro-secrets
-
-
-      - name: Capture CinePro runtime exception
-        continue-on-error: true
-        working-directory: cinepro-worker
+      - name: Deploy official CinePro Core
+        working-directory: cinepro-core
         run: |
-          rm -f /tmp/cinepro-tail.log /tmp/cinepro-response.txt /tmp/cinepro-body.txt
-          npx wrangler tail movyz-cinepro --format json --status error > /tmp/cinepro-tail.log 2>&1 &
-          TAIL_PID=$!
-          sleep 4
-          curl -sS -D /tmp/cinepro-response.txt -o /tmp/cinepro-body.txt \
-            -H "Accept: application/json" \
-            -H "User-Agent: Movyz-CinePro-Debug/1.0" \
-            "https://movyz-cinepro.sameranede.workers.dev/v1/movies/27205" || true
-          sleep 5
-          kill "$TAIL_PID" 2>/dev/null || true
-          wait "$TAIL_PID" 2>/dev/null || true
-          echo "=== RESPONSE ==="
-          cat /tmp/cinepro-response.txt || true
-          echo "=== BODY ==="
-          cat /tmp/cinepro-body.txt || true
-          echo "=== CLOUDFLARE TAIL ==="
-          cat /tmp/cinepro-tail.log || true
+          npx wrangler deploy             --config wrangler.json             --name movyz-cinepro             --secrets-file .cinepro-secrets             --var PUBLIC_URL:$CINEPRO_URL
 
-      - name: Smoke test CinePro
+      - name: Smoke test official CinePro Core
         run: |
           python - <<'PY'
           import json
@@ -137,42 +75,47 @@ jobs:
           base = "https://movyz-cinepro.sameranede.workers.dev"
 
           checks = [
-              ("/v1/movies/329865", "Interstellar-style movie"),
+              ("/v1/health", "health"),
               ("/v1/movies/27205", "Inception"),
               ("/v1/movies/550", "Fight Club"),
               ("/v1/movies/278", "The Shawshank Redemption"),
-              ("/v1/tv/1396/seasons/1/episodes/1", "Breaking Bad S01E01"),
+              ("/v1/tv/1399/seasons/1/episodes/1", "Breaking Bad S01E01"),
           ]
 
           for path, label in checks:
-              url = base + path
               req = urllib.request.Request(
-                  url,
+                  base + path,
                   headers={
                       "Accept": "application/json",
-                      "User-Agent": "Movyz-CinePro-CI/1.0",
+                      "User-Agent": "Movyz-CinePro-Core-CI/1.0",
                       "Cache-Control": "no-cache",
                   },
               )
               try:
-                  with urllib.request.urlopen(req, timeout=60) as response:
+                  with urllib.request.urlopen(req, timeout=90) as response:
                       payload = json.load(response)
               except HTTPError as exc:
                   body = exc.read().decode("utf-8", errors="replace")
-                  print(f"{label}: HTTP {exc.code} body={body[:12000]}")
-                  raise SystemExit(f"{label}: HTTP {exc.code}") from exc
+                  raise SystemExit(f"{label}: HTTP {exc.code}: {body[:4000]}") from exc
+
+              if label == "health":
+                  if response.status != 200 or payload.get("status") not in ("ok", "operational"):
+                      raise SystemExit(f"health failed: {payload}")
+                  print("CinePro Core health OK")
+                  continue
 
               sources = payload.get("sources") if isinstance(payload, dict) else None
               if not isinstance(sources, list) or not sources:
-                  raise SystemExit(f"{label}: no CinePro sources")
-
-              valid = [
-                  item for item in sources
-                  if isinstance(item, dict)
-                  and str(item.get("url") or "").startswith("https://")
-              ]
+                  raise SystemExit(f"{label}: no CinePro Core sources")
+              valid = [x for x in sources if isinstance(x, dict) and str(x.get("url") or "").startswith("https://")]
               if not valid:
-                  raise SystemExit(f"{label}: no usable HTTPS sources")
+                  raise SystemExit(f"{label}: no usable HTTPS source")
+              print(f"CinePro Core OK: {label} sources={len(valid)}")
 
-              print(f"CinePro OK: {label} sources={len(valid)}")
+          print("Official CinePro Core deployment: ALL SMOKE TESTS PASSED")
           PY
+
+      - name: Remove temporary secret file
+        if: always()
+        working-directory: cinepro-core
+        run: rm -f .cinepro-secrets
