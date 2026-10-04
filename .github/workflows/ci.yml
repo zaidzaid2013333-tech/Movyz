@@ -28,6 +28,14 @@ jobs:
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
+      - name: Validate Movyz TypeScript
+        run: npm run lint
+      - name: Run core smoke test
+        run: npm test
+      - name: Build frontend
+        run: npm run build
+      - name: Build CinePro Core
+        working-directory: cinepro-core
+        run: |
+          npm ci --no-audit --no-fund --ignore-scripts
+          npm run build
