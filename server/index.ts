@@ -10,171 +10,68 @@ const api = '/api/v1';
 
 app.disable('x-powered-by');
 
-// Playback backend: CinePro Core only. TMDB/Supabase remain the Movyz catalog layer; CinePro owns source discovery and streaming proxying; legacy MediaMash relay is not part of playback.
-
-// Production diagnostics for the selected playback-sites path.
+// Playback backend: precomputed sources only.
+// CinePro/Akwam is used by the background prefill worker. User playback requests
+// read validated rows from Supabase and never trigger live provider discovery.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
-
-async function getCineProPlaybackSources(
-  contentType: 'movie' | 'episode',
-  contentId: string,
-  env?: Record<string, unknown>,
-) {
-  const runtimeBase = env?.CINEPRO_BASE_URL || process.env.CINEPRO_BASE_URL || 'https://cinepro-core-production-8b58.up.railway.app';
-  const baseUrl = String(runtimeBase).trim().replace(/\/+$/, '');
-  if (!baseUrl) return [];
-
-  try {
-    let endpoint = '';
-
-    if (contentType === 'movie') {
-      const { data, error } = await adminSupabase
-        .from('movies')
-        .select('tmdb_id')
-        .eq('id', contentId)
-        .maybeSingle();
-      if (error || !data?.tmdb_id) return [];
-      endpoint = baseUrl + '/v1/movies/' + Number(data.tmdb_id);
-    } else {
-      const { data: episode, error: episodeError } = await adminSupabase
-        .from('episodes')
-        .select('episode_number,season_id')
-        .eq('id', contentId)
-        .maybeSingle();
-      if (episodeError || !episode?.season_id) return [];
-
-      const { data: season, error: seasonError } = await adminSupabase
-        .from('seasons')
-        .select('season_number,series_id')
-        .eq('id', episode.season_id)
-        .maybeSingle();
-      if (seasonError || season?.season_number == null || !season?.series_id) return [];
-
-      const { data: series, error: seriesError } = await adminSupabase
-        .from('series')
-        .select('tmdb_id')
-        .eq('id', season.series_id)
-        .maybeSingle();
-      if (seriesError || !series?.tmdb_id) return [];
-
-      endpoint =
-        baseUrl +
-        '/v1/tv/' +
-        Number(series.tmdb_id) +
-        '/seasons/' +
-        Number(season.season_number) +
-        '/episodes/' +
-        Number(episode.episode_number);
-    }
-
-    const tmdbBearer = String(
-      env?.TMDB_API_READ_ACCESS_TOKEN || process.env.TMDB_API_READ_ACCESS_TOKEN || '',
-    ).trim();
-    const response = await fetch(endpoint, {
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'Movyz-CinePro-Bridge/1.0',
-        ...(tmdbBearer ? { Authorization: 'Bearer ' + tmdbBearer } : {}),
-      },
-      signal: AbortSignal.timeout(25000),
-    });
-
-    const rawBody = await response.text();
-    let payload: {
-      sources?: Array<{
-        url?: string;
-        type?: string;
-        quality?: string | number;
-        provider?: { name?: string; id?: string };
-        audioTracks?: Array<{ language?: string; label?: string }>;
-      }>;
-      diagnostics?: Array<{
-        code?: string;
-        message?: string;
-        severity?: string;
-      }>;
-    } = {};
-
-    try {
-      payload = JSON.parse(rawBody) as typeof payload;
-    } catch {
-      console.warn('[cinepro-bridge] CinePro returned non-JSON response', {
-        status: response.status,
-        bodyPreview: rawBody.slice(0, 300),
-      });
-      return [];
-    }
-
-    const diagnostics = Array.isArray(payload.diagnostics)
-      ? payload.diagnostics
-          .map((item) => ({
-            code: String(item?.code || 'UNKNOWN'),
-            message: String(item?.message || 'Provider diagnostic without message'),
-            severity: String(item?.severity || 'error'),
-          }))
-          .filter((item) => item.message.length > 0)
-          .slice(0, 12)
-      : [];
-
-    if (!response.ok || !Array.isArray(payload.sources)) {
-      console.warn('[cinepro-bridge] CinePro source request failed', {
-        status: response.status,
-        diagnostics,
-      });
-      return [];
-    }
-
-    if (payload.sources.length === 0 && diagnostics.length > 0) {
-      console.warn('[cinepro-bridge] CinePro returned no sources', {
-        status: response.status,
-        diagnostics,
-      });
-    }
-
-    return (Array.isArray(payload.sources) ? payload.sources : [])
-      .map((source, index) => {
-        const url = String(source.url || '').trim();
-        if (!/^https:\/\//i.test(url)) return null;
-
-        const sourceType = String(source.type || '').trim().toLowerCase();
-        const type = ['hls', 'dash', 'mp4', 'webm'].includes(sourceType) ? sourceType : 'direct';
-
-        const rawQuality = String(source.quality ?? '').trim();
-        const qualityMatch = rawQuality.match(/(2160|1440|1080|720|576|480|360|240)/);
-        const quality = qualityMatch ? qualityMatch[1] + 'p' : '720p';
-
-        const providerName = String(source.provider?.name || source.provider?.id || 'CinePro').trim();
-        const track = Array.isArray(source.audioTracks) ? source.audioTracks[0] : undefined;
-
-        return {
-          id: 'cinepro-' + contentType + '-' + contentId + '-' + index,
-          type,
-          quality,
-          language: String(track?.language || 'und').trim(),
-          label: 'CinePro • ' + providerName,
-          labelEn: 'CinePro • ' + providerName,
-          url,
-          isWorking: true,
-          provider: providerName,
-          providerKey: String(source.provider?.id || providerName).trim(),
-          providerReference: 'cinepro',
-          expiresAt: null,
-        };
-      })
-      .filter((source): source is NonNullable<typeof source> => source !== null);
-  } catch (error) {
-    console.warn('[cinepro-bridge]', error instanceof Error ? error.message : String(error));
-    return [];
-  }
-}
 
 async function getFreshPlaybackSourcesForContent(
   contentType: 'movie' | 'episode',
   contentId: string,
-  env?: Record<string, unknown>,
+  _env?: Record<string, unknown>,
 ) {
-  return getCineProPlaybackSources(contentType, contentId, env);
+  try {
+    const { data, error } = await adminSupabase
+      .from('playback_sources')
+      .select(
+        'id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,provider_reference,providers(id,key,name,enabled)',
+      )
+      .eq('content_type', contentType)
+      .eq('content_id', contentId)
+      .eq('is_working', true)
+      .order('quality', { ascending: false })
+      .order('last_checked_at', { ascending: false });
+
+    if (error) {
+      console.warn('[playback-cache] source lookup failed:', error.message);
+      return [];
+    }
+
+    const now = Date.now();
+
+    return (data || [])
+      .filter((row: any) => {
+        if (!row.expires_at) return true;
+        const expires = new Date(row.expires_at).getTime();
+        return Number.isFinite(expires) && expires > now;
+      })
+      .map((row: any) => {
+        const provider = row.providers || {};
+        return {
+          id: String(row.id),
+          type: String(row.source_type || 'direct').toLowerCase(),
+          quality: String(row.quality || 'Auto'),
+          language: String(row.language || 'und'),
+          label: String(row.label_ar || row.label_en || provider.name || provider.key || 'Akwam'),
+          labelEn: String(row.label_en || row.label_ar || provider.name || provider.key || 'Akwam'),
+          url: String(row.url || ''),
+          isWorking: true,
+          provider: String(provider.name || provider.key || 'Akwam'),
+          providerKey: String(provider.key || ''),
+          providerReference: String(row.provider_reference || provider.key || ''),
+          expiresAt: row.expires_at || null,
+        };
+      })
+      .filter((source: any) => /^https:\/\//i.test(source.url));
+  } catch (error) {
+    console.warn(
+      '[playback-cache]',
+      error instanceof Error ? error.message : String(error),
+    );
+    return [];
+  }
 }
+
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   const origin = req.headers.get('origin');
   const allow = (process.env.CORS_ORIGINS || '').split(',').map((x) => x.trim()).filter(Boolean);
