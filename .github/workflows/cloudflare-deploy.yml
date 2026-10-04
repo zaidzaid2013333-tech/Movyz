@@ -1,6 +1,4 @@
 name: Movyz Cloudflare Deploy
-# Playback backend: CinePro Core only. Movyz keeps Supabase/TMDB/catalog logic; CinePro resolves playback sources.
-# CI trigger: production deploys run from a real main-branch push.
 
 on:
   push:
@@ -15,22 +13,23 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep exactly one production verification/deploy active.
   group: movyz-production
   cancel-in-progress: true
+
 jobs:
   deploy:
-    if: ${{ !contains(github.event.head_commit.message, '[episode-fill-only]') }}
+    if: \${{ !contains(github.event.head_commit.message, '[episode-fill-only]') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
-      TMDB_API_KEY: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      CLOUDFLARE_API_TOKEN: \${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: \${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SUPABASE_URL: \${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: \${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: \${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: \${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      TMDB_API_KEY: \${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -56,14 +55,32 @@ jobs:
 
       - name: Build frontend
         env:
-          MOVYZ_BUILD_ID: ${{ github.sha }}
+          MOVYZ_BUILD_ID: \${{ github.sha }}
         run: npm run build
 
       - name: Validate Cloudflare configuration
-        run: |
-          npx wrangler deploy --dry-run
+        run: npx wrangler deploy --dry-run
 
-      - name: Prepare deployment secrets
+      - name: Deploy MediaMash playback core
+        run: |
+          npx wrangler deploy --config integrations/mediamash/wrangler.json
+          printf '%s' "$TMDB_API_READ_ACCESS_TOKEN" | npx wrangler secret put TMDB_API_READ_ACCESS_TOKEN --config integrations/mediamash/wrangler.json
+
+      - name: Smoke test MediaMash playback core
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          base = "https://movyz-media-core.sameranede.workers.dev"
+          for path in ["/v1/health", "/v1/movies/157336", "/v1/tv/1399/seasons/1/episodes/1"]:
+              with urllib.request.urlopen(base + path, timeout=45) as response:
+                  payload = json.load(response)
+              print(path, "sources=", len(payload.get("sources", [])) if isinstance(payload, dict) else -1)
+              if path != "/v1/health" and not payload.get("sources"):
+                  raise SystemExit(f"MediaMash core returned no sources for {path}")
+          print("MediaMash core source smoke: OK")
+          PY
+
+      - name: Prepare Movyz deployment secrets
         run: |
           {
             printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"
@@ -72,138 +89,18 @@ jobs:
             printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
           } > .env.production
 
-      - name: Deploy CinePro Core (upstream source + Movyz Cloudflare adapter)
-        run: |
-          git clone --depth 1 https://github.com/cinepro-org/core.git .cinepro
-          cp integrations/cinepro/cloudflare-entry.ts .cinepro/cloudflare-entry.ts
-          cp integrations/cinepro/wrangler.json .cinepro/wrangler.json
-          cd .cinepro
-          npm install --no-audit --no-fund
-
-          # Cloudflare Workers does not provide Node's nextTick scheduling semantics
-          # inside request execution reliably enough for Avvio's plugin lifecycle.
-          # Patch only the temporary build tree; upstream CinePro source in GitHub is untouched.
-          node --input-type=module <<'NODE'
-          import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
-          import { dirname, join } from 'node:path'
-          import { createRequire } from 'node:module'
-          const require = createRequire(import.meta.url)
-          const avvioEntry = require.resolve('avvio')
-          const avvioRoot = dirname(avvioEntry)
-          const targets = [avvioEntry]
-          const libDir = join(avvioRoot, 'lib')
-          for (const name of readdirSync(libDir)) {
-            const full = join(libDir, name)
-            if (statSync(full).isFile() && full.endsWith('.js')) targets.push(full)
-          }
-          for (const file of targets) {
-            const source = readFileSync(file, 'utf8')
-            const patched = source.replaceAll('process.nextTick', 'queueMicrotask')
-            if (patched !== source) writeFileSync(file, patched)
-          }
-          console.log('Patched Avvio nextTick compatibility:', targets.length, 'files')
-          NODE
-
-          # Disable Avvio's 10s plugin watchdog in the temporary installed framework (final worker compatibility pass).
-          # This is a Workers compatibility setting, not a CinePro provider change.
-          node --input-type=module <<'NODE'
-          import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
-          import { dirname, join } from 'node:path'
-          import { createRequire } from 'node:module'
-          const require = createRequire(import.meta.url)
-          const entry = require.resolve('@omss/framework')
-          const root = dirname(entry)
-          const queue = [root]
-          let patched = false
-          while (queue.length) {
-            const dir = queue.pop()
-            for (const name of readdirSync(dir)) {
-              const full = join(dir, name)
-              const stat = statSync(full)
-              if (stat.isDirectory()) {
-                queue.push(full)
-                continue
-              }
-              if (!full.endsWith('.js') && !full.endsWith('.mjs')) continue
-              const source = readFileSync(full, 'utf8')
-              const marker = "logger: false,"
-              if (source.includes("this.app = Fastify({") && source.includes(marker) && !source.includes("pluginTimeout: 0,")) {
-                writeFileSync(full, source.replace(marker, "pluginTimeout: 0,\n        logger: false,"))
-                console.log('Patched OMSS Fastify pluginTimeout=0:', full)
-                patched = true
-              }
-            }
-          }
-          if (!patched) throw new Error('Could not locate @omss/framework Fastify constructor')
-          NODE
-
-          npm run build
-          test -n "$TMDB_API_KEY" || { echo "TMDB API credential is missing"; exit 1; }
-          printf '%s' "$TMDB_API_KEY" | npx wrangler secret put TMDB_API_KEY
-          npx wrangler deploy
-
-      - name: Smoke test CinePro Core
-        run: |
-          set +e
-          rm -f /tmp/cinepro-tail.log
-          (npx wrangler tail movyz-cinepro --format json --status error --sampling-rate 0.25 > /tmp/cinepro-tail.log 2>&1) &
-          TAIL_PID=$!
-          sleep 4
-          python - <<'PY'
-          import json
-          import urllib.request
-          health_url = "https://movyz-cinepro.sameranede.workers.dev/v1/health"
-          health_req = urllib.request.Request(health_url, headers={"Accept":"application/json","User-Agent":"Movyz-CI/1.0"})
-          with urllib.request.urlopen(health_req, timeout=30) as health_response:
-              health_raw = health_response.read().decode("utf-8", errors="replace")
-              print("CinePro health HTTP", health_response.status)
-              print(health_raw[:4000])
-
-          import concurrent.futures
-
-          def check_provider(index):
-              purl = f"https://movyz-cinepro.sameranede.workers.dev/v1/debug/provider/{index}/movie/157336"
-              req = urllib.request.Request(purl, headers={"Accept":"application/json","User-Agent":"Movyz-CI/1.0"})
-              try:
-                  with urllib.request.urlopen(req, timeout=30) as response:
-                      return index, json.loads(response.read().decode("utf-8", errors="replace"))
-              except Exception as exc:
-                  return index, {"error": str(exc)}
-
-          with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-              results = list(pool.map(check_provider, range(14)))
-
-          working = []
-          for index, payload in results:
-              count = payload.get("sourceCount", 0) if isinstance(payload, dict) else 0
-              print("PROVIDER", index, json.dumps(payload, ensure_ascii=False)[:6000])
-              if count:
-                  working.append(index)
-
-          print("WORKING PROVIDERS:", working)
-          if not working:
-              raise SystemExit("No CinePro provider returned a playable source for Interstellar")
-          PY
-          REQUEST_EXIT=$?
-          sleep 5
-          kill "$TAIL_PID" 2>/dev/null || true
-          echo "===== CinePro Worker tail ====="
-          cat /tmp/cinepro-tail.log || true
-          echo "===== End CinePro Worker tail ====="
-          exit "$REQUEST_EXIT"
-
       - name: Deploy Movyz
         uses: cloudflare/wrangler-action@v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var CINEPRO_BASE_URL:https://movyz-cinepro.sameranede.workers.dev
+          apiToken: \${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: \${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:\${{ github.sha }} --var PLAYBACK_CORE_BASE_URL:https://movyz-media-core.sameranede.workers.dev
 
-      - name: Smoke test CinePro playback
+      - name: End-to-end playback smoke
         run: |
           python - <<'PY'
-          import json
-          import urllib.request
+          import json, urllib.request
+          from urllib.parse import urljoin, urlparse
 
           api = "https://movyz-api.sameranede.workers.dev"
           checks = [
@@ -214,29 +111,92 @@ jobs:
               ("episode", "cfec368f-138e-405d-a98b-bb6734f5bbf5", "Breaking Bad S01E01"),
           ]
 
+          opener = urllib.request.build_opener()
+          opener.addheaders = [("User-Agent", "Movyz-CI/1.0")]
+
+          def fetch_json(req):
+              with opener.open(req, timeout=45) as response:
+                  return response.status, json.load(response)
+
+          def fetch_text(url):
+              req = urllib.request.Request(url, headers={"Accept":"application/vnd.apple.mpegurl"})
+              with opener.open(req, timeout=45) as response:
+                  return response.status, response.headers.get("content-type",""), response.read(20000).decode("utf-8","replace")
+
+          def probe_media(url, depth=0):
+              if depth > 4:
+                  return False
+              status, ctype, body = fetch_text(url)
+              if status not in (200, 206):
+                  return False
+              if "#EXTM3U" not in body:
+                  return len(body) > 32
+
+              for line in body.splitlines():
+                  line = line.strip()
+                  if not line or line.startswith("#"):
+                      continue
+                  nested = urljoin(url, line)
+                  parsed = urlparse(nested)
+
+                  if parsed.path.lower().endswith(".m3u8") or "m3u8" in nested.lower():
+                      try:
+                          if probe_media(nested, depth + 1):
+                              return True
+                      except Exception:
+                          continue
+                  else:
+                      try:
+                          with opener.open(
+                              urllib.request.Request(nested, headers={"Range":"bytes=0-2047"}),
+                              timeout=45,
+                          ) as response:
+                              sample = response.read(4096)
+                              if response.status in (200, 206) and len(sample) > 32:
+                                  return True
+                      except Exception:
+                          continue
+              return False
+
           for content_type, content_id, label in checks:
-              body = json.dumps({"contentType": content_type, "contentId": content_id}).encode()
+              payload = json.dumps({"contentType": content_type, "contentId": content_id}).encode()
               req = urllib.request.Request(
                   api + "/api/v1/playback/prepared",
                   method="POST",
-                  data=body,
+                  data=payload,
                   headers={"Accept":"application/json","Content-Type":"application/json","User-Agent":"Movyz-CI/1.0"},
               )
-              with urllib.request.urlopen(req, timeout=35) as response:
-                  payload = json.load(response)
-              if payload.get("success") is not True:
-                  raise SystemExit(f"{label}: prepared API failed")
-              sources = payload.get("data") if isinstance(payload.get("data"), list) else []
+              status, response = fetch_json(req)
+              if status != 200 or response.get("success") is not True:
+                  raise SystemExit(f"{label}: prepared endpoint failed")
+
+              sources = response.get("data") if isinstance(response.get("data"), list) else []
               if not sources:
-                  raise SystemExit(f"{label}: CinePro returned no sources")
-              if not all(str(x.get("providerReference") or "") == "cinepro" for x in sources):
-                  raise SystemExit(f"{label}: legacy provider leaked into playback response")
-              print(f"CinePro playback OK: {label} sources={len(sources)}")
+                  raise SystemExit(f"{label}: no playback sources")
+              if not all(str(s.get("providerReference") or "") == "mediamash" for s in sources):
+                  raise SystemExit(f"{label}: legacy provider leaked into playback")
+
+              working = False
+              for source in sources[:6]:
+                  source_url = str(source.get("url") or "")
+                  if not source_url.startswith("http"):
+                      continue
+                  try:
+                      if probe_media(source_url):
+                          working = True
+                          print(f"PLAYBACK_OK {label}: provider={source.get('provider')} url={source_url[:180]}")
+                          break
+                  except Exception as exc:
+                      print(f"PROBE_FAIL {label}: {exc}")
+              if not working:
+                  raise SystemExit(f"{label}: no playable HLS/source survived end-to-end probe")
+
+          print("Movyz end-to-end playback smoke: ALL OK")
           PY
 
       - name: Deployment marker
-        run: echo "DEPLOY_CURRENT_COMMIT=${{ github.sha }}"
+        run: echo "DEPLOY_CURRENT_COMMIT=\${{ github.sha }}"
 
       - name: Remove temporary secrets file
         if: always()
-        run: rm -f .env.production .cinepro/.env.cinepro
+        run: rm -f .env.production
