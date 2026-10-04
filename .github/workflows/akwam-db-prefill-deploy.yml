@@ -10,7 +10,7 @@ on:
       - "scripts/run-akwam-prefill.ts"
       - ".github/workflows/akwam-db-prefill-deploy.yml"
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "0 * * * *"
 
 permissions:
   contents: read
