@@ -775,14 +775,21 @@ async function run(env: Env, workerId: string) {
   }
 
   const results: Array<{ ok: boolean; count?: number; error?: string }> = [];
-  const concurrency = 5;
+  const concurrency = Math.max(1, Math.min(12, Number(env.PREFILL_CONCURRENCY || 8)));
+  const target = Math.max(1, Math.min(100, max));
 
-  for (let i = 0; i < jobs.length; i += concurrency) {
-    const chunk = jobs.slice(i, i + concurrency);
-    const chunkResults = await Promise.all(
-      chunk.map((job) => processJob(env, job, workerId, provider))
+  while (results.length < target) {
+    const slots = Math.min(concurrency, target - results.length);
+    const batch = await Promise.all(
+      Array.from({ length: slots }, () => claim(env, workerId))
     );
-    results.push(...chunkResults);
+    const nextJobs = batch.filter((job): job is Job => Boolean(job));
+    if (!nextJobs.length) break;
+
+    const batchResults = await Promise.all(
+      nextJobs.map((job) => processJob(env, job, workerId, provider))
+    );
+    results.push(...batchResults);
   }
 
   return {
