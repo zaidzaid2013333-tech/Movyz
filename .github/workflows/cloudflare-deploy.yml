@@ -78,8 +78,8 @@ jobs:
 
       - name: Reference-test CinePro Core on Node runtime
         env:
-          TMDB_API_KEY: \${{ secrets.TMDB_API_KEY }}
-          TMDB_API_READ_ACCESS_TOKEN: \${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
         run: |
           rm -rf .cinepro-node
           git clone --depth 1 https://github.com/cinepro-org/core.git .cinepro-node
