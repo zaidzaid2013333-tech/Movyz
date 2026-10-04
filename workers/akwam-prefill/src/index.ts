@@ -16,8 +16,18 @@ type Job = {
   attempts: number;
 };
 
-type Candidate = { url: string; title: string; year?: number };
-type Media = { url: string; type: "hls" | "mp4"; quality?: string; referer?: string };
+type Candidate = {
+  url: string;
+  title: string;
+  year?: number;
+  kind: "movie" | "series" | "episode" | "watch" | "other";
+};
+type Media = {
+  url: string;
+  type: "hls" | "mp4" | "dash" | "webm" | "direct";
+  quality?: string;
+  referer?: string;
+};
 
 function base(env: Env) {
   return (env.AKWAM_BASE_URL || "https://akwam.ss").replace(/\/+$/, "");
@@ -71,8 +81,21 @@ async function fetchText(env: Env, url: string): Promise<string | null> {
   }
 }
 
-function normalize(value: string) {
+function decodeHtml(value: string) {
   return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/\\u0026/gi, "&")
+    .replace(/\\u003d/gi, "=")
+    .replace(/\\u003f/gi, "?")
+    .replace(/\\//g, "/");
+}
+
+function normalize(value: string) {
+  return decodeHtml(value)
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -81,6 +104,8 @@ function normalize(value: string) {
     .replace(/ؤ/g, "و")
     .replace(/ئ/g, "ي")
     .replace(/ة/g, "ه")
+    .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 0x06f0))
     .replace(/[^a-z0-9\u0600-\u06ff]+/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -95,34 +120,59 @@ function overlap(a: string, b: string) {
   return common / Math.max(x.size, y.size);
 }
 
-function score(c: Candidate, titles: string[], year?: number) {
-  const ct = normalize(c.title);
+function candidateKind(pathname: string): Candidate["kind"] {
+  const path = pathname.toLowerCase();
+  if (/^\/old(?:\/|$)/i.test(path)) return "other";
+  if (/^\/series\//i.test(path)) return "series";
+  if (/^\/movie\//i.test(path)) return "movie";
+  if (/^\/episode\//i.test(path)) return "episode";
+  if (/^\/watch\//i.test(path)) return "watch";
+  return "other";
+}
+
+function candidateSignals(c: Candidate) {
+  try {
+    const pathname = decodeHtml(new URL(c.url).pathname);
+    const parts = pathname.split("/").filter(Boolean);
+    const slug = parts.at(-1) || "";
+    return [c.title, slug.replace(/[-_]+/g, " ")].filter(Boolean);
+  } catch {
+    return [c.title];
+  }
+}
+
+function score(c: Candidate, titles: string[], year?: number, expected?: "movie" | "series" | "episode") {
+  if (c.kind === "other" || c.kind === "watch") return -1000;
+  if (expected === "movie" && c.kind !== "movie") return -1000;
+  if (expected === "series" && c.kind !== "series") return -1000;
+  if (expected === "episode" && c.kind !== "series" && c.kind !== "episode") return -1000;
+
   let bestTitleScore = 0;
-
-  for (const raw of titles) {
-    const t = normalize(raw);
-    if (!t) continue;
-
-    if (ct === t) {
-      bestTitleScore = Math.max(bestTitleScore, 100);
-    } else if (ct.includes(t) || t.includes(ct)) {
-      bestTitleScore = Math.max(bestTitleScore, 84);
-    } else {
-      const ov = overlap(ct, t);
-      if (ov >= 0.2) bestTitleScore = Math.max(bestTitleScore, 40 + ov * 40);
+  for (const rawCandidate of candidateSignals(c)) {
+    const ct = normalize(rawCandidate);
+    if (!ct) continue;
+    for (const raw of titles) {
+      const t = normalize(raw);
+      if (!t) continue;
+      if (ct === t) bestTitleScore = Math.max(bestTitleScore, 110);
+      else if (ct.includes(t) || t.includes(ct)) bestTitleScore = Math.max(bestTitleScore, 88);
+      else {
+        const ov = overlap(ct, t);
+        if (ov >= 0.45) bestTitleScore = Math.max(bestTitleScore, 55 + ov * 35);
+      }
     }
   }
 
-  if (bestTitleScore < 60) return -1000;
+  if (bestTitleScore < 80) return -1000;
 
   let out = bestTitleScore;
+  if (expected === c.kind) out += 18;
   if (year && c.year) {
-    if (year === c.year) out += 15;
-    else if (Math.abs(year - c.year) === 1) out += 5;
-    else out -= 20;
+    if (year === c.year) out += 12;
+    else if (Math.abs(year - c.year) === 1) out += 4;
+    else out -= 16;
   }
-
-  return Math.min(120, out);
+  return Math.min(140, out);
 }
 
 function parseCandidates(html: string, env: Env): Candidate[] {
@@ -132,19 +182,29 @@ function parseCandidates(html: string, env: Env): Candidate[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) {
     try {
-      const u = new URL(m[1], base(env));
-      if (!u.hostname.endsWith(host) || !/(movie|movies|series|show|anime|episode|watch)\//i.test(u.pathname)) continue;
-      const raw = m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-      if (raw.length < 2) continue;
-      const yearMatch = (raw.match(/\b(?:19|20)\d{2}\b/) || [])[0];
-      const item = { url: u.href, title: raw, year: yearMatch ? Number(yearMatch) : undefined };
+      const u = new URL(decodeHtml(m[1]), base(env));
+      if (u.hostname !== host) continue;
+      const kind = candidateKind(u.pathname);
+      if (kind === "other" || kind === "watch") continue;
+
+      const raw = decodeHtml(m[2]).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      const yearMatch = (m[0].match(/\b(?:19|20)\d{2}\b/) || [])[0];
+      const slug = decodeHtml(u.pathname.split("/").filter(Boolean).at(-1) || "").replace(/[-_]+/g, " ");
+      const title = [raw, slug].filter(Boolean).join(" || ");
+
+      const item: Candidate = { url: u.href, title, kind, year: yearMatch ? Number(yearMatch) : undefined };
       if (!out.some((x) => x.url === item.url)) out.push(item);
     } catch {}
   }
   return out;
 }
 
-async function findCandidate(env: Env, titles: string[], year?: number) {
+async function findCandidate(
+  env: Env,
+  titles: string[],
+  year?: number,
+  expected: "movie" | "series" | "episode" = "movie",
+) {
   const routesFor = (encoded: string) => [
     base(env) + "/search?q=" + encoded,
     base(env) + "/search?query=" + encoded,
@@ -153,63 +213,66 @@ async function findCandidate(env: Env, titles: string[], year?: number) {
     base(env) + "/old/search/" + encoded,
   ];
 
-  for (const title of titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3)) {
-    const encoded = encodeURIComponent(title);
+  let best: { item: Candidate; score: number } | null = null;
+  const variants = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 5);
 
+  for (const title of variants) {
+    const encoded = encodeURIComponent(title);
     for (const url of routesFor(encoded)) {
       const html = await fetchText(env, url);
       if (!html) continue;
-
-      const ranked = parseCandidates(html, env)
-        .map((item) => ({ item, score: score(item, titles, year) }))
-        .sort((a, b) => b.score - a.score);
-
-      if (ranked[0] && ranked[0].score >= 55) {
-        return ranked[0].item;
+      for (const item of parseCandidates(html, env)) {
+        const itemScore = score(item, titles, year, expected);
+        if (!best || itemScore > best.score) best = { item, score: itemScore };
       }
+      if (best && best.score >= 128) return best.item;
     }
   }
 
-  return null;
+  return best && best.score >= 80 ? best.item : null;
 }
+
 function extractMediaLikeUrls(text: string) {
+  const decoded = decodeHtml(text);
   return Array.from(new Set(
-    text.match(/https?:\/\/[^\s"'<>]+?\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?/gi) || []
+    decoded.match(/https?:\/\/[^\s"'<>]+?\.(?:m3u8|mp4|mpd|webm)(?:\?[^\s"'<>]*)?/gi) || []
   ));
 }
 
 function inferQuality(text: string) {
-  return (text.match(/(?:^|\D)(2160|1440|1080|720|576|480|360)(?:p)?(?:\D|$)/i) || [])[1];
+  return (decodeHtml(text).match(/(?:^|\D)(2160|1440|1080|720|576|480|360|240)(?:p)?(?:\D|$)/i) || [])[1];
+}
+
+function mediaTypeFromUrl(url: string): Media["type"] {
+  if (/\.m3u8(?:\?|$)/i.test(url)) return "hls";
+  if (/\.mpd(?:\?|$)/i.test(url)) return "dash";
+  if (/\.webm(?:\?|$)/i.test(url)) return "webm";
+  if (/\.mp4(?:\?|$)/i.test(url)) return "mp4";
+  return "direct";
 }
 
 function extractMedia(text: string, baseUrl: string): Media | null {
-  const direct = extractMediaLikeUrls(text)[0];
+  const decoded = decodeHtml(text);
+  const direct = extractMediaLikeUrls(decoded)[0];
   if (direct) {
-    return {
-      url: direct,
-      type: /\.m3u8(?:\?|$)/i.test(direct) ? "hls" : "mp4",
-      quality: inferQuality(text),
-      referer: (() => { try { return new URL(baseUrl).origin === "https://akwam.ss" ? baseUrl : undefined; } catch { return undefined; } })(),
-    };
+    return { url: direct, type: mediaTypeFromUrl(direct), quality: inferQuality(decoded),
+      referer: (() => { try { return new URL(baseUrl).origin === "https://akwam.ss" ? baseUrl : undefined; } catch { return undefined; } })() };
   }
 
-  const embedded = text.match(/<(?:iframe|video|source)\b[^>]+(?:src|data-src)=["']([^"']+)["']/i)?.[1];
+  const embedded = decoded.match(/<(?:iframe|video|source)\b[^>]+(?:src|data-src)=["']([^"']+)["']/i)?.[1];
   if (embedded) {
     try {
-      const url = new URL(embedded, baseUrl).href;
-      if (/\.(?:m3u8|mp4)(?:\?|$)/i.test(url)) {
-        return { url, type: /\.m3u8/i.test(url) ? "hls" : "mp4", quality: inferQuality(text), referer: (() => { try { return new URL(baseUrl).origin === "https://akwam.ss" ? baseUrl : undefined; } catch { return undefined; } })() };
-      }
+      const url = new URL(decodeHtml(embedded), baseUrl).href;
+      return { url, type: mediaTypeFromUrl(url), quality: inferQuality(decoded),
+        referer: (() => { try { return new URL(baseUrl).origin === "https://akwam.ss" ? baseUrl : undefined; } catch { return undefined; } })() };
     } catch {}
   }
 
-  const file = text.match(/(?:file|source|src|videoUrl|video_url|stream|streamUrl)\s*[:=]\s*["']([^"']+)["']/i)?.[1];
+  const file = decoded.match(/(?:file|source|src|videoUrl|video_url|stream|streamUrl|playlist|manifest)\s*[:=]\s*["']([^"']+)["']/i)?.[1];
   if (file) {
     try {
-      const url = new URL(file, baseUrl).href;
-      if (/\.(?:m3u8|mp4)(?:\?|$)/i.test(url)) {
-        return { url, type: /\.m3u8/i.test(url) ? "hls" : "mp4", quality: inferQuality(text) };
-      }
+      const url = new URL(decodeHtml(file), baseUrl).href;
+      return { url, type: mediaTypeFromUrl(url), quality: inferQuality(decoded) };
     } catch {}
   }
   return null;
@@ -241,52 +304,68 @@ function extractPageLinks(html: string, baseUrl: string) {
 }
 
 function extractEpisodeTarget(html: string, baseUrl: string, season: number, episode: number) {
-  const ordinal: Record<number, string[]> = {
-    1: ["الاول","الأول","اول","أول"], 2: ["الثاني","ثاني"], 3: ["الثالث","ثالث"],
-    4: ["الرابع","رابع"], 5: ["الخامس","خامس"], 6: ["السادس","سادس"],
-    7: ["السابع","سابع"], 8: ["الثامن","ثامن"], 9: ["التاسع","تاسع"],
-    10: ["العاشر","عاشر"], 11: ["الحادي عشر","الحادية عشر"], 12: ["الثاني عشر","الثانية عشر"],
-  };
-
-  const links = extractPageLinks(html, baseUrl)
-    .filter((item) => /\/episode\//i.test(new URL(item.url).pathname));
+  const links = extractPageLinks(html, baseUrl).filter((item) => {
+    try {
+      const url = new URL(item.url);
+      return url.hostname === new URL(baseUrl).hostname &&
+        /^\/episode\//i.test(url.pathname) &&
+        !/^\/old(?:\/|$)/i.test(url.pathname);
+    } catch { return false; }
+  });
 
   let best: { url: string; score: number } | null = null;
   for (const link of links) {
-    const hay = normalize(link.text + " " + decodeURIComponent(link.url));
+    let rawPath = "";
+    try { rawPath = decodeURIComponent(new URL(link.url).pathname); } catch { rawPath = link.url; }
+    const hay = decodeHtml(link.text + " " + rawPath);
     let scoreValue = 0;
-
-    if (new RegExp("(?:^|\\D)(?:episode|ep|حلقة|الحلقة)\\s*0*" + episode + "(?:\\D|$)", "i").test(hay)) scoreValue += 120;
-    if (new RegExp("s0*" + season + "e0*" + episode + "(?:\\D|$)", "i").test(hay)) scoreValue += 120;
-    if ((ordinal[season] || []).some((x) => hay.includes(normalize("الموسم " + x)))) scoreValue += 40;
-    if (hay.includes(normalize("season " + season))) scoreValue += 40;
-
-    if (scoreValue > 0 && (!best || scoreValue > best.score)) {
-      best = { url: link.url, score: scoreValue };
-    }
+    const exactEpisode =
+      new RegExp("(?:الحلقة[-_ ]*|episode[-_ ]*|ep[-_ ]*)0*" + episode + "(?![0-9.])", "i").test(hay) ||
+      new RegExp("(?:^|[^0-9.])0*" + episode + "(?:$|[^0-9.])", "i").test(rawPath);
+    if (exactEpisode) scoreValue += 180;
+    if (new RegExp("s0*" + season + "e0*" + episode + "(?![0-9])", "i").test(hay)) scoreValue += 100;
+    if (new RegExp("(?:season|الموسم)\\s*0*" + season + "(?:\\D|$)", "i").test(hay)) scoreValue += 35;
+    if (scoreValue > 0 && (!best || scoreValue > best.score)) best = { url: link.url, score: scoreValue };
   }
-
   return best?.url || null;
 }
 
 function extractTargets(html: string, baseUrl: string) {
-  const targets = new Set<string>();
-  const re = /<(?:a|iframe|video|source)\b[^>]*(?:href|src|data-href|data-url|data-src)=["']([^"']+)["'][^>]*>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html))) {
+  const ranked: Array<{ url: string; score: number }> = [];
+  const seen = new Set<string>();
+  const add = (raw: string, scoreValue: number) => {
     try {
-      const url = new URL(m[1], baseUrl).href;
-      const path = new URL(url).pathname;
-      if (
-        /(?:watch|download|link|episode)/i.test(path) ||
-        /(?:m3u8|mp4)(?:\?|$)/i.test(url) ||
-        /مشاهدة|watch|تحميل|download|رابط|1080|720|480/i.test(m[0])
-      ) targets.add(url);
+      const url = new URL(decodeHtml(raw), baseUrl).href;
+      if (!url.startsWith("https://") || seen.has(url)) return;
+      seen.add(url); ranked.push({ url, score: scoreValue });
+    } catch {}
+  };
+
+  const anchors = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = anchors.exec(html))) {
+    try {
+      const url = new URL(decodeHtml(m[1]), baseUrl);
+      const path = url.pathname;
+      const text = cleanHtmlText(decodeHtml(m[2]));
+      let scoreValue = 0;
+      if (/^\/watch\//i.test(path)) scoreValue += 120;
+      else if (/^\/download\//i.test(path)) scoreValue += 80;
+      else if (/^\/link\//i.test(path)) scoreValue += 60;
+      else if (/\/episode\//i.test(path)) scoreValue += 20;
+      else continue;
+      if (/(2160|1440|1080|720|576|480|360|240)\s*p?/i.test(text + " " + url.href)) scoreValue += 15;
+      add(url.href, scoreValue);
     } catch {}
   }
-  for (const u of extractMediaLikeUrls(html)) targets.add(u);
-  return Array.from(targets).slice(0, 8);
+
+  const mediaTags = /<(?:iframe|video|source)\b[^>]*(?:src|data-src|data-url)=["']([^"']+)["'][^>]*>/gi;
+  while ((m = mediaTags.exec(html))) add(m[1], 100);
+  for (const u of extractMediaLikeUrls(html)) add(u, 140);
+
+  return ranked.sort((a, b) => b.score - a.score).map((x) => x.url).slice(0, 12);
 }
+
 async function resolveTarget(env: Env, target: string): Promise<Media | null> {
   const direct = extractMedia(target, target);
   if (direct) return direct;
@@ -305,40 +384,56 @@ async function resolveTarget(env: Env, target: string): Promise<Media | null> {
   return null;
 }
 
+async function readPrefix(response: Response, maxBytes = 8192) {
+  const reader = response.body?.getReader();
+  if (!reader) return new Uint8Array();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < maxBytes) {
+      const next = await reader.read();
+      if (next.done) break;
+      if (next.value?.length) {
+        const remaining = maxBytes - total;
+        const chunk = next.value.length > remaining ? next.value.slice(0, remaining) : next.value;
+        chunks.push(chunk);
+        total += chunk.length;
+      }
+    }
+  } finally { try { await reader.cancel(); } catch {} }
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.length; }
+  return body;
+}
+
 async function validateMedia(env: Env, media: Media) {
   try {
+    if (!/^https:\/\//i.test(media.url)) return false;
     const response = await fetch(media.url, {
       method: "GET",
-      headers: {
-        ...headers(env),
-        Accept: media.type === "hls"
-          ? "application/vnd.apple.mpegurl,application/x-mpegURL,*/*;q=0.8"
-          : "video/mp4,video/webm,application/octet-stream,*/*;q=0.8",
-        Range: "bytes=0-8191",
-        ...(media.referer ? { Referer: media.referer } : {}),
-      },
+      headers: { ...headers(env), Accept: "*/*", Range: "bytes=0-8191", ...(media.referer ? { Referer: media.referer } : {}) },
       redirect: "follow",
       signal: AbortSignal.timeout(4500),
     });
     if (!response.ok && response.status !== 206) return false;
-
     const ct = response.headers.get("content-type")?.toLowerCase() || "";
-    const body = new Uint8Array(await response.arrayBuffer());
+    const body = await readPrefix(response);
     if (!body.length) return false;
 
-    if (media.type === "hls") {
-      return new TextDecoder().decode(body.slice(0, 8192)).includes("#EXTM3U");
-    }
-
-    if (ct.startsWith("video/") || ct.includes("octet-stream")) return true;
+    const sample = new TextDecoder().decode(body.slice(0, 8192));
+    if (/<html|<!doctype|captcha|cloudflare/i.test(sample)) return false;
+    if (media.type === "hls") return sample.includes("#EXTM3U");
+    if (media.type === "dash") return /<MPD[\s>]|<\?xml/i.test(sample);
+    if (media.type === "webm") return ct.includes("webm") || (body[0] === 0x1a && body[1] === 0x45 && body[2] === 0xdf && body[3] === 0xa3);
+    if (ct.startsWith("video/") || ct.includes("octet-stream") || ct.includes("binary/octet-stream")) return true;
 
     for (let i = 0; i + 3 < Math.min(body.length, 512); i++) {
       if (body[i] === 0x66 && body[i + 1] === 0x74 && body[i + 2] === 0x79 && body[i + 3] === 0x70) return true;
     }
     return false;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 async function getContext(env: Env, job: Job) {
@@ -358,50 +453,53 @@ async function getContext(env: Env, job: Job) {
 }
 
 async function discover(env: Env, job: Job, ctx: any) {
-  const candidate = await findCandidate(env, ctx.titles, ctx.year);
+  const expected = job.content_type === "episode" ? "series" : "movie";
+  const candidate = await findCandidate(env, ctx.titles, ctx.year, expected);
   if (!candidate) throw new Error("AKWAM_NOT_FOUND");
 
   const detail = await fetchText(env, candidate.url);
   if (!detail) throw new Error("AKWAM_DETAIL_FETCH_FAILED");
 
-  let targets = extractTargets(detail, candidate.url);
-
+  let targets: string[] = [];
   if (job.content_type === "episode") {
     const ep = ctx.episodeNumber || job.episode_number || 1;
     const season = ctx.seasonNumber || job.season_number || 1;
 
-    if (/\/series\//i.test(new URL(candidate.url).pathname)) {
-      const exactEpisode = extractEpisodeTarget(detail, candidate.url, season, ep);
-      if (exactEpisode) targets.unshift(exactEpisode);
+    if (!/^\/series\//i.test(new URL(candidate.url).pathname)) {
+      throw new Error("AKWAM_SERIES_CANDIDATE_INVALID candidate=" + candidate.url);
     }
 
-    const rank = (url: string) => {
-      const decoded = decodeURIComponent(url).toLowerCase();
-      let s = 0;
-      if (new RegExp(`(?:^|\\D)(?:episode|ep|حلقة|الحلقة)\\s*0*${ep}(?:\\D|$)`, "i").test(decoded)) s += 120;
-      if (new RegExp(`(?:season|الموسم)\\D{0,8}${season}(?:\\D|$)|s0*${season}e0*${ep}(?:\\D|$)`, "i").test(decoded)) s += 40;
-      if (/\/(?:episode|watch)\//i.test(new URL(url).pathname)) s += 20;
-      if (/\/(?:download|link)\//i.test(new URL(url).pathname)) s += 10;
-      return s;
-    };
+    const exactEpisode = extractEpisodeTarget(detail, candidate.url, season, ep);
+    if (!exactEpisode) {
+      throw new Error("AKWAM_EPISODE_NOT_INDEXED candidate=" + candidate.url + " season=" + season + " episode=" + ep);
+    }
 
-    targets = [...new Set(targets)].sort((a, b) => rank(b) - rank(a));
+    const episodeHtml = await fetchText(env, exactEpisode);
+    if (!episodeHtml) throw new Error("AKWAM_EPISODE_FETCH_FAILED");
+
+    targets = extractTargets(episodeHtml, exactEpisode);
+    if (!targets.length) throw new Error("AKWAM_EPISODE_LINKS_EMPTY episode=" + new URL(exactEpisode).pathname);
+  } else {
+    targets = extractTargets(detail, candidate.url);
   }
 
   const medias: Media[] = [];
-  for (const target of targets.slice(0, 4)) {
+  for (const target of targets.slice(0, 6)) {
     const media = await resolveTarget(env, target);
     if (!media || !(await validateMedia(env, media))) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);
-    if (medias.length >= 2) break;
+    if (medias.length >= 3) break;
   }
 
   if (!medias.length) {
-    const summary = targets.slice(0, 4).map((url) => { try { return new URL(url).pathname; } catch { return "invalid"; } }).join(",");
+    const summary = targets.slice(0, 6).map((url) => {
+      try { return new URL(url).pathname; } catch { return "invalid"; }
+    }).join(",");
     throw new Error("AKWAM_NO_PLAYABLE_SOURCE candidate=" + candidate.url + " targets=" + summary);
   }
   return medias;
 }
+
 async function providerId(env: Env) {
   const rows = await sb(env, "/rest/v1/providers?select=id&key=eq.akwam&limit=1");
   if (rows?.[0]?.id) return rows[0].id as string;
