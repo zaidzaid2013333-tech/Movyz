@@ -74,20 +74,44 @@ const sortPlaybackSources = (sources: PlaybackSource[]) =>
   [...sources].sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
 
 const collapseProviderQualityDuplicates = (sources: PlaybackSource[]) => {
-  const selected = new Map<string, PlaybackSource>();
+  const selected = new Map<string, PlaybackSource[]>();
   const priority: Record<string, number> = { hls: 50, mp4: 45, dash: 40, webm: 35, direct: 30 };
+  const maxPerProviderQuality = 3;
 
   for (const source of sortPlaybackSources(sources)) {
-    const provider = String(source.providerKey || source.providerReference || source.provider || '').trim().toLowerCase();
+    const provider = String(source.providerKey || source.providerReference || source.provider || 'selected-site')
+      .trim()
+      .toLowerCase();
     const quality = String(source.quality || '').trim().toLowerCase();
     const key = `${provider}|${quality}`;
-    const current = selected.get(key);
-    if (!current || (priority[String(source.type || '').toLowerCase()] || 0) > (priority[String(current.type || '').toLowerCase()] || 0)) {
-      selected.set(key, source);
+    const group = selected.get(key) || [];
+
+    if (group.some((candidate) => candidate.url === source.url)) continue;
+
+    if (group.length < maxPerProviderQuality) {
+      group.push(source);
+      selected.set(key, group);
+      continue;
+    }
+
+    let weakestIndex = 0;
+    for (let index = 1; index < group.length; index += 1) {
+      const currentPriority = priority[String(group[index].type || '').toLowerCase()] || 0;
+      const weakestPriority = priority[String(group[weakestIndex].type || '').toLowerCase()] || 0;
+      if (currentPriority < weakestPriority) weakestIndex = index;
+    }
+
+    const sourcePriority = priority[String(source.type || '').toLowerCase()] || 0;
+    const weakestPriority = priority[String(group[weakestIndex].type || '').toLowerCase()] || 0;
+    if (sourcePriority > weakestPriority) {
+      group[weakestIndex] = source;
+      selected.set(key, group);
     }
   }
 
-  return [...selected.values()].sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
+  return [...selected.values()]
+    .flat()
+    .sort((a, b) => playbackQualityRank(a) - playbackQualityRank(b));
 };
 
 const providerDisplayName = (key: string, fallback: string, language: 'ar' | 'en') => {
@@ -694,6 +718,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     if (!video || !playbackUrl) return;
 
     let cancelled = false;
+    startupTriedUrlsRef.current.add(playbackUrl);
 
     const resetMediaElement = () => {
       video.pause();
@@ -806,7 +831,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           ? 'تعذر تحميل المصدر الحالي. جرّب إعادة المحاولة أو جودة أخرى.'
           : 'The current source could not be loaded. Retry or try another quality.',
       );
-    }, 35000);
+    }, 15000);
 
     return () => {
       cancelled = true;
