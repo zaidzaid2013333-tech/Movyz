@@ -91,7 +91,7 @@ for (const provider of providers) {
 const app = cinepro.getInstance();
 const port = Number(process.env.PORT ?? 8787);
 
-await app.listen({ host: process.env.HOST ?? '0.0.0.0', port });
+void app.listen({ host: process.env.HOST ?? '0.0.0.0', port });
 
 console.log('[Movyz CinePro] Cloudflare adapter booting on port', port);
 export default httpServerHandler({ port });
