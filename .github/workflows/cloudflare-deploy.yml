@@ -233,6 +233,7 @@ jobs:
           }
           candidates = [
               ("api-root", "/api", "/api", "/api"),
+              ("cinepro-root", "/api/cinepro", "/api/cinepro", "/api/cinepro"),
               ("cinepro-function", "/api/cinepro/v1/health", "/api/cinepro/v1/movies/157336", "/api/cinepro/v1/tv/1399/seasons/1/episodes/1"),
               ("public", "/v1/health", "/v1/movies/157336", "/v1/tv/1399/seasons/1/episodes/1"),
           ]
