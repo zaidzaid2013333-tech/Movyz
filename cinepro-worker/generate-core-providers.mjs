@@ -23,51 +23,54 @@ function walk(dir) {
   return out;
 }
 
-const providerFiles = walk(root).filter((file) => {
-  const source = fs.readFileSync(file, 'utf8');
-  return /export\s+class\s+\w+\s+extends\s+BaseProvider/.test(source);
-});
+const providerEntries = [];
 
-const imports = providerFiles.map((file, index) => {
+for (const file of walk(root)) {
+  const source = fs.readFileSync(file, 'utf8');
+  const classes = [...source.matchAll(/export\s+class\s+(\w+)\s+extends\s+BaseProvider/g)].map(
+    (match) => match[1],
+  );
+  if (!classes.length) continue;
+
   const relative = './' + path
     .relative(path.dirname(output), file)
     .split(path.sep)
-    .join('/');
-  return `import * as providerModule${index} from '${relative.replace(/\.ts$/, '.js')}';`;
-});
+    .join('/')
+    .replace(/\.ts$/, '.js');
 
-const moduleNames = providerFiles.map((_, index) => `providerModule${index}`).join(',\n  ');
+  providerEntries.push({ relative, classes });
+}
 
-const source = `import { BaseProvider } from '@omss/framework';
-${imports.join('\n')}
+const imports = providerEntries.map((entry, index) =>
+  `import * as providerModule${index} from '${entry.relative}';`,
+);
 
-const providerModules = [
-  ${moduleNames}
+const constructors = providerEntries.flatMap((entry, index) =>
+  entry.classes.map((name) => `  () => new providerModule${index}.${name}(),`),
+);
+
+const source = `\n${imports.join('\n')}
+
+const providerConstructors = [
+${constructors.join('\n')}
 ];
 
 export function discoverCoreProviders() {
-  const instances = [];
-  for (const module of providerModules) {
-    for (const exported of Object.values(module)) {
-      if (
-        typeof exported === 'function' &&
-        exported.prototype &&
-        BaseProvider.prototype.isPrototypeOf(exported.prototype)
-      ) {
-        try {
-          instances.push(new exported());
-        } catch (error) {
-          console.warn(
-            '[CinePro Core] provider initialization failed:',
-            error instanceof Error ? error.message : String(error),
-          );
-        }
-      }
+  return providerConstructors.flatMap((create) => {
+    try {
+      return [create()];
+    } catch (error) {
+      console.warn(
+        '[CinePro Core] provider initialization failed:',
+        error instanceof Error ? error.message : String(error),
+      );
+      return [];
     }
-  }
-  return instances;
+  });
 }
 `;
 
-fs.writeFileSync(output, source);
-console.log(`Generated ${providerFiles.length} CinePro Core providers`);
+fs.writeFileSync(output, source.trimStart());
+console.log(
+  `Generated ${providerConstructors.length} CinePro Core providers from ${providerEntries.length} modules`,
+);
