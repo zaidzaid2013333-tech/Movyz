@@ -122,6 +122,12 @@ jobs:
             }
             return nativeFetch(input, init);
           };
+          const { TMDBService } = await import('./node_modules/@omss/framework/src/services/tmdb.service.ts');
+          const { createCacheService } = await import('./node_modules/@omss/framework/src/core/cache.ts');
+          const tmdbService = new TMDBService(tmdbToken, createCacheService({ type: 'memory' }));
+          const tmdbValidation = await tmdbService.validateMovie('157336');
+          console.log('CinePro TMDBService validation =', JSON.stringify(tmdbValidation));
+          if (!tmdbValidation.exists || !tmdbValidation.released) throw new Error('CinePro TMDBService rejected a released movie');
           await import('./src/server.ts');
           EOF
           npx tsx ci-runner.mjs > ../cinepro-node.log 2>&1 &
