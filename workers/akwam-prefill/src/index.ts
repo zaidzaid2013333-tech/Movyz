@@ -1,4 +1,7 @@
 // Akwam prep: staged discovery + exact episode-to-watch resolution.
+type ExecutionContextLike = {
+  waitUntil(promise: Promise<unknown>): void;
+};
 type Env = {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
@@ -306,7 +309,8 @@ async function findCandidate(
     }
   }
 
-  if (best && best.score >= 80) return best.item;
+  const winner = best as { item: Candidate; score: number } | null;
+  if (winner && winner.score >= 80) return winner.item;
   throw new Error("AKWAM_SEARCH_EMPTY probes=" + diagnostics.slice(0, 12).join(","));
 }
 
@@ -834,7 +838,7 @@ export default {
     }
   },
 
-  async scheduled(_event: ScheduledEvent, _env: Env, ctx: ExecutionContext) {
+  async scheduled(_event: unknown, _env: Env, ctx: ExecutionContextLike) {
     ctx.waitUntil(Promise.resolve(console.log("[akwam-prefill] executor=github-actions; scheduled worker disabled")));
   }
 };
