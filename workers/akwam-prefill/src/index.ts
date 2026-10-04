@@ -751,14 +751,13 @@ export default {
       if (request.method === "POST" && request.headers.get("x-movyz-prefill-key") === env.SUPABASE_SERVICE_ROLE_KEY) {
         const mode = request.headers.get("x-movyz-prefill-mode") || "batch";
 
-        if (mode === "fanout") {
-          const result = await fanout(env);
-          return Response.json({ ok: true, trigger: "fanout", ...result });
-        }
-
-        const workerId = "prefill-" + crypto.randomUUID();
-        const result = await run(env, workerId);
-        return Response.json({ ok: true, trigger: "batch", ...result });
+        return Response.json({
+          ok: true,
+          disabled: true,
+          executor: "github-actions",
+          trigger: mode,
+          message: "Akwam source preparation runs in GitHub Actions; this Worker is kept only for compatibility.",
+        });
       }
 
       return Response.json({ ok: true, service: "movyz-akwam-prefill", mode: "db-only", parallel_jobs: 1, fanout: 6, akwam_host: "akwam.ss" });
@@ -772,12 +771,8 @@ export default {
     }
   },
 
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(
-      run(env, "cron-" + crypto.randomUUID())
-        .then((r) => console.log(JSON.stringify(r)))
-        .catch((error) => console.error(String(error)))
-    );
+  async scheduled(_event: ScheduledEvent, _env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(Promise.resolve(console.log("[akwam-prefill] executor=github-actions; scheduled worker disabled")));
   }
 };
 
