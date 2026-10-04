@@ -173,7 +173,8 @@ jobs:
           PY
 
       - name: Deploy CinePro Core to Vercel
-        # Deploy directly to the linked Vercel project; GitHub secret VERCEL_TOKEN carries the token value.
+        # Create a fresh deployment when Vercel allows it. On the Hobby daily deployment cap,
+        # keep the existing production deployment and continue with the live project route.
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
@@ -182,8 +183,21 @@ jobs:
             echo "VERCEL_TOKEN GitHub secret is required to deploy CinePro Core to Vercel."
             exit 1
           fi
-          npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN" --project "$VERCEL_PROJECT_ID"
-
+          set +e
+          OUTPUT="$(npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN" --project "$VERCEL_PROJECT_ID" 2>&1)"
+          STATUS=$?
+          set -e
+          printf '%s\n' "$OUTPUT"
+          if [ "$STATUS" -eq 0 ]; then
+            echo "CinePro fresh Vercel deployment created."
+            exit 0
+          fi
+          if printf '%s' "$OUTPUT" | grep -qi 'api-deployments-free-per-day'; then
+            echo "Vercel Hobby daily deployment cap reached; continuing with the existing production deployment and project route."
+            exit 0
+          fi
+          echo "Vercel deployment failed for a reason other than the daily quota."
+          exit "$STATUS"
       - name: Verify CinePro Core on Vercel
         env:
           TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
