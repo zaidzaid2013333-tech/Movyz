@@ -18,7 +18,7 @@ async function supabase(path, init = {}) {
     headers: { ...headers, ...(init.headers || {}) },
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(\`Supabase \${response.status}: \${text.slice(0, 1200)}\`);
+  if (!response.ok) throw new Error(`Supabase ${response.status}: ${text.slice(0, 1200)}`);
   if (!text) return null;
   try { return JSON.parse(text); } catch { return text; }
 }
@@ -42,13 +42,13 @@ async function cinepro(job) {
   let endpoint;
   if (job.content_type === 'movie') {
     if (!job.tmdb_id) throw new Error('Movie has no TMDB id');
-    endpoint = \`\${cineproBase}/v1/movies/\${job.tmdb_id}\`;
+    endpoint = `${cineproBase}/v1/movies/${job.tmdb_id}`;
   } else {
     if (!job.tmdb_id || !job.season_number || !job.episode_number) {
       throw new Error('Episode is missing series/season/episode identifiers');
     }
     endpoint =
-      \`\${cineproBase}/v1/tv/\${job.tmdb_id}/seasons/\${job.season_number}/episodes/\${job.episode_number}\`;
+      `${cineproBase}/v1/tv/${job.tmdb_id}/seasons/${job.season_number}/episodes/${job.episode_number}`;
   }
 
   const controller = new AbortController();
@@ -71,7 +71,7 @@ async function cinepro(job) {
       const diagnostics = Array.isArray(payload.diagnostics)
         ? JSON.stringify(payload.diagnostics).slice(0, 1200)
         : text.slice(0, 500);
-      throw new Error(\`CinePro HTTP \${response.status}: \${diagnostics}\`);
+      throw new Error(`CinePro HTTP ${response.status}: ${diagnostics}`);
     }
 
     const sources = Array.isArray(payload.sources) ? payload.sources : [];
@@ -102,11 +102,11 @@ async function persist(job, result, providerId) {
   const now = new Date().toISOString();
 
   if (!result.sources.length) {
-    throw new Error(\`Akwam returned no validated source for \${job.content_type}:\${job.content_id}\`);
+    throw new Error(`Akwam returned no validated source for ${job.content_type}:${job.content_id}`);
   }
 
   await supabase(
-    \`/rest/v1/playback_sources?provider_id=eq.\${encodeURIComponent(providerId)}&content_type=eq.\${encodeURIComponent(job.content_type)}&content_id=eq.\${encodeURIComponent(job.content_id)}\`,
+    `/rest/v1/playback_sources?provider_id=eq.${encodeURIComponent(providerId)}&content_type=eq.${encodeURIComponent(job.content_type)}&content_id=eq.${encodeURIComponent(job.content_id)}`,
     {
       method: 'PATCH',
       body: JSON.stringify({ is_working: false, last_checked_at: now }),
