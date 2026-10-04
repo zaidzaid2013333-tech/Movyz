@@ -75,15 +75,15 @@ export const MovieCard: React.FC<MovieCardProps> = ({
           </button>
         )}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
-          <div className="w-11 h-11 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center shadow-xl transform scale-90 group-hover:scale-100 transition-transform">
+          <div className="movyza-card-play w-11 h-11 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center transform scale-90 group-hover:scale-100 transition-transform">
             <Play className="w-4 h-4 fill-slate-950 translate-x-0.5" />
           </div>
         </div>
       </div>
-      <div className="mt-2.5 space-y-0.5 px-0.5">
-        <h3 className="text-xs sm:text-sm font-semibold text-white line-clamp-1 group-hover:text-amber-300 transition-colors">{displayTitle}</h3>
-        <div className="flex items-center gap-2 text-[11px] text-slate-500">
-          <span className="flex items-center gap-0.5 text-amber-300 font-bold">
+      <div className="mt-3 space-y-1 px-0.5">
+        <h3 className="text-sm sm:text-[15px] font-semibold text-white line-clamp-1 group-hover:text-amber-300 transition-colors tracking-[-0.01em]">{displayTitle}</h3>
+        <div className="flex items-center gap-2.5 text-[11px] text-slate-500">
+          <span className="flex items-center gap-1 text-amber-300 font-bold bg-amber-400/8 border border-amber-400/10 px-1.5 py-0.5 rounded-md">
             <Star className="w-3 h-3 fill-amber-300 text-amber-300" />
             <span>{movie.rating.toFixed(1)}</span>
           </span>
