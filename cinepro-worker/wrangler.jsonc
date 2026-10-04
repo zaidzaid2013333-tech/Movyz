@@ -14,7 +14,7 @@
   "vars": {
     "HOST": "0.0.0.0",
     "PORT": "8787",
-    "NODE_ENV": "production",
+    "NODE_ENV": "test",
     "CACHE_TYPE": "memory",
     "STREMIO_ADDON": "false",
     "CORS_ORIGIN": "*",
