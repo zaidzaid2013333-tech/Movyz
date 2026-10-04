@@ -16,7 +16,7 @@ app.disable('x-powered-by');
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
 async function getPlaybackCoreSources(contentType: 'movie' | 'episode', contentId: string, env?: Record<string, unknown>) {
-  const runtimeBase = env?.PLAYBACK_CORE_BASE_URL ?? process.env.PLAYBACK_CORE_BASE_URL ?? '';
+  const runtimeBase = env?.PLAYBACK_CORE_BASE_URL ?? process.env.PLAYBACK_CORE_BASE_URL ?? 'https://movyz-media-core.sameranede.workers.dev';
   const baseUrl = String(runtimeBase).trim().replace(/\/+$/, '');
   if (!baseUrl) return [];
   try {
