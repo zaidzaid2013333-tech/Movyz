@@ -1,6 +1,6 @@
 {
   "deploy": {
-    "build": "rm -rf .deno-cinepro && printf '%s\\n' \"export const MOVYZ_PUBLIC_URL = \\\"https://${DENO_DEPLOY_APP_SLUG}.${DENO_DEPLOY_ORG_SLUG}.deno.net\\\";\" > .deno-cinepro-env.mjs && mkdir -p .deno-cinepro && git clone --depth 1 --branch main https://github.com/cinepro-org/core.git .deno-cinepro/core && cd .deno-cinepro/core && npm ci && npm run build",
+    "build": "rm -rf .deno-cinepro && mkdir -p .deno-cinepro && git clone --depth 1 --branch main https://github.com/cinepro-org/core.git .deno-cinepro/core && cd .deno-cinepro/core && npm ci && npm run build",
     "buildTimeout": "20m",
     "runtime": {
       "type": "dynamic",
