@@ -494,7 +494,7 @@ async function processJob(env: Env, job: Job, workerId: string, provider: string
   }
 }
 async function run(env: Env, workerId: string) {
-  const max = Math.max(1, Math.min(3, Number(env.MAX_JOBS_PER_RUN || 3)));
+  const max = Math.max(1, Math.min(1, Number(env.MAX_JOBS_PER_RUN || 1)));
 
   const claimed = await Promise.all(
     Array.from({ length: max }, () => claim(env, workerId))
