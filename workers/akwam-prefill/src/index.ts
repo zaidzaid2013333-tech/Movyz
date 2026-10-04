@@ -106,7 +106,7 @@ function decodeHtml(value: string) {
     .replace(/\\u0026/gi, "&")
     .replace(/\\u003d/gi, "=")
     .replace(/\\u003f/gi, "?")
-    .replace(/\\//g, "/");
+    .replaceAll("\\/","/");
 }
 
 function normalize(value: string) {
