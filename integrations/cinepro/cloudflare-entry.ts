@@ -101,34 +101,12 @@ try {
 
 const app = cinepro.getInstance();
 
-let ready: Promise<void> | undefined;
+// Complete Fastify/Avvio boot during Worker startup. This prevents plugin lifecycle
+// callbacks from depending on the lifetime of an incoming Worker request.
+await app.ready();
 
-async function ensureReady() {
-  if (!ready) {
-    ready = app.ready();
-  }
-  await ready;
-}
-
-// Cloudflare's Node HTTP bridge is designed to wrap a regular Node http.Server.
-// Fastify owns the request listener; this tiny bridge forwards Worker requests
-// into that listener after Fastify has completed its async boot sequence.
-const bridgeServer = createServer(async (request, response) => {
-  try {
-    await ensureReady();
-    app.server.emit('request', request, response);
-  } catch (error) {
-    console.error('[CinePro] request bridge failed', error);
-    if (!response.headersSent) {
-      response.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
-    }
-    response.end(JSON.stringify({
-      error: 'CINEPRO_RUNTIME_ERROR',
-      message: error instanceof Error ? error.message : String(error),
-    }));
-  }
+const bridgeServer = createServer((request, response) => {
+  app.server.emit('request', request, response);
 });
 
-const handler = httpServerHandler(bridgeServer);
-
-export default handler;
+export default httpServerHandler(bridgeServer);
