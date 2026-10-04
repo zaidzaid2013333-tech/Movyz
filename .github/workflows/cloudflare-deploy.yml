@@ -178,7 +178,8 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
         run: |
-          npx --yes vercel@latest git disconnect github --yes --token "$VERCEL_TOKEN" --scope "$VERCEL_PROJECT_ID"
+          npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT_ID" --token "$VERCEL_TOKEN" --scope "$VERCEL_TEAM_SLUG"
+          npx --yes vercel@latest git disconnect github --yes --token "$VERCEL_TOKEN"
       - name: Deploy CinePro Core to Vercel
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -189,7 +190,7 @@ jobs:
             exit 1
           fi
           set +e
-          OUTPUT="$(npx --yes vercel@latest redeploy dpl_FEM8GX6w39ezpXosEMrAbx9U6TS3 --token "$VERCEL_TOKEN" --yes 2>&1)"
+          OUTPUT="$(npx --yes vercel@latest redeploy dpl_FEM8GX6w39ezpXosEMrAbx9U6TS3 --token "$VERCEL_TOKEN" --target production --non-interactive 2>&1)"
           STATUS=$?
           set -e
           printf '%s\n' "$OUTPUT"
