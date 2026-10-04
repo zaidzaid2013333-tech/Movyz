@@ -20,7 +20,7 @@ jobs:
   deploy:
     if: ${{ !contains(github.event.head_commit.message, '[episode-fill-only]') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -154,7 +154,7 @@ jobs:
         run: |
           python - <<'PY'
           import json, urllib.request
-          from urllib.parse import urljoin, urlparse
+          from urllib.parse import urljoin
 
           api = "https://movyz-api.sameranede.workers.dev"
           checks = [
@@ -169,87 +169,90 @@ jobs:
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36",
               "Accept": "application/json, text/plain, */*",
           }
-          opener = urllib.request.build_opener()
-          opener.addheaders = list(headers.items())
 
-          def fetch_json(url):
-              req = urllib.request.Request(url, headers=headers)
-              with opener.open(req, timeout=60) as response:
-                  return response.status, json.load(response)
+          def request(url, headers_override=None, timeout=25):
+              req = urllib.request.Request(url, headers=headers_override or headers)
+              return urllib.request.urlopen(req, timeout=timeout)
 
-          def fetch_text(url):
-              req = urllib.request.Request(url, headers={
-                  **headers,
+          def watch(label, content_type, content_id):
+              with request(api + "/api/v1/watch/" + content_id + "?type=" + content_type, timeout=45) as response:
+                  if response.status != 200:
+                      raise RuntimeError(f"{label}: watch endpoint HTTP {response.status}")
+                  payload = json.load(response)
+              if payload.get("success") is not True:
+                  raise RuntimeError(f"{label}: watch endpoint returned success=false")
+              content = (payload.get("data") or {}).get("content") or {}
+              sources = content.get("sources") or []
+              if not sources:
+                  raise RuntimeError(f"{label}: no playback sources")
+              if not all(str(s.get("providerReference") or "") == "mediamash" for s in sources):
+                  raise RuntimeError(f"{label}: legacy provider leaked into playback")
+              return sources[:3]
+
+          def probe_relayed(source_url):
+              media_headers = {
+                  "User-Agent": headers["User-Agent"],
                   "Accept": "application/vnd.apple.mpegurl, application/x-mpegURL, */*",
-              })
-              with opener.open(req, timeout=60) as response:
-                  return response.status, response.headers.get("content-type", ""), response.read(20000).decode("utf-8", "replace")
-
-          def probe_media(url, depth=0):
-              if depth > 4:
-                  return False
-              status, ctype, body = fetch_text(url)
-              if status not in (200, 206):
-                  return False
+              }
+              with request(source_url, media_headers, timeout=25) as response:
+                  if response.status not in (200, 206):
+                      return False, f"manifest HTTP {response.status}"
+                  body = response.read(16000).decode("utf-8", "replace")
+                  ctype = response.headers.get("content-type", "")
               if "#EXTM3U" not in body:
-                  return len(body) > 32
+                  return (len(body) > 64), f"direct media bytes={len(body)}"
 
-              for line in body.splitlines():
-                  line = line.strip()
-                  if not line or line.startswith("#"):
-                      continue
-                  nested = urljoin(url, line)
-                  parsed = urlparse(nested)
-                  if parsed.path.lower().endswith(".m3u8") or "m3u8" in nested.lower():
-                      try:
-                          if probe_media(nested, depth + 1):
-                              return True
-                      except Exception:
-                          continue
-                  else:
-                      try:
-                          req = urllib.request.Request(nested, headers={"Range": "bytes=0-2047", "User-Agent": headers["User-Agent"]})
-                          with opener.open(req, timeout=60) as response:
-                              sample = response.read(4096)
-                              if response.status in (200, 206) and len(sample) > 32:
-                                  return True
-                      except Exception:
-                          continue
-              return False
+              lines = [line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith("#")]
+              if not lines:
+                  return False, "manifest has no media/playlist URI"
+
+              nested = urljoin(source_url, lines[0])
+              if ".m3u8" in nested.lower():
+                  with request(nested, media_headers, timeout=25) as response:
+                      if response.status not in (200, 206):
+                          return False, f"nested manifest HTTP {response.status}"
+                      nested_body = response.read(16000).decode("utf-8", "replace")
+                  if "#EXTM3U" not in nested_body:
+                      return False, "nested URL was not an HLS manifest"
+                  segment_lines = [
+                      line.strip() for line in nested_body.splitlines()
+                      if line.strip() and not line.strip().startswith("#")
+                  ]
+                  if not segment_lines:
+                      return False, "nested manifest has no segment URI"
+                  segment = urljoin(nested, segment_lines[0])
+              else:
+                  segment = nested
+
+              segment_headers = {
+                  "User-Agent": headers["User-Agent"],
+                  "Accept": "*/*",
+                  "Range": "bytes=0-65535",
+              }
+              with request(segment, segment_headers, timeout=25) as response:
+                  if response.status not in (200, 206):
+                      return False, f"segment HTTP {response.status}"
+                  sample = response.read(65536)
+              return len(sample) > 64, f"segment bytes={len(sample)}"
 
           for content_type, content_id, label in checks:
-              url = api + "/api/v1/watch/" + content_id + "?type=" + content_type
-              try:
-                  status, response = fetch_json(url)
-              except Exception as exc:
-                  raise SystemExit(f"{label}: watch endpoint request failed: {exc}")
-
-              if status != 200 or response.get("success") is not True:
-                  raise SystemExit(f"{label}: watch endpoint failed: {status}")
-
-              content = response.get("data", {}).get("content", {})
-              sources = content.get("sources") if isinstance(content, dict) else []
-              if not isinstance(sources, list) or not sources:
-                  raise SystemExit(f"{label}: no playback sources")
-
-              if not all(str(s.get("providerReference") or "") == "mediamash" for s in sources):
-                  raise SystemExit(f"{label}: legacy provider leaked into playback")
-
+              sources = watch(label, content_type, content_id)
               working = False
-              for source in sources[:6]:
+              for index, source in enumerate(sources, 1):
                   source_url = str(source.get("url") or "")
                   if not source_url.startswith("http"):
                       continue
                   try:
-                      if probe_media(source_url):
-                          working = True
+                      ok, detail = probe_relayed(source_url)
+                      print(f"{label} source {index}: {detail}")
+                      if ok:
                           print(f"PLAYBACK_OK {label}: provider={source.get('provider')} url={source_url[:180]}")
+                          working = True
                           break
                   except Exception as exc:
-                      print(f"PROBE_FAIL {label}: {exc}")
-
+                      print(f"{label} source {index}: FAILED {exc}")
               if not working:
-                  raise SystemExit(f"{label}: no playable HLS/source survived end-to-end probe")
+                  raise SystemExit(f"{label}: no playable relayed source survived manifest+segment probe")
 
           print("Movyz end-to-end playback smoke: ALL OK")
           PY
