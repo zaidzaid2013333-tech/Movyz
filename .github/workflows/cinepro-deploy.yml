@@ -69,25 +69,6 @@ jobs:
         working-directory: cinepro-worker
         run: rm -f .cinepro-secrets
 
-      - name: Diagnose CinePro provider matrix
-        continue-on-error: true
-        run: |
-          python - <<'PY'
-          import json
-          import urllib.request
-          base = "https://movyz-cinepro.sameranede.workers.dev/v1/debug/movie/27205"
-          req = urllib.request.Request(base, headers={
-              "Accept": "application/json",
-              "User-Agent": "Movyz-CinePro-Provider-Debug/1.0",
-              "Cache-Control": "no-cache",
-          })
-          try:
-              with urllib.request.urlopen(req, timeout=180) as response:
-                  body = response.read().decode("utf-8", errors="replace")
-                  print(body[:30000])
-          except Exception as exc:
-              print("provider-debug request failed:", exc)
-          PY
 
       - name: Capture CinePro runtime exception
         continue-on-error: true
