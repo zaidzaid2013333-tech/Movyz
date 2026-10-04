@@ -112,7 +112,23 @@ const ensureServerReady = (): Promise<void> => {
 
 export default {
   async fetch(request: Request) {
-    await ensureServerReady();
-    return handleAsNodeRequest(port, request);
+    try {
+      await ensureServerReady();
+      return await handleAsNodeRequest(port, request);
+    } catch (error) {
+      console.error('[Movyz CinePro] request handler failed:', error);
+      return new Response(
+        JSON.stringify({
+          error: error instanceof Error ? error.message : String(error),
+        }),
+        {
+          status: 500,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+            'access-control-allow-origin': '*',
+          },
+        },
+      );
+    }
   },
 };
