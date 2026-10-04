@@ -1,5 +1,5 @@
 // Production playback core: CinePro Core -> prepared API -> Movyz player.
-// CI validates the Vercel CinePro server before accepting the production playback path.
+// CI validates the Vercel CinePro server before accepting the production playback path and no longer deploys CinePro to Cloudflare.
 // CinePro is the only playback source backend; Supabase/TMDB remain the catalog layer.
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
