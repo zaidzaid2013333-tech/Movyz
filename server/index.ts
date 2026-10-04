@@ -34,7 +34,16 @@ async function getPlaybackCoreSources(contentType: 'movie' | 'episode', contentI
       if (seriesError || !series?.tmdb_id) return [];
       endpoint = baseUrl + '/v1/tv/' + Number(series.tmdb_id) + '/seasons/' + Number(season.season_number) + '/episodes/' + Number(episode.episode_number);
     }
-    const response = await fetch(endpoint, { headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36' }, signal: AbortSignal.timeout(25000) });
+    const core = env?.MEDIAMASH_CORE as { fetch(request: Request): Promise<Response> } | undefined;
+    const request = new Request(endpoint, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
+      },
+    });
+    const response = core
+      ? await core.fetch(request)
+      : await fetch(request, { signal: AbortSignal.timeout(25000) });
     if (!response.ok) return [];
     const payload = await response.json() as { sources?: Array<{ url?: string; type?: string; quality?: string | number; provider?: { name?: string; id?: string }; audioTracks?: Array<{ language?: string; label?: string }> }> };
     return (Array.isArray(payload.sources) ? payload.sources : []).map((source, index) => {
