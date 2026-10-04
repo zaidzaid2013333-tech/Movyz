@@ -15,7 +15,7 @@ The current `https://akwam.ss` structure was checked against live indexed pages 
 Examples verified from the live site include the current One Piece series and episode 1168 pages, and current movie pages such as Interstellar. The site also still exposes legacy `/old/` pages; those are historical pages, not the canonical current catalog path, and must not win candidate selection. citeturn333770search0turn333770search1turn298131search0
 
 ### Current canonical-host and link-resolution rules
-- Start from the configured Akwam entrypoint `https://ak.sv`. Accept observed canonical redirects/absolute links on `ak.sv`, `akwam.ss`, and `akwam.it` (including `www` variants). These are the same Akwam route family; do not reject a valid content page only because the current canonical host changed.
+- Start from the only supported Akwam origin `https://akwam.ss`. Accept only `akwam.ss` and `www.akwam.ss` links. Do not use `ak.sv` or `akwam.it`.
 - The current CloudStream Akwam extractor independently confirms the current search endpoint as `/search?q=<query>`, content cards under `div.entry-box`, and Akwam quality/download handling. The worker should use the current DOM signals rather than generic guessing. 
 - For a movie/episode detail page, identify each quality block and prefer its **تحميل** link. The deterministic current route is:
   `detail page -> /download/... -> download page -> div.btn-loader > a -> final media URL`.
@@ -90,9 +90,8 @@ A) Known exact page
 
 B) Search routes
 Try one route family at a time and stop as soon as credible candidates appear:
-- /old/search/<encoded-query>
 - /search?q=<encoded-query>
-- legacy site query forms only as fallback.
+- /old/search/<encoded-query> only as a last resort on akwam.ss.
 
 C) Query variants
 Build variants from:
@@ -306,7 +305,7 @@ The training is considered useful only when it changes future decisions measurab
 - no permanent Akwam media URL storage.
 
 ### Search failover rule
-- Primary Akwam search is `/search?q=<query>`.
-- Search is bounded: use up to 3 title variants and try canonical hosts in order `configured -> ak.sv -> akwam.ss -> akwam.it`.
+- Primary Akwam search is `https://akwam.ss/search?q=<query>`.
+- Search is bounded: use up to 3 title variants on akwam.ss only.
 - Do not fan out every route family at once. Stop immediately after a high-confidence matching candidate.
 - `/old/search/<query>` is only a last fallback on the configured host and is never allowed to produce an `/old/` content candidate.
