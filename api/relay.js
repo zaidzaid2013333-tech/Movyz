@@ -172,11 +172,19 @@ async function fetchUpstream(req, target, forwardedHeaders) {
 
   for (const mode of modes) {
     try {
-      const response = await fetch(target, {
-        method: req.method === 'HEAD' ? 'HEAD' : 'GET',
-        headers: requestHeaders(req, forwardedHeaders, mode, target),
-        redirect: 'follow',
-      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      let response;
+      try {
+        response = await fetch(target, {
+          method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+          headers: requestHeaders(req, forwardedHeaders, mode, target),
+          redirect: 'follow',
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
 
       lastResponse = response;
       if (response.ok || response.status < 400) return response;
