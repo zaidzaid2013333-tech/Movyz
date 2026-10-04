@@ -1,0 +1,34 @@
+name: Akwam Smoke One
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "workers/akwam-prefill/**"
+      - "scripts/run-akwam-prefill.ts"
+      - ".github/workflows/akwam-smoke-one.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-akwam-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MAX_JOBS_PER_RUN: "1"
+      PREFILL_CONCURRENCY: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run one Akwam job
+        run: npx --yes tsx@4.20.3 scripts/run-akwam-prefill.ts
