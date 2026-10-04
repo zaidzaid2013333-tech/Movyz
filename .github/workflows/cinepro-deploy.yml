@@ -48,10 +48,8 @@ jobs:
 
       - name: Test CinePro Core providers directly
         continue-on-error: true
-        env:
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
-          node --input-type=module <<'JS'
+          npx tsx <<'TS'
           import { IcefyProvider } from './cinepro-worker/core/src/providers/icefy/icefy.js';
           import { CineSuProvider } from './cinepro-worker/core/src/providers/cinesu/cinesu.js';
           import { TulnexProvider } from './cinepro-worker/core/src/providers/tulnex/tulnex.js';
@@ -81,7 +79,7 @@ jobs:
               console.log(JSON.stringify({ id: provider.id, sources: 0, error: e instanceof Error ? e.message : String(e), ms: Date.now() - started }));
             }
           }
-          JS
+          TS
 
       - name: Validate CinePro adapter
         working-directory: cinepro-worker
