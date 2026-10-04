@@ -120,7 +120,7 @@ function parseCandidates(html: string, env: Env): Candidate[] {
   while ((m = re.exec(html))) {
     try {
       const u = new URL(m[1], base(env));
-      if (!u.hostname.endsWith(host) || !\/(movie|series|show|anime)\//i.test(u.pathname)) continue;
+      if (!u.hostname.endsWith(host) || !/(movie|series|show|anime)\//i.test(u.pathname)) continue;
       const raw = m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
       if (raw.length < 2) continue;
       const yearMatch = (raw.match(/\b(?:19|20)\d{2}\b/) || [])[0];
