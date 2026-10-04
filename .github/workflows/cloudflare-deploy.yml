@@ -29,7 +29,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-      CINEPRO_BASE_URL: https://movyz-cinepro-core-live.onrender.com
+      CINEPRO_BASE_URL: https://cinepro-core-production-8b58.up.railway.app
 
     steps:
       - uses: actions/checkout@v4
@@ -112,17 +112,17 @@ jobs:
 
       - name: End-to-end CinePro playback smoke
         env:
-          CINEPRO_BASE_URL: https://movyz-cinepro-core-live.onrender.com
+          CINEPRO_BASE_URL: https://cinepro-core-production-8b58.up.railway.app
         run: |
           python - <<'PY'
           import json, urllib.error, urllib.request
           api = "https://movyz-api.sameranede.workers.dev"
-          core = "https://movyz-cinepro-core-live.onrender.com"
+          core = "https://cinepro-core-production-8b58.up.railway.app"
           try:
               with urllib.request.urlopen(core + "/v1/health", timeout=30) as response:
                   print("CinePro health:", response.status)
           except Exception as error:
-              print("Deno Core not live yet; skipping playback smoke:", error)
+              print("CinePro Core not live yet; skipping playback smoke:", error)
               raise SystemExit(0)
 
           checks = [
