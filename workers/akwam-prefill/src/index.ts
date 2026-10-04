@@ -720,14 +720,27 @@ async function validateMedia(env: Env, media: Media) {
     if (ct.includes("webm") || (body[0] === 0x1a && body[1] === 0x45 && body[2] === 0xdf && body[3] === 0xa3)) return true;
 
     // Akwam's direct video endpoints can legitimately return 206 + octet-stream
-    // without a recognizable container signature in the first bytes. Accept that
-    // combination only after rejecting HTML/captcha and requiring a real byte range.
-    if (
-      (ct.includes("octet-stream") || ct.includes("binary/octet-stream")) &&
-      response.status === 206 &&
-      body.length >= 1024 &&
-      Boolean(response.headers.get("content-range"))
-    ) return true;
+    // without a recognizable container signature in the first bytes. Some download
+    // endpoints also return 200 + octet-stream for a large attachment after redirect.
+    // Accept these forms only after rejecting HTML/captcha and requiring strong
+    // range/size/attachment evidence.
+    if (ct.includes("octet-stream") || ct.includes("binary/octet-stream")) {
+      const contentRange = response.headers.get("content-range") || "";
+      const contentLength = Number(response.headers.get("content-length") || 0);
+      const disposition = response.headers.get("content-disposition") || "";
+
+      if (
+        response.status === 206 &&
+        body.length >= 1024 &&
+        Boolean(contentRange)
+      ) return true;
+
+      if (
+        response.status === 200 &&
+        body.length >= 8192 &&
+        (contentLength >= 1024 * 1024 || /attachment/i.test(disposition))
+      ) return true;
+    }
 
     for (let i = 0; i + 3 < Math.min(body.length, 1024); i++) {
       if (body[i] === 0x66 && body[i + 1] === 0x74 && body[i + 2] === 0x79 && body[i + 3] === 0x70) return true;
