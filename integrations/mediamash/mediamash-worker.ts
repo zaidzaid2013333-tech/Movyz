@@ -107,6 +107,43 @@ function rewriteManifest(text, upstreamUrl, headers, origin) {
   }).join('\n');
 }
 
+
+async function probePlayableSource(source) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 9000);
+  try {
+    const headers = new Headers(source.headers || {});
+    headers.set('Range', 'bytes=0-2047');
+    const response = await fetch(source.url, {
+      headers,
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+
+    if (!(response.status === 200 || response.status === 206)) return false;
+
+    const isHls =
+      source.type === 'hls' ||
+      /mpegurl|m3u8|vnd\\.apple\\.mpegurl/i.test(response.headers.get('content-type') || '') ||
+      /\\.m3u8(?:$|\\?)/i.test(source.url);
+
+    if (isHls) {
+      const reader = response.body?.getReader();
+      if (!reader) return false;
+      const first = await reader.read();
+      try { await reader.cancel(); } catch {}
+      const text = new TextDecoder().decode(first.value || new Uint8Array());
+      return text.includes('#EXTM3U');
+    }
+
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function handleProxy(request) {
   const requestUrl = new URL(request.url);
   const data = requestUrl.searchParams.get('data');
@@ -187,23 +224,47 @@ async function sourcesFor(type, id, season, episode, requestUrl, env) {
       severity: 'warning',
     }));
 
+    const rawSources = [];
     const seen = new Set();
-    const sources = [];
     for (const result of results) {
       for (const source of result.sources) {
         if (seen.has(source.url)) continue;
         seen.add(source.url);
-        sources.push({
-          id: crypto.randomUUID(),
-          url: proxyUrl(requestUrl.origin, source.url, source.headers),
-          streamable: true,
-          type: source.type,
-          quality: source.quality,
-          provider: { id: 'bingr', name: source.provider },
-          audioTracks: [],
-        });
+        rawSources.push(source);
       }
     }
+
+    // Prefer sources whose upstream playlist/file is reachable from the Worker.
+    // Probe a small representative set so we stay well below Worker subrequest limits.
+    const byProvider = new Map();
+    for (const source of rawSources) {
+      if (!byProvider.has(source.provider)) byProvider.set(source.provider, []);
+      const list = byProvider.get(source.provider);
+      if (list.length < 2) list.push(source);
+    }
+    const probeCandidates = [...byProvider.values()].flat();
+
+    const probeResults = await Promise.all(
+      probeCandidates.map(async (source) => [source, await probePlayableSource(source)]),
+    );
+    const playableUrls = new Set(
+      probeResults.filter(([, ok]) => ok).map(([source]) => source.url),
+    );
+
+    const ranked = [
+      ...rawSources.filter((source) => playableUrls.has(source.url)),
+      ...rawSources.filter((source) => !playableUrls.has(source.url)),
+    ];
+
+    const sources = ranked.map((source) => ({
+      id: crypto.randomUUID(),
+      url: proxyUrl(requestUrl.origin, source.url, source.headers),
+      streamable: true,
+      type: source.type,
+      quality: source.quality,
+      provider: { id: 'bingr', name: source.provider },
+      audioTracks: [],
+    }));
 
     return {
       id: crypto.randomUUID(),
