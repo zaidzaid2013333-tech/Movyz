@@ -299,10 +299,10 @@ async function findCandidate(
   const seeds = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
   const variants = Array.from(new Set([
     ...seeds,
-    year && seeds[0] ? \`\${seeds[0]} \${year}\` : "",
-    expectedSeason && seeds[0] ? \`\${seeds[0]} season \${expectedSeason}\` : "",
-    expectedSeason && seeds[0] ? \`\${seeds[0]} الموسم \${expectedSeason}\` : "",
-    expectedSeason && seeds[0] ? \`\${seeds[0]} S\${String(expectedSeason).padStart(2, "0")}\` : "",
+    year && seeds[0] ? `${seeds[0]} ${year}` : "",
+    expectedSeason && seeds[0] ? `${seeds[0]} season ${expectedSeason}` : "",
+    expectedSeason && seeds[0] ? `${seeds[0]} الموسم ${expectedSeason}` : "",
+    expectedSeason && seeds[0] ? `${seeds[0]} S${String(expectedSeason).padStart(2, "0")}` : "",
   ].filter(Boolean))).slice(0, 7);
 
   for (const host of hosts) {
@@ -735,8 +735,8 @@ async function persist(env: Env, job: Job, sources: Media[], provider: string, w
     provider_reference: "akwam",
     quality: s.quality || "Auto",
     language: "und",
-    label_ar: \`Akwam • \${s.quality || "Auto"}\`,
-    label_en: \`Akwam • \${s.quality || "Auto"}\`,
+    label_ar: `Akwam • ${s.quality || "Auto"}`,
+    label_en: `Akwam • ${s.quality || "Auto"}`,
     expires_at: null,
     is_working: true,
     failure_count: 0,
@@ -760,7 +760,7 @@ async function persist(env: Env, job: Job, sources: Media[], provider: string, w
 
   const stored = Number(result?.[0]?.persist_akwam_prefill_job ?? 0);
   if (!Number.isFinite(stored) || stored !== rows.length) {
-    throw new Error(\`AKWAM_PERSIST_VERIFY_FAILED expected=\${rows.length} stored=\${stored}\`);
+    throw new Error(`AKWAM_PERSIST_VERIFY_FAILED expected=${rows.length} stored=${stored}`);
   }
   return stored;
 }
