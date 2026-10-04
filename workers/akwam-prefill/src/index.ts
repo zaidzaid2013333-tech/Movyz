@@ -1126,6 +1126,40 @@ async function writeCronState(
 export default {
   async fetch(request: Request, env: Env) {
     try {
+      const pathname = new URL(request.url).pathname;
+      if (request.method === "GET" && pathname === "/__diagnostic/cocktail") {
+        const mediaUrl = "https://s303d1.downet.net/download/1791241862/6ac2dd06f1897/Cocktail.2012720p.WEB-DL.AKWAM.mp4";
+        const referer = "https://akwam.ss/download/170586/10762/cocktail";
+        const response = await fetch(mediaUrl, {
+          method: "GET",
+          headers: {
+            ...headers(env),
+            Accept: "*/*",
+            Range: "bytes=0-8191",
+            Referer: referer,
+          },
+          redirect: "follow",
+          signal: AbortSignal.timeout(7000),
+        });
+        const body = await readPrefix(response);
+        return Response.json({
+          ok: true,
+          status: response.status,
+          contentType: response.headers.get("content-type"),
+          contentRange: response.headers.get("content-range"),
+          contentLength: response.headers.get("content-length"),
+          contentDisposition: response.headers.get("content-disposition"),
+          server: response.headers.get("server"),
+          bodyLength: body.length,
+          firstBytesHex: Array.from(body.slice(0, 32)).map((b) => b.toString(16).padStart(2, "0")).join(""),
+          htmlLike: /<html[\s>]|<!doctype|captcha|cloudflare/i.test(
+            new TextDecoder().decode(body.slice(0, 8192)),
+          ),
+        });
+      }
+
+      const pathnameOnly = pathname;
+      if (!pathnameOnly || pathnameOnly === "/") {
       if (request.method === "POST" && request.headers.get("x-movyz-prefill-key") === env.SUPABASE_SERVICE_ROLE_KEY) {
         const mode = request.headers.get("x-movyz-prefill-mode") || "batch";
         const workerId = `cf-prefill-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
