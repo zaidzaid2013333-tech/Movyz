@@ -385,8 +385,8 @@ function extractTargets(html: string, baseUrl: string) {
 
 function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null {
   const patterns = [
-    /<div\\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>[\\s\\S]*?<a\\b[^>]*href=["']([^"']+)["']/gi,
-    /<a\\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*href=["']([^"']+)["']/gi,
+    /<div\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["']/gi,
+    /<a\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*href=["']([^"']+)["']/gi,
   ];
 
   for (const re of patterns) {
