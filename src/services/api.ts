@@ -6,12 +6,6 @@ import {
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
 
-const preparedPlaybackCache = new Map<string, {
-  expiresAt: number;
-  promise: Promise<import('../types').PlaybackSource[]>;
-}>();
-const PREPARED_BROWSER_TTL_MS = 90 * 1000;
-
 async function request<T>(
   path: string,
   init: RequestInit = {},
@@ -132,37 +126,6 @@ export const MovyzaApi = {
   getWatchHistory: () => request<WatchProgress[]>('/history'),
   clearWatchHistory: () => request<{ cleared: boolean }>('/history', { method: 'DELETE' }),
 
-  getPreparedPlaybackSources: (contentType: 'movie' | 'episode', contentId: string) => {
-    const key = `${contentType}:${contentId}`;
-    const now = Date.now();
-    const cached = preparedPlaybackCache.get(key);
-    if (cached && cached.expiresAt > now) return cached.promise;
-
-    const promise = request<import('../types').PlaybackSource[]>(
-      '/playback/prepared',
-      {
-        method: 'POST',
-        body: JSON.stringify({ contentType, contentId }),
-      },
-      { skipAuth: true },
-    ).then((response) => response.data);
-
-    preparedPlaybackCache.set(key, {
-      expiresAt: now + PREPARED_BROWSER_TTL_MS,
-      promise,
-    });
-
-    promise.catch(() => {
-      const current = preparedPlaybackCache.get(key);
-      if (current?.promise === promise) preparedPlaybackCache.delete(key);
-    });
-
-    return promise;
-  },
-
-  prefetchPreparedPlaybackSources: (contentType: 'movie' | 'episode', contentId: string) => {
-    void MovyzaApi.getPreparedPlaybackSources(contentType, contentId).catch(() => undefined);
-  },
 
   getWatchProgress: (contentId: string, episodeId?: string) =>
     request<WatchProgress | null>(
