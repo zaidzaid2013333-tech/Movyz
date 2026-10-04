@@ -665,6 +665,16 @@ async function validateMedia(env: Env, media: Media) {
     if (ct.startsWith("video/")) return true;
     if (ct.includes("webm") || (body[0] === 0x1a && body[1] === 0x45 && body[2] === 0xdf && body[3] === 0xa3)) return true;
 
+    // Akwam's direct video endpoints can legitimately return 206 + octet-stream
+    // without a recognizable container signature in the first bytes. Accept that
+    // combination only after rejecting HTML/captcha and requiring a real byte range.
+    if (
+      (ct.includes("octet-stream") || ct.includes("binary/octet-stream")) &&
+      response.status === 206 &&
+      body.length >= 1024 &&
+      Boolean(response.headers.get("content-range"))
+    ) return true;
+
     for (let i = 0; i + 3 < Math.min(body.length, 1024); i++) {
       if (body[i] === 0x66 && body[i + 1] === 0x74 && body[i + 2] === 0x79 && body[i + 3] === 0x70) return true;
     }
