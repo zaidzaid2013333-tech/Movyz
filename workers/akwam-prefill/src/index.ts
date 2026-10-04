@@ -198,25 +198,78 @@ function extractMedia(text: string, baseUrl: string): Media | null {
   return null;
 }
 
+function cleanHtmlText(value: string) {
+  return value
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\\s+/g, " ")
+    .trim();
+}
+
+function extractPageLinks(html: string, baseUrl: string) {
+  const out: Array<{ url: string; text: string }> = [];
+  const re = /<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    try {
+      const url = new URL(m[1], baseUrl).href;
+      if (new URL(url).hostname !== new URL(baseUrl).hostname) continue;
+      out.push({ url, text: cleanHtmlText(m[2]) });
+    } catch {}
+  }
+  return out;
+}
+
+function extractEpisodeTarget(html: string, baseUrl: string, season: number, episode: number) {
+  const ordinal: Record<number, string[]> = {
+    1: ["الاول","الأول","اول","أول"], 2: ["الثاني","ثاني"], 3: ["الثالث","ثالث"],
+    4: ["الرابع","رابع"], 5: ["الخامس","خامس"], 6: ["السادس","سادس"],
+    7: ["السابع","سابع"], 8: ["الثامن","ثامن"], 9: ["التاسع","تاسع"],
+    10: ["العاشر","عاشر"], 11: ["الحادي عشر","الحادية عشر"], 12: ["الثاني عشر","الثانية عشر"],
+  };
+
+  const links = extractPageLinks(html, baseUrl)
+    .filter((item) => /\\/episode\\//i.test(new URL(item.url).pathname));
+
+  let best: { url: string; score: number } | null = null;
+  for (const link of links) {
+    const hay = normalize(link.text + " " + decodeURIComponent(link.url));
+    let scoreValue = 0;
+
+    if (new RegExp("(?:^|\\\\D)(?:episode|ep|حلقة|الحلقة)\\\\s*0*" + episode + "(?:\\\\D|$)", "i").test(hay)) scoreValue += 120;
+    if (new RegExp("s0*" + season + "e0*" + episode + "(?:\\\\D|$)", "i").test(hay)) scoreValue += 120;
+    if ((ordinal[season] || []).some((x) => hay.includes(normalize("الموسم " + x)))) scoreValue += 40;
+    if (hay.includes(normalize("season " + season))) scoreValue += 40;
+
+    if (scoreValue > 0 && (!best || scoreValue > best.score)) {
+      best = { url: link.url, score: scoreValue };
+    }
+  }
+
+  return best?.url || null;
+}
+
 function extractTargets(html: string, baseUrl: string) {
   const targets = new Set<string>();
-  const re = /<(?:a|iframe|video|source)\b[^>]*(?:href|src|data-href|data-url|data-src)=["']([^"']+)["'][^>]*>/gi;
+  const re = /<(?:a|iframe|video|source)\\b[^>]*(?:href|src|data-href|data-url|data-src)=["']([^"']+)["'][^>]*>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) {
     try {
       const url = new URL(m[1], baseUrl).href;
       const path = new URL(url).pathname;
       if (
-        /(?:watch|download|link)/i.test(path) ||
-        /(?:m3u8|mp4)(?:\?|$)/i.test(url) ||
+        /(?:watch|download|link|episode)/i.test(path) ||
+        /(?:m3u8|mp4)(?:\\?|$)/i.test(url) ||
         /مشاهدة|watch|تحميل|download|رابط|1080|720|480/i.test(m[0])
       ) targets.add(url);
     } catch {}
   }
   for (const u of extractMediaLikeUrls(html)) targets.add(u);
-  return Array.from(targets).slice(0, 6);
+  return Array.from(targets).slice(0, 8);
 }
-
 async function resolveTarget(env: Env, target: string): Promise<Media | null> {
   const direct = extractMedia(target, target);
   if (direct) return direct;
@@ -298,15 +351,23 @@ async function discover(env: Env, job: Job, ctx: any) {
   if (job.content_type === "episode") {
     const ep = ctx.episodeNumber || job.episode_number || 1;
     const season = ctx.seasonNumber || job.season_number || 1;
+
+    if (/\\/series\\//i.test(new URL(candidate.url).pathname)) {
+      const exactEpisode = extractEpisodeTarget(detail, candidate.url, season, ep);
+      if (exactEpisode) targets.unshift(exactEpisode);
+    }
+
     const rank = (url: string) => {
-      const text = url.toLowerCase();
+      const decoded = decodeURIComponent(url).toLowerCase();
       let s = 0;
-      if (new RegExp(`(?:^|\\D)${ep}(?:\\D|$)`, "i").test(text)) s += 70;
-      if (new RegExp(`(?:season|الموسم)\\D{0,6}${season}(?:\\D|$)|s0*${season}`, "i").test(text)) s += 25;
-      if (/\/(?:episode|watch|show\/episode)\//i.test(new URL(url).pathname)) s += 20;
+      if (new RegExp(`(?:^|\\\\D)(?:episode|ep|حلقة|الحلقة)\\\\s*0*${ep}(?:\\\\D|$)`, "i").test(decoded)) s += 120;
+      if (new RegExp(`s0*${season}e0*${ep}(?:\\\\D|$)`, "i").test(decoded)) s += 120;
+      if (/\\/(?:episode|watch)\\//i.test(new URL(url).pathname)) s += 20;
+      if (/\\/(?:download|link)\\//i.test(new URL(url).pathname)) s += 10;
       return s;
     };
-    targets = targets.sort((a, b) => rank(b) - rank(a));
+
+    targets = [...new Set(targets)].sort((a, b) => rank(b) - rank(a));
   }
 
   const medias: Media[] = [];
@@ -320,7 +381,6 @@ async function discover(env: Env, job: Job, ctx: any) {
   if (!medias.length) throw new Error("AKWAM_NO_PLAYABLE_SOURCE");
   return medias;
 }
-
 async function providerId(env: Env) {
   const rows = await sb(env, "/rest/v1/providers?select=id&key=eq.akwam&limit=1");
   if (rows?.[0]?.id) return rows[0].id as string;
