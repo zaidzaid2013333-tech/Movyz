@@ -49,13 +49,16 @@ async function getPlaybackCoreSources(contentType: 'movie' | 'episode', contentI
         return null;
       }
     };
-    let response = core
-      ? await core.fetch(request)
-      : await fetch(request, { signal: AbortSignal.timeout(25000) });
+    // Prefer the same public MediaMash endpoint used by deployment smoke tests.
+    // Service Binding remains a fallback so /watch cannot silently diverge from
+    // the live playback core source list.
+    let response = await fetch(request, { signal: AbortSignal.timeout(25000) });
     let payload = await responseToPayload(response);
-    if (core && (!response.ok || !Array.isArray(payload?.sources) || payload.sources.length === 0)) {
-      response = await fetch(request, { signal: AbortSignal.timeout(25000) });
-      payload = await responseToPayload(response);
+    if (!response.ok || !Array.isArray(payload?.sources) || payload.sources.length === 0) {
+      if (core) {
+        response = await core.fetch(request);
+        payload = await responseToPayload(response);
+      }
     }
     if (!response.ok || !payload) return [];
     return (Array.isArray(payload.sources) ? payload.sources : []).map((source, index) => {
