@@ -2,7 +2,7 @@
 import process from "node:process";
 
 process.env.NODE_ENV = process.env.NODE_ENV?.trim() || "production";
-process.env.HOST = process.env.HOST?.trim() || "0.0.0.0";
+process.env.HOST = process.env.HOST?.trim() || "localhost";
 process.env.PORT = process.env.PORT?.trim() || "8000";
 
 // Prefer an explicitly configured public URL. Otherwise build the default
