@@ -52,3 +52,23 @@ jobs:
           echo '=== download page extraction markers ==='
           grep -Ein 'btn-loader|download-link|m3u8|mp4|mpd|webm|data-file|data-video|data-url|href=' /tmp/download.html | head -200 || true
           grep -Eiq 'btn-loader|download-link|m3u8|mp4|mpd|webm|data-file|data-video|data-url' /tmp/download.html
+
+          echo '=== final media validation ==='
+          media_url=$(python - <<'PY'
+          import re
+          html = open('/tmp/download.html', encoding='utf-8', errors='ignore').read()
+          urls = re.findall(r'(?:href|src|data-src|data-file|data-video|data-url)=["\']([^"\']+)["\']', html, flags=re.I)
+          for u in urls:
+              if re.search(r'\.(?:m3u8|mp4|mpd|webm)(?:\?|$)', u, flags=re.I):
+                  print(u)
+                  break
+          PY
+          )
+          test -n "$media_url"
+          curl -L --fail-with-body --silent --show-error --max-time 20             -A "$ua" -H "Referer: $download" -H 'Range: bytes=0-8191'             -o /tmp/media.bin -w 'media_status=%{http_code} media_type=%{content_type} media_bytes=%{size_download}\n'             "$media_url"
+          test "$(wc -c < /tmp/media.bin | tr -d ' ')" -gt 0
+          if grep -aEiq '<html|<!doctype|captcha|cloudflare' /tmp/media.bin; then
+            echo 'Media validation failed: HTML/challenge body returned'
+            exit 1
+          fi
+
