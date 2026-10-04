@@ -1,13 +1,7 @@
-name: Akwam Smoke One
+name: Akwam Smoke One (Manual)
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["main"]
-    paths:
-      - "workers/akwam-prefill/**"
-      - "scripts/run-akwam-prefill.ts"
-      - ".github/workflows/akwam-smoke-one.yml"
 
 permissions:
   contents: read
