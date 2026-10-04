@@ -1,3 +1,4 @@
+// Akwam prep: staged discovery + exact episode-to-watch resolution.
 type Env = {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
