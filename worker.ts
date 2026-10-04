@@ -14,6 +14,7 @@ type ExecutionContextLike = {
 type MovyzEnvironment = WorkerEnvironment & {
   ASSETS: { fetch(request: Request): Promise<Response> };
   WATCH_API?: ServiceBinding;
+  MEDIAMASH_CORE?: ServiceBinding;
 };
 
 
