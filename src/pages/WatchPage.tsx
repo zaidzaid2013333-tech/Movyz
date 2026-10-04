@@ -1132,7 +1132,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               ) : null}
               <video
                 ref={videoRef}
-                playsInline
                 poster={content.backdropUrl || content.posterUrl}
                 className={(isEmbedPlayback ? 'hidden ' : '') + 'block h-full w-full bg-black object-contain'}
                 playsInline
