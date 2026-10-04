@@ -210,9 +210,7 @@ function parseCandidates(html: string, env: Env): Candidate[] {
         year: yearMatch ? Number(yearMatch) : undefined,
       };
       if (!out.some((x) => x.url === item.url)) out.push(item);
-    } catch (error) {
-      throw new Error("AKWAM_PARSE_CANDIDATE_ERROR: " + String(error));
-    }
+    } catch {}
   }
 
   return out;
@@ -783,4 +781,4 @@ export default {
   }
 };
 
-export { run, findCandidate, parseCandidates, isAkwamUrl, candidateKind };
+export { run };
