@@ -490,7 +490,9 @@ export default {
 
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(
-      fanout(env).then((r) => console.log(JSON.stringify(r))).catch((error) => console.error(String(error)))
+      run(env, "cron-" + crypto.randomUUID())
+        .then((r) => console.log(JSON.stringify(r)))
+        .catch((error) => console.error(String(error)))
     );
-  },
+  }
 };
