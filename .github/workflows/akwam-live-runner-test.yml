@@ -44,6 +44,14 @@ jobs:
           echo '=== download page urls ==='
           grep -Eoi 'https?://[^"'"'"' <>]+' /tmp/download.html | grep -Ei 'm3u8|mp4|mpd|webm|stream|video|download|link' | head -100 || true
 
+          media='https://s303d1.downet.net/download/1791241862/6ac2dd06f1897/Cocktail.2012720p.WEB-DL.AKWAM.mp4'
+          echo '=== media response ==='
+          curl -k -L --silent --show-error --max-time 30 -A "$ua" -H "Referer: $download" -H 'Range: bytes=0-8191' -o /tmp/media.bin \
+            -D /tmp/media.headers -w 'status=%{http_code} type=%{content_type} length=%{content_length_download} bytes=%{size_download}
+' "$media" || true
+          cat /tmp/media.headers | grep -Ei '^(content-type|content-length|content-range|content-disposition|location):' || true
+          wc -c /tmp/media.bin
+
           echo '=== hrefs ==='
           grep -Eoi 'href=["'"'"'][^"'"'"']+["'"'"']' /tmp/movie.html | grep -Ei 'download|link|watch|movie' | head -100 || true
 
