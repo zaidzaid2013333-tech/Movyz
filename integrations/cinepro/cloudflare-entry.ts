@@ -102,25 +102,12 @@ try {
 const app = cinepro.getInstance();
 
 let ready: Promise<void> | undefined;
-let restoreNextTick: (() => void) | undefined;
 
-function ensureReady() {
+async function ensureReady() {
   if (!ready) {
-    const nativeNextTick = process.nextTick.bind(process);
-    process.nextTick = ((callback: (...args: any[]) => void, ...args: any[]) => {
-      queueMicrotask(() => callback(...args));
-    }) as typeof process.nextTick;
-
-    restoreNextTick = () => {
-      process.nextTick = nativeNextTick;
-      restoreNextTick = undefined;
-    };
-
-    ready = app.ready().finally(() => {
-      restoreNextTick?.();
-    });
+    ready = app.ready();
   }
-  return ready;
+  await ready;
 }
 
 const bridgeServer = createServer(async (request, response) => {
