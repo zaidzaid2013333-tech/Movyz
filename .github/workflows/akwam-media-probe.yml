@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths:
       - ".github/workflows/akwam-media-probe.yml"
+      - "workers/akwam-prefill/src/index.ts"
   workflow_dispatch:
 
 permissions:
@@ -15,17 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe direct CDN media
+      - name: Probe Worker runtime
         run: |
           set -euo pipefail
-          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
-          media='https://s303d1.downet.net/download/1791241862/6ac2dd06f1897/Cocktail.2012720p.WEB-DL.AKWAM.mp4'
-          referer='https://akwam.ss/download/170586/10762/cocktail'
-          rm -f /tmp/media.bin /tmp/media.headers
-          curl -k -L --silent --show-error --max-time 30             -A "$ua"             -H "Referer: $referer"             -H 'Accept: */*'             -H 'Range: bytes=0-8191'             -o /tmp/media.bin             -D /tmp/media.headers             -w 'status=%{http_code} type=%{content_type} bytes=%{size_download} redirect=%{num_redirects}\n'             "$media"
-          echo '=== selected headers ==='
-          grep -Ei '^(content-type|content-length|content-range|content-disposition|location|server|accept-ranges):' /tmp/media.headers || true
-          echo '=== first bytes ==='
-          xxd -l 64 /tmp/media.bin || true
-          echo '=== body size ==='
-          wc -c /tmp/media.bin
+          curl --fail-with-body --silent --show-error --max-time 30             https://movyz-akwam-prefill.sameranede.workers.dev/__diagnostic/cocktail
