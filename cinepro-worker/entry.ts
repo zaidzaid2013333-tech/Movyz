@@ -189,6 +189,24 @@ export default {
     }
 
     try {
+      if (url.pathname === '/v1/debug/tmdb') {
+        const tmdbService = (cinepro as any).tmdbService;
+        try {
+          const validation = await tmdbService.validateMovie('27205');
+          const media = await tmdbService.getMediaObject('movie', '27205');
+          return json({
+            bearerConfigured: Boolean(tmdbBearer),
+            validateMovie: validation,
+            media,
+          });
+        } catch (error) {
+          return json({
+            bearerConfigured: Boolean(tmdbBearer),
+            error: error instanceof Error ? error.message : String(error),
+          }, 500);
+        }
+      }
+
       if (
         url.pathname === '/' ||
         url.pathname === '/v1' ||
