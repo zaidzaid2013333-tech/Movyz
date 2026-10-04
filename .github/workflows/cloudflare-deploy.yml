@@ -171,6 +171,52 @@ jobs:
               if len(valid) != len(sources):
                   raise SystemExit(f"{label}: invalid or non-CinePro source returned")
               print(f"CinePro playback OK: {label} sources={len(sources)}")
+
+              # Verify that the actual playback proxy returns readable media bytes.
+              # The previous smoke only validated that a URL existed, which could
+              # pass while the browser later failed before loadedmetadata.
+              probe = valid[0]
+              probe_url = probe.get("url")
+              if not probe_url:
+                  raise SystemExit(f"{label}: first CinePro source has no URL")
+              probe_req = urllib.request.Request(
+                  probe_url,
+                  method="GET",
+                  headers={
+                      "Range": "bytes=0-1048575",
+                      "Accept": "*/*",
+                      "User-Agent": "Movyz-CI-MediaProbe/1.0",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(probe_req, timeout=45) as probe_response:
+                      probe_body = probe_response.read(1024 * 1024)
+                      probe_status = probe_response.status
+                      probe_type = probe_response.headers.get("Content-Type", "")
+                      probe_range = probe_response.headers.get("Content-Range", "")
+                      probe_length = probe_response.headers.get("Content-Length", "")
+              except Exception as probe_error:
+                  raise SystemExit(f"{label}: playback proxy probe failed: {probe_error}")
+
+              if probe_status not in (200, 206):
+                  raise SystemExit(f"{label}: playback proxy returned HTTP {probe_status}")
+              if not probe_body:
+                  raise SystemExit(f"{label}: playback proxy returned an empty body")
+
+              lowered_type = probe_type.lower()
+              looks_hls = "mpegurl" in lowered_type or "m3u8" in lowered_type
+              looks_video = lowered_type.startswith("video/") or "octet-stream" in lowered_type
+              looks_mp4 = b"ftyp" in probe_body[:128]
+              if not (looks_hls or looks_video or looks_mp4):
+                  raise SystemExit(
+                      f"{label}: playback proxy returned non-media content-type={probe_type!r} "
+                      f"range={probe_range!r} length={probe_length!r} first_bytes={probe_body[:32]!r}"
+                  )
+              print(
+                  f"Media proxy OK: {label} status={probe_status} "
+                  f"content_type={probe_type!r} range={probe_range!r} length={probe_length!r} "
+                  f"bytes={len(probe_body)}"
+              )
           print("Movyz CinePro end-to-end smoke: ALL OK")
 
       - name: Deployment marker
