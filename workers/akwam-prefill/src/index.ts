@@ -205,13 +205,13 @@ function cleanHtmlText(value: string) {
     .replace(/&amp;/gi, "&")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
-    .replace(/\\s+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
 function extractPageLinks(html: string, baseUrl: string) {
   const out: Array<{ url: string; text: string }> = [];
-  const re = /<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi;
+  const re = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) {
     try {
@@ -232,15 +232,15 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
   };
 
   const links = extractPageLinks(html, baseUrl)
-    .filter((item) => /\\/episode\\//i.test(new URL(item.url).pathname));
+    .filter((item) => /\/episode\//i.test(new URL(item.url).pathname));
 
   let best: { url: string; score: number } | null = null;
   for (const link of links) {
     const hay = normalize(link.text + " " + decodeURIComponent(link.url));
     let scoreValue = 0;
 
-    if (new RegExp("(?:^|\\\\D)(?:episode|ep|حلقة|الحلقة)\\\\s*0*" + episode + "(?:\\\\D|$)", "i").test(hay)) scoreValue += 120;
-    if (new RegExp("s0*" + season + "e0*" + episode + "(?:\\\\D|$)", "i").test(hay)) scoreValue += 120;
+    if (new RegExp("(?:^|\\D)(?:episode|ep|حلقة|الحلقة)\\s*0*" + episode + "(?:\\D|$)", "i").test(hay)) scoreValue += 120;
+    if (new RegExp("s0*" + season + "e0*" + episode + "(?:\\D|$)", "i").test(hay)) scoreValue += 120;
     if ((ordinal[season] || []).some((x) => hay.includes(normalize("الموسم " + x)))) scoreValue += 40;
     if (hay.includes(normalize("season " + season))) scoreValue += 40;
 
@@ -254,7 +254,7 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
 
 function extractTargets(html: string, baseUrl: string) {
   const targets = new Set<string>();
-  const re = /<(?:a|iframe|video|source)\\b[^>]*(?:href|src|data-href|data-url|data-src)=["']([^"']+)["'][^>]*>/gi;
+  const re = /<(?:a|iframe|video|source)\b[^>]*(?:href|src|data-href|data-url|data-src)=["']([^"']+)["'][^>]*>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) {
     try {
@@ -262,7 +262,7 @@ function extractTargets(html: string, baseUrl: string) {
       const path = new URL(url).pathname;
       if (
         /(?:watch|download|link|episode)/i.test(path) ||
-        /(?:m3u8|mp4)(?:\\?|$)/i.test(url) ||
+        /(?:m3u8|mp4)(?:\?|$)/i.test(url) ||
         /مشاهدة|watch|تحميل|download|رابط|1080|720|480/i.test(m[0])
       ) targets.add(url);
     } catch {}
@@ -352,7 +352,7 @@ async function discover(env: Env, job: Job, ctx: any) {
     const ep = ctx.episodeNumber || job.episode_number || 1;
     const season = ctx.seasonNumber || job.season_number || 1;
 
-    if (/\\/series\\//i.test(new URL(candidate.url).pathname)) {
+    if (/\/series\//i.test(new URL(candidate.url).pathname)) {
       const exactEpisode = extractEpisodeTarget(detail, candidate.url, season, ep);
       if (exactEpisode) targets.unshift(exactEpisode);
     }
@@ -360,10 +360,10 @@ async function discover(env: Env, job: Job, ctx: any) {
     const rank = (url: string) => {
       const decoded = decodeURIComponent(url).toLowerCase();
       let s = 0;
-      if (new RegExp(`(?:^|\\\\D)(?:episode|ep|حلقة|الحلقة)\\\\s*0*${ep}(?:\\\\D|$)`, "i").test(decoded)) s += 120;
-      if (new RegExp(`s0*${season}e0*${ep}(?:\\\\D|$)`, "i").test(decoded)) s += 120;
-      if (/\\/(?:episode|watch)\\//i.test(new URL(url).pathname)) s += 20;
-      if (/\\/(?:download|link)\\//i.test(new URL(url).pathname)) s += 10;
+      if (new RegExp(\`(?:^|\\D)(?:episode|ep|حلقة|الحلقة)\\s*0*\${ep}(?:\\D|$)\`, "i").test(decoded)) s += 120;
+      if (new RegExp(\`s0*\${season}e0*\${ep}(?:\\D|$)\`, "i").test(decoded)) s += 120;
+      if (/\/(?:episode|watch)\//i.test(new URL(url).pathname)) s += 20;
+      if (/\/(?:download|link)\//i.test(new URL(url).pathname)) s += 10;
       return s;
     };
 
