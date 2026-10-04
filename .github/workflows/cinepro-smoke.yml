@@ -9,6 +9,18 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
+      - name: Probe provider network
+        shell: bash
+        run: |
+          set -euo pipefail
+          for url in             "https://vixsrc.to/api/movie/27205"             "https://vidsrc.to"; do
+            echo "=== $url ==="
+            code=$(curl -L -sS --max-time 30 -o /tmp/provider.txt -w "%{http_code}" "$url" || true)
+            echo "HTTP $code"
+            head -c 1200 /tmp/provider.txt || true
+            echo
+          done
+
       - name: Test CinePro Core
         shell: bash
         run: |
