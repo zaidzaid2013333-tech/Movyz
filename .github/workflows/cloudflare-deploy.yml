@@ -227,6 +227,7 @@ jobs:
               "User-Agent": "Movyz-CinePro-Vercel-CI/1.0",
           }
           candidates = [
+              ("api-root", "/api", "/api", "/api"),
               ("public", "/v1/health", "/v1/movies/157336", "/v1/tv/1399/seasons/1/episodes/1"),
               ("function", "/api/v1/health", "/api/v1/movies/157336", "/api/v1/tv/1399/seasons/1/episodes/1"),
           ]
