@@ -254,8 +254,7 @@ async function sourcesFor(type, id, season, episode, requestUrl, env) {
       : String(media.first_air_date || '').slice(0, 4),
   };
 
-  try {
-    const results = await Promise.all(
+  const results = await Promise.all(
       BINGR_SERVERS.map((server) =>
         bingrStreamWithRetry(type, id, meta, season, episode, server),
       ),
