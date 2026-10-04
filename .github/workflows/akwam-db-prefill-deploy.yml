@@ -52,6 +52,12 @@ jobs:
       - name: Deploy Akwam DB prefill worker
         run: npx wrangler deploy -c workers/akwam-prefill/wrangler.toml --secrets-file .env.akwam-prefill
 
+      - name: Deploy three Akwam launcher workers into existing Cron slots
+        run: |
+          for name in movyz-akwam-launcher-1 chachty chachty-content-sync; do
+            npx wrangler deploy -c workers/akwam-launcher/wrangler.toml --name "$name" --secrets-file .env.akwam-prefill
+          done
+
       - name: Inventory existing Cloudflare Cron triggers
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -79,7 +85,7 @@ jobs:
         run: |
           curl --fail-with-body --max-time 120 -X POST \
             -H "x-movyz-prefill-key: $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "x-movyz-prefill-mode: fanout" \
+            -H "x-movyz-prefill-mode: batch" \
             https://movyz-akwam-prefill.sameranede.workers.dev/
 
       - if: always()
