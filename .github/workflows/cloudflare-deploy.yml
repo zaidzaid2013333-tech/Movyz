@@ -183,6 +183,7 @@ jobs:
           print("WORKING PROVIDERS:", working)
           if not working:
               raise SystemExit("No CinePro provider returned a playable source for Interstellar")
+          PY
           REQUEST_EXIT=$?
           sleep 5
           kill "$TAIL_PID" 2>/dev/null || true
