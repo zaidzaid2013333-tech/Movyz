@@ -31,18 +31,18 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-[#05070a]/90 backdrop-blur-2xl border-b border-white/[0.06]">
+    <header className="movyza-header sticky top-0 z-50 w-full bg-[#05070a]/82 backdrop-blur-2xl border-b border-white/[0.06]">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
         <div className="flex items-center gap-3 lg:gap-8 min-w-0">
           <button
             onClick={() => handleNav('/')}
-            className="flex items-center gap-2 group text-start cursor-pointer shrink-0"
+            className="movyza-header-brand flex items-center gap-2 group text-start cursor-pointer shrink-0"
             aria-label="Movyza Home"
           >
-            <div className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-400/15 group-hover:scale-105 transition-transform">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-400/15 group-hover:scale-105 transition-transform">
               <Film className="w-4 h-4 stroke-[2.5]" />
             </div>
-            <span className="text-lg sm:text-xl font-bold tracking-[0.14em] text-white font-cinzel leading-none uppercase">
+            <span className="text-lg sm:text-xl font-bold tracking-[0.16em] text-white font-cinzel leading-none uppercase">
               MOVYZA
             </span>
           </button>
