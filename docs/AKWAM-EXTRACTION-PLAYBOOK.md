@@ -15,7 +15,7 @@ The current `https://akwam.ss` structure was checked against live indexed pages 
 Examples verified from the live site include the current One Piece series and episode 1168 pages, and current movie pages such as Interstellar. The site also still exposes legacy `/old/` pages; those are historical pages, not the canonical current catalog path, and must not win candidate selection. citeturn333770search0turn333770search1turn298131search0
 
 ### Current canonical-host and link-resolution rules
-- Start from the configured Akwam entrypoint, but accept Akwam canonical redirects/absolute links on `akwam.ss`, `ak.sv`, and `akwam.it` (including `www` variants). These are the same Akwam route family; do not reject a valid content page only because the current canonical host changed.
+- Start from the configured Akwam entrypoint `https://ak.sv`. Accept observed canonical redirects/absolute links on `ak.sv`, `akwam.ss`, and `akwam.it` (including `www` variants). These are the same Akwam route family; do not reject a valid content page only because the current canonical host changed.
 - The current CloudStream Akwam extractor independently confirms the current search endpoint as `/search?q=<query>`, content cards under `div.entry-box`, and Akwam quality/download handling. The worker should use the current DOM signals rather than generic guessing. 
 - For a movie/episode detail page, identify each quality block and prefer its **تحميل** link. The deterministic current route is:
   `detail page -> /download/... -> download page -> div.btn-loader > a -> final media URL`.
