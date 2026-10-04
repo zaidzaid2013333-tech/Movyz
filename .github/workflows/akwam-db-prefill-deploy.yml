@@ -1,0 +1,45 @@
+name: Deploy Movyz Akwam DB Prefill
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "workers/akwam-prefill/**"
+      - ".github/workflows/akwam-db-prefill-deploy.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-akwam-prefill-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install wrangler@4.140.0 --no-save --ignore-scripts --no-audit --no-fund
+
+      - name: Prepare Worker secrets
+        run: |
+          printf 'SUPABASE_URL=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_SERVICE_ROLE_KEY" > .env.akwam-prefill
+
+      - name: Deploy Akwam DB prefill worker
+        run: npx wrangler deploy -c workers/akwam-prefill/wrangler.toml --secrets-file .env.akwam-prefill
+
+      - if: always()
+        run: rm -f .env.akwam-prefill
