@@ -192,25 +192,46 @@ function score(c: Candidate, titles: string[], year?: number, expected?: "movie"
 
 function parseCandidates(html: string, env: Env): Candidate[] {
   const out: Candidate[] = [];
+  const re = /<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m: RegExpExecArray | null;
 
-  for (const link of extractPageLinks(html, base(env))) {
+  while ((m = re.exec(html))) {
+    const href = m[1].trim();
+    let u: URL;
     try {
-      const u = new URL(link.url);
-      const kind = candidateKind(u.pathname);
-      if (kind === "other" || kind === "watch") continue;
+      u = new URL(href, base(env));
+    } catch {
+      continue;
+    }
 
-      const slug = decodeHtml(u.pathname.split("/").filter(Boolean).at(-1) || "").replace(/[-_]+/g, " ");
-      const title = [link.text, slug].filter(Boolean).join(" || ");
-      const yearMatch = (link.text.match(/(?:19|20)d{2}/) || [])[0];
+    if (!isAkwamUrl(u.href)) continue;
 
-      const item: Candidate = {
-        url: u.href,
-        title,
-        kind,
-        year: yearMatch ? Number(yearMatch) : undefined,
-      };
-      if (!out.some((x) => x.url === item.url)) out.push(item);
-    } catch {}
+    const kind = candidateKind(u.pathname);
+    if (kind === "other" || kind === "watch") continue;
+
+    const rawText = m[2]
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/\\s+/g, " ")
+      .trim();
+
+    const parts = u.pathname.split("/").filter(Boolean);
+    const slug = (parts[parts.length - 1] || "").replace(/[-_]+/g, " ");
+    const title = [rawText, slug].filter(Boolean).join(" || ");
+
+    const yearMatch = (rawText.match(/(?:19|20)[0-9]{2}/) || [])[0];
+
+    const item: Candidate = {
+      url: u.href,
+      title,
+      kind,
+      year: yearMatch ? Number(yearMatch) : undefined,
+    };
+
+    if (!out.some((x) => x.url === item.url)) out.push(item);
   }
 
   return out;
