@@ -85,16 +85,20 @@ async function claim(env: Env, workerId: string): Promise<Job | null> {
   return Array.isArray(rows) && rows[0] ? (rows[0] as Job) : null;
 }
 
-async function fetchText(env: Env, url: string): Promise<string | null> {
+async function fetchText(env: Env, url: string, diagnostics?: string[]): Promise<string | null> {
   try {
     const response = await fetch(url, {
       headers: headers(env),
       redirect: "follow",
       signal: AbortSignal.timeout(7000),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      diagnostics?.push(new URL(url).hostname + ":" + response.status);
+      return null;
+    }
     return await response.text();
-  } catch {
+  } catch (error) {
+    diagnostics?.push(new URL(url).hostname + ":ERR");
     return null;
   }
 }
@@ -230,12 +234,13 @@ async function findCandidate(
   ].filter((x, i, all) => all.indexOf(x) === i);
 
   let best: { item: Candidate; score: number } | null = null;
+  const diagnostics: string[] = [];
   const variants = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
 
   for (const host of hosts) {
     for (const title of variants) {
       const url = host + "/search?q=" + encodeURIComponent(title);
-      const html = await fetchText(env, url);
+      const html = await fetchText(env, url, diagnostics);
       if (!html) continue;
 
       for (const item of parseCandidates(html, env)) {
@@ -249,7 +254,7 @@ async function findCandidate(
     // Only fall back to the verified legacy search route on the configured host.
     if (host === base(env)) {
       for (const title of variants.slice(0, 1)) {
-        const html = await fetchText(env, host + "/old/search/" + encodeURIComponent(title));
+        const html = await fetchText(env, host + "/old/search/" + encodeURIComponent(title), diagnostics);
         if (!html) continue;
         for (const item of parseCandidates(html, env)) {
           const itemScore = score(item, titles, year, expected);
@@ -260,7 +265,8 @@ async function findCandidate(
     }
   }
 
-  return best && best.score >= 80 ? best.item : null;
+  if (best && best.score >= 80) return best.item;
+  throw new Error("AKWAM_SEARCH_EMPTY probes=" + diagnostics.slice(0, 12).join(","));
 }
 
 function extractMediaLikeUrls(text: string) {
