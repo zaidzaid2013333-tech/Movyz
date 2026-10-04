@@ -1158,8 +1158,6 @@ export default {
         });
       }
 
-      const pathnameOnly = pathname;
-      if (!pathnameOnly || pathnameOnly === "/") {
       if (request.method === "POST" && request.headers.get("x-movyz-prefill-key") === env.SUPABASE_SERVICE_ROLE_KEY) {
         const mode = request.headers.get("x-movyz-prefill-mode") || "batch";
         const workerId = `cf-prefill-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
