@@ -48,7 +48,9 @@ if (!tmdbApiKey) {
 }
 
 // OMSSServer builds the entire CinePro service graph synchronously.
-// We intentionally do not boot its Fastify HTTP server in Workers.
+const nativeSetInterval = globalThis.setInterval;
+globalThis.setInterval = (() => ({ unref() {} })) as unknown as typeof setInterval;
+
 const cinepro = new OMSSServer({
   name: 'CinePro',
   version: '1.0.0',
@@ -85,6 +87,8 @@ const cinepro = new OMSSServer({
     enabled: false,
   },
 });
+
+globalThis.setInterval = nativeSetInterval;
 
 const registry = cinepro.getRegistry();
 for (const Provider of providers) {
