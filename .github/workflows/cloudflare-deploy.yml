@@ -139,7 +139,7 @@ jobs:
                   and r.get('name') == 'Movyz CinePro catch-all'
                   and isinstance(r.get('route'), dict)
                   and r['route'].get('src') == '/(.*)'
-                  and r['route'].get('dest') in ('/api', '/api/$1')
+                  and r['route'].get('dest') in ('/api/cinepro', '/api/cinepro/$1')
               ),
               None,
           )
@@ -151,12 +151,12 @@ jobs:
           payload = {
               'route': {
                   'name': 'Movyz CinePro catch-all',
-                  'description': 'Route all CinePro paths to the /api function while preserving the request path.',
+                  'description': 'Route all CinePro paths to the deployed api/cinepro function while preserving the request path.',
                   'enabled': True,
                   'srcSyntax': 'regex',
                   'route': {
                       'src': '/(.*)',
-                      'dest': '/api/$1',
+                      'dest': '/api/cinepro/$1',
                   },
               }
           }
