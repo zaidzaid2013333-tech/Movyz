@@ -16,14 +16,17 @@ jobs:
     steps:
       - name: Fetch current Akwam episode and watch page
         run: |
+          set -euo pipefail
           episode='https://akwam.ss/episode/102106/one-piece/%D8%A7%D9%84%D8%AD%D9%84%D9%82%D8%A9-1168'
           watch='https://akwam.ss/watch/181010/102106/one-piece/%D8%A7%D9%84%D8%AD%D9%84%D9%82%D8%A9-1168'
           ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
-          curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua"             -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'             "$episode" -o /tmp/episode.html
-          curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua"             -H 'Referer: '"$episode"             -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'             "$watch" -o /tmp/watch.html
+          curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: text/html' "$episode" -o /tmp/episode.html
+          curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H "Referer: $episode" -H 'Accept: text/html' "$watch" -o /tmp/watch.html
           echo '=== watch bytes ==='
           wc -c /tmp/watch.html
-          echo '=== watch media markers ==='
-          grep -Eoi 'https?://[^"''' <>()]+\.(m3u8|mp4)(\?[^"''' <>()]+)?' /tmp/watch.html | head -100 || true
-          echo '=== watch player markers ==='
-          grep -Ein 'iframe|video|source|m3u8|mp4|player|watch|download|stream|file|videoUrl|video_url|data-src|data-url|data-href|jwplayer|plyr|hls|dash' /tmp/watch.html | head -220 || true
+          echo '=== obvious media URLs ==='
+          grep -Eio "https?://[^\"' <>]+\.(m3u8|mp4)(\?[^\"' <>]+)?" /tmp/watch.html | head -100 || true
+          echo '=== player-related lines ==='
+          grep -Ein 'iframe|video|source|m3u8|mp4|player|watch|download|stream|file|videoUrl|video_url|data-src|data-url|data-href|jwplayer|plyr|hls|dash' /tmp/watch.html | head -250 || true
+          echo '=== relevant href/src/data attrs ==='
+          grep -Eio "(href|src|data-src|data-url|data-href|data-file|data-video)=[\"'][^\"']+[\"']" /tmp/watch.html | grep -Ei 'watch|download|link|m3u8|mp4|stream|player' | head -200 || true
