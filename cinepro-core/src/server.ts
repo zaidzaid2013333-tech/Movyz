@@ -114,6 +114,7 @@ ${borderBottom}
 `);
 }
 
-main().catch(() => {
+main().catch((error) => {
+    console.error('[CinePro Startup Error]', error);
     process.exit(1);
 });
