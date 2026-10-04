@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: movyz-akwam-prefill-deploy
@@ -37,6 +38,15 @@ jobs:
       - name: Prepare Worker secrets
         run: |
           printf 'SUPABASE_URL=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_SERVICE_ROLE_KEY" > .env.akwam-prefill
+
+      - name: Stop legacy 20-worker Akwam/CinePro runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ids=$(gh run list --repo "$GITHUB_REPOSITORY" --limit 100 --json databaseId,status,workflowName --jq '.[] | select(.workflowName=="Movyz Akwam Persistent Prefill" and (.status=="in_progress" or .status=="queued")) | .databaseId')
+          for id in $ids; do
+            gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || true
+          done
 
       - name: Deploy Akwam DB prefill worker
         run: npx wrangler deploy -c workers/akwam-prefill/wrangler.toml --secrets-file .env.akwam-prefill
