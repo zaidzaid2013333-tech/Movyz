@@ -321,7 +321,14 @@ async function findCandidate(
 
   for (const host of hosts) {
     for (const title of variants) {
-      const url = host + "/search?q=" + encodeURIComponent(title);
+      const section = expected === "movie" ? "movie" : expected === "series" || expected === "episode" ? "series" : "movie";
+      const url =
+        host +
+        "/search?q=" +
+        encodeURIComponent(title) +
+        "&section=" +
+        encodeURIComponent(section) +
+        "&page=1";
       const html = await fetchText(env, url, diagnostics);
       if (!html) continue;
 
