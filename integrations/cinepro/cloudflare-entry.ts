@@ -112,6 +112,13 @@ const sourceService = (cinepro as any).sourceService as {
   getTVSources(tmdbId: string, season: number, episode: number): Promise<unknown>;
 };
 
+const proxyService = (cinepro as any).proxyService as {
+  proxyRequest(encodedData: string): Promise<any>;
+};
+
+const getProviders = () => registry.getProviders() as any[];
+
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -151,9 +158,66 @@ export default {
         });
       }
 
+      const debugProviderMatch = url.pathname.match(/^\/v1\/debug\/provider\/(\d+)\/movie\/([^/]+)$/);
+      if (debugProviderMatch) {
+        const providerIndex = Number.parseInt(debugProviderMatch[1], 10);
+        const providers = getProviders();
+        const provider = providers[providerIndex];
+        if (!provider) return json({ error: 'PROVIDER_NOT_FOUND', providerIndex }, 404);
+
+        const media = await (cinepro as any).tmdbService.getMediaObject('movie', decodeURIComponent(debugProviderMatch[2]));
+        const result = await provider.getMovieSources(media);
+        return json({
+          providerIndex,
+          provider: provider.name,
+          sourceCount: Array.isArray(result?.sources) ? result.sources.length : 0,
+          sources: result?.sources ?? [],
+          diagnostics: result?.diagnostics ?? [],
+        });
+      }
+
       const movieMatch = url.pathname.match(/^\/v1\/movies\/([^/]+)$/);
       if (movieMatch) {
         return json(await sourceService.getMovieSources(decodeURIComponent(movieMatch[1])));
+      }
+
+
+      const proxyMatch = url.pathname === '/v1/proxy' ? url.searchParams.get('data') : null;
+      if (proxyMatch) {
+        const proxyData = decodeURIComponent(proxyMatch);
+        let parsed: any;
+        try {
+          parsed = JSON.parse(proxyData);
+        } catch {
+          return json({ error: 'INVALID_PARAMETER', message: 'Invalid data parameter format' }, 400);
+        }
+
+        const range = request.headers.get('range');
+        parsed.headers = {
+          ...(parsed.headers ?? {}),
+          ...(range ? { range } : {}),
+        };
+
+        const enhancedData = encodeURIComponent(JSON.stringify(parsed));
+        const response = await proxyService.proxyRequest(enhancedData);
+
+        const headers = new Headers(response.headers ?? {});
+        headers.set('access-control-allow-origin', '*');
+        headers.set('access-control-expose-headers', 'Content-Length, Content-Range, Accept-Ranges, Last-Modified, ETag');
+        headers.set('content-type', response.contentType || 'application/octet-stream');
+
+        if ('stream' in response) {
+          const { Readable } = await import('node:stream');
+          return new Response(Readable.toWeb(response.stream), {
+            status: response.statusCode,
+            headers,
+          });
+        }
+
+        return new Response(response.data, {
+          status: response.statusCode,
+          headers,
+        });
       }
 
       const episodeMatch = url.pathname.match(/^\/v1\/tv\/([^/]+)\/seasons\/(\d+)\/episodes\/(\d+)$/);
