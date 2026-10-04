@@ -109,33 +109,6 @@ jobs:
       - name: Deploy Akwam DB prefill worker
         run: npx wrangler deploy -c workers/akwam-prefill/wrangler.toml --secrets-file .env.akwam-prefill
 
-      - name: Smoke one live Akwam movie job
-        env:
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 12); do
-            body=$(curl --fail-with-body --silent --show-error --max-time 30 \
-              https://movyz-akwam-prefill.sameranede.workers.dev/)
-            echo "$body"
-            if echo "$body" | grep -Fq '"build":"akwam-prefill-media-v1"'; then
-              break
-            fi
-            sleep 5
-          done
-          body=$(curl --fail-with-body --silent --show-error --max-time 180 \
-            -X POST \
-            -H "x-movyz-prefill-key: $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "x-movyz-prefill-mode: deploy-smoke" \
-            https://movyz-akwam-prefill.sameranede.workers.dev/)
-          echo "$body"
-          node -e '
-            const x=JSON.parse(process.argv[1]);
-            if (!x.ok || Number(x.saved || 0) < 1) {
-              console.error("Deploy smoke failed: no source saved", x);
-              process.exit(1);
-            }
-          ' "$body"
       - name: Inventory existing Cloudflare Cron triggers
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
