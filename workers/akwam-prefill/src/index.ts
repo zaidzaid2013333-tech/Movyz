@@ -1083,28 +1083,30 @@ async function run(env: Env, workerId: string) {
   };
 }
 
-const PREFILL_PUBLIC_URL = "https://movyz-akwam-prefill.sameranede.workers.dev/";
-const DEFAULT_FANOUT = 10;
+const CRON_STATE_KEY = "akwam-cloudflare-cron";
 
-async function fanout(env: Env) {
-  const count = Math.max(1, Math.min(20, Number(env.PREFILL_FANOUT || DEFAULT_FANOUT)));
-  const requests = Array.from({ length: count }, () =>
-    fetch(PREFILL_PUBLIC_URL, {
+async function writeCronState(
+  env: Env,
+  patch: Record<string, unknown>,
+) {
+  try {
+    await sb(env, "/rest/v1/maintenance_state?on_conflict=job_key", {
       method: "POST",
       headers: {
-        "x-movyz-prefill-key": env.SUPABASE_SERVICE_ROLE_KEY,
-        "x-movyz-prefill-mode": "batch",
+        Prefer: "resolution=merge-duplicates,return=minimal",
       },
-    })
-  );
-
-  const settled = await Promise.allSettled(requests);
-  return {
-    launched: settled.length,
-    accepted: settled.filter((r) => r.status === "fulfilled").length,
-    rejected: settled.filter((r) => r.status === "rejected").length,
-  };
+      body: JSON.stringify({
+        job_key: CRON_STATE_KEY,
+        updated_at: new Date().toISOString(),
+        ...patch,
+      }),
+    });
+  } catch (error) {
+    console.error("[akwam-cron-state]", String(error));
+  }
 }
+
+
 export default {
   async fetch(request: Request, env: Env) {
     try {
@@ -1135,11 +1137,52 @@ export default {
   },
 
   async scheduled(_event: unknown, env: Env, ctx: ExecutionContextLike) {
-    // Cron is only an orchestrator. Work is fanned out into independent requests
-    // so one long episode lookup cannot block the whole queue.
-    ctx.waitUntil(
-      fanout(env).catch((error) => console.error("[akwam-prefill]", String(error)))
-    );
+    ctx.waitUntil((async () => {
+      const startedAt = new Date().toISOString();
+      await writeCronState(env, {
+        last_run_at: startedAt,
+        stats: {
+          state: "started",
+          executor: "cloudflare-cron",
+          worker: "movyz-akwam-prefill",
+          at: startedAt,
+        },
+      });
+
+      try {
+        const workerId = `cf-cron-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+        const result = await run(env, workerId);
+        const finishedAt = new Date().toISOString();
+
+        await writeCronState(env, {
+          last_run_at: startedAt,
+          last_success_at: result.failed === 0 ? finishedAt : null,
+          last_error: result.failed === 0 ? null : `processed=${result.processed} failed=${result.failed}`,
+          stats: {
+            state: result.failed === 0 ? "success" : "degraded",
+            executor: "cloudflare-cron",
+            worker: workerId,
+            processed: result.processed,
+            saved: result.saved,
+            failed: result.failed,
+            at: finishedAt,
+          },
+        });
+      } catch (error) {
+        const finishedAt = new Date().toISOString();
+        await writeCronState(env, {
+          last_run_at: startedAt,
+          last_success_at: null,
+          last_error: String(error).slice(0, 1800),
+          stats: {
+            state: "failed",
+            executor: "cloudflare-cron",
+            at: finishedAt,
+          },
+        });
+        console.error("[akwam-prefill]", String(error));
+      }
+    })());
   }
 };
 
