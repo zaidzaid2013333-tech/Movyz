@@ -61,7 +61,7 @@ async function fetchText(env: Env, url: string): Promise<string | null> {
     const response = await fetch(url, {
       headers: headers(env),
       redirect: "follow",
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(7000),
     });
     if (!response.ok) return null;
     return await response.text();
@@ -201,7 +201,7 @@ function extractTargets(html: string, baseUrl: string) {
     } catch {}
   }
   for (const u of extractMediaLikeUrls(html)) targets.add(u);
-  return Array.from(targets).slice(0, 12);
+  return Array.from(targets).slice(0, 6);
 }
 
 async function resolveTarget(env: Env, target: string): Promise<Media | null> {
@@ -211,7 +211,7 @@ async function resolveTarget(env: Env, target: string): Promise<Media | null> {
   if (!html) return null;
   const media = extractMedia(html, target);
   if (media) return media;
-  for (const nested of extractTargets(html, target).slice(0, 8)) {
+  for (const nested of extractTargets(html, target).slice(0, 3)) {
     const directNested = extractMedia(nested, nested);
     if (directNested) return directNested;
     const nestedHtml = await fetchText(env, nested);
@@ -231,19 +231,23 @@ async function validateMedia(env: Env, media: Media) {
         Accept: media.type === "hls"
           ? "application/vnd.apple.mpegurl,application/x-mpegURL,*/*;q=0.8"
           : "video/mp4,video/webm,application/octet-stream,*/*;q=0.8",
-        Range: "bytes=0-262143",
+        Range: "bytes=0-8191",
       },
       redirect: "follow",
-      signal: AbortSignal.timeout(7000),
+      signal: AbortSignal.timeout(4500),
     });
     if (!response.ok && response.status !== 206) return false;
+
+    const ct = response.headers.get("content-type")?.toLowerCase() || "";
     const body = new Uint8Array(await response.arrayBuffer());
     if (!body.length) return false;
+
     if (media.type === "hls") {
-      return new TextDecoder().decode(body.slice(0, 512)).includes("#EXTM3U");
+      return new TextDecoder().decode(body.slice(0, 8192)).includes("#EXTM3U");
     }
-    const ct = response.headers.get("content-type")?.toLowerCase() || "";
+
     if (ct.startsWith("video/") || ct.includes("octet-stream")) return true;
+
     for (let i = 0; i + 3 < Math.min(body.length, 512); i++) {
       if (body[i] === 0x66 && body[i + 1] === 0x74 && body[i + 2] === 0x79 && body[i + 3] === 0x70) return true;
     }
@@ -254,30 +258,18 @@ async function validateMedia(env: Env, media: Media) {
 }
 
 async function getContext(env: Env, job: Job) {
-  if (job.content_type === "movie") {
-    const rows = await sb(env, `/rest/v1/movies?id=eq.${job.content_id}&select=id,tmdb_id,title_en,title_ar,original_title,release_date&limit=1`);
-    const m = rows?.[0];
-    if (!m) throw new Error("Movie row not found");
-    return {
-      titles: [m.title_en, m.title_ar, m.original_title].filter(Boolean) as string[],
-      year: m.release_date ? Number(String(m.release_date).slice(0, 4)) : undefined,
-    };
-  }
+  const rows = await sb(env, "/rest/v1/rpc/get_akwam_prefill_context", {
+    method: "POST",
+    body: JSON.stringify({ p_job_id: job.id }),
+  });
+  const ctx = rows?.[0];
+  if (!ctx) throw new Error("AKWAM_CONTEXT_NOT_FOUND");
 
-  const eps = await sb(env, `/rest/v1/episodes?id=eq.${job.content_id}&select=id,name,episode_number,season_id&limit=1`);
-  const ep = eps?.[0];
-  if (!ep) throw new Error("Episode row not found");
-  const seasons = await sb(env, `/rest/v1/seasons?id=eq.${ep.season_id}&select=id,series_id,season_number&limit=1`);
-  const season = seasons?.[0];
-  if (!season) throw new Error("Season row not found");
-  const series = await sb(env, `/rest/v1/series?id=eq.${season.series_id}&select=id,tmdb_id,title_en,title_ar,original_title,first_air_date&limit=1`);
-  const s = series?.[0];
-  if (!s) throw new Error("Series row not found");
   return {
-    titles: [s.title_en, s.title_ar, s.original_title].filter(Boolean) as string[],
-    year: s.first_air_date ? Number(String(s.first_air_date).slice(0, 4)) : undefined,
-    episodeNumber: Number(ep.episode_number ?? job.episode_number ?? 1),
-    seasonNumber: Number(season.season_number ?? job.season_number ?? 1),
+    titles: Array.isArray(ctx.titles) ? (ctx.titles.filter(Boolean) as string[]) : [],
+    year: ctx.year ? Number(ctx.year) : undefined,
+    episodeNumber: ctx.episode_number ? Number(ctx.episode_number) : undefined,
+    seasonNumber: ctx.season_number ? Number(ctx.season_number) : undefined,
   };
 }
 
@@ -305,7 +297,7 @@ async function discover(env: Env, job: Job, ctx: any) {
   }
 
   const medias: Media[] = [];
-  for (const target of targets.slice(0, 8)) {
+  for (const target of targets.slice(0, 4)) {
     const media = await resolveTarget(env, target);
     if (!media || !(await validateMedia(env, media))) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);
@@ -413,46 +405,79 @@ async function fail(env: Env, job: Job, error: unknown, workerId: string) {
   });
 }
 
-async function processJob(env: Env, job: Job, workerId: string) {
+async function processJob(env: Env, job: Job, workerId: string, provider: string) {
   try {
     const context = await getContext(env, job);
     const sources = await discover(env, job, context);
-    const count = await persist(env, job, sources, await providerId(env), workerId);
+    const count = await persist(env, job, sources, provider, workerId);
     return { ok: true, count };
   } catch (error) {
     await fail(env, job, error, workerId);
     return { ok: false, error: String(error) };
   }
 }
-
 async function run(env: Env, workerId: string) {
-  let processed = 0;
-  let saved = 0;
-  const max = Math.max(1, Math.min(6, Number(env.MAX_JOBS_PER_RUN || 4)));
+  const max = Math.max(1, Math.min(3, Number(env.MAX_JOBS_PER_RUN || 3)));
 
-  for (let i = 0; i < max; i++) {
-    const job = await claim(env, workerId);
-    if (!job) break;
-    const result = await processJob(env, job, workerId);
-    processed++;
-    if (result.ok) saved += result.count;
-  }
+  const claimed = await Promise.all(
+    Array.from({ length: max }, () => claim(env, workerId))
+  );
+  const jobs = claimed.filter((job): job is Job => Boolean(job));
+  if (!jobs.length) return { workerId, processed: 0, saved: 0, failed: 0 };
 
-  return { workerId, processed, saved };
+  const provider = await providerId(env);
+  const results = await Promise.all(
+    jobs.map((job) => processJob(env, job, workerId, provider))
+  );
+
+  return {
+    workerId,
+    processed: results.length,
+    saved: results.reduce((sum, r) => sum + (r.ok ? r.count : 0), 0),
+    failed: results.filter((r) => !r.ok).length,
+  };
 }
 
+const PREFILL_PUBLIC_URL = "https://movyz-akwam-prefill.sameranede.workers.dev/";
+
+async function fanout(env: Env) {
+  const requests = Array.from({ length: 6 }, () =>
+    fetch(PREFILL_PUBLIC_URL, {
+      method: "POST",
+      headers: {
+        "x-movyz-prefill-key": env.SUPABASE_SERVICE_ROLE_KEY,
+        "x-movyz-prefill-mode": "batch",
+      },
+    })
+  );
+
+  const settled = await Promise.allSettled(requests);
+  return {
+    launched: settled.length,
+    accepted: settled.filter((r) => r.status === "fulfilled").length,
+  };
+}
 export default {
   async fetch(request: Request, env: Env) {
     if (request.method === "POST" && request.headers.get("x-movyz-prefill-key") === env.SUPABASE_SERVICE_ROLE_KEY) {
-      const workerId = "manual-" + crypto.randomUUID();
+      const mode = request.headers.get("x-movyz-prefill-mode") || "batch";
+
+      if (mode === "fanout") {
+        const result = await fanout(env);
+        return Response.json({ ok: true, trigger: "fanout", ...result });
+      }
+
+      const workerId = "prefill-" + crypto.randomUUID();
       const result = await run(env, workerId);
-      return Response.json({ ok: true, trigger: "manual", ...result });
+      return Response.json({ ok: true, trigger: "batch", ...result });
     }
-    return Response.json({ ok: true, service: "movyz-akwam-prefill", mode: "db-only" });
+
+    return Response.json({ ok: true, service: "movyz-akwam-prefill", mode: "db-only", parallel_jobs: 3, fanout: 6 });
   },
 
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    const workerId = "cf-" + crypto.randomUUID();
-    ctx.waitUntil(run(env, workerId).then((r) => console.log(JSON.stringify(r))));
+    ctx.waitUntil(
+      fanout(env).then((r) => console.log(JSON.stringify(r))).catch((error) => console.error(String(error)))
+    );
   },
 };
