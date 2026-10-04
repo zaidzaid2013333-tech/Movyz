@@ -17,4 +17,6 @@ const workerId = `gha-prefill-${process.env.GITHUB_RUN_ID || Date.now()}-${proce
 const result = await run(env, workerId);
 console.log(JSON.stringify(result));
 
-if (result.failed > 0) process.exitCode = 1;
+if (result.processed > 0 && result.saved === 0 && result.failed > 0) {
+  process.exitCode = 1;
+}
