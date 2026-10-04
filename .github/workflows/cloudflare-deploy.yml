@@ -94,13 +94,25 @@ jobs:
               print('TMDB direct status =', response.status, 'title =', payload.get('title'), 'release_date =', payload.get('release_date'), 'status =', payload.get('status'))
           PY
 
+      - name: Deploy CinePro Core to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_k6ix2FuZObAmwiIzZfdjyz0U
+          VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
+        run: |
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            echo "VERCEL_TOKEN GitHub secret is required to deploy CinePro Core to Vercel."
+            exit 1
+          fi
+          npx --yes vercel@latest deploy --cwd cinepro-vercel --prod --yes --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" --project "$VERCEL_PROJECT_ID"
+
       - name: Verify CinePro Core on Vercel
         env:
           TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
         run: |
           python - <<'PY'
           import json, os, urllib.request
-          base = "https://movyz-6dqf.vercel.app/api"
+          base = "https://movyz-6dqf.vercel.app"
           token = os.environ.get("TMDB_API_READ_ACCESS_TOKEN", "")
           if not token:
               raise SystemExit("TMDB_API_READ_ACCESS_TOKEN is missing")
@@ -141,7 +153,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var CINEPRO_BASE_URL:https://movyz-6dqf.vercel.app/api
+          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var CINEPRO_BASE_URL:https://movyz-6dqf.vercel.app
 
       - name: End-to-end CinePro playback smoke
         run: |
