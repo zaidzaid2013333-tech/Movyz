@@ -88,4 +88,4 @@ const port = Number(process.env.PORT ?? 8787);
 
 await app.listen(port);
 
-export default httpServerHandler({ port });
+console.log('[Movyz CinePro] Cloudflare adapter booting on port', port);\nexport default httpServerHandler({ port });
