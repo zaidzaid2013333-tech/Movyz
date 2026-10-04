@@ -40,6 +40,46 @@ jobs:
         run: |
           printf 'SUPABASE_URL=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_SERVICE_ROLE_KEY" > .env.akwam-prefill
 
+      - name: Probe Akwam access from GitHub Actions
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          headers=/tmp/akwam-probe.headers
+          body=/tmp/akwam-probe.html
+          status=$(curl -L --max-time 25 -sS -D "$headers" -o "$body" -w '%{http_code}' \
+            -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36' \
+            -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' \
+            -H 'Accept-Language: ar,en;q=0.9' \
+            'https://akwam.ss/search?q=Interstellar')
+          bytes=$(wc -c < "$body" | tr -d ' ')
+          server=$(awk -F': ' 'tolower($1)=="server"{print $2}' "$headers" | tr -d '\r' | tail -1 || true)
+          has_search=$(grep -Eio 'Interstellar|movie/|series/' "$body" | head -1 || true)
+          echo "AKWAM_GHA_STATUS=$status BYTES=$bytes SERVER=${server:-unknown} MATCH=${has_search:-none}"
+
+          payload=$(node -e '
+            const fs=require("fs");
+            const [status,bytes,server,match]=process.argv.slice(1);
+            console.log(JSON.stringify({
+              job_key:"akwam-github-actions-probe",
+              lease_until:new Date(Date.now()+60*60*1000).toISOString(),
+              last_run_at:new Date().toISOString(),
+              last_success_at:Number(status)>=200 && Number(status)<400 ? new Date().toISOString() : null,
+              last_error:Number(status)>=200 && Number(status)<400 ? null : "Akwam HTTP "+status,
+              stats:{state:"probe",executor:"github-actions",status:Number(status),bytes:Number(bytes),server:server||null,match:match||null,at:new Date().toISOString()},
+              updated_at:new Date().toISOString()
+            }));
+          ' "$status" "$bytes" "$server" "$has_search")
+
+          curl --fail-with-body --max-time 20 -sS -X POST \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: resolution=merge-duplicates,return=minimal" \
+            --data "$payload" \
+            "$SUPABASE_URL/rest/v1/maintenance_state?on_conflict=job_key"
+
       - name: Stop legacy 20-worker Akwam/CinePro runs
         env:
           GH_TOKEN: ${{ github.token }}
