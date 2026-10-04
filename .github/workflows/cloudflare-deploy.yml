@@ -79,6 +79,44 @@ jobs:
           cp integrations/cinepro/wrangler.json .cinepro/wrangler.json
           cd .cinepro
           npm install --no-audit --no-fund
+
+          # Cloudflare Workers does not provide Node's nextTick scheduling semantics
+          # inside request execution reliably enough for Avvio's plugin lifecycle.
+          # Patch only the temporary build tree; upstream CinePro source in GitHub is untouched.
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
+          import { dirname, join } from 'node:path'
+          import { createRequire } from 'node:module'
+          const require = createRequire(import.meta.url)
+          const avvioEntry = require.resolve('avvio')
+          const avvioRoot = dirname(avvioEntry)
+          const targets = [avvioEntry]
+          const libDir = join(avvioRoot, 'lib')
+          for (const name of readdirSync(libDir)) {
+            const full = join(libDir, name)
+            if (statSync(full).isFile() && full.endsWith('.js')) targets.push(full)
+          }
+          for (const file of targets) {
+            const source = readFileSync(file, 'utf8')
+            const patched = source.replaceAll('process.nextTick', 'queueMicrotask')
+            if (patched !== source) writeFileSync(file, patched)
+          }
+          console.log('Patched Avvio nextTick compatibility:', targets.length, 'files')
+          NODE
+
+          # Disable Avvio's 10s plugin watchdog in the temporary upstream build.
+          # This is a Workers compatibility setting, not a CinePro provider change.
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          const path = 'src/core/server.ts'
+          const source = readFileSync(path, 'utf8')
+          const marker = "this.app = Fastify({\n            logger: false,"
+          const replacement = "this.app = Fastify({\n            pluginTimeout: 0,\n            logger: false,"
+          if (!source.includes(marker)) throw new Error('Expected Fastify constructor marker not found')
+          writeFileSync(path, source.replace(marker, replacement))
+          console.log('Patched OMSS Fastify pluginTimeout=0 for Workers')
+          NODE
+
           npm run build
           test -n "$TMDB_API_KEY" || { echo "TMDB API credential is missing"; exit 1; }
           printf '%s' "$TMDB_API_KEY" | npx wrangler secret put TMDB_API_KEY
