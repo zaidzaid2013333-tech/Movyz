@@ -33,11 +33,19 @@ interface WatchPageProps {
   onNavigate: (path: string) => void;
 }
 
+function normalizePlaybackQuality(value: unknown) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return 'Auto';
+  if (/^auto$/i.test(raw)) return 'Auto';
+  const match = raw.match(/(?:^|\\D)(2160|1440|1080|720|576|480|360|240)(?:p)?(?:$|\\D)/i);
+  return match?.[1] ? `${match[1]}p` : raw;
+}
+
 const isPlayableHttpSource = (source: PlaybackSource) => {
   const url = source.url?.trim() || '';
   if (!/^https?:\/\//i.test(url)) return false;
   if (!['mp4', 'hls', 'dash', 'webm', 'direct'].includes(String(source.type || '').toLowerCase())) return false;
-  if (!/^(?:\d{3,4}p|auto)$/i.test(String(source.quality || '').trim())) return false;
+  if (!/^(?:\d{3,4}p|auto)$/i.test(normalizePlaybackQuality(source.quality))) return false;
   try {
     new URL(url);
   } catch {
@@ -63,7 +71,7 @@ const pickPlaybackSources = (content: Movie | Series, episode?: Episode) => {
 };
 
 const playbackQualityRank = (source: PlaybackSource) => {
-  const match = source.quality?.match(/(\d{3,4})p/i);
+  const match = normalizePlaybackQuality(source.quality).match(/(\d{3,4})p/i);
   const quality = match ? Number(match[1]) : 0;
   // Lower rank = preferred. Unknown quality stays behind known resolutions.
   return quality > 0 ? 10000 - quality : 20000;
@@ -349,8 +357,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlayerUnlocked(false);
     setPlaybackError(
       language === 'ar'
-        ? 'لا يوجد مصدر تشغيل متاح من CinePro لهذا العمل حاليًا.'
-        : 'CinePro returned no playable source for this title.',
+        ? 'لا يوجد مصدر تشغيل محفوظ صالح لهذا العمل حاليًا.'
+        : 'No persisted playable source is currently available for this title.',
     );
 
     return () => {
