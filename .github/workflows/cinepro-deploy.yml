@@ -69,6 +69,28 @@ jobs:
         working-directory: cinepro-worker
         run: rm -f .cinepro-secrets
 
+      - name: Capture CinePro runtime exception
+        continue-on-error: true
+        working-directory: cinepro-worker
+        run: |
+          rm -f /tmp/cinepro-tail.log /tmp/cinepro-response.txt /tmp/cinepro-body.txt
+          npx wrangler tail movyz-cinepro --format json --status error > /tmp/cinepro-tail.log 2>&1 &
+          TAIL_PID=$!
+          sleep 4
+          curl -sS -D /tmp/cinepro-response.txt -o /tmp/cinepro-body.txt \
+            -H "Accept: application/json" \
+            -H "User-Agent: Movyz-CinePro-Debug/1.0" \
+            "https://movyz-cinepro.sameranede.workers.dev/v1/movies/27205" || true
+          sleep 5
+          kill "$TAIL_PID" 2>/dev/null || true
+          wait "$TAIL_PID" 2>/dev/null || true
+          echo "=== RESPONSE ==="
+          cat /tmp/cinepro-response.txt || true
+          echo "=== BODY ==="
+          cat /tmp/cinepro-body.txt || true
+          echo "=== CLOUDFLARE TAIL ==="
+          cat /tmp/cinepro-tail.log || true
+
       - name: Smoke test CinePro
         run: |
           python - <<'PY'
