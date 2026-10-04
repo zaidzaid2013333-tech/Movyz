@@ -157,6 +157,8 @@ export class AkwamProvider extends BaseProvider {
     private async validateMediaResults(results: MediaResult[]): Promise<MediaResult[]> {
         const checks = await Promise.all(
             results.slice(0, 12).map(async (result) => {
+                const startedAt = Date.now();
+
                 try {
                     const response = await fetch(result.url, {
                         method: 'GET',
@@ -166,7 +168,7 @@ export class AkwamProvider extends BaseProvider {
                                 result.type === 'hls'
                                     ? 'application/vnd.apple.mpegurl,application/x-mpegURL,*/*;q=0.8'
                                     : 'video/mp4,video/webm,application/octet-stream,*/*;q=0.8',
-                            Range: 'bytes=0-65535'
+                            Range: 'bytes=0-262143'
                         },
                         redirect: 'follow',
                         signal: AbortSignal.timeout(8000)
@@ -175,34 +177,81 @@ export class AkwamProvider extends BaseProvider {
                     if (!response.ok && response.status !== 206) return null;
 
                     const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+                    const contentLength = Number(response.headers.get('content-length') ?? 0);
                     const reader = response.body?.getReader();
-                    const firstChunk = reader
-                        ? await reader.read().finally(() => {
-                              void reader.cancel().catch(() => undefined);
-                          })
-                        : { value: undefined };
+                    const chunks: Uint8Array[] = [];
+                    let totalBytes = 0;
 
-                    const bytes = firstChunk.value ?? new Uint8Array();
-                    if (!bytes.length) return null;
+                    if (reader) {
+                        try {
+                            for (let i = 0; i < 4 && totalBytes < 65536; i += 1) {
+                                const part = await reader.read();
+                                if (part.done) break;
+                                if (part.value?.length) {
+                                    chunks.push(part.value);
+                                    totalBytes += part.value.length;
+                                }
+                            }
+                        } finally {
+                            void reader.cancel().catch(() => undefined);
+                        }
+                    }
+
+                    if (!totalBytes) return null;
+
+                    const bytes = new Uint8Array(totalBytes);
+                    let offset = 0;
+                    for (const chunk of chunks) {
+                        bytes.set(chunk, offset);
+                        offset += chunk.length;
+                    }
 
                     if (result.type === 'hls') {
                         const text = new TextDecoder().decode(bytes);
-                        return /#EXTM3U/i.test(text) ? result : null;
+                        if (!/#EXTM3U/i.test(text)) return null;
+                    } else {
+                        const looksLikeMedia =
+                            contentType.startsWith('video/') ||
+                            contentType.includes('octet-stream') ||
+                            this.hasMp4Signature(bytes);
+                        if (!looksLikeMedia) return null;
                     }
 
-                    const looksLikeMedia =
-                        contentType.startsWith('video/') ||
-                        contentType.includes('octet-stream') ||
-                        this.hasMp4Signature(bytes);
-
-                    return looksLikeMedia ? result : null;
+                    return {
+                        result,
+                        latencyMs: Math.max(1, Date.now() - startedAt),
+                        contentLength
+                    };
                 } catch {
                     return null;
                 }
             })
         );
 
-        return checks.filter((value): value is MediaResult => Boolean(value));
+        // Keep the fastest healthy mirror first. The player can still expose
+        // all validated qualities/sources for manual selection.
+        return checks
+            .filter(
+                (
+                    value
+                ): value is {
+                    result: MediaResult;
+                    latencyMs: number;
+                    contentLength: number;
+                } => Boolean(value)
+            )
+            .sort((a, b) => {
+                if (a.result.quality && b.result.quality && a.result.quality === b.result.quality) {
+                    return a.latencyMs - b.latencyMs;
+                }
+
+                const qualityA = Number(a.result.quality ?? 0);
+                const qualityB = Number(b.result.quality ?? 0);
+                if (qualityA !== qualityB) return qualityB - qualityA;
+
+                return a.latencyMs - b.latencyMs;
+            })
+            .map((item) => item.result);
     }
 
     private hasMp4Signature(bytes: Uint8Array): boolean {
