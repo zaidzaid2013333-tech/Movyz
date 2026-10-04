@@ -36,6 +36,14 @@ jobs:
           echo "movie_bytes=$(wc -c < /tmp/movie.html | tr -d ' ')"
           echo '=== download/link markers ==='
           grep -Ein 'btn-loader|/download/|/link/|m3u8|mp4|mpd|webm|data-file|data-video|data-url|download' /tmp/movie.html | head -200 || true
+          download='https://akwam.ss/download/170586/10762/cocktail'
+          curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H "Referer: $movie" -H 'Accept: text/html' "$download" -o /tmp/download.html
+          echo "download_bytes=$(wc -c < /tmp/download.html | tr -d ' ')"
+          echo '=== download page markers ==='
+          grep -Ein 'btn-loader|link-download|download|href=|src=|data-file|data-video|data-url|m3u8|mp4|mpd|webm|iframe|player|stream|file' /tmp/download.html | head -250 || true
+          echo '=== download page urls ==='
+          grep -Eoi 'https?://[^"'"'"' <>]+' /tmp/download.html | grep -Ei 'm3u8|mp4|mpd|webm|stream|video|download|link' | head -100 || true
+
           echo '=== hrefs ==='
           grep -Eoi 'href=["'"'"'][^"'"'"']+["'"'"']' /tmp/movie.html | grep -Ei 'download|link|watch|movie' | head -100 || true
 
