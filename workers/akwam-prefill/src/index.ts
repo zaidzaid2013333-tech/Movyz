@@ -574,10 +574,10 @@ function extractTargets(html: string, baseUrl: string) {
 
 function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null {
   const patterns = [
-    /<[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>[\\s\\S]{0,8000}?<a\\b[^>]*href=["']([^"']+)["'][^>]*>/gi,
-    /<a\\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>/gi,
-    /<a\\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>/gi,
-    /<a\\b[^>]*href=["']([^"']+)["'][^>]*>[\\s\\S]*?(?:تحميل|Download|تحميل الآن)[\\s\\S]*?<\\/a>/gi,
+    /<[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>[\s\S]{0,8000}?<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi,
+    /<a\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>/gi,
+    /<a\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>/gi,
+    /<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?(?:تحميل|Download|تحميل الآن)[\s\S]*?<\/a>/gi,
   ];
 
   for (const re of patterns) {
@@ -597,7 +597,7 @@ function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null
   let attr: RegExpExecArray | null;
   while ((attr = attrs.exec(html))) {
     const raw = decodeHtml(attr[1]);
-    if (!/(?:\\.m3u8|\\.mp4|\\.mpd|\\.webm)(?:\\?|$)/i.test(raw)) continue;
+    if (!/(?:\.m3u8|\.mp4|\.mpd|\.webm)(?:\?|$)/i.test(raw)) continue;
     const url = absoluteUrl(raw, baseUrl);
     if (!url) continue;
     return {
