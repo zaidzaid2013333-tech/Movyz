@@ -1,4 +1,4 @@
-import { handleAsNodeRequest } from 'cloudflare:node';
+import { Readable } from 'node:stream';
 import { OMSSServer } from '@omss/framework';
 
 import { IcefyProvider } from './core/src/providers/icefy/icefy.js';
