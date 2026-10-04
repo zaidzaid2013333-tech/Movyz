@@ -79,6 +79,30 @@ async function main() {
     const registry = server.getRegistry();
     await registry.discoverProviders(path.join(__dirname, './providers/'));
 
+    // Temporary provider diagnostics: expose each provider's own failure reason in Render logs.
+    // Enabled only when INTERNAL_DEBUG=true and safe to remove after diagnosis.
+    if (process.env.INTERNAL_DEBUG === 'true') {
+        for (const provider of registry.getProviders()) {
+            const anyProvider = provider as any;
+            const originalMovie = anyProvider.getMovieSources?.bind(provider);
+            if (originalMovie) {
+                anyProvider.getMovieSources = async (...args: any[]) => {
+                    const result = await originalMovie(...args);
+                    console.log('[ProviderDiagnostic]', provider.name, 'movie', JSON.stringify(result?.diagnostics ?? []));
+                    return result;
+                };
+            }
+            const originalTV = anyProvider.getTVSources?.bind(provider);
+            if (originalTV) {
+                anyProvider.getTVSources = async (...args: any[]) => {
+                    const result = await originalTV(...args);
+                    console.log('[ProviderDiagnostic]', provider.name, 'tv', JSON.stringify(result?.diagnostics ?? []));
+                    return result;
+                };
+            }
+        }
+    }
+
     await server.start();
 
     const publicUrl =
