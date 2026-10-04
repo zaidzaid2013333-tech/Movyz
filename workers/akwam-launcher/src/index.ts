@@ -3,16 +3,24 @@ type Env = {
 };
 
 const TARGET = "https://movyz-akwam-prefill.sameranede.workers.dev/";
+const BATCHES_PER_TICK = 15;
 
 async function dispatch(env: Env) {
-  const response = await fetch(TARGET, {
-    method: "POST",
-    headers: {
-      "x-movyz-prefill-key": env.SUPABASE_SERVICE_ROLE_KEY,
-      "x-movyz-prefill-mode": "fanout",
-    },
-  });
-  return { status: response.status };
+  const requests = Array.from({ length: BATCHES_PER_TICK }, () =>
+    fetch(TARGET, {
+      method: "POST",
+      headers: {
+        "x-movyz-prefill-key": env.SUPABASE_SERVICE_ROLE_KEY,
+        "x-movyz-prefill-mode": "batch",
+      },
+    })
+  );
+
+  const settled = await Promise.allSettled(requests);
+  return {
+    launched: settled.length,
+    accepted: settled.filter((r) => r.status === "fulfilled").length,
+  };
 }
 
 export default {
