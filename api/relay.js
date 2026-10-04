@@ -11,6 +11,8 @@ const HOP_BY_HOP = new Set([
   'upgrade',
 ]);
 
+const preferredModeByOrigin = new Map();
+
 const FORWARDED_REQUEST_HEADERS = new Set([
   'accept',
   'accept-language',
@@ -176,15 +178,21 @@ function requestHeaders(req, upstreamHeaders, mode = 'original', target = null) 
   return headers;
 }
 
-async function fetchUpstream(req, target, forwardedHeaders) {
+function retryModesFor(target) {
+  const preferred = preferredModeByOrigin.get(target.origin);
   const modes = ['original', 'relaxed', 'same-origin', 'browser'];
+  return preferred ? [preferred, ...modes.filter((mode) => mode !== preferred)] : modes;
+}
+
+async function fetchUpstream(req, target, forwardedHeaders) {
+  const modes = retryModesFor(target);
   let lastResponse = null;
   let lastError = null;
 
   for (const mode of modes) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 12000);
+      const timer = setTimeout(() => controller.abort(), 8000);
       let response;
       try {
         response = await fetch(target, {
@@ -199,7 +207,10 @@ async function fetchUpstream(req, target, forwardedHeaders) {
       }
 
       lastResponse = response;
-      if (response.ok || response.status < 400) return response;
+      if (response.ok || response.status < 400) {
+        preferredModeByOrigin.set(target.origin, mode);
+        return response;
+      }
 
       // Retry an upstream failure with progressively safer CDN headers.
       if (![400, 401, 403, 404, 408, 409, 425, 429, 500, 502, 503, 504, 522, 524].includes(response.status)) {
@@ -229,7 +240,7 @@ export default async function handler(req, res) {
   if (!rawUrl) {
     return sendJson(res, 200, {
       name: 'Movyz Media Relay',
-      version: '1.0.1',
+      version: '1.0.2',
       status: 'ok',
       runtime: 'vercel-node',
     });
