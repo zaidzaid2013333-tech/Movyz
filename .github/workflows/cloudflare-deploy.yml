@@ -76,6 +76,66 @@ jobs:
             echo "CinePro TMDB credential: TMDB_API_READ_ACCESS_TOKEN"
           fi
 
+      - name: Reference-test CinePro Core on Node runtime
+        env:
+          TMDB_API_KEY: \${{ secrets.TMDB_API_KEY }}
+          TMDB_API_READ_ACCESS_TOKEN: \${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+        run: |
+          rm -rf .cinepro-node
+          git clone --depth 1 https://github.com/cinepro-org/core.git .cinepro-node
+          cd .cinepro-node
+          npm install --no-audit --no-fund
+          cat > ci-runner.mjs <<'EOF'
+          const tmdbToken = process.env.TMDB_API_KEY || process.env.TMDB_API_READ_ACCESS_TOKEN;
+          if (!tmdbToken) throw new Error('TMDB credential missing');
+          process.env.TMDB_API_KEY = tmdbToken;
+          process.env.HOST = '127.0.0.1';
+          process.env.PORT = '3900';
+          process.env.PUBLIC_URL = 'http://127.0.0.1:3900';
+          process.env.CORS_ORIGIN = '*';
+          const nativeFetch = globalThis.fetch;
+          globalThis.fetch = async (input, init = {}) => {
+            const requestUrl = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+            if (requestUrl.hostname === 'api.themoviedb.org') {
+              requestUrl.searchParams.delete('api_key');
+              const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+              headers.set('Authorization', `Bearer \${tmdbToken}`);
+              return nativeFetch(requestUrl, { ...init, headers });
+            }
+            return nativeFetch(input, init);
+          };
+          await import('./src/server.ts');
+          EOF
+          npx tsx ci-runner.mjs > ../cinepro-node.log 2>&1 &
+          server_pid=$!
+          cleanup() { kill "$server_pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3900/v1/health >/tmp/cinepro-health.json 2>/tmp/cinepro-health.err; then
+              break
+            fi
+            sleep 2
+          done
+          cat /tmp/cinepro-health.json || true
+          if ! curl -fsS --max-time 45 http://127.0.0.1:3900/v1/movies/157336 >/tmp/cinepro-movie.json; then
+            echo '--- CinePro Node runtime log ---'
+            cat ../cinepro-node.log || true
+            echo '--- CinePro Node movie response ---'
+            cat /tmp/cinepro-movie.json 2>/dev/null || true
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          with open('/tmp/cinepro-movie.json') as f:
+              payload = json.load(f)
+          sources = payload.get('sources', [])
+          print('CinePro Node movie sources =', len(sources))
+          if not sources:
+              print(json.dumps(payload)[:12000])
+              raise SystemExit('CinePro Node returned no movie sources')
+          print('CinePro Node reference smoke: OK')
+          PY
+
       - name: Deploy CinePro Core (Cloudflare adapter)
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
