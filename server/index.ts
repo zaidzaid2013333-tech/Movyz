@@ -10,24 +10,9 @@ const api = '/api/v1';
 
 app.disable('x-powered-by');
 
-app.get(`${api}/__debug/mediamash`, asyncRoute(async (req, res) => {
-  const endpoint = 'https://movyz-media-core.sameranede.workers.dev/v1/movies/157336';
-  const headers = {
-    accept: 'application/json',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
-  };
-  const core = req.env?.MEDIAMASH_CORE as { fetch(request: Request): Promise<Response> } | undefined;
-  const read = async (response: Response) => ({ status: response.status, ok: response.ok, body: (await response.text()).slice(0, 8000) });
-  const binding = core
-    ? await core.fetch(new Request(endpoint, { headers }))
-    : new Response('MEDIAMASH_CORE_MISSING', { status: 500 });
-  const direct = await fetch(new Request(endpoint, { headers }));
-  return ok(res, { binding: await read(binding), direct: await read(direct) });
-}));
-
 // Playback backend: MediaMash Core only; legacy source adapters removed. End-to-end verification uses the live /api/v1/watch path.
 
-// Production diagnostics for the selected playback-sites path. MediaMash binding/direct comparison is temporary.
+// Production diagnostics for the selected playback-sites path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
 async function getPlaybackCoreSources(contentType: 'movie' | 'episode', contentId: string, env?: Record<string, unknown>) {
@@ -56,11 +41,23 @@ async function getPlaybackCoreSources(contentType: 'movie' | 'episode', contentI
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
       },
     });
-    const response = core
+    const responseToPayload = async (response: Response) => {
+      if (!response.ok) return null;
+      try {
+        return await response.json() as { sources?: Array<{ url?: string; type?: string; quality?: string | number; provider?: { name?: string; id?: string }; audioTracks?: Array<{ language?: string; label?: string }> }> };
+      } catch {
+        return null;
+      }
+    };
+    let response = core
       ? await core.fetch(request)
       : await fetch(request, { signal: AbortSignal.timeout(25000) });
-    if (!response.ok) return [];
-    const payload = await response.json() as { sources?: Array<{ url?: string; type?: string; quality?: string | number; provider?: { name?: string; id?: string }; audioTracks?: Array<{ language?: string; label?: string }> }> };
+    let payload = await responseToPayload(response);
+    if (core && (!response.ok || !Array.isArray(payload?.sources) || payload.sources.length === 0)) {
+      response = await fetch(request, { signal: AbortSignal.timeout(25000) });
+      payload = await responseToPayload(response);
+    }
+    if (!response.ok || !payload) return [];
     return (Array.isArray(payload.sources) ? payload.sources : []).map((source, index) => {
       const url = String(source.url || '').trim();
       if (!/^https:\/\//i.test(url)) return null;
