@@ -34,6 +34,19 @@ type Media = {
   referer?: string;
 };
 
+type RequestBudget = {
+  used: number;
+  max: number;
+};
+
+function consumeRequest(budget?: RequestBudget) {
+  if (!budget) return;
+  budget.used += 1;
+  if (budget.used > budget.max) {
+    throw new Error(`AKWAM_SUBREQUEST_BUDGET_EXCEEDED used=${budget.used} max=${budget.max}`);
+  }
+}
+
 const AKWAM_HOSTS = new Set(["akwam.ss", "www.akwam.ss"]);
 
 function isAkwamUrl(value: string) {
@@ -83,8 +96,9 @@ async function claim(env: Env, workerId: string): Promise<Job | null> {
   return Array.isArray(rows) && rows[0] ? (rows[0] as Job) : null;
 }
 
-async function fetchText(env: Env, url: string, diagnostics?: string[], referer?: string): Promise<string | null> {
+async function fetchText(env: Env, url: string, diagnostics?: string[], referer?: string, budget?: RequestBudget): Promise<string | null> {
   try {
+    consumeRequest(budget);
     const response = await fetch(url, {
       headers: {
         ...headers(env),
@@ -308,6 +322,7 @@ async function findCandidate(
   year?: number,
   expected: "movie" | "series" | "episode" = "movie",
   expectedSeason?: number,
+  budget?: RequestBudget,
 ) {
   const hosts = [base(env)];
 
@@ -332,7 +347,7 @@ async function findCandidate(
         "&section=" +
         encodeURIComponent(section) +
         "&page=1";
-      const html = await fetchText(env, url, diagnostics);
+      const html = await fetchText(env, url, diagnostics, undefined, budget);
       if (!html) continue;
 
       for (const item of parseCandidates(html, env)) {
@@ -378,7 +393,7 @@ async function findCandidate(
     // discarding every legacy candidate as "other".
     if (host === base(env)) {
       for (const title of variants.slice(0, 1)) {
-        const html = await fetchText(env, host + "/old/search/" + encodeURIComponent(title), diagnostics);
+        const html = await fetchText(env, host + "/old/search/" + encodeURIComponent(title), diagnostics, undefined, budget);
         if (!html) continue;
         for (const item of parseCandidates(html, env, true)) {
           const itemScore = score(item, titles, year, expected, expectedSeason);
@@ -712,10 +727,11 @@ async function readPrefix(response: Response, maxBytes = 8192) {
   return body;
 }
 
-async function validateMedia(env: Env, media: Media) {
+async function validateMedia(env: Env, media: Media, budget?: RequestBudget) {
   try {
     if (!/^https:\/\//i.test(media.url)) return false;
 
+    consumeRequest(budget);
     const response = await fetch(media.url, {
       method: "GET",
       headers: {
@@ -775,52 +791,69 @@ async function validateMedia(env: Env, media: Media) {
   }
 }
 
-async function resolveTarget(env: Env, target: string, referer?: string): Promise<Media | null> {
-  const queue: Array<{ url: string; referer?: string; depth: number }> = [{ url: target, referer, depth: 0 }];
+async function resolveTarget(
+  env: Env,
+  target: string,
+  referer?: string,
+  budget?: RequestBudget,
+): Promise<Media | null> {
+  const queue: Array<{ url: string; referer?: string; depth: number }> = [
+    { url: target, referer, depth: 0 },
+  ];
   const seen = new Set<string>();
 
   while (queue.length) {
     const current = queue.shift();
-    if (!current || seen.has(current.url) || current.depth > 3) continue;
+    if (!current || seen.has(current.url) || current.depth > 2) continue;
     seen.add(current.url);
 
+    const navigation = isLikelyNavigationUrl(current.url);
     const direct = mediaFromUrl(current.url, current.referer);
-    if (await validateMedia(env, direct)) return direct;
+    if (!navigation && await validateMedia(env, direct, budget)) return direct;
 
-    const html = await fetchText(env, current.url, undefined, current.referer);
+    const html = await fetchText(env, current.url, undefined, current.referer, budget);
     if (!html) continue;
 
-    // Akwam's download pages expose the real provider URL through the
-    // deterministic .btn-loader link path. Keep this before generic extraction.
     const buttonMedia = extractDownloadButtonMedia(html, current.url);
-    if (buttonMedia) {
-      if (await validateMedia(env, buttonMedia)) return buttonMedia;
+    if (buttonMedia && await validateMedia(env, buttonMedia, budget)) {
+      return buttonMedia;
+    }
 
-      // Akwam's download button can point to an intermediate /link or /download
-      // page rather than the media file itself. Follow it as a nested target
-      // instead of discarding it after the first validation miss.
+    if (buttonMedia && current.depth < 2) {
       try {
         const buttonUrl = new URL(buttonMedia.url);
-        if (buttonUrl.protocol === "https:" && !seen.has(buttonUrl.href) && current.depth < 3) {
-          queue.push({ url: buttonUrl.href, referer: current.url, depth: current.depth + 1 });
+        if (buttonUrl.protocol === "https:" && !seen.has(buttonUrl.href)) {
+          queue.push({
+            url: buttonUrl.href,
+            referer: current.url,
+            depth: current.depth + 1,
+          });
         }
       } catch {}
     }
 
     const mediaCandidates = extractMediaCandidates(html, current.url);
-    for (const candidate of mediaCandidates.slice(0, 8)) {
-      const media = mediaFromUrl(candidate.url, candidate.referer || current.url, html);
-      if (await validateMedia(env, media)) return media;
+    for (const candidate of mediaCandidates.slice(0, 4)) {
+      const media = mediaFromUrl(
+        candidate.url,
+        candidate.referer || current.url,
+        html,
+      );
+      if (await validateMedia(env, media, budget)) return media;
     }
 
-    if (current.depth >= 3) continue;
-    const nestedTargets = usefulResolutionTargets(extractTargets(html, current.url), 6);
+    if (current.depth >= 2) continue;
+    const nestedTargets = usefulResolutionTargets(
+      extractTargets(html, current.url),
+      2,
+    );
     for (const nested of nestedTargets) {
       if (seen.has(nested)) continue;
-      let nestedUrl: URL;
-      try { nestedUrl = new URL(nested); } catch { continue; }
-      if (nestedUrl.protocol !== "https:") continue;
-      queue.push({ url: nested, referer: current.url, depth: current.depth + 1 });
+      queue.push({
+        url: nested,
+        referer: current.url,
+        depth: current.depth + 1,
+      });
     }
   }
 
@@ -844,7 +877,7 @@ async function getContext(env: Env, job: Job) {
   };
 }
 
-async function discover(env: Env, job: Job, ctx: any) {
+async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   const expected = job.content_type === "episode" ? "series" : "movie";
   const candidate = await findCandidate(
     env,
@@ -852,10 +885,11 @@ async function discover(env: Env, job: Job, ctx: any) {
     ctx.year,
     expected,
     job.content_type === "episode" ? (ctx.seasonNumber || job.season_number || 1) : undefined,
+    budget,
   );
   if (!candidate) throw new Error("AKWAM_NOT_FOUND");
 
-  const detail = await fetchText(env, candidate.url);
+  const detail = await fetchText(env, candidate.url, undefined, undefined, budget);
   if (!detail) throw new Error("AKWAM_DETAIL_FETCH_FAILED");
 
   let targets: string[] = [];
@@ -872,7 +906,7 @@ async function discover(env: Env, job: Job, ctx: any) {
       throw new Error("AKWAM_EPISODE_NOT_INDEXED candidate=" + candidate.url + " season=" + season + " episode=" + ep);
     }
 
-    const episodeHtml = await fetchText(env, exactEpisode);
+    const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget);
     if (!episodeHtml) throw new Error("AKWAM_EPISODE_FETCH_FAILED");
 
     targets = extractTargets(episodeHtml, exactEpisode);
@@ -883,10 +917,10 @@ async function discover(env: Env, job: Job, ctx: any) {
 
   const medias: Media[] = [];
   const sourceReferer = candidate.url;
-  const resolutionTargets = usefulResolutionTargets(targets, 6);
+  const resolutionTargets = usefulResolutionTargets(targets, 3);
   for (const target of resolutionTargets) {
-    const media = await resolveTarget(env, target, sourceReferer);
-    if (!media || !(await validateMedia(env, media))) continue;
+    const media = await resolveTarget(env, target, sourceReferer, budget);
+    if (!media) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);
     if (medias.length >= 3) break;
   }
@@ -998,8 +1032,9 @@ async function fail(env: Env, job: Job, error: unknown, workerId: string) {
 
 async function processJob(env: Env, job: Job, workerId: string, provider: string) {
   try {
+    const budget: RequestBudget = { used: 0, max: 180 };
     const context = await getContext(env, job);
-    const sources = await discover(env, job, context);
+    const sources = await discover(env, job, context, budget);
     const count = await persist(env, job, sources, provider, workerId);
     return { ok: true, count };
   } catch (error) {
