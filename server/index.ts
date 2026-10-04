@@ -15,8 +15,9 @@ app.disable('x-powered-by');
 // Production diagnostics for the selected playback-sites path.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 
-async function getPlaybackCoreSources(contentType: 'movie' | 'episode', contentId: string) {
-  const baseUrl = String(process.env.PLAYBACK_CORE_BASE_URL || '').trim().replace(/\/+$/, '');
+async function getPlaybackCoreSources(contentType: 'movie' | 'episode', contentId: string, env?: Record<string, unknown>) {
+  const runtimeBase = env?.PLAYBACK_CORE_BASE_URL ?? process.env.PLAYBACK_CORE_BASE_URL ?? '';
+  const baseUrl = String(runtimeBase).trim().replace(/\/+$/, '');
   if (!baseUrl) return [];
   try {
     let endpoint = '';
@@ -51,8 +52,8 @@ async function getPlaybackCoreSources(contentType: 'movie' | 'episode', contentI
   } catch (error) { console.warn('[playback-core-bridge]', error instanceof Error ? error.message : String(error)); return []; }
 }
 
-async function getFreshPlaybackSourcesForContent(contentType: 'movie' | 'episode', contentId: string) {
-  return getPlaybackCoreSources(contentType, contentId);
+async function getFreshPlaybackSourcesForContent(contentType: 'movie' | 'episode', contentId: string, env?: Record<string, unknown>) {
+  return getPlaybackCoreSources(contentType, contentId, env);
 }
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   const origin = req.headers.get('origin');
@@ -176,7 +177,7 @@ async function batchSeriesGenres(ids: string[]) {
 
 async function movieDto(row: any, includePlaybackSources = false, requestUrl?: string, env?: Record<string, unknown>) {
   const playbackPromise = includePlaybackSources
-    ? getFreshPlaybackSourcesForContent('movie', row.id).catch((error) => {
+    ? getFreshPlaybackSourcesForContent('movie', row.id, env).catch((error) => {
         console.warn('[movie-playback-cache]', error instanceof Error ? error.message : String(error));
         return [];
       })
@@ -287,7 +288,7 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
 
   if (currentEpisode?.id) {
     try {
-      const prepared = await getFreshPlaybackSourcesForContent('episode', String(currentEpisode.id));
+      const prepared = await getFreshPlaybackSourcesForContent('episode', String(currentEpisode.id), env);
       playbackByEpisode.set(String(currentEpisode.id), prepared);
     } catch (playbackError) {
       console.warn(
@@ -678,7 +679,7 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
   }
 
-  const playbackSources = await getFreshPlaybackSourcesForContent('episode', String(episode.id))
+  const playbackSources = await getFreshPlaybackSourcesForContent('episode', String(episode.id), req.env || {})
     .catch((sourceError) => {
       console.warn('[episode-playback-cache]', sourceError instanceof Error ? sourceError.message : String(sourceError));
       return [];
