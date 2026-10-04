@@ -1231,4 +1231,4 @@ app.use((err: any, _req: HttpRequest, res: HttpResponse, _next: NextFunction) =>
 
   return fail(res, 500, 'INTERNAL_ERROR', 'Internal server error');
 });
-// CI deploy sync marker: Vercel rewrite now preserves /v1 path into /api function.
+// CI deploy sync marker: CinePro route CI aligned with /api/$1 rewrite.
