@@ -61,16 +61,188 @@ jobs:
       - name: Validate Cloudflare configuration
         run: npx wrangler deploy --dry-run
 
-      - name: Deploy CinePro Core
+      - name: Deploy CinePro Core (Cloudflare adapter)
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
           git clone --depth 1 https://github.com/cinepro-org/core.git .cinepro
           cd .cinepro
           npm install --no-audit --no-fund
-          npm run build
+          cat > cloudflare-entry.ts <<'EOF'
+import { OMSSServer } from '@omss/framework';
+import { knownThirdPartyProxies } from './src/thirdPartyProxies';
+import { streamPatterns } from './src/streamPatterns';
+
+import { MovieDownloader } from './src/providers/02moviedownloader/02moviedownloader';
+import { AnyEmbed } from './src/providers/anyembed/anyembed';
+import { CineSuProvider } from './src/providers/cinesu/cinesu';
+import { Fmovies4U } from './src/providers/fmovies4u/fmovies4u';
+import { FsharetvProvider } from './src/providers/fshare/fshare';
+import { IcefyProvider } from './src/providers/icefy/icefy';
+import { PeachifyProvider } from './src/providers/peachify/peachify';
+import { PoprProvider } from './src/providers/popr/popr';
+import { StreamMafiaProvider } from './src/providers/streammafia/streammafia';
+import { TulnexProvider } from './src/providers/tulnex/tulnex';
+import { VidApiProvider } from './src/providers/vidapi/vidapi';
+import { VideasyProvider } from './src/providers/videasy/videasy';
+import { VidNestProvider } from './src/providers/vidnest/vidnest';
+import { VidRockProvider } from './src/providers/vidrock/vidrock';
+import { VidSrcProvider } from './src/providers/vidsrc/vidsrc';
+import { VidZeeProvider } from './src/providers/vidzee/vidzee';
+import { VixSrcProvider } from './src/providers/vixsrc/vixsrc';
+
+const PUBLIC_URL = 'https://movyz-cinepro.sameranede.workers.dev';
+const tmdbApiKey = process.env.TMDB_API_KEY || process.env.TMDB_API_READ_ACCESS_TOKEN;
+if (!tmdbApiKey) throw new Error('TMDB_API_KEY is required');
+
+const nativeFetch = globalThis.fetch;
+globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const requestUrl = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+  if (requestUrl.hostname === 'api.themoviedb.org') {
+    requestUrl.searchParams.delete('api_key');
+    const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+    headers.set('Authorization', `Bearer ${tmdbApiKey}`);
+    return nativeFetch(requestUrl, { ...init, headers });
+  }
+  return nativeFetch(input, init);
+};
+
+const nativeSetInterval = globalThis.setInterval;
+globalThis.setInterval = (() => ({ unref() {} })) as unknown as typeof setInterval;
+
+const cinepro = new OMSSServer({
+  name: 'CinePro',
+  version: '1.0.0',
+  host: '0.0.0.0',
+  port: 8787,
+  publicUrl: PUBLIC_URL,
+  cache: { type: 'memory', ttl: { sources: 60 * 60, subtitles: 60 * 60 * 24 } },
+  tmdb: { apiKey: tmdbApiKey, cacheTTL: 24 * 60 * 60 },
+  proxyConfig: { knownThirdPartyProxies, streamPatterns },
+  cors: {
+    origin: '*',
+    methods: ['GET', 'OPTIONS', 'HEAD'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept'],
+    exposedHeaders: ['Content-Length', 'Content-Type', 'Content-Range', 'Accept-Ranges', 'ETag'],
+    credentials: false,
+  },
+  stremio: { enableNativeAddon: true, stremioAddons: [] },
+  mcp: { enabled: false },
+});
+
+globalThis.setInterval = nativeSetInterval;
+
+const providers = [
+  MovieDownloader, AnyEmbed, CineSuProvider, Fmovies4U, FsharetvProvider,
+  IcefyProvider, PeachifyProvider, PoprProvider, StreamMafiaProvider, TulnexProvider,
+  VidApiProvider, VideasyProvider, VidNestProvider, VidRockProvider, VidSrcProvider,
+  VidZeeProvider, VixSrcProvider,
+];
+const registry = cinepro.getRegistry();
+for (const Provider of providers) registry.register(new Provider());
+
+const sourceService = (cinepro as any).sourceService as {
+  getMovieSources(tmdbId: string): Promise<unknown>;
+  getTVSources(tmdbId: string, season: number, episode: number): Promise<unknown>;
+};
+const proxyService = (cinepro as any).proxyService as { proxyRequest(encodedData: string): Promise<any> };
+
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+  status,
+  headers: {
+    'content-type': 'application/json; charset=utf-8',
+    'access-control-allow-origin': '*',
+    'cache-control': 'no-store',
+  },
+});
+
+export default {
+  async fetch(request: Request) {
+    const url = new URL(request.url);
+    if (request.method === 'OPTIONS') return new Response(null, {
+      status: 204,
+      headers: {
+        'access-control-allow-origin': '*',
+        'access-control-allow-methods': 'GET,OPTIONS,HEAD',
+        'access-control-allow-headers': 'Content-Type, Authorization, Range, Accept',
+      },
+    });
+    if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'METHOD_NOT_ALLOWED' }, 405);
+
+    try {
+      if (url.pathname === '/' || url.pathname === '/v1' || url.pathname === '/v1/' || url.pathname === '/v1/health') {
+        return json({ name: 'CinePro', version: '1.0.0', status: 'ok', providers: registry.getEnabledProviders().map((p: any) => p.name) });
+      }
+
+      const movie = url.pathname.match(/^\/v1\/movies\/([^/]+)$/);
+      if (movie) return json(await sourceService.getMovieSources(decodeURIComponent(movie[1])));
+
+      const episode = url.pathname.match(/^\/v1\/tv\/([^/]+)\/seasons\/(\d+)\/episodes\/(\d+)$/);
+      if (episode) {
+        return json(await sourceService.getTVSources(
+          decodeURIComponent(episode[1]),
+          Number.parseInt(episode[2], 10),
+          Number.parseInt(episode[3], 10),
+        ));
+      }
+
+      const proxyData = url.pathname === '/v1/proxy' ? url.searchParams.get('data') : null;
+      if (proxyData) {
+        let parsed: any;
+        try { parsed = JSON.parse(decodeURIComponent(proxyData)); }
+        catch { return json({ error: 'INVALID_PARAMETER' }, 400); }
+        const range = request.headers.get('range');
+        parsed.headers = { ...(parsed.headers ?? {}), ...(range ? { range } : {}) };
+        const response = await proxyService.proxyRequest(encodeURIComponent(JSON.stringify(parsed)));
+        const headers = new Headers(response.headers ?? {});
+        headers.set('access-control-allow-origin', '*');
+        headers.set('access-control-expose-headers', 'Content-Length, Content-Range, Accept-Ranges, Last-Modified, ETag');
+        headers.set('content-type', response.contentType || 'application/octet-stream');
+
+        if ('stream' in response) {
+          const { Readable } = await import('node:stream');
+          return new Response(Readable.toWeb(response.stream), { status: response.statusCode, headers });
+        }
+        return new Response(response.data, { status: response.statusCode, headers });
+      }
+
+      return json({ error: { code: 'ENDPOINT_NOT_FOUND', path: url.pathname } }, 404);
+    } catch (error) {
+      console.error('[CinePro] request failed', error);
+      return json({
+        error: {
+          code: 'CINEPRO_RUNTIME_ERROR',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      }, 500);
+    }
+  },
+};
+
+EOF
+          cat > wrangler.json <<'EOF'
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "movyz-cinepro",
+  "main": "cloudflare-entry.ts",
+  "compatibility_date": "2026-10-04",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "vars": {
+    "PUBLIC_URL": "https://movyz-cinepro.sameranede.workers.dev",
+    "NODE_ENV": "production",
+    "HOST": "0.0.0.0",
+    "PORT": "8787",
+    "CACHE_TYPE": "memory",
+    "STREMIO_ADDON": "true",
+    "CORS_ORIGIN": "*",
+    "MCP_ENABLED": "false"
+  },
+  "compatibility_flags": ["allow_eval_during_startup", "nodejs_compat_populate_process_env"]
+}
+EOF
           printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env.cinepro
-          npx wrangler deploy --name movyz-cinepro --secrets-file .env.cinepro
+          npx wrangler deploy --config wrangler.json --secrets-file .env.cinepro
 
       - name: Smoke test CinePro Core
         run: |
