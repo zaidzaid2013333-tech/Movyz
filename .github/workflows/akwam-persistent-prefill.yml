@@ -1,0 +1,18 @@
+name: Movyz Akwam Persistent Prefill
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-akwam-persistent-prefill
+  cancel-in-progress: true
+
+jobs:
+  legacy-disabled:
+    runs-on: ubuntu-slim
+    steps:
+      - run: echo "Legacy Akwam/CinePro prefill is intentionally disabled."
