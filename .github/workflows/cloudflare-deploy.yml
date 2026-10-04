@@ -104,7 +104,7 @@ jobs:
           console.log('Patched Avvio nextTick compatibility:', targets.length, 'files')
           NODE
 
-          # Disable Avvio's 10s plugin watchdog in the temporary installed framework.
+          # Disable Avvio's 10s plugin watchdog in the temporary installed framework (final worker compatibility pass).
           # This is a Workers compatibility setting, not a CinePro provider change.
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
