@@ -364,8 +364,8 @@ async function discover(env: Env, job: Job, ctx: any) {
     const rank = (url: string) => {
       const decoded = decodeURIComponent(url).toLowerCase();
       let s = 0;
-      if (new RegExp(\`(?:^|\\D)(?:episode|ep|حلقة|الحلقة)\\s*0*\${ep}(?:\\D|$)\`, "i").test(decoded)) s += 120;
-      if (new RegExp(\`s0*\${season}e0*\${ep}(?:\\D|$)\`, "i").test(decoded)) s += 120;
+      if (new RegExp(`(?:^|\\D)(?:episode|ep|حلقة|الحلقة)\\s*0*${ep}(?:\\D|$)`, "i").test(decoded)) s += 120;
+      if (new RegExp(`(?:^|\\D)(?:episode|ep|حلقة|الحلقة)\\s*0*${ep}(?:\\D|$)`, "i").test(decoded)) s += 120;
       if (/\/(?:episode|watch)\//i.test(new URL(url).pathname)) s += 20;
       if (/\/(?:download|link)\//i.test(new URL(url).pathname)) s += 10;
       return s;
