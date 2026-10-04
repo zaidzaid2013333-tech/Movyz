@@ -321,6 +321,7 @@ async function findCandidate(
   titles: string[],
   year?: number,
   expected: "movie" | "series" | "episode" = "movie",
+  budget?: RequestBudget,
   expectedSeason?: number,
 ) {
   const hosts = [base(env)];
@@ -346,7 +347,7 @@ async function findCandidate(
         "&section=" +
         encodeURIComponent(section) +
         "&page=1";
-      const html = await fetchText(env, url, diagnostics);
+      const html = await fetchText(env, url, diagnostics, undefined, budget);
       if (!html) continue;
 
       for (const item of parseCandidates(html, env)) {
@@ -392,7 +393,7 @@ async function findCandidate(
     // discarding every legacy candidate as "other".
     if (host === base(env)) {
       for (const title of variants.slice(0, 1)) {
-        const html = await fetchText(env, host + "/old/search/" + encodeURIComponent(title), diagnostics);
+        const html = await fetchText(env, host + "/old/search/" + encodeURIComponent(title), diagnostics, undefined, budget);
         if (!html) continue;
         for (const item of parseCandidates(html, env, true)) {
           const itemScore = score(item, titles, year, expected, expectedSeason);
