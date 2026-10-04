@@ -177,14 +177,6 @@ jobs:
           print('Created and promoted Vercel CinePro route:', promoted.get('version', {}).get('id', version))
           PY
 
-      - name: Stop Vercel Git auto-deployments
-        continue-on-error: true
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_PROJECT_ID: prj_ndHymG2FwQeIeDRv9rqhu8AHEDNl
-        run: |
-          npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT_ID" --token "$VERCEL_TOKEN" --scope "$VERCEL_TEAM_SLUG"
-          npx --yes vercel@latest git disconnect github --yes --token "$VERCEL_TOKEN"
       - name: Deploy CinePro Core to Vercel
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -195,19 +187,19 @@ jobs:
             exit 1
           fi
           set +e
-          OUTPUT="$(npx --yes vercel@latest redeploy dpl_FEM8GX6w39ezpXosEMrAbx9U6TS3 --token "$VERCEL_TOKEN" --target production --non-interactive 2>&1)"
+          OUTPUT="$(npx --yes vercel@62.2.0 deploy --prod --yes --token "$VERCEL_TOKEN" --project "$VERCEL_PROJECT_ID" 2>&1)"
           STATUS=$?
           set -e
           printf '%s\n' "$OUTPUT"
           if [ "$STATUS" -eq 0 ]; then
-            echo "CinePro existing deployment redeploy requested."
+            echo "CinePro production deployment created."
             exit 0
           fi
           if printf '%s' "$OUTPUT" | grep -qi 'api-deployments-free-per-day'; then
-            echo "Vercel Hobby daily deployment cap still active; existing deployment could not be rebuilt yet."
+            echo "Vercel Hobby daily deployment cap still active; current-source deployment will retry after the quota window."
             exit 0
           fi
-          echo "Vercel redeploy failed for a reason other than the daily quota."
+          echo "Vercel deployment failed for a reason other than the daily quota."
           exit "$STATUS"
       - name: Verify CinePro Core on Vercel
         env:
@@ -215,14 +207,7 @@ jobs:
         run: |
           python - <<'PY'
           import json, os, urllib.request
-          bases = [
-              ("production", "https://movyz-6dqf.vercel.app"),
-              ("ready-5e3e9", "https://movyz-6dqf-7kjyvqj88-zaidzaid2013333-1693.vercel.app"),
-              ("ready-17384", "https://movyz-6dqf-6g1ocgxt5-zaidzaid2013333-1693.vercel.app"),
-              ("ready-88f05", "https://movyz-6dqf-9io2i29tb-zaidzaid2013333-1693.vercel.app"),
-              ("ready-7fe41", "https://movyz-6dqf-j2lft3l4x-zaidzaid2013333-1693.vercel.app"),
-              ("ready-c1ec", "https://movyz-6dqf-8dtuayw4p-zaidzaid2013333-1693.vercel.app"),
-          ]
+          base = "https://movyz-6dqf.vercel.app"
           token = os.environ.get("TMDB_API_READ_ACCESS_TOKEN", "")
           if not token:
               raise SystemExit("TMDB_API_READ_ACCESS_TOKEN is missing")
@@ -231,42 +216,24 @@ jobs:
               "Authorization": "Bearer " + token,
               "User-Agent": "Movyz-CinePro-Vercel-CI/1.0",
           }
-          candidates = [
-              ("api-root", "/api", "/api", "/api"),
-              ("cinepro-root", "/api/cinepro", "/api/cinepro", "/api/cinepro"),
-              ("cinepro-function", "/api/cinepro/v1/health", "/api/cinepro/v1/movies/157336", "/api/cinepro/v1/tv/1399/seasons/1/episodes/1"),
-              ("public", "/v1/health", "/v1/movies/157336", "/v1/tv/1399/seasons/1/episodes/1"),
+          checks = [
+              ("health", "/v1/health"),
+              ("movie", "/v1/movies/157336"),
+              ("episode", "/v1/tv/1399/seasons/1/episodes/1"),
           ]
-          working = None
-          for base_label, base in bases:
-              for label, health, movie, episode in candidates:
-                  try:
-                      req = urllib.request.Request(base + health, headers=headers)
-                      with urllib.request.urlopen(req, timeout=20) as response:
-                          payload = json.load(response)
-                      print(base_label, label, health, "OK", payload)
-                      working = (base_label, base, label, movie, episode)
-                      break
-                  except Exception as error:
-                      print(base_label, label, health, "FAILED:", error)
-              if working:
-                  break
-          if not working:
-              raise SystemExit("No existing Vercel deployment exposed the CinePro Function.")
-          base_label, base, label, movie_path, episode_path = working
-          for path in [movie_path, episode_path]:
+          for label, path in checks:
               req = urllib.request.Request(base + path, headers=headers)
               try:
                   with urllib.request.urlopen(req, timeout=90) as response:
                       payload = json.load(response)
               except Exception as error:
-                  print(path, "FAILED:", error)
+                  print(label, path, "FAILED:", error)
                   raise
               sources = payload.get("sources", []) if isinstance(payload, dict) else []
-              print(base_label, path, "sources=", len(sources))
-              if not sources:
+              print(label, path, "status=OK", "sources=", len(sources))
+              if label != "health" and not sources:
                   raise SystemExit(f"Vercel CinePro returned no sources for {path}: {json.dumps(payload)[:6000]}")
-          print("Vercel CinePro source smoke: OK via", base_label, label)
+          print("Vercel CinePro production smoke: OK")
           PY
       - name: Deploy CinePro Core (legacy Cloudflare adapter) [DISABLED]
         if: false

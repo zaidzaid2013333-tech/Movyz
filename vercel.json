@@ -9,12 +9,15 @@
     },
     "api/cinepro.mjs": {
       "maxDuration": 60
+    },
+    "api/cinepro/[...path].mjs": {
+      "maxDuration": 60
     }
   },
   "rewrites": [
     {
       "source": "/v1/:path*",
-      "destination": "/api/cinepro"
+      "destination": "/api/cinepro/v1/:path*"
     }
   ]
 }
