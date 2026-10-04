@@ -1,3 +1,7 @@
+type ExecutionContextLike = {
+  waitUntil(promise: Promise<unknown>): void;
+};
+
 type Env = {
   SUPABASE_SERVICE_ROLE_KEY: string;
 };
@@ -31,7 +35,7 @@ export default {
     return Response.json({ ok: true, service: "movyz-akwam-launcher" });
   },
 
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+  async scheduled(_event: unknown, env: Env, ctx: ExecutionContextLike) {
     ctx.waitUntil(dispatch(env).catch((error) => console.error(String(error))));
   },
 };
