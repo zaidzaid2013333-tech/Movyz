@@ -25,7 +25,7 @@ function walk(dir) {
 
 const providerFiles = walk(root).filter((file) => {
   const source = fs.readFileSync(file, 'utf8');
-  return /export\\s+class\\s+\\w+\\s+extends\\s+BaseProvider/.test(source);
+  return /export\s+class\s+\w+\s+extends\s+BaseProvider/.test(source);
 });
 
 const imports = providerFiles.map((file, index) => {
