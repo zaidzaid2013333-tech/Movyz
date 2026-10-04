@@ -348,12 +348,62 @@ async function sourcesFor(type, id, season, episode, requestUrl, env) {
       }
     }
 
-    // When a Node relay is configured, do not probe the upstream CDN from
-    // Cloudflare first. Some upstream media hosts return 522/524 from Worker
-    // egress even though the same URL is playable through the relay.
-    // Keep direct probing only as a fallback for relay-less deployments.
+    // With a Node relay configured, rank sources by a real relay-side
+    // manifest + first-segment probe. Cloudflare Workers cannot reliably probe
+    // some upstream CDNs, while the relay is the same path the player uses.
     let ranked = rawSources;
-    if (!String(env?.MEDIA_RELAY_BASE_URL || '').trim()) {
+    const relayBase = String(env?.MEDIA_RELAY_BASE_URL || '').trim().replace(/\/+$/, '');
+
+    if (relayBase) {
+      const byProvider = new Map();
+      for (const source of rawSources) {
+        const provider = String(source.provider || 'unknown');
+        if (!byProvider.has(provider)) byProvider.set(provider, []);
+        const list = byProvider.get(provider);
+        if (list.length < 2) list.push(source);
+      }
+
+      const probeCandidates = [...byProvider.values()].flat().slice(0, 8);
+
+      const probeResults = await Promise.all(
+        probeCandidates.map(async (source) => {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 9000);
+          try {
+            const probeUrl =
+              relayBase +
+              '/api/relay?probe=1&url=' +
+              encodeURIComponent(source.url) +
+              '&headers=' +
+              encodeURIComponent(JSON.stringify(source.headers || {}));
+
+            const response = await fetch(probeUrl, {
+              method: 'GET',
+              headers: { Accept: 'application/json' },
+              signal: controller.signal,
+            });
+            if (!response.ok) return [source.url, false];
+            const payload = await response.json();
+            return [source.url, payload?.playable === true];
+          } catch {
+            return [source.url, false];
+          } finally {
+            clearTimeout(timeout);
+          }
+        }),
+      );
+
+      const playableUrls = new Set(
+        probeResults.filter(([, ok]) => ok).map(([url]) => url),
+      );
+
+      if (playableUrls.size) {
+        ranked = [
+          ...rawSources.filter((source) => playableUrls.has(source.url)),
+          ...rawSources.filter((source) => !playableUrls.has(source.url)),
+        ];
+      }
+    } else {
       const byProvider = new Map();
       for (const source of rawSources) {
         if (!byProvider.has(source.provider)) byProvider.set(source.provider, []);
