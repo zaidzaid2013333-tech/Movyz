@@ -71,8 +71,12 @@ jobs:
           python - <<'PY'
           import json, urllib.request
           base = "https://movyz-media-core.sameranede.workers.dev"
+          headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36", "Accept": "application/json"}
+          opener = urllib.request.build_opener()
+          opener.addheaders = list(headers.items())
           for path in ["/v1/health", "/v1/movies/157336", "/v1/tv/1399/seasons/1/episodes/1"]:
-              with urllib.request.urlopen(base + path, timeout=45) as response:
+              request = urllib.request.Request(base + path, headers=headers)
+              with opener.open(request, timeout=45) as response:
                   payload = json.load(response)
               print(path, "sources=", len(payload.get("sources", [])) if isinstance(payload, dict) else -1)
               if path != "/v1/health" and not payload.get("sources"):
