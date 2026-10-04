@@ -42,10 +42,22 @@ const providers = [
   VixSrcProvider,
 ];
 
-const tmdbApiKey = process.env.TMDB_API_KEY;
+const tmdbApiKey = process.env.TMDB_API_KEY || process.env.TMDB_API_READ_ACCESS_TOKEN;
 if (!tmdbApiKey) {
-  throw new Error('TMDB_API_KEY is required');
+  throw new Error('TMDB_API_READ_ACCESS_TOKEN is required');
 }
+
+const nativeFetch = globalThis.fetch;
+globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const requestUrl = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+  if (requestUrl.hostname === 'api.themoviedb.org') {
+    requestUrl.searchParams.delete('api_key');
+    const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+    headers.set('Authorization', `Bearer ${tmdbApiKey}`);
+    return nativeFetch(requestUrl, { ...init, headers });
+  }
+  return nativeFetch(input, init);
+};
 
 // OMSSServer builds the entire CinePro service graph synchronously.
 const nativeSetInterval = globalThis.setInterval;
