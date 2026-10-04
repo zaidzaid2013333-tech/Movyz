@@ -304,3 +304,9 @@ The training is considered useful only when it changes future decisions measurab
 - no video proxying by Movyz;
 - no Browser Run dependency;
 - no permanent Akwam media URL storage.
+
+### Search failover rule
+- Primary Akwam search is `/search?q=<query>`.
+- Search is bounded: use up to 3 title variants and try canonical hosts in order `configured -> ak.sv -> akwam.ss -> akwam.it`.
+- Do not fan out every route family at once. Stop immediately after a high-confidence matching candidate.
+- `/old/search/<query>` is only a last fallback on the configured host and is never allowed to produce an `/old/` content candidate.
