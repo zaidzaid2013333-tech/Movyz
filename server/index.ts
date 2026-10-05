@@ -915,7 +915,7 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
       stillUrl: episode.still_url || '',
       duration: Number(episode.runtime_minutes || 0),
       airDate: episode.air_date || '',
-      sources: playbackSources,
+      sources: [],
     },
   });
 }));
