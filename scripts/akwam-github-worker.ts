@@ -15,7 +15,7 @@ const workerId =
 
 const workMinutes = Math.max(5, Math.min(350, Number(process.env.AKWAM_WORK_MINUTES || 340)));
 const batchSize = Math.max(1, Math.min(100, Number(process.env.AKWAM_BATCH_SIZE || 100)));
-const concurrency = Math.max(1, Math.min(12, Number(process.env.AKWAM_CONCURRENCY || 12)));
+const concurrency = Math.max(1, Math.min(16, Number(process.env.AKWAM_CONCURRENCY || 16)));
 const stopAt = Date.now() + workMinutes * 60_000;
 const stateKey = "akwam-github-" + workerId;
 
