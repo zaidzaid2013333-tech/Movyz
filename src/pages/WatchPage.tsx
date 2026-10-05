@@ -971,7 +971,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       setPlaybackError(null);
       syncTime();
       syncBuffered();
-      runStartupWarmup(video, playbackUrl);
     };
     const onPause = () => setPlayerPlaying(false);
     const onWaiting = () => {
