@@ -637,14 +637,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   };
 
 
-    const video = videoRef.current;
-    if (!video || !Number.isFinite(video.duration)) return;
-    video.currentTime = Math.min(
-      Math.max(0, video.currentTime + seconds),
-      Math.max(0, video.duration),
-    );
-  };
-
   const setPlayerProgress = (value: number) => {
     const video = videoRef.current;
     if (!video || !Number.isFinite(video.duration)) return;
