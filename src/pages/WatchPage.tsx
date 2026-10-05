@@ -400,8 +400,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const togglePlayerPlayback = () => {
     const video = videoRef.current;
     if (!video) return;
-    if (video.paused) void video.play().catch(() => undefined);
-    else video.pause();
+    if (video.paused) {
+      // Load aggressively only when the user actually asks to play.
+      video.preload = 'auto';
+      void video.play().catch(() => undefined);
+    } else video.pause();
   };
 
   const seekPlayerBy = (seconds: number) => {
@@ -704,7 +707,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current = null;
       resetMediaElement();
       video.src = playbackUrl;
-      video.preload = 'auto';
+      video.preload = 'metadata';
       video.load();
     };
 
@@ -873,13 +876,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       syncDuration();
       syncTime();
       syncBuffered();
-      runStartupWarmup(video, playbackUrl);
     };
     const onPlaying = () => {
       setPlayerPlaying(true);
       setPlayerReady(true);
       setPlaybackError(null);
-      runStartupWarmup(video, playbackUrl);
       syncTime();
       syncBuffered();
     };
@@ -1132,7 +1133,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       video.removeAttribute('src');
                       video.load();
                       video.src = playbackUrl;
-                      video.preload = 'auto';
+                      video.preload = 'metadata';
                       video.load();
                     }}
                     onGoHome={() => onNavigate('/')}
@@ -1157,7 +1158,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 poster={content.backdropUrl || content.posterUrl}
                 className={(isEmbedPlayback ? 'hidden ' : '') + 'block h-full w-full bg-black object-contain'}
                 playsInline
-                preload="auto"
+                preload="metadata"
                 disablePictureInPicture={false}
                 onLoadStart={() => {
                   playbackStartedRef.current = false;
@@ -1180,7 +1181,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   }
                   setPlayerReady(true);
                   if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
-                  runStartupWarmup(video, playbackUrl);
 
                   const resumeTime = qualityResumeTimeRef.current;
                   if (resumeTime === null || !Number.isFinite(video.duration) || video.duration <= 0) return;
