@@ -14,12 +14,11 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: movyz-akwam-queue-engine
-  cancel-in-progress: true
-
 jobs:
   deploy:
+    concurrency:
+      group: movyz-akwam-queue-engine-deploy
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -118,3 +117,37 @@ jobs:
 
       - if: always()
         run: rm -f .env.queue-job .env.queue-dispatcher
+
+  github-worker-fleet:
+    name: Akwam GitHub worker ${{ matrix.worker }}
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    concurrency:
+      group: movyz-akwam-github-fleet-${{ matrix.worker }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        worker: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MOVYZ_WORKER_ID: gha-akwam-${{ github.run_id }}-${{ matrix.worker }}
+      AKWAM_WORK_MINUTES: "350"
+      AKWAM_BATCH_SIZE: "100"
+      AKWAM_CONCURRENCY: "12"
+
+    steps:
+      - name: Checkout worker code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Start Movyz Akwam worker
+        run: npx --yes tsx@4.21.0 scripts/akwam-github-worker.ts
