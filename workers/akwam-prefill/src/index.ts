@@ -909,6 +909,77 @@ async function validateMedia(env: Env, media: Media, budget?: RequestBudget) {
   }
 }
 
+function extractSessionCookie(response: Response) {
+  const raw = response.headers.get("set-cookie") || "";
+  const match = raw.match(/(?:^|,\\s*)(prefixakoam_session=[^;]+)/i);
+  return match?.[1] || "";
+}
+
+async function resolveLegacyAkwamDownload(
+  env: Env,
+  target: string,
+  referer?: string,
+  budget?: RequestBudget,
+): Promise<Media | null> {
+  try {
+    consumeRequest(budget);
+    const page = await fetch(target, {
+      headers: {
+        ...headers(env),
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        ...(referer ? { Referer: referer } : {}),
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!page.ok) return null;
+
+    // The legacy Akwam resolver authenticates the POST with the session
+    // cookie created by this GET. Browser jQuery does the same automatically.
+    const sessionCookie = extractSessionCookie(page);
+    if (!sessionCookie) return null;
+
+    consumeRequest(budget);
+    const resolver = await fetch(target, {
+      method: "POST",
+      headers: {
+        ...headers(env),
+        Accept: "application/json, text/javascript, */*;q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        Origin: base(env),
+        Referer: target,
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        Cookie: sessionCookie,
+      },
+      body: "",
+      redirect: "follow",
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!resolver.ok) return null;
+
+    const raw = await resolver.text();
+    let payload: any;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+
+    const directLink =
+      typeof payload?.direct_link === "string"
+        ? payload.direct_link.replace(/^http:\/\//i, "https://").trim()
+        : "";
+    if (!directLink || !/^https:\/\//i.test(directLink)) return null;
+
+    const media = mediaFromUrl(directLink, target);
+    if (await validateMedia(env, media, budget)) return media;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+
 async function resolveTarget(
   env: Env,
   target: string,
@@ -919,23 +990,8 @@ async function resolveTarget(
   if (!isLikelyNavigationUrl(target) && await validateMedia(env, direct, budget)) return direct;
 
   if (/^https:\/\/akwam\.ss\/old\/download\//i.test(target)) {
-    try {
-      consumeRequest(budget);
-      const redirected = await fetch(target, {
-        headers: {
-          ...headers(env),
-          Accept: "text/html,*/*;q=0.8",
-          ...(referer ? { Referer: referer } : {}),
-        },
-        redirect: "manual",
-        signal: AbortSignal.timeout(5000),
-      });
-      const location = redirected.headers.get("location");
-      if (location) {
-        const media = mediaFromUrl(new URL(location, target).href, target);
-        if (!isLikelyNavigationUrl(media.url) && await validateMedia(env, media, budget)) return media;
-      }
-    } catch {}
+    const legacyMedia = await resolveLegacyAkwamDownload(env, target, referer, budget);
+    if (legacyMedia) return legacyMedia;
   }
 
   const html = await fetchText(env, target, undefined, referer, budget);
