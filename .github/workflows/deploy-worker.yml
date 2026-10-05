@@ -171,37 +171,41 @@ jobs:
                       f"content_type={stream_type!r} bytes={len(sample)}"
                   )
 
-                  # Verify an actual non-zero byte range too. This catches relays that
-                  # only happen to work for the first 1 KB but fail when seeking.
-                  offset_req = urllib.request.Request(
-                      stream_url,
-                      headers={
-                          "Accept": "*/*",
-                          "Range": "bytes=5242880-5243903",
-                          "User-Agent": "Movyz-CI-Stream/1.0",
-                      },
-                  )
-                  try:
-                      with urllib.request.urlopen(offset_req, timeout=30) as offset_response:
-                          offset_status = offset_response.status
-                          offset_range = str(offset_response.headers.get("content-range") or "")
-                          offset_sample = offset_response.read(1024)
-                  except urllib.error.HTTPError as exc:
-                      body = exc.read().decode("utf-8", errors="replace")
-                      raise SystemExit(f"{label}: non-zero range HTTP {exc.code}: {body[:800]}") from exc
-
-                  if offset_status not in {200, 206}:
-                      raise SystemExit(f"{label}: non-zero range returned HTTP {offset_status}")
-                  if not offset_sample:
-                      raise SystemExit(f"{label}: non-zero range returned no bytes")
-                  if offset_status == 206 and not re.search(r"bytes\s+5242880-", offset_range, re.I):
-                      raise SystemExit(
-                          f"{label}: non-zero range returned unexpected Content-Range {offset_range!r}"
+                  # Verify a real non-zero seek range. The relay should either serve
+                  # the requested range promptly or transparently fall back to another live
+                  # Akwam source. Keep this expensive seek probe to the first advertised source.
+                  if source is sources[0]:
+                      offset_req = urllib.request.Request(
+                          stream_url,
+                          headers={
+                              "Accept": "*/*",
+                              "Range": "bytes=5242880-5242943",
+                              "User-Agent": "Movyz-CI-Stream/1.0",
+                          },
                       )
-                  print(
-                      f"range_ok label={label!r} status={offset_status} "
-                      f"content_range={offset_range!r} bytes={len(offset_sample)}"
-                  )
+                      try:
+                          with urllib.request.urlopen(offset_req, timeout=15) as offset_response:
+                              offset_status = offset_response.status
+                              offset_range = str(offset_response.headers.get("content-range") or "")
+                              offset_sample = offset_response.read(64)
+                      except urllib.error.HTTPError as exc:
+                          body = exc.read().decode("utf-8", errors="replace")
+                          raise SystemExit(f"{label}: non-zero range HTTP {exc.code}: {body[:800]}") from exc
+                      except TimeoutError as exc:
+                          raise SystemExit(f"{label}: non-zero range stalled before media bytes arrived") from exc
+
+                      if offset_status not in {200, 206}:
+                          raise SystemExit(f"{label}: non-zero range returned HTTP {offset_status}")
+                      if not offset_sample:
+                          raise SystemExit(f"{label}: non-zero range returned no bytes")
+                      if offset_status == 206 and not re.search(r"bytes\s+5242880-", offset_range, re.I):
+                          raise SystemExit(
+                              f"{label}: non-zero range returned unexpected Content-Range {offset_range!r}"
+                          )
+                      print(
+                          f"range_ok label={label!r} status={offset_status} "
+                          f"content_range={offset_range!r} bytes={len(offset_sample)}"
+                      )
 
               mode = str(data.get("mode") or "")
               print(
