@@ -9,6 +9,9 @@ const repairs = [
   { rank: 138, tmdbId: 124101, curatedYear: 2025 },
   { rank: 139, tmdbId: 95480, curatedYear: 2025 },
   { rank: 185, tmdbId: 78191, curatedYear: 2025 },
+  { rank: 22, tmdbId: 94997, curatedYear: 2026 },
+  { rank: 49, tmdbId: 62560, curatedYear: 2026 },
+  { rank: 159, tmdbId: 100757, curatedYear: 2026 },
 ] as const;
 
 const results: Array<Record<string, unknown>> = [];
