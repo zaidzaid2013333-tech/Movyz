@@ -380,43 +380,30 @@ async function findCandidate(
       ].filter(Boolean))).slice(0, 4);
 
   for (const host of hosts) {
-    // Prefer the live catalog routes first. The legacy /old/search endpoint
-    // contains stale/ambiguous archive entries and can return a wrong movie
-    // for modern titles; use it only after current-catalog probes fail.
-    // Use Akwam's current search route with an explicit content section.
-    if (expected === "movie" || expected === "series") {
-      const section = expected;
-      for (const title of variants) {
-        const canonicalUrl = host + "/search?q=" + encodeURIComponent(title) + "&section=" + encodeURIComponent(section) + "&page=1";
-        const html = await fetchText(env, canonicalUrl, diagnostics, undefined, budget);
-        if (!html) continue;
-
-        for (const item of parseCandidates(html, env, expected === "movie")) {
-          const itemScore = score(item, titles, year, expected, expectedSeason);
-          if (!best || itemScore > best.score) best = { item, score: itemScore };
-        }
-        if (best && best.score >= 128) return best.item;
-      }
-    }
-    // Last resort: legacy archive search. Keep it bounded and only on the
-    // verified Akwam host; semantic guards still reject mismatched content.
-    if (host === base(env)) {
-      const legacyVariants = variants.slice(0, expected === "movie" ? 3 : 4);
+    // Akwam's current homepage documents the legacy search as a search across
+    // the site's full data set, and the working indexed route uses /page/1.
+    // Use that verified route first instead of spending most of the request
+    // budget probing speculative /search?q=... endpoints that currently return
+    // 404 from worker execution.
+    if (host === base(env) && (expected === "movie" || expected === "series")) {
+      const legacyVariants = variants.slice(0, expected === "movie" ? 5 : 4);
       for (const title of legacyVariants) {
-        const html = await fetchText(
-          env,
-          host + "/old/search/" + encodeURIComponent(title),
-          diagnostics,
-          undefined,
-          budget,
-        );
-        if (!html) continue;
+        const encoded = encodeURIComponent(title);
+        const searchUrls = [
+          host + "/old/search/" + encoded + "/page/1",
+          host + "/old/search/" + encoded,
+        ];
 
-        for (const item of parseCandidates(html, env, true)) {
-          const itemScore = score(item, titles, year, expected, expectedSeason);
-          if (!best || itemScore > best.score) best = { item, score: itemScore };
+        for (const searchUrl of searchUrls) {
+          const html = await fetchText(env, searchUrl, diagnostics, undefined, budget);
+          if (!html) continue;
+
+          for (const item of parseCandidates(html, env, true)) {
+            const itemScore = score(item, titles, year, expected, expectedSeason);
+            if (!best || itemScore > best.score) best = { item, score: itemScore };
+          }
+          if (best && best.score >= 128) return best.item;
         }
-        if (best && best.score >= 128) return best.item;
       }
     }
   }
