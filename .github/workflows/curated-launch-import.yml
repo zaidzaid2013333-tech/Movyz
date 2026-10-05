@@ -4,7 +4,6 @@ on:
   push:
     branches: ["ui/watch-player-responsive-20261005"]
     paths:
-      - "server/tmdb.ts"
       - "server/curatedCatalog.ts"
       - "scripts/import-curated-catalog.ts"
       - ".github/workflows/curated-launch-import.yml"
