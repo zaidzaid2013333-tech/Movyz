@@ -158,6 +158,8 @@ app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   res.setHeader('x-content-type-options', 'nosniff');
   res.setHeader('referrer-policy', 'strict-origin-when-cross-origin');
   res.setHeader('x-frame-options', 'SAMEORIGIN');
+  res.setHeader('x-movyz-build-id', MOVYZ_BUILD_ID);
+  res.setHeader('x-movyz-playback-contract', MOVYZ_PLAYBACK_CONTRACT);
   if (req.method === 'OPTIONS') return res.status(204).send();
   return next();
 });
