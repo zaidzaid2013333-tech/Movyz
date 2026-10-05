@@ -65,6 +65,15 @@ const normalizePlaybackSource = (source: PlaybackSource): PlaybackSource | null 
   };
 };
 
+function playbackEngineFor(source: PlaybackSource | null | undefined) {
+  const type = String(source?.type || '').toLowerCase();
+  const url = String(source?.directUrl || source?.url || source?.embedUrl || '').toLowerCase();
+  if (type === 'embed') return 'embed' as const;
+  if (type === 'hls' || /\.m3u8(?:[?#]|$)/i.test(url)) return 'hls' as const;
+  if (type === 'dash' || /\.mpd(?:[?#]|$)/i.test(url)) return 'dash' as const;
+  return 'native' as const;
+}
+
 const isPlayableHttpSource = (source: PlaybackSource) => {
   const normalized = normalizePlaybackSource(source);
   if (!normalized) return false;
@@ -352,8 +361,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     const preferred =
       storedPlaybackSources
         .map(normalizePlaybackSource)
-        .find((source): source is PlaybackSource =>
-          Boolean(source) &&
+        .filter((source): source is PlaybackSource => Boolean(source))
+        .find((source) =>
           source.isWorking !== false &&
           isPlayableHttpSource(source),
         ) ||
