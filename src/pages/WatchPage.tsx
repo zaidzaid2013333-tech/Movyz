@@ -243,10 +243,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const playbackStartedRef = useRef(false);
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
-  const startupWarmupUrlsRef = useRef<Set<string>>(new Set());
   const startupGuardTimerRef = useRef<number | null>(null);
-  const startupWarmupTimerRef = useRef<number | null>(null);
-  const startupWarmupDoneRef = useRef<Set<string>>(new Set());
   const progressSaveTimerRef = useRef<number | null>(null);
   const lastProgressSaveAtRef = useRef(0);
   const playbackEngineRef = useRef<{ destroy?: () => void; reset?: () => void } | null>(null);
@@ -276,7 +273,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         userPlayRequestedRef.current = false;
         playbackStartedRef.current = false;
         startupTriedUrlsRef.current.clear();
-        startupWarmupDoneRef.current.clear();
 
         const legacyTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
         const response = mediaType === 'movie'
@@ -692,111 +688,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     };
   }, [availableSources]);
 
-  // Warm alternate MP4/direct sources before the user switches to them.
-  // This only prepares browser metadata/connection state; it never proxies
-  // or streams the video through Movyz.
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof document === 'undefined' || !availableSources.length) return;
-
-    const sources = availableSources
-      .filter((source) => source.url !== playbackUrl)
-      .slice(0, 6);
-
-    if (!sources.length) return;
-
-    let cancelled = false;
-    const warmers: HTMLVideoElement[] = [];
-    const active = new Set<string>();
-
-    const run = async () => {
-      for (const source of sources) {
-        if (cancelled || active.size >= 3) break;
-
-        const key = `movyz:playback-warm:${source.url}`;
-        try {
-          const cached = window.sessionStorage.getItem(key);
-          if (cached) {
-            const parsed = JSON.parse(cached) as { at?: number };
-            if (parsed?.at && Date.now() - parsed.at < 10 * 60 * 1000) continue;
-          }
-        } catch {
-          // Ignore sessionStorage failures.
-        }
-
-        active.add(source.url);
-
-        const warmer = document.createElement('video');
-        warmer.preload = 'metadata';
-        warmer.muted = true;
-        warmer.playsInline = true;
-        warmer.setAttribute('aria-hidden', 'true');
-        warmer.style.position = 'fixed';
-        warmer.style.width = '1px';
-        warmer.style.height = '1px';
-        warmer.style.opacity = '0';
-        warmer.style.pointerEvents = 'none';
-        warmer.style.left = '-9999px';
-
-        const cleanup = () => {
-          warmer.removeEventListener('loadedmetadata', onMetadata);
-          warmer.removeEventListener('error', onError);
-          warmer.removeEventListener('abort', onError);
-          try {
-            warmer.pause();
-            warmer.removeAttribute('src');
-            warmer.load();
-          } catch {}
-          warmer.remove();
-          warmers.splice(warmers.indexOf(warmer), 1);
-          active.delete(source.url);
-        };
-
-        const onMetadata = () => {
-          try {
-            window.sessionStorage.setItem(
-              key,
-              JSON.stringify({
-                at: Date.now(),
-                duration: Number.isFinite(warmer.duration) ? warmer.duration : 0,
-              }),
-            );
-          } catch {}
-          cleanup();
-        };
-
-        const onError = () => cleanup();
-
-        warmer.addEventListener('loadedmetadata', onMetadata, { once: true });
-        warmer.addEventListener('error', onError, { once: true });
-        warmer.addEventListener('abort', onError, { once: true });
-        document.body.appendChild(warmer);
-        warmers.push(warmer);
-        warmer.src = source.url;
-        warmer.load();
-      }
-    };
-
-    void run();
-
-    const timer = window.setTimeout(() => {
-      cancelled = true;
-      for (const warmer of [...warmers]) {
-        try { warmer.pause(); } catch {}
-        try { warmer.removeAttribute('src'); warmer.load(); } catch {}
-        warmer.remove();
-      }
-    }, 10000);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      for (const warmer of [...warmers]) {
-        try { warmer.pause(); } catch {}
-        try { warmer.removeAttribute('src'); warmer.load(); } catch {}
-        warmer.remove();
-      }
-    };
-  }, [availableSources, playbackUrl]);
+  // Do not prefetch alternate playback streams in the background. Each Akwam relay URL
+  // represents a real upstream media request; speculative hidden videos compete with the
+  // selected player during startup and can stall playback on mobile networks.
 
   useEffect(() => {
     const video = videoRef.current;
@@ -844,14 +738,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   // Automatic source failover is intentionally disabled.
   // A failed source remains selected until the user manually chooses another source.
   const markPlaybackSourceFailed = () => {
-  };
-
-  // Keep startup non-invasive. The Akwam Edge Relay now supports byte ranges,
-  // so an artificial seek to 02:00 followed by a seek-back only adds a second
-  // buffering cycle and can leave some mobile browsers parked at 00:00.
-  const runStartupWarmup = (video: HTMLVideoElement, url: string) => {
-    if (playbackUrl !== url) return;
-    video.preload = 'auto';
   };
 
   const handleSelectPlaybackSource = (source: PlaybackSource) => {
@@ -913,7 +799,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current = null;
       resetMediaElement();
       video.src = playbackUrl;
-      video.preload = 'metadata';
+      video.preload = 'auto';
       video.load();
     };
 
@@ -1348,7 +1234,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       video.removeAttribute('src');
                       video.load();
                       video.src = playbackUrl;
-                      video.preload = 'metadata';
+                      video.preload = 'auto';
                       video.load();
                     }}
                     onGoHome={() => onNavigate('/')}
@@ -1373,7 +1259,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 poster={content.backdropUrl || content.posterUrl}
                 className={(isEmbedPlayback ? 'hidden ' : '') + 'block h-full w-full bg-black object-contain'}
                 playsInline
-                preload="metadata"
+                preload="auto"
                 disablePictureInPicture={false}
                 onLoadStart={() => {
                   playbackStartedRef.current = false;
@@ -1478,7 +1364,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onPlaying={() => {
                   playbackStartedRef.current = true;
                   setPlaybackError(null);
-                  runStartupWarmup(videoRef.current as HTMLVideoElement, playbackUrl);
                 }}
                 onError={() => {
                   playbackStartedRef.current = false;
