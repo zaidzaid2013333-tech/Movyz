@@ -444,12 +444,12 @@ function extractMediaLikeUrls(text: string) {
   };
 
   // Quoted and unquoted absolute URLs, including JSON/JS escaped forms.
-  for (const match of decoded.match(/https?:\\/\\/[^\\s"'<>\\]+/gi) || []) push(match);
-  for (const match of decoded.match(/https?%3A%2F%2F[^\\s"'<>\\]+/gi) || []) push(match);
+  for (const match of decoded.match(/https?:\/\/[^\s"'<>\\]+/gi) || []) push(match);
+  for (const match of decoded.match(/https?%3A%2F%2F[^\s"'<>\\]+/gi) || []) push(match);
 
   // Explicitly surface Akwam's external download CDN links even when they are
   // embedded without a media extension or without HTML quotes.
-  for (const match of decoded.match(/https?:\\/\\/[^\\s"'<>\\]+\\/download\\/[^\\s"'<>\\]+/gi) || []) {
+  for (const match of decoded.match(/https?:\/\/[^\s"'<>\\]+\/download\/[^\s"'<>\\]+/gi) || []) {
     push(match);
   }
 
