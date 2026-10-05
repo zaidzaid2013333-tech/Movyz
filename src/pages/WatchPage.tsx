@@ -276,16 +276,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     let finished = false;
 
-    const cleanup = () => {
+    function cleanup() {
       video.removeEventListener('seeked', finish);
       video.removeEventListener('timeupdate', maybeFinish);
       if (startupRecoveryTimerRef.current !== null) {
         window.clearTimeout(startupRecoveryTimerRef.current);
         startupRecoveryTimerRef.current = null;
       }
-    };
+    }
 
-    const finish = () => {
+    function finish() {
       if (finished || startupRecoveryStageRef.current !== 'recovering') return;
       finished = true;
       cleanup();
@@ -299,15 +299,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
       startupRecoveryStageRef.current = 'done';
       window.setTimeout(() => {
-        if (!videoRef.current) return;
-        void videoRef.current.play().catch(() => undefined);
+        const currentVideo = videoRef.current;
+        if (currentVideo) void currentVideo.play().catch(() => undefined);
       }, 0);
-    };
+    }
 
-    const maybeFinish = () => {
+    function maybeFinish() {
       if (finished || startupRecoveryStageRef.current !== 'recovering') return;
       if (video.currentTime >= Math.max(targetTime - 3, 1)) finish();
-    };
+    }
 
     video.addEventListener('seeked', finish);
     video.addEventListener('timeupdate', maybeFinish);
