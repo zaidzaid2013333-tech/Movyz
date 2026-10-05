@@ -116,11 +116,14 @@ function normalizeBrokerMediaSources(
   sources: Array<{ url: string; type: string; quality?: string }>,
   contentType: 'movie' | 'episode',
   contentId: string,
+  requestUrl: string,
 ): BrokerSource[] {
+  const relayOrigin = new URL(requestUrl).origin;
   return sources
     .filter((source) => /^https:\/\//i.test(String(source?.url || '')))
     .map((source, index) => {
       const quality = normalizePlaybackQuality(source.quality || 'Auto');
+      const relayUrl = relayOrigin + api + '/playback/stream?type=' + encodeURIComponent(contentType) + '&contentId=' + encodeURIComponent(contentId) + '&source=' + index;
       return {
         id: `akwam-live:${contentType}:${contentId}:${index}`,
         type: String(source.type || 'direct').toLowerCase(),
@@ -128,7 +131,7 @@ function normalizeBrokerMediaSources(
         language: 'und',
         label: `Akwam • ${quality}`,
         labelEn: `Akwam • ${quality}`,
-        url: String(source.url),
+        url: relayUrl,
         directUrl: String(source.url),
         isWorking: true,
         provider: 'Akwam',
@@ -188,7 +191,7 @@ async function resolvePlaybackBroker(
       },
     );
 
-    const sources = normalizeBrokerMediaSources(media, contentType, contentId);
+    const sources = normalizeBrokerMediaSources(media, contentType, contentId, req.url);
     if (!sources.length) throw new Error('PLAYBACK_BROKER_NO_PLAYABLE_SOURCE');
     await edgeBrokerWrite(key, sources);
     return sources;
@@ -202,6 +205,76 @@ async function resolvePlaybackBroker(
   }
 }
 
+app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
+  const rawType = typeof req.query.type === 'string' ? req.query.type : '';
+  const rawContentId = typeof req.query.contentId === 'string' ? req.query.contentId : '';
+  const rawSource = typeof req.query.source === 'string' ? req.query.source : '';
+
+  const contentType = rawType === 'movie' || rawType === 'episode' ? rawType : null;
+  const contentId = rawContentId.trim();
+  const sourceIndex = Number(rawSource);
+
+  if (!contentType || !contentId || !Number.isInteger(sourceIndex) || sourceIndex < 0 || sourceIndex > 20) {
+    return fail(res, 400, 'PLAYBACK_STREAM_INVALID_REQUEST', 'Invalid playback stream request');
+  }
+
+  const seasonNumber = typeof req.query.season === 'string' ? Number(req.query.season) : undefined;
+  const episodeNumber = typeof req.query.episode === 'string' ? Number(req.query.episode) : undefined;
+
+  try {
+    const result = await resolvePlaybackBroker(
+      req,
+      contentType,
+      contentId,
+      Number.isFinite(seasonNumber) ? seasonNumber : undefined,
+      Number.isFinite(episodeNumber) ? episodeNumber : undefined,
+    );
+    const source = result.sources[sourceIndex];
+    const upstreamUrl = String(source?.directUrl || '').trim();
+
+    if (!source || source.providerKey !== 'akwam' || !/^https:\/\//i.test(upstreamUrl)) {
+      return fail(res, 404, 'PLAYBACK_STREAM_SOURCE_NOT_FOUND', 'Playback source is no longer available');
+    }
+
+    const upstreamHeaders = new Headers();
+    for (const name of ['range', 'if-range', 'if-none-match', 'if-modified-since', 'accept']) {
+      const value = req.headers.get(name);
+      if (value) upstreamHeaders.set(name, value);
+    }
+    upstreamHeaders.set('Referer', 'https://akwam.ss/');
+    upstreamHeaders.set('User-Agent', req.headers.get('user-agent') || 'Mozilla/5.0');
+    upstreamHeaders.set('Accept-Encoding', 'identity');
+
+    const upstream = await fetch(upstreamUrl, {
+      method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+      headers: upstreamHeaders,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(20000),
+    });
+
+    const responseHeaders = new Headers();
+    for (const name of ['content-type','content-length','content-range','accept-ranges','etag','last-modified','content-disposition']) {
+      const value = upstream.headers.get(name);
+      if (value) responseHeaders.set(name, value);
+    }
+    responseHeaders.set('cache-control', 'private, no-store');
+    responseHeaders.set('access-control-allow-origin', req.headers.get('origin') || '*');
+    responseHeaders.set('access-control-expose-headers', 'Content-Length, Content-Range, Accept-Ranges, Content-Type, ETag, Last-Modified');
+
+    const upstreamType = (upstream.headers.get('content-type') || '').toLowerCase();
+    if (upstreamType.includes('text/html') || upstreamType.includes('application/json') || upstreamType.includes('text/plain')) {
+      return fail(res, 502, 'PLAYBACK_STREAM_UPSTREAM_INVALID', 'Upstream playback response is not a media stream');
+    }
+
+    return new Response(req.method === 'HEAD' ? null : upstream.body, {
+      status: upstream.status,
+      headers: responseHeaders,
+    });
+  } catch (error) {
+    console.warn('[playback-stream]', error instanceof Error ? error.message : String(error));
+    return fail(res, 502, 'PLAYBACK_STREAM_FAILED', 'Unable to stream the selected playback source');
+  }
+}));
 app.get(`${api}/playback/prepare`, asyncRoute(async (req, res) => {
   const rawType = typeof req.query.type === 'string' ? req.query.type : '';
   const rawContentId = typeof req.query.contentId === 'string' ? req.query.contentId : '';
