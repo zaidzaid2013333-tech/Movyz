@@ -404,6 +404,32 @@ async function findCandidate(
         }
       }
     }
+
+    // Legacy fallback for movies: many older Akwam titles still live under
+    // /old/search while the current /search index only covers the new catalog.
+    // Keep current search authoritative, then use the legacy archive with the
+    // existing semantic/year guards before accepting a result.
+    if (expected === "movie" && host === base(env)) {
+      const legacyVariants = variants.slice(0, 5);
+      for (const title of legacyVariants) {
+        const encoded = encodeURIComponent(title);
+        const legacyUrls = [
+          host + "/old/search/" + encoded + "/page/1",
+          host + "/old/search/" + encoded,
+        ];
+
+        for (const searchUrl of legacyUrls) {
+          const html = await fetchText(env, searchUrl, diagnostics, undefined, budget);
+          if (!html) continue;
+
+          for (const item of parseCandidates(html, env, true)) {
+            const itemScore = score(item, titles, year, expected, expectedSeason);
+            if (!best || itemScore > best.score) best = { item, score: itemScore };
+          }
+          if (best && best.score >= 128) return best.item;
+        }
+      }
+    }
   }
 
   const winner = best as { item: Candidate; score: number } | null;
