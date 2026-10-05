@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyz-akwam-github-fleet
+  group: movyz-akwam-github-fleet-test
   cancel-in-progress: true
 
 jobs:
