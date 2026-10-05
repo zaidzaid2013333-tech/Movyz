@@ -271,6 +271,10 @@ app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   res.setHeader('x-frame-options', 'SAMEORIGIN');
   res.setHeader('x-movyz-build-id', MOVYZ_BUILD_ID);
   res.setHeader('x-movyz-playback-contract', MOVYZ_PLAYBACK_CONTRACT);
+  try {
+    const ciProbe = new URL(req.url).searchParams.has('__movyz_ci');
+    if (ciProbe) res.setHeader('cache-control', 'no-store');
+  } catch {}
   if (req.method === 'OPTIONS') return res.status(204).send();
   return next();
 });
