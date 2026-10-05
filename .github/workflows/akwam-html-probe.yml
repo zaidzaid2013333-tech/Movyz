@@ -39,7 +39,20 @@ jobs:
           echo '=== legacy media/download candidates ==='
           grep -Eio 'https?://[^"'"'"'<> ]+|href=["'"'"'][^"'"'"']+["'"'"']|src=["'"'"'][^"'"'"']+["'"'"']|download[^< ]*|mp4|m3u8|1080|720|480' /tmp/free-solo-old.html | head -300 || true
           echo '=== legacy scripts around download ==='
-          grep -Ein 'download|تحميل|video|file|source|player|stream|mp4|m3u8|downet' /tmp/free-solo-old.html | head -300 || true
+          grep -Ein 'download|تحميل|video|file|source|player|stream|mp4|m3u8|downet|location\.hash|href.*old/download|hash' /tmp/free-solo-old.html | head -350 || true
+          echo '=== exact legacy download anchors and hash fragments ==='
+          python - <<'PY'
+          import re
+          html = open('/tmp/free-solo-old.html', encoding='utf-8', errors='ignore').read()
+          for m in re.finditer(r'<a\\b[^>]*href=["\']([^"\']*old/download[^"\']*)["\'][^>]*>', html, flags=re.I):
+              start=max(0,m.start()-1800); end=min(len(html),m.end()+3000)
+              print('--- ANCHOR ---')
+              print(html[start:end])
+          print('--- HASH-LIKE STRINGS ---')
+          for pat in [r'location\\.hash[^;]{0,300}', r'href=["\'][^"\']*#[^"\']+["\']', r'["\']#[^"\']+["\']']:
+              for m in re.finditer(pat, html, flags=re.I):
+                  print(m.group(0))
+          PY
 
           echo '=== legacy Free Solo download probe ==='
           old_download='https://akwam.ss/old/download/d25b122d795c/Free-Solo-2018-Ar-HD720p-akoam-net-mkv'
