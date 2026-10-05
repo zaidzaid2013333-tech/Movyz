@@ -68,7 +68,8 @@ jobs:
           echo '--- headers / redirect ---'
           curl -k -I -L --max-redirs 5 --max-time 30 -A "$ua" -H 'Accept: */*' "$old_download" || true
           echo '--- body bytes / content signals ---'
-          curl -k -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: */*' "$old_download" -o /tmp/free-solo-old-download.bin
+          rm -f /tmp/akwam.cookies
+          curl -k -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: */*' -c /tmp/akwam.cookies "$old_download" -o /tmp/free-solo-old-download.bin
           wc -c /tmp/free-solo-old-download.bin
           file /tmp/free-solo-old-download.bin || true
           grep -Eaio 'https?://[^"'"'"'<> ]+\.(m3u8|mp4|mpd|webm)(\?[^"'"'"'<> ]+)?|https?://[^"'"'"'<> ]+downet[^"'"'"'<> ]+' /tmp/free-solo-old-download.bin | head -100 || true
@@ -91,7 +92,9 @@ jobs:
             -A "$ua" \
             -H 'Accept: application/json, text/javascript, */*; q=0.01' \
             -H 'X-Requested-With: XMLHttpRequest' \
-            -H 'Referer: https://akwam.ss/old/155349/%D8%A7%D9%84%D9%81%D9%8A%D9%84%D9%85-%D8%A7%D9%84%D9%88%D8%AB%D8%A7%D8%A6%D9%82%D9%8A-Free-Solo-2018-%D9%85%D8%AF%D8%A8%D9%84%D8%AC-HD' \
+            -H 'Origin: https://akwam.ss' \
+            -H 'Referer: https://akwam.ss/old/download/d25b122d795c/Free-Solo-2018-Ar-HD720p-akoam-net-mkv' \
+            -b /tmp/akwam.cookies \
             -X POST "$old_download" -o /tmp/free-solo-old-post.json
           echo '--- POST resolver response ---'
           wc -c /tmp/free-solo-old-post.json
