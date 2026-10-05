@@ -1446,7 +1446,7 @@ app.post(`${api}/admin/sync/tmdb/episodes`, requireAuth, requireAdmin, asyncRout
 
 app.post(`${api}/internal/tmdb/import-curated`, asyncRoute(async (req, res) => {
   const expectedKey = String(req.env?.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  const providedKey = String(req.headers?.['x-movyz-internal-key'] || '').trim();
+  const providedKey = String(req.header('x-movyz-internal-key') || '').trim();
   if (!expectedKey || !providedKey || providedKey !== expectedKey) {
     return fail(res, 401, 'UNAUTHORIZED', 'Unauthorized internal import request');
   }
