@@ -132,6 +132,14 @@ function decodeHtml(value: string) {
     .replaceAll("\\/","/");
 }
 
+function searchQueryVariant(value: string) {
+  return decodeHtml(value)
+    .replace(/[()[\]{}:;!?/\\'"\`]+/g, " ")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalize(value: string) {
   return decodeHtml(value)
     .toLowerCase()
@@ -332,9 +340,11 @@ async function findCandidate(
   const seeds = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
   const variants = expected === "movie"
     ? Array.from(new Set([
-        seeds[0] || "",
+        ...seeds,
+        ...seeds.map(searchQueryVariant),
         year && seeds[0] ? seeds[0] + " " + year : "",
-      ].filter(Boolean))).slice(0, 2)
+        year && seeds[0] ? searchQueryVariant(seeds[0]) + " " + year : "",
+      ].filter(Boolean))).slice(0, 4)
     : Array.from(new Set([
         ...seeds,
         year && seeds[0] ? seeds[0] + " " + year : "",
@@ -342,6 +352,7 @@ async function findCandidate(
         expectedSeason && seeds[0] ? seeds[0] + " الموسم " + expectedSeason : "",
         expectedSeason && seeds[0] ? seeds[0] + " S" + String(expectedSeason).padStart(2, "0") : "",
       ].filter(Boolean))).slice(0, 4);
+
   for (const host of hosts) {
     for (const title of variants) {
       const section =
