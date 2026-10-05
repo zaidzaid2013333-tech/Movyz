@@ -383,47 +383,21 @@ async function findCandidate(
     // Prefer the live catalog routes first. The legacy /old/search endpoint
     // contains stale/ambiguous archive entries and can return a wrong movie
     // for modern titles; use it only after current-catalog probes fail.
-    const fallbackRoutes =
-      expected === "movie"
-        ? [
-            host + "/movies?search=" + encodeURIComponent(seeds[0] || ""),
-            host + "/movies?query=" + encodeURIComponent(seeds[0] || ""),
-            host + "/search/" + encodeURIComponent(seeds[0] || ""),
-          ]
-        : expected === "series"
-          ? [
-              host + "/series?search=" + encodeURIComponent(seeds[0] || ""),
-              host + "/series?query=" + encodeURIComponent(seeds[0] || ""),
-              host + "/search/" + encodeURIComponent(seeds[0] || ""),
-            ]
-          : [];
+    // Use Akwam's current search route with an explicit content section.
+    if (expected === "movie" || expected === "series") {
+      const section = expected;
+      for (const title of variants) {
+        const canonicalUrl = host + "/search?q=" + encodeURIComponent(title) + "&section=" + encodeURIComponent(section) + "&page=1";
+        const html = await fetchText(env, canonicalUrl, diagnostics, undefined, budget);
+        if (!html) continue;
 
-    for (const url of fallbackRoutes) {
-      const html = await fetchText(env, url, diagnostics, undefined, budget);
-      if (!html) continue;
-
-      for (const item of parseCandidates(html, env, expected === "movie")) {
-        const itemScore = score(item, titles, year, expected, expectedSeason);
-        if (!best || itemScore > best.score) best = { item, score: itemScore };
+        for (const item of parseCandidates(html, env, expected === "movie")) {
+          const itemScore = score(item, titles, year, expected, expectedSeason);
+          if (!best || itemScore > best.score) best = { item, score: itemScore };
+        }
+        if (best && best.score >= 128) return best.item;
       }
-      if (best && best.score >= 128) return best.item;
     }
-
-    // The newer /search?q= route is also attempted, but direct Worker requests
-    // may receive 404/challenge responses on the current Akwam deployment.
-    for (const title of variants) {
-      const canonicalUrl = host + "/search?q=" + encodeURIComponent(title);
-      const html = await fetchText(env, canonicalUrl, diagnostics, undefined, budget);
-
-      if (!html) continue;
-
-      for (const item of parseCandidates(html, env, expected === "movie")) {
-        const itemScore = score(item, titles, year, expected, expectedSeason);
-        if (!best || itemScore > best.score) best = { item, score: itemScore };
-      }
-      if (best && best.score >= 128) return best.item;
-    }
-
     // Last resort: legacy archive search. Keep it bounded and only on the
     // verified Akwam host; semantic guards still reject mismatched content.
     if (host === base(env)) {
