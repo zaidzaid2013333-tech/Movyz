@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } from './auth';
-import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
+import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId, importCuratedCatalog } from './tmdb';
 import { resolveAkwamNow } from '../workers/akwam-prefill/src/index';
 
 export const app = new MiniApp();
@@ -1441,6 +1441,32 @@ app.post(`${api}/admin/sync/tmdb/episodes`, requireAuth, requireAdmin, asyncRout
     });
   } catch (error) {
     return fail(res, 502, 'TMDB_EPISODE_SYNC_FAILED', error instanceof Error ? error.message : 'Episode sync failed');
+  }
+}));
+
+app.post(`${api}/internal/tmdb/import-curated`, asyncRoute(async (req, res) => {
+  const expectedKey = String(req.env?.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  const providedKey = String(req.headers?.['x-movyz-internal-key'] || '').trim();
+  if (!expectedKey || !providedKey || providedKey !== expectedKey) {
+    return fail(res, 401, 'UNAUTHORIZED', 'Unauthorized internal import request');
+  }
+
+  const body = z.object({
+    items: z.array(z.object({
+      rank: z.number().int().min(1).max(200),
+      title: z.string().trim().min(1).max(300),
+      year: z.number().int().min(1900).max(2100).optional(),
+      mediaType: z.enum(['movie', 'series']),
+    })).min(1).max(200),
+  }).safeParse(req.body || {});
+
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid curated catalog payload');
+
+  try {
+    const result = await importCuratedCatalog(body.data.items);
+    return ok(res, result);
+  } catch (error) {
+    return fail(res, 502, 'CURATED_IMPORT_FAILED', error instanceof Error ? error.message : String(error));
   }
 }));
 
