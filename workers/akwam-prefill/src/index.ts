@@ -428,16 +428,40 @@ async function findCandidate(
           host + "/search?q=" + encoded,
         ];
 
-        for (const searchUrl of searchUrls) {
-          const html = await fetchText(env, searchUrl, diagnostics, undefined, budget, session);
-          if (!html) continue;
-
-          for (const item of parseCandidates(html, env, expected === "movie")) {
+        // Prefer the authoritative section-filtered search. Only hit the
+        // unfiltered fallback when the first request did not produce a strong
+        // semantic match; this removes a large amount of serial resolver latency.
+        const primaryHtml = await fetchText(
+          env,
+          searchUrls[0],
+          diagnostics,
+          undefined,
+          budget,
+          session,
+        );
+        if (primaryHtml) {
+          for (const item of parseCandidates(primaryHtml, env, expected === "movie")) {
             const itemScore = score(item, titles, year, expected, expectedSeason);
             if (!best || itemScore > best.score) best = { item, score: itemScore };
           }
-          if (best && best.score >= 128) return best.item;
         }
+        if (best && best.score >= 128) return best.item;
+
+        const fallbackHtml = await fetchText(
+          env,
+          searchUrls[1],
+          diagnostics,
+          undefined,
+          budget,
+          session,
+        );
+        if (fallbackHtml) {
+          for (const item of parseCandidates(fallbackHtml, env, expected === "movie")) {
+            const itemScore = score(item, titles, year, expected, expectedSeason);
+            if (!best || itemScore > best.score) best = { item, score: itemScore };
+          }
+        }
+        if (best && best.score >= 128) return best.item;
       }
     }
 
@@ -454,16 +478,37 @@ async function findCandidate(
           host + "/old/search/" + encoded,
         ];
 
-        for (const searchUrl of legacyUrls) {
-          const html = await fetchText(env, searchUrl, diagnostics, undefined, budget, session);
-          if (!html) continue;
-
-          for (const item of parseCandidates(html, env, true)) {
+        const primaryLegacyHtml = await fetchText(
+          env,
+          legacyUrls[0],
+          diagnostics,
+          undefined,
+          budget,
+          session,
+        );
+        if (primaryLegacyHtml) {
+          for (const item of parseCandidates(primaryLegacyHtml, env, true)) {
             const itemScore = score(item, titles, year, expected, expectedSeason);
             if (!best || itemScore > best.score) best = { item, score: itemScore };
           }
-          if (best && best.score >= 128) return best.item;
         }
+        if (best && best.score >= 128) return best.item;
+
+        const fallbackLegacyHtml = await fetchText(
+          env,
+          legacyUrls[1],
+          diagnostics,
+          undefined,
+          budget,
+          session,
+        );
+        if (fallbackLegacyHtml) {
+          for (const item of parseCandidates(fallbackLegacyHtml, env, true)) {
+            const itemScore = score(item, titles, year, expected, expectedSeason);
+            if (!best || itemScore > best.score) best = { item, score: itemScore };
+          }
+        }
+        if (best && best.score >= 128) return best.item;
       }
     }
   }
