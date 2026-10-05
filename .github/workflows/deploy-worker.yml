@@ -1,21 +1,9 @@
-name: Deploy Movyz API Worker
+name: Validate Movyz
 
-# Production deploys remain push-to-main only; pull requests run validation without touching production.
-# Deployments use a dedicated concurrency group so retired legacy runs cannot block production releases.
+# Production deployments are handled by Cloudflare Workers Builds.
+# GitHub Actions is intentionally validation-only to avoid a second competing deploy pipeline.
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - "server/**"
-      - "worker.ts"
-      - "wrangler.jsonc"
-      - "src/**"
-      - "workers/**"
-      - "index.html"
-      - "package.json"
-      - "vite.config.ts"
-      - ".github/workflows/deploy-worker.yml"
   pull_request:
     paths:
       - "server/**"
@@ -30,36 +18,20 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: movyz-api-deploy
+  group: movyz-validation-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Determine application build identity
-        id: app_version
-        shell: bash
-        run: |
-          APP_SHA="$(git log -1 --format=%H -- server worker.ts workers src index.html package.json vite.config.ts)"
-          test -n "$APP_SHA"
-          echo "sha=$APP_SHA" >> "$GITHUB_OUTPUT"
-          echo "Application build SHA: $APP_SHA"
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
@@ -68,202 +40,4 @@ jobs:
         run: npm run lint
 
       - name: Build frontend assets
-        env:
-          MOVYZ_BUILD_ID: ${{ steps.app_version.outputs.sha }}
         run: npm run build
-
-      - name: Deploy Cloudflare Worker
-        if: github.event_name != 'pull_request'
-        run: npx wrangler deploy --var MOVYZ_BUILD_ID:${{ steps.app_version.outputs.sha }}
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Verify live Playback Broker and Akwam resolution
-        if: github.event_name != 'pull_request'
-        env:
-          EXPECTED_BUILD_ID: ${{ steps.app_version.outputs.sha }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          import re
-          import urllib.parse
-          import urllib.request
-
-          base = "https://movyz-api.sameranede.workers.dev/api/v1"
-          expected_build = os.environ["EXPECTED_BUILD_ID"]
-
-          def get_json(path, label):
-              separator = "&" if "?" in path else "?"
-              cache_busted_path = f"{path}{separator}__movyz_ci={expected_build}"
-              req = urllib.request.Request(
-                  base + cache_busted_path,
-                  headers={
-                      "Accept": "application/json",
-                      "Cache-Control": "no-cache",
-                      "Pragma": "no-cache",
-                      "User-Agent": "Movyz-CI-Playback/4.0",
-                  },
-              )
-              try:
-                  response_ctx = urllib.request.urlopen(req, timeout=90)
-              except urllib.error.HTTPError as exc:
-                  body = exc.read().decode("utf-8", errors="replace")
-                  raise SystemExit(f"{label}: HTTP {exc.code}: {body[:1600]}") from exc
-              with response_ctx as response:
-                  payload = json.load(response)
-                  headers = {
-                      "build": response.headers.get("x-movyz-build-id", ""),
-                      "contract": response.headers.get("x-movyz-playback-contract", ""),
-                  }
-              if payload.get("success") is not True:
-                  raise SystemExit(f"{label}: API response was not successful")
-              return payload, headers
-
-          def verify_broker(content_type, content_id, label, season=None, episode=None):
-              query = {
-                  "type": content_type,
-                  "contentId": content_id,
-              }
-              if season is not None:
-                  query["season"] = str(season)
-              if episode is not None:
-                  query["episode"] = str(episode)
-
-              path = "/playback/prepare?" + urllib.parse.urlencode(query)
-              payload, broker_headers = get_json(path, label)
-              if broker_headers["build"] != expected_build:
-                  raise SystemExit(f"{label}: stale live build {broker_headers['build']!r}, expected {expected_build!r}")
-              data = payload.get("data", {})
-              sources = data.get("sources", [])
-
-              if payload.get("data", {}).get("ready") is not True:
-                  raise SystemExit(f"{label}: broker is not ready: {json.dumps(data)[:1200]}")
-              if not isinstance(sources, list) or not sources:
-                  raise SystemExit(f"{label}: expected at least one live source")
-
-              for source in sources:
-                  if not isinstance(source, dict):
-                      raise SystemExit(f"{label}: invalid source object")
-                  url = str(source.get("url") or "")
-                  source_type = str(source.get("type") or "").lower()
-                  quality = str(source.get("quality") or "")
-                  provider = str(source.get("providerKey") or "").lower()
-
-                  if not url.startswith("https://"):
-                      raise SystemExit(f"{label}: non-HTTPS source")
-                  if source_type not in {"mp4", "hls", "dash", "webm", "direct", "embed"}:
-                      raise SystemExit(f"{label}: invalid source type {source_type!r}")
-                  if quality and quality.lower() != "auto" and not re.fullmatch(r"\d{3,4}p", quality, re.I):
-                      raise SystemExit(f"{label}: non-normalized quality {quality!r}")
-                  if provider != "akwam":
-                      raise SystemExit(f"{label}: unexpected provider {provider!r}")
-
-                  stream_url = str(source.get("url") or "")
-                  stream_req = urllib.request.Request(
-                      stream_url,
-                      headers={
-                          "Accept": "*/*",
-                          "Range": "bytes=0-1048575",
-                          "User-Agent": "Movyz-CI-Stream/1.0",
-                      },
-                  )
-                  try:
-                      with urllib.request.urlopen(stream_req, timeout=30) as stream_response:
-                          stream_status = stream_response.status
-                          stream_type = (stream_response.headers.get("content-type") or "").lower()
-                          sample = stream_response.read(1024)
-                  except urllib.error.HTTPError as exc:
-                      body = exc.read().decode("utf-8", errors="replace")
-                      raise SystemExit(f"{label}: relay stream HTTP {exc.code}: {body[:800]}") from exc
-
-                  if stream_status not in {200, 206}:
-                      raise SystemExit(f"{label}: relay stream returned HTTP {stream_status}")
-                  if not sample:
-                      raise SystemExit(f"{label}: relay stream returned no bytes")
-                  if any(marker in stream_type for marker in ("text/html", "application/json", "text/plain")):
-                      raise SystemExit(f"{label}: relay stream returned non-media content-type {stream_type!r}")
-
-                  print(
-                      f"stream_ok label={label!r} status={stream_status} "
-                      f"content_type={stream_type!r} bytes={len(sample)}"
-                  )
-
-                  # Verify a real non-zero seek range. The relay should either serve
-                  # the requested range promptly or transparently fall back to another live
-                  # Akwam source. Keep this expensive seek probe to the first advertised source.
-                  if source is sources[0]:
-                      offset_req = urllib.request.Request(
-                          stream_url,
-                          headers={
-                              "Accept": "*/*",
-                              "Range": "bytes=5242880-5242943",
-                              "User-Agent": "Movyz-CI-Stream/1.0",
-                          },
-                      )
-                      try:
-                          with urllib.request.urlopen(offset_req, timeout=15) as offset_response:
-                              offset_status = offset_response.status
-                              offset_range = str(offset_response.headers.get("content-range") or "")
-                              offset_sample = offset_response.read(64)
-                      except urllib.error.HTTPError as exc:
-                          body = exc.read().decode("utf-8", errors="replace")
-                          raise SystemExit(f"{label}: non-zero range HTTP {exc.code}: {body[:800]}") from exc
-                      except TimeoutError as exc:
-                          raise SystemExit(f"{label}: non-zero range stalled before media bytes arrived") from exc
-
-                      if offset_status not in {200, 206}:
-                          raise SystemExit(f"{label}: non-zero range returned HTTP {offset_status}")
-                      if not offset_sample:
-                          raise SystemExit(f"{label}: non-zero range returned no bytes")
-                      if offset_status == 206 and not re.search(r"bytes\s+5242880-", offset_range, re.I):
-                          raise SystemExit(
-                              f"{label}: non-zero range returned unexpected Content-Range {offset_range!r}"
-                          )
-                      print(
-                          f"range_ok label={label!r} status={offset_status} "
-                          f"content_range={offset_range!r} bytes={len(offset_sample)}"
-                      )
-
-              mode = str(data.get("mode") or "")
-              print(
-                  f"broker_ok label={label!r} mode={mode!r} "
-                  f"sources={len(sources)}"
-              )
-
-          checks = [
-              ("/movies/tmdb/157336", "Interstellar", "movie"),
-              ("/movies/tmdb/278", "The Shawshank Redemption", "movie"),
-              ("/series/tmdb/456/watch/21/1", "The Simpsons S21E01", "episode"),
-          ]
-
-          for path, label, kind in checks:
-              payload, headers = get_json(path, label)
-              print(f"{label}: catalog contract={headers['contract']!r} build={headers['build']!r}")
-              if headers["build"] != expected_build:
-                  raise SystemExit(f"{label}: stale catalog build {headers['build']!r}, expected {expected_build!r}")
-
-              if kind == "movie":
-                  content = payload.get("data", {}).get("movie", {})
-                  content_id = content.get("id")
-                  if not content_id:
-                      raise SystemExit(f"{label}: missing movie UUID")
-                  verify_broker("movie", content_id, label)
-              else:
-                  series = payload.get("data", {}).get("series", {})
-                  seasons = series.get("seasons") or []
-                  episodes = seasons[0].get("episodes") if seasons else []
-                  episodes = episodes or []
-                  episode = episodes[0] if episodes else {}
-                  content_id = episode.get("id")
-                  season = episode.get("seasonNumber")
-                  ep = episode.get("episodeNumber")
-                  if not content_id or season is None or ep is None:
-                      raise SystemExit(f"{label}: missing episode identity")
-                  verify_broker("episode", content_id, label, season, ep)
-
-          print("Movyz live Playback Broker verification: ALL OK")
-          PY
-
-# Clean production trigger: single deployment after Actions queue cleanup.

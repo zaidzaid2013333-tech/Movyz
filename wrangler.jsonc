@@ -7,6 +7,9 @@
     "nodejs_compat",
     "nodejs_compat_populate_process_env"
   ],
+  "build": {
+    "command": "npm run build"
+  },
   "observability": {
     "enabled": true
   },
