@@ -669,6 +669,15 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
     if (/^\/old(?:\/|$)/i.test(rawPath)) continue;
 
     const hay = decodeUrlPath(decodeHtml(link.text + " " + rawPath));
+    // Reject any explicit SxxEyy declaration that conflicts with the requested
+    // episode before scoring by episode number. Without this guard, S11E01 could
+    // win for an S01E01 request because the episode number matches.
+    const explicitPair = hay.match(/\\bs0*(\\d{1,3})[^a-z0-9]{0,8}e0*(\\d{1,3})\\b/i);
+    if (explicitPair) {
+      const declaredPairSeason = Number(explicitPair[1]);
+      const declaredPairEpisode = Number(explicitPair[2]);
+      if (declaredPairSeason !== season || declaredPairEpisode !== episode) continue;
+    }
     const declaredSeason = explicitSeason(hay);
     if (declaredSeason !== undefined && declaredSeason !== season) continue;
 
@@ -983,12 +992,19 @@ async function getContext(env: Env, job: Job) {
       : []),
   ].filter(Boolean);
 
+  // Prefer the DB release year when the job RPC does not provide one. This is
+  // critical for disambiguating same/similar movie titles (e.g. remakes).
+  const dbReleaseYear =
+    job.content_type === "movie" && typeof extra?.release_date === "string"
+      ? Number(extra.release_date.slice(0, 4))
+      : undefined;
+
   return {
     titles: Array.from(new Set([
       ...(Array.isArray(ctx.titles) ? ctx.titles.filter(Boolean) : []),
       ...extraTitles,
     ])) as string[],
-    year: ctx.year ? Number(ctx.year) : undefined,
+    year: ctx.year ? Number(ctx.year) : dbReleaseYear,
     episodeNumber: ctx.episode_number ? Number(ctx.episode_number) : undefined,
     seasonNumber: ctx.season_number ? Number(ctx.season_number) : undefined,
   };
