@@ -1340,7 +1340,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
     candidate = await findCandidate(env, ctx.titles, ctx.year, "movie", undefined, budget, session);
     if (!candidate) throw new Error("AKWAM_NOT_FOUND");
 
-    const detail = await fetchText(env, candidate.url, undefined, undefined, budget);
+    const detail = await fetchText(env, candidate.url, undefined, undefined, budget, session);
     if (!detail) throw new Error("AKWAM_DETAIL_FETCH_FAILED");
     targets = usefulResolutionTargets(extractTargets(detail, candidate.url), 10);
   }
@@ -1349,7 +1349,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   const sourceReferer = episodeTarget || candidate?.url || base(env);
 
   // Same bounded resolution order that produced the working Interstellar sources.
-  for (const target of targets.slice(0, 8)) {
+  for (const target of targets.slice(0, 6)) {
     const media = await resolveTarget(env, target, sourceReferer, budget, session);
     if (!media) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);
