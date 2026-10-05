@@ -1128,6 +1128,25 @@ async function run(env: Env, workerId: string) {
   };
 }
 
+async function acquireCronLease(env: Env) {
+  const rows = await sb(env, "/rest/v1/rpc/acquire_akwam_cron_lease", {
+    method: "POST",
+    body: JSON.stringify({ p_lease_seconds: 90 }),
+  });
+  return rows === true || rows?.acquire_akwam_cron_lease === true || rows?.[0]?.acquire_akwam_cron_lease === true;
+}
+
+async function releaseCronLease(env: Env) {
+  try {
+    await sb(env, "/rest/v1/rpc/release_akwam_cron_lease", {
+      method: "POST",
+      body: "{}",
+    });
+  } catch (error) {
+    console.error("[akwam-cron-lease-release]", String(error));
+  }
+}
+
 const CRON_STATE_KEY = "akwam-cloudflare-cron";
 
 async function writeCronState(
@@ -1184,18 +1203,22 @@ export default {
 
   async scheduled(_event: unknown, env: Env, ctx: ExecutionContextLike) {
     ctx.waitUntil((async () => {
-      const startedAt = new Date().toISOString();
-      await writeCronState(env, {
-        last_run_at: startedAt,
-        stats: {
-          state: "started",
-          executor: "cloudflare-cron",
-          worker: "movyz-akwam-prefill",
-          at: startedAt,
-        },
-      });
-
+      let acquired = false;
       try {
+        acquired = await acquireCronLease(env);
+        if (!acquired) return;
+
+        const startedAt = new Date().toISOString();
+        await writeCronState(env, {
+          last_run_at: startedAt,
+          stats: {
+            state: "started",
+            executor: "cloudflare-cron",
+            worker: "movyz-akwam-prefill",
+            at: startedAt,
+          },
+        });
+
         const workerId = `cf-cron-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
         const result = await run(env, workerId);
         const finishedAt = new Date().toISOString();
@@ -1217,7 +1240,6 @@ export default {
       } catch (error) {
         const finishedAt = new Date().toISOString();
         await writeCronState(env, {
-          last_run_at: startedAt,
           last_success_at: null,
           last_error: String(error).slice(0, 1800),
           stats: {
@@ -1227,6 +1249,8 @@ export default {
           },
         });
         console.error("[akwam-prefill]", String(error));
+      } finally {
+        if (acquired) await releaseCronLease(env);
       }
     })());
   }
