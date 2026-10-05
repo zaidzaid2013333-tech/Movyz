@@ -438,45 +438,12 @@ async function findCandidate(
 
 
 function extractMediaLikeUrls(text: string) {
-  const decoded = decodeHtml(text)
-    .replace(/\\u002f/gi, "/")
-    .replace(/\\u003a/gi, ":")
-    .replace(/\\x2f/gi, "/")
-    .replace(/\\x3a/gi, ":")
-    .replace(/\\\//g, "/");
-
-  const candidates: string[] = [];
-  const push = (value: string) => {
-    const raw = value.trim().replace(/[),;]+$/g, "");
-    if (!raw) return;
-    candidates.push(raw);
-
-    // Akwam download pages sometimes keep the final CDN URL URL-encoded inside JS/JSON.
-    if (/%3a%2f%2f/i.test(raw)) {
-      try {
-        candidates.push(decodeURIComponent(raw));
-      } catch {}
-    }
-  };
-
-  // Quoted and unquoted absolute URLs, including JSON/JS escaped forms.
-  for (const match of decoded.match(/https?:\/\/[^\s"'<>\\]+/gi) || []) push(match);
-  for (const match of decoded.match(/https?%3A%2F%2F[^\s"'<>\\]+/gi) || []) push(match);
-
-  // Explicitly surface Akwam's external download CDN links even when they are
-  // embedded without a media extension or without HTML quotes.
-  for (const match of decoded.match(/https?:\/\/[^\s"'<>\\]+\/download\/[^\s"'<>\\]+/gi) || []) {
-    push(match);
-  }
-
-  return Array.from(new Set(candidates.map((value) => {
-    try {
-      return decodeURIComponent(value);
-    } catch {
-      return value;
-    }
-  })));
+  const decoded = decodeHtml(text);
+  return Array.from(new Set(
+    decoded.match(/https?:\/\/[^\s"'<>]+?\.(?:m3u8|mp4|mpd|webm)(?:\?[^\s"'<>]*)?/gi) || []
+  ));
 }
+
 
 function inferQuality(text: string) {
   return (decodeHtml(text).match(/(?:^|\D)(2160|1440|1080|720|576|480|360|240)(?:p)?(?:\D|$)/i) || [])[1];
@@ -595,9 +562,48 @@ function mediaFromUrl(url: string, referer?: string, qualityText = ""): Media {
 }
 
 function extractMedia(text: string, baseUrl: string): Media | null {
-  const candidate = extractMediaCandidates(text, baseUrl)[0];
-  return candidate ? mediaFromUrl(candidate.url, candidate.referer, text) : null;
+  const decoded = decodeHtml(text);
+  const direct = extractMediaLikeUrls(decoded)[0];
+  if (direct) {
+    return {
+      url: direct,
+      type: mediaTypeFromUrl(direct),
+      quality: inferQuality(decoded),
+      referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
+      trustedExternal: isAkwamUrl(baseUrl) && !isAkwamUrl(direct),
+    };
+  }
+
+  const embedded = decoded.match(/<(?:iframe|video|source)\b[^>]+(?:src|data-src)=["']([^"']+)["']/i)?.[1];
+  if (embedded) {
+    try {
+      const url = new URL(decodeHtml(embedded), baseUrl).href;
+      return {
+        url,
+        type: mediaTypeFromUrl(url),
+        quality: inferQuality(decoded),
+        referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
+        trustedExternal: isAkwamUrl(baseUrl) && !isAkwamUrl(url),
+      };
+    } catch {}
+  }
+
+  const file = decoded.match(/(?:file|source|src|videoUrl|video_url|stream|streamUrl|playlist|manifest)\s*[:=]\s*["']([^"']+)["']/i)?.[1];
+  if (file) {
+    try {
+      const url = new URL(decodeHtml(file), baseUrl).href;
+      return {
+        url,
+        type: mediaTypeFromUrl(url),
+        quality: inferQuality(decoded),
+        referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
+        trustedExternal: isAkwamUrl(baseUrl) && !isAkwamUrl(url),
+      };
+    } catch {}
+  }
+  return null;
 }
+
 
 function cleanHtmlText(value: string) {
   return value
@@ -690,110 +696,86 @@ function extractTargets(html: string, baseUrl: string) {
   const seen = new Set<string>();
 
   const add = (raw: string, scoreValue: number) => {
-    const url = absoluteUrl(raw, baseUrl);
-    if (!url || seen.has(url)) return;
-    seen.add(url);
-    ranked.push({ url, score: scoreValue });
+    try {
+      const url = new URL(decodeHtml(raw), baseUrl).href;
+      if (!url.startsWith("https://") || seen.has(url)) return;
+      seen.add(url);
+      ranked.push({ url, score: scoreValue });
+    } catch {}
   };
 
   const addLinkAsDownload = (href: string, text: string) => {
-    const observedUrl = absoluteUrl(href, baseUrl);
-    if (!observedUrl || !isAkwamUrl(observedUrl)) return;
-
     try {
-      const observed = new URL(observedUrl);
+      const observed = new URL(decodeHtml(href), baseUrl);
+      if (!isAkwamUrl(observed.href)) return;
+
       if (/^\/download\//i.test(observed.pathname)) {
-        add(observed.href, 220);
+        add(observed.href, 155);
         return;
       }
 
       const marker = observed.pathname.indexOf("/link");
       if (marker >= 0) {
         const contentPath = new URL(baseUrl).pathname.replace(/\/$/, "");
-        const suffixMatch = contentPath.match(/\/(?:movie|episode|shows|show\/episode)(\/.*)?$/i);
-        const contentSuffix = suffixMatch?.[1] || "";
-        const linkSuffix = observed.pathname.slice(marker + "/link".length);
-        add(new URL(observed.origin + "/download" + linkSuffix + contentSuffix).href, 190);
+        const suffix = observed.pathname.slice(marker + "/link".length);
+        const download = new URL(new URL(baseUrl).origin + "/download" + suffix + contentPath);
+        add(download.href, 150);
         return;
       }
 
-      if (/(?:تحميل|download)/i.test(text)) add(observed.href, 180);
-      else if (/^\/watch\//i.test(observed.pathname)) add(observed.href, 120);
-      else if (/\/episode\//i.test(observed.pathname)) add(observed.href, 40);
+      if (/^\/watch\//i.test(observed.pathname)) {
+        add(observed.href, 120);
+      } else if (/\/episode\//i.test(observed.pathname)) {
+        add(observed.href, 20);
+      }
     } catch {}
   };
 
   const anchors = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
   while ((m = anchors.exec(html))) {
-    addLinkAsDownload(m[1], cleanHtmlText(decodeHtml(m[2])));
+    const text = cleanHtmlText(decodeHtml(m[2]));
+    addLinkAsDownload(m[1], text);
+    if (/(2160|1440|1080|720|576|480|360|240)\s*p?/i.test(text + " " + m[1])) {
+      try {
+        const observed = new URL(decodeHtml(m[1]), baseUrl);
+        add(observed.href, 20);
+      } catch {}
+    }
   }
 
-  for (const candidate of extractMediaCandidates(html, baseUrl)) {
-    add(candidate.url, candidate.score);
-  }
+  const mediaTags = /<(?:iframe|video|source)\b[^>]*(?:src|data-src|data-url)=["']([^"']+)["'][^>]*>/gi;
+  while ((m = mediaTags.exec(html))) add(m[1], 100);
+  for (const u of extractMediaLikeUrls(html)) add(u, 140);
 
-  return ranked.sort((a, b) => b.score - a.score).map((x) => x.url).slice(0, 16);
+  return ranked.sort((a, b) => b.score - a.score).map((x) => x.url).slice(0, 12);
 }
 
 
 function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null {
-  // Akwam's current download page sets the final CDN URL from JavaScript:
-  // $('a.download').attr('href', 'https://.../file.mp4');
-  const scriptMedia = /(?:\.attr\s*\(\s*["'](?:href|src)["']\s*,|(?:file|source|media|url)\s*[:=]\s*)\s*["'](https?:\/\/[^"'<>]+\.(?:m3u8|mp4|mpd|webm)(?:\?[^"'<>]*)?)["']/gi;
-  const scriptMatch = scriptMedia.exec(html);
-  if (scriptMatch?.[1]) {
-    const url = absoluteUrl(scriptMatch[1], baseUrl);
-    if (url) {
-      return {
-        url,
-        type: mediaTypeFromUrl(url),
-        quality: inferQuality(html),
-        referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
-        trustedExternal: isAkwamUrl(baseUrl) && !isAkwamUrl(url),
-      };
-    }
-  }
-
   const patterns = [
-    /<[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>[\s\S]{0,8000}?<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi,
-    /<a\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>/gi,
-    /<a\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>/gi,
-    /<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?(?:تحميل|Download|تحميل الآن)[\s\S]*?<\/a>/gi,
+    /<div\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["']/gi,
+    /<a\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*href=["']([^"']+)["']/gi,
   ];
 
   for (const re of patterns) {
     const match = re.exec(html);
     if (!match?.[1]) continue;
-    const url = absoluteUrl(match[1], baseUrl);
-    if (!url) continue;
-    return {
-      url,
-      type: mediaTypeFromUrl(url),
-      quality: inferQuality(match[0] + " " + html.slice(Math.max(0, match.index - 1200), match.index + 1800)),
-      referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
-      trustedExternal: isAkwamUrl(baseUrl) && !isAkwamUrl(url),
-    };
-  }
-
-  const attrs = /(?:href|src|data-src|data-file|data-video|data-url|data-href|data-link|data-stream)=["']([^"']+)["']/gi;
-  let attr: RegExpExecArray | null;
-  while ((attr = attrs.exec(html))) {
-    const raw = decodeHtml(attr[1]);
-    if (!/(?:\.m3u8|\.mp4|\.mpd|\.webm)(?:\?|$)/i.test(raw)) continue;
-    const url = absoluteUrl(raw, baseUrl);
-    if (!url) continue;
-    return {
-      url,
-      type: mediaTypeFromUrl(url),
-      quality: inferQuality(html.slice(Math.max(0, attr.index - 1000), attr.index + 1000)),
-      referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
-      trustedExternal: isAkwamUrl(baseUrl) && !isAkwamUrl(url),
-    };
+    try {
+      const url = new URL(decodeHtml(match[1]), baseUrl).href;
+      return {
+        url,
+        type: mediaTypeFromUrl(url),
+        quality: inferQuality(match[0] + " " + html.slice(Math.max(0, match.index - 900), match.index + 900)),
+        referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
+        trustedExternal: isAkwamUrl(baseUrl) && !isAkwamUrl(url),
+      };
+    } catch {}
   }
 
   return null;
 }
+
 
 async function readPrefix(response: Response, maxBytes = 8192) {
   const reader = response.body?.getReader();
@@ -911,64 +893,36 @@ async function resolveTarget(
   referer?: string,
   budget?: RequestBudget,
 ): Promise<Media | null> {
-  const queue: Array<{ url: string; referer?: string; depth: number }> = [
-    { url: target, referer, depth: 0 },
-  ];
-  const seen = new Set<string>();
+  const direct = mediaFromUrl(target, referer);
+  if (!isLikelyNavigationUrl(target) && await validateMedia(env, direct, budget)) return direct;
 
-  while (queue.length) {
-    const current = queue.shift();
-    if (!current || seen.has(current.url) || current.depth > 2) continue;
-    seen.add(current.url);
+  const html = await fetchText(env, target, undefined, referer, budget);
+  if (!html) return null;
 
-    const navigation = isLikelyNavigationUrl(current.url);
-    const direct = mediaFromUrl(current.url, current.referer);
-    if (!navigation && await validateMedia(env, direct, budget)) return direct;
+  // Interstellar reference path:
+  // target (/download or /link-promoted download) -> btn-loader -> final CDN URL.
+  const buttonMedia = extractDownloadButtonMedia(html, target);
+  if (buttonMedia && await validateMedia(env, buttonMedia, budget)) {
+    return buttonMedia;
+  }
 
-    const html = await fetchText(env, current.url, undefined, current.referer, budget);
-    if (!html) continue;
+  const media = extractMedia(html, target);
+  if (media && await validateMedia(env, media, budget)) {
+    return media;
+  }
 
-    const buttonMedia = extractDownloadButtonMedia(html, current.url);
-    if (buttonMedia && await validateMedia(env, buttonMedia, budget)) {
-      return buttonMedia;
-    }
+  for (const nested of extractTargets(html, target).slice(0, 3)) {
+    const directNested = mediaFromUrl(nested, target);
+    if (!isLikelyNavigationUrl(nested) && await validateMedia(env, directNested, budget)) return directNested;
 
-    if (buttonMedia && current.depth < 2) {
-      try {
-        const buttonUrl = new URL(buttonMedia.url);
-        if (buttonUrl.protocol === "https:" && !seen.has(buttonUrl.href)) {
-          queue.push({
-            url: buttonUrl.href,
-            referer: current.url,
-            depth: current.depth + 1,
-          });
-        }
-      } catch {}
-    }
+    const nestedHtml = await fetchText(env, nested, undefined, target, budget);
+    if (!nestedHtml) continue;
 
-    const mediaCandidates = extractMediaCandidates(html, current.url);
-    for (const candidate of mediaCandidates.slice(0, 2)) {
-      const media = mediaFromUrl(
-        candidate.url,
-        candidate.referer || current.url,
-        html,
-      );
-      if (await validateMedia(env, media, budget)) return media;
-    }
+    const nestedButton = extractDownloadButtonMedia(nestedHtml, nested);
+    if (nestedButton && await validateMedia(env, nestedButton, budget)) return nestedButton;
 
-    if (current.depth >= 2) continue;
-    const nestedTargets = usefulResolutionTargets(
-      extractTargets(html, current.url),
-      1,
-    );
-    for (const nested of nestedTargets) {
-      if (seen.has(nested)) continue;
-      queue.push({
-        url: nested,
-        referer: current.url,
-        depth: current.depth + 1,
-      });
-    }
+    const nestedMedia = extractMedia(nestedHtml, nested);
+    if (nestedMedia && await validateMedia(env, nestedMedia, budget)) return nestedMedia;
   }
 
   return null;
@@ -1031,8 +985,8 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
 
   const medias: Media[] = [];
   const sourceReferer = candidate.url;
-  const resolutionTargets = usefulResolutionTargets(targets, 2);
-  for (const target of resolutionTargets) {
+  // Same bounded resolution order that produced the working Interstellar sources.
+  for (const target of targets.slice(0, 6)) {
     const media = await resolveTarget(env, target, sourceReferer, budget);
     if (!media) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);
