@@ -97,7 +97,6 @@ async function assertDatabaseReady() {
       'episodes',
       'providers',
       'provider_mappings',
-      'playback_sources',
       'sync_jobs',
     ];
 
@@ -640,6 +639,132 @@ export async function runTmdbSync(options: { pages?: number } = {}) {
     await finishJob(job.id, 'failed', counts, error);
     throw error;
   }
+}
+
+
+function normalizeCuratedTitle(value: string) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/[:：\\-–—]\\s*(?:season|series)\\s*\\d+$/i, '')
+    .replace(/\\s+(?:season|series)\\s*\\d+$/i, '')
+    .replace(/[^a-z0-9\\u0600-\\u06ff]+/gi, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function curatedCandidateScore(item: { title: string; year?: number }, candidate: any, mediaType: 'movie' | 'series') {
+  const wanted = normalizeCuratedTitle(item.title);
+  const names = mediaType === 'movie'
+    ? [candidate?.title, candidate?.original_title]
+    : [candidate?.name, candidate?.original_name];
+
+  const normalizedNames = names.filter(Boolean).map(normalizeCuratedTitle);
+  const exact = normalizedNames.includes(wanted);
+  const includes = normalizedNames.some((name) => name === wanted || name.includes(wanted) || wanted.includes(name));
+  const resultDate = String(mediaType === 'movie' ? candidate?.release_date : candidate?.first_air_date || '').slice(0, 4);
+  const resultYear = Number(resultDate) || 0;
+  const yearDistance = item.year && resultYear ? Math.abs(item.year - resultYear) : 0;
+  const yearScore = !item.year || !resultYear ? 0.5 : yearDistance === 0 ? 1 : yearDistance === 1 ? 0.75 : yearDistance <= 3 ? 0.35 : 0;
+  const popularity = Math.min(1, Number(candidate?.popularity || 0) / 80);
+  const votes = Math.min(1, Number(candidate?.vote_count || 0) / 5000);
+  return (exact ? 1 : includes ? 0.65 : 0) * 0.55 + yearScore * 0.25 + popularity * 0.12 + votes * 0.08;
+}
+
+export type CuratedCatalogItem = {
+  rank: number;
+  title: string;
+  year?: number;
+  mediaType: 'movie' | 'series';
+};
+
+export async function importCuratedCatalog(items: CuratedCatalogItem[]) {
+  await assertDatabaseReady();
+  const unique = new Map<string, CuratedCatalogItem>();
+  for (const item of items.slice(0, 200)) {
+    const key = item.mediaType + '|' + normalizeCuratedTitle(item.title);
+    if (!unique.has(key)) unique.set(key, item);
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+  for (const item of [...unique.values()].sort((a, b) => a.rank - b.rank)) {
+    try {
+      const path = item.mediaType === 'movie' ? '/search/movie' : '/search/tv';
+      const yearParam = item.mediaType === 'movie' ? 'primary_release_year' : 'first_air_date_year';
+      let search = await tmdbGet<any>(path, {
+        query: item.title.replace(/[:：\\-–—]\\s*(?:season|series)\\s*\\d+$/i, '').trim(),
+        language: 'en-US',
+        include_adult: false,
+        page: 1,
+        ...(item.year ? { [yearParam]: item.year } : {}),
+      });
+
+      let candidates = Array.isArray(search?.results) ? search.results : [];
+      if (!candidates.length && item.year) {
+        search = await tmdbGet<any>(path, {
+          query: item.title.replace(/[:：\\-–—]\\s*(?:season|series)\\s*\\d+$/i, '').trim(),
+          language: 'en-US',
+          include_adult: false,
+          page: 1,
+        });
+        candidates = Array.isArray(search?.results) ? search.results : [];
+      }
+
+      const ranked = candidates
+        .map((candidate: any) => ({
+          candidate,
+          score: curatedCandidateScore(item, candidate, item.mediaType),
+        }))
+        .sort((a: any, b: any) => b.score - a.score);
+
+      const best = ranked[0];
+      if (!best || best.score < 0.48 || !Number.isInteger(best.candidate?.id)) {
+        results.push({ rank: item.rank, title: item.title, mediaType: item.mediaType, status: 'not_found' });
+        continue;
+      }
+
+      if (item.mediaType === 'movie') {
+        const id = await syncMovieByTmdbId(Number(best.candidate.id));
+        const trending = item.rank <= 50;
+        const featured = item.rank <= 10;
+        const { error } = await adminSupabase.from('movies').update({
+          status: 'published',
+          popular: true,
+          trending,
+          featured,
+          metadata: { curated_rank: item.rank, curated_year: item.year || null },
+        }).eq('id', id);
+        if (error) throw new Error(error.message);
+        results.push({ rank: item.rank, title: item.title, tmdbId: best.candidate.id, mediaType: item.mediaType, status: 'imported', score: Number(best.score.toFixed(3)) });
+      } else {
+        const synced = await syncSeriesByTmdbId(Number(best.candidate.id));
+        const trending = item.rank <= 50;
+        const featured = item.rank <= 10;
+        const { error } = await adminSupabase.from('series').update({
+          status: 'published',
+          popular: true,
+          trending,
+          featured,
+          metadata: { curated_rank: item.rank, curated_year: item.year || null },
+        }).eq('id', synced.id);
+        if (error) throw new Error(error.message);
+        results.push({ rank: item.rank, title: item.title, tmdbId: best.candidate.id, mediaType: item.mediaType, status: 'imported', score: Number(best.score.toFixed(3)), seasons: synced.seasons, episodes: synced.episodes });
+      }
+    } catch (error) {
+      results.push({ rank: item.rank, title: item.title, mediaType: item.mediaType, status: 'error', error: error instanceof Error ? error.message : String(error) });
+    }
+
+    await throttle();
+  }
+
+  return {
+    requested: unique.size,
+    imported: results.filter((x) => x.status === 'imported').length,
+    notFound: results.filter((x) => x.status === 'not_found').length,
+    errors: results.filter((x) => x.status === 'error').length,
+    results,
+  };
 }
 
 export async function syncMovieCandidate(arMovie: any, enMovie: any) {
