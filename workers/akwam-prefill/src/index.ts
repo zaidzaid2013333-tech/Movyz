@@ -394,6 +394,7 @@ async function findCandidate(
   expected: "movie" | "series" | "episode" = "movie",
   expectedSeason?: number,
   budget?: RequestBudget,
+  session?: AkwamSession,
 ) {
   const hosts = [base(env)];
 
@@ -428,7 +429,7 @@ async function findCandidate(
         ];
 
         for (const searchUrl of searchUrls) {
-          const html = await fetchText(env, searchUrl, diagnostics, undefined, budget);
+          const html = await fetchText(env, searchUrl, diagnostics, undefined, budget, session);
           if (!html) continue;
 
           for (const item of parseCandidates(html, env, expected === "movie")) {
@@ -454,7 +455,7 @@ async function findCandidate(
         ];
 
         for (const searchUrl of legacyUrls) {
-          const html = await fetchText(env, searchUrl, diagnostics, undefined, budget);
+          const html = await fetchText(env, searchUrl, diagnostics, undefined, budget, session);
           if (!html) continue;
 
           for (const item of parseCandidates(html, env, true)) {
@@ -738,6 +739,21 @@ function usefulResolutionTargets(targets: string[], limit = 6) {
     .slice(0, limit);
 }
 
+function qualityScore(value: string) {
+  const text = decodeHtml(value);
+  const match = text.match(/(?:^|\D)(2160|1440|1080|720|576|480|360|240)(?:\s*p)?(?:\D|$)/i);
+  const quality = match?.[1] ? Number(match[1]) : 0;
+  if (!quality) return 0;
+  if (quality >= 2160) return 360;
+  if (quality >= 1440) return 340;
+  if (quality >= 1080) return 320;
+  if (quality >= 720) return 285;
+  if (quality >= 576) return 245;
+  if (quality >= 480) return 220;
+  if (quality >= 360) return 190;
+  return 170;
+}
+
 function extractTargets(html: string, baseUrl: string) {
   const ranked: Array<{ url: string; score: number }> = [];
   const seen = new Set<string>();
@@ -751,29 +767,41 @@ function extractTargets(html: string, baseUrl: string) {
     } catch {}
   };
 
-  const addLinkAsDownload = (href: string, text: string) => {
+  const addLinkTarget = (href: string, text: string) => {
     try {
       const observed = new URL(decodeHtml(href), baseUrl);
       if (!isAkwamUrl(observed.href)) return;
 
-      if (/^\/(?:download)\//i.test(observed.pathname) || /^\/old\/download\//i.test(observed.pathname)) {
-        add(observed.href, 155);
+      const q = qualityScore(text + " " + observed.href);
+
+      if (/^\/download\//i.test(observed.pathname) || /^\/old\/download\//i.test(observed.pathname)) {
+        add(observed.href, 220 + q);
         return;
       }
 
-      const marker = observed.pathname.indexOf("/link");
-      if (marker >= 0) {
-        const contentPath = new URL(baseUrl).pathname.replace(/\/$/, "");
-        const suffix = observed.pathname.slice(marker + "/link".length);
-        const download = new URL(new URL(baseUrl).origin + "/download" + suffix + contentPath);
-        add(download.href, 150);
+      // Current Akwam uses /watch/<token>/<content-id>/... as a dedicated
+      // playback page. Follow that exact URL before trying to infer anything.
+      if (/^\/watch\//i.test(observed.pathname) || /^\/old\/watch\//i.test(observed.pathname)) {
+        add(observed.href, 210 + q);
         return;
       }
 
-      if (/^\/watch\//i.test(observed.pathname)) {
-        add(observed.href, 120);
-      } else if (/\/episode\//i.test(observed.pathname)) {
-        add(observed.href, 20);
+      // /link/... is itself a navigation hop. Preserve it as the primary
+      // target; retain the old derived /download form only as fallback.
+      if (/^\/link\//i.test(observed.pathname) || /^\/old\/link\//i.test(observed.pathname)) {
+        add(observed.href, 195 + q);
+        const marker = observed.pathname.indexOf("/link");
+        if (marker >= 0) {
+          const contentPath = new URL(baseUrl).pathname.replace(/\/$/, "");
+          const suffix = observed.pathname.slice(marker + "/link".length);
+          const download = new URL(new URL(baseUrl).origin + "/download" + suffix + contentPath);
+          add(download.href, 160 + q);
+        }
+        return;
+      }
+
+      if (/^\/(?:episode|show\/episode)\//i.test(observed.pathname)) {
+        add(observed.href, 50 + q);
       }
     } catch {}
   };
@@ -782,22 +810,22 @@ function extractTargets(html: string, baseUrl: string) {
   let m: RegExpExecArray | null;
   while ((m = anchors.exec(html))) {
     const text = cleanHtmlText(decodeHtml(m[2]));
-    addLinkAsDownload(m[1], text);
-    if (/(2160|1440|1080|720|576|480|360|240)\s*p?/i.test(text + " " + m[1])) {
+    addLinkTarget(m[1], text);
+    const q = qualityScore(text + " " + m[1]);
+    if (q) {
       try {
-        const observed = new URL(decodeHtml(m[1]), baseUrl);
-        add(observed.href, 20);
+        add(new URL(decodeHtml(m[1]), baseUrl).href, q);
       } catch {}
     }
   }
 
   const mediaTags = /<(?:iframe|video|source)\b[^>]*(?:src|data-src|data-url)=["']([^"']+)["'][^>]*>/gi;
-  while ((m = mediaTags.exec(html))) add(m[1], 100);
-  for (const u of extractMediaLikeUrls(html)) add(u, 140);
+  while ((m = mediaTags.exec(html))) add(m[1], 140);
 
-  return ranked.sort((a, b) => b.score - a.score).map((x) => x.url).slice(0, 12);
+  for (const u of extractMediaLikeUrls(html)) add(u, 260);
+
+  return ranked.sort((x, y) => y.score - x.score).map((x) => x.url).slice(0, 16);
 }
-
 
 function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null {
   const patterns = [
