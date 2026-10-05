@@ -86,6 +86,17 @@ jobs:
                   print(s[max(0,i-2500):i+6000])
           PY
 
+          echo '=== legacy Free Solo POST resolver probe ==='
+          curl -k -L --fail-with-body --silent --show-error --max-time 30 \
+            -A "$ua" \
+            -H 'Accept: application/json, text/javascript, */*; q=0.01' \
+            -H 'X-Requested-With: XMLHttpRequest' \
+            -H 'Referer: https://akwam.ss/old/155349/%D8%A7%D9%84%D9%81%D9%8A%D9%84%D9%85-%D8%A7%D9%84%D9%88%D8%AB%D8%A7%D8%A6%D9%82%D9%8A-Free-Solo-2018-%D9%85%D8%AF%D8%A8%D9%84%D8%AC-HD' \
+            -X POST "$old_download" -o /tmp/free-solo-old-post.json
+          echo '--- POST resolver response ---'
+          wc -c /tmp/free-solo-old-post.json
+          head -c 12000 /tmp/free-solo-old-post.json; echo
+
           echo '=== movie search probe: Free Solo ==='
           curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: text/html'             'https://akwam.ss/search?q=Free%20Solo' -o /tmp/movie-search.html
           echo '=== Free Solo search status/bytes ==='
