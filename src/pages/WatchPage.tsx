@@ -18,6 +18,8 @@ import {
   Share2,
   ShieldAlert,
   Sparkles,
+  Settings2,
+  Keyboard,
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { MovyzaApi } from '../services/api';
@@ -229,6 +231,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [playerSpeed, setPlayerSpeed] = useState(1);
   const [playerBufferedEnd, setPlayerBufferedEnd] = useState(0);
   const [playerReady, setPlayerReady] = useState(false);
+  const [playerControlsVisible, setPlayerControlsVisible] = useState(true);
+  const [playerSettingsOpen, setPlayerSettingsOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
   const qualityResumeTimeRef = useRef<number | null>(null);
@@ -446,18 +450,52 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlayerMuted(video.muted);
   };
 
+  const lockLandscape = async () => {
+    try {
+      const orientation = (screen as Screen & {
+        orientation?: ScreenOrientation & { lock?: (orientation: string) => Promise<void> };
+      }).orientation;
+      if (orientation?.lock) {
+        await orientation.lock('landscape');
+      }
+    } catch {
+      // Some browsers reject orientation locks unless fullscreen is active.
+    }
+  };
+
+  const unlockScreenOrientation = async () => {
+    try {
+      const orientation = (screen as Screen & { orientation?: ScreenOrientation & { unlock?: () => void } }).orientation;
+      orientation?.unlock?.();
+    } catch {}
+  };
+
   const togglePlayerFullscreen = async () => {
     const shell = playerShellRef.current;
     if (!shell) return;
+
     try {
       if (!document.fullscreenElement) {
         await shell.requestFullscreen();
         setPlayerFullscreen(true);
+        await lockLandscape();
       } else {
         await document.exitFullscreen();
         setPlayerFullscreen(false);
+        await unlockScreenOrientation();
       }
-    } catch {}
+    } catch {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else if (
+          videoRef.current &&
+          typeof (videoRef.current as HTMLVideoElement & { webkitEnterFullscreen?: () => void }).webkitEnterFullscreen === 'function'
+        ) {
+          (videoRef.current as HTMLVideoElement & { webkitEnterFullscreen?: () => void }).webkitEnterFullscreen?.();
+        }
+      } catch {}
+    }
   };
 
   const togglePlayerPictureInPicture = async () => {
@@ -471,6 +509,57 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       }
     } catch {}
   };
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const onFullscreenChange = () => {
+      const active =
+        Boolean(document.fullscreenElement) &&
+        Boolean(playerShellRef.current) &&
+        document.fullscreenElement === playerShellRef.current;
+      setPlayerFullscreen(active);
+      if (active) void lockLandscape();
+      else void unlockScreenOrientation();
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable) return;
+
+      const video = videoRef.current;
+      if (!video) return;
+
+      if (event.key === ' ' || event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        togglePlayerPlayback();
+      } else if (event.key.toLowerCase() === 'm') {
+        event.preventDefault();
+        togglePlayerMute();
+      } else if (event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        void togglePlayerFullscreen();
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        seekPlayerBy(direction === 'rtl' ? 10 : -10);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        seekPlayerBy(direction === 'rtl' ? -10 : 10);
+      } else if (event.key === 'Escape') {
+        setPlayerSettingsOpen(false);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      window.removeEventListener('keydown', onKeyDown);
+      void unlockScreenOrientation();
+    };
+  }, [direction]);
 
   const playbackMimeType = /\.mp4(?:$|[?#])/i.test(playbackUrl)
     ? 'video/mp4'
@@ -1259,7 +1348,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
         <div className="movyza-player-shell overflow-hidden shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
-            <div ref={playerShellRef} className="relative h-full w-full bg-black">
+            <div
+                ref={playerShellRef}
+                data-player-shell="true"
+                tabIndex={-1}
+                className="movyza-player-frame relative h-full w-full bg-black"
+                onPointerMove={() => setPlayerControlsVisible(true)}
+                onTouchStart={() => setPlayerControlsVisible(true)}
+              >
 
               {playbackError ? (
                 <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/75 p-6 text-center">
@@ -1442,7 +1538,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               <div
                 className={(isEmbedPlayback ? 'hidden ' : '') + 'pointer-events-none absolute inset-0 z-10'}
               >
-                <div className="pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent pt-16 pb-3 px-3 sm:px-4">
+                <div className={'movyza-player-controls pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent pt-16 pb-3 px-3 sm:px-4 ' + (playerControlsVisible ? 'is-visible' : 'is-hidden')}>
                   <div className="flex flex-col gap-2">
                     <div className="relative">
                       <div
@@ -1457,14 +1553,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                         step="0.1"
                         value={Math.min(playerCurrentTime, Math.max(playerDuration, 0))}
                         onChange={(event) => setPlayerProgress(Number(event.target.value))}
-                        className="relative z-10 w-full accent-amber-400 cursor-pointer"
+                        className="movyza-player-seek relative z-10 w-full accent-amber-400 cursor-pointer"
                       />
                     </div>
                     <div className="flex items-center gap-2 text-white">
                       <button
                         type="button"
                         onClick={togglePlayerPlayback}
-                        className="h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
                         aria-label={playerPlaying ? (language === 'ar' ? 'إيقاف' : 'Pause') : (language === 'ar' ? 'تشغيل' : 'Play')}
                       >
                         {playerPlaying ? <Pause size={17} /> : <Play size={17} className="translate-x-0.5" />}
@@ -1472,7 +1568,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       <button
                         type="button"
                         onClick={() => seekPlayerBy(-10)}
-                        className="h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
                         aria-label={language === 'ar' ? 'رجوع 10 ثواني' : 'Back 10 seconds'}
                       >
                         <RotateCcw size={17} />
@@ -1480,7 +1576,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       <button
                         type="button"
                         onClick={() => seekPlayerBy(10)}
-                        className="h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
                         aria-label={language === 'ar' ? 'تقديم 10 ثواني' : 'Forward 10 seconds'}
                       >
                         <RotateCw size={17} />
@@ -1488,7 +1584,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       <button
                         type="button"
                         onClick={togglePlayerMute}
-                        className="h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
                         aria-label={playerMuted ? (language === 'ar' ? 'إلغاء الكتم' : 'Unmute') : (language === 'ar' ? 'كتم الصوت' : 'Mute')}
                       >
                         {playerMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}
@@ -1518,7 +1614,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                             if (video) video.playbackRate = next;
                             setPlayerSpeed(next);
                           }}
-                          className="bg-white/10 border border-white/10 rounded-md px-1.5 py-1 outline-none"
+                          className="movyza-player-select bg-white/10 border border-white/10 rounded-md px-1.5 py-1 outline-none"
                         >
                           {[0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
                             <option key={speed} value={speed} className="bg-slate-950">{speed}x</option>
@@ -1529,7 +1625,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                         <button
                           type="button"
                           onClick={() => void togglePlayerPictureInPicture()}
-                          className="h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition text-[10px] font-bold"
+                          className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition text-[10px] font-bold"
                           aria-label={playerPictureInPicture ? (language === 'ar' ? 'الخروج من صورة داخل صورة' : 'Exit picture in picture') : (language === 'ar' ? 'صورة داخل صورة' : 'Picture in picture')}
                         >
                           PiP
@@ -1538,7 +1634,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       <button
                         type="button"
                         onClick={() => void togglePlayerFullscreen()}
-                        className="h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
                         aria-label={playerFullscreen ? (language === 'ar' ? 'الخروج من ملء الشاشة' : 'Exit fullscreen') : (language === 'ar' ? 'ملء الشاشة' : 'Fullscreen')}
                       >
                         {playerFullscreen ? <Minimize size={17} /> : <Maximize size={17} />}
@@ -1552,7 +1648,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-7 sm:pt-9 space-y-7">
-        <div className="movyza-watch-meta flex flex-col md:flex-row md:items-start justify-between gap-5 p-5 sm:p-7">
+        <div className="movyza-watch-meta movyza-watch-meta-modern flex flex-col md:flex-row md:items-start justify-between gap-5 p-5 sm:p-7">
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono text-xs font-bold">
@@ -1600,7 +1696,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-7">
           <div className="lg:col-span-2 space-y-4">
-            <div className="flex items-center gap-2 text-amber-300 text-sm font-bold">
+            <div className="movyza-story-heading flex items-center gap-2 text-amber-300 text-sm font-bold">
               <Info className="w-4 h-4 text-amber-400" />
               <span>{t('storyOverview')}</span>
             </div>
