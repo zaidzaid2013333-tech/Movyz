@@ -34,36 +34,85 @@ jobs:
         run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Build frontend assets
+        env:
+          MOVYZ_BUILD_ID: ${{ github.sha }}
         run: npm run build
 
       - name: Deploy Cloudflare Worker
-        run: npx wrangler deploy
+        run: npx wrangler deploy --var MOVYZ_BUILD_ID:${{ github.sha }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Verify persisted playback is visible through production API
+      - name: Verify production build and persisted playback contract
+        env:
+          EXPECTED_BUILD_ID: ${{ github.sha }}
         run: |
-          set -euo pipefail
-          base="https://movyz-api.sameranede.workers.dev/api/v1"
-          for attempt in 1 2 3 4 5; do
-            movie="$(curl -fsSL --max-time 20 "$base/movies/tmdb/157336")" &&             series="$(curl -fsSL --max-time 20 "$base/series/tmdb/456/watch/21/1")" &&             python - <<'PY' "$movie" "$series"
-          import json, sys
-          movie = json.loads(sys.argv[1])
-          series = json.loads(sys.argv[2])
-          movie_sources = movie.get("data", {}).get("movie", {}).get("sources", [])
-          series_sources = (
-              series.get("data", {})
-              .get("series", {})
-              .get("seasons", [{}])[0]
-              .get("episodes", [{}])[0]
-              .get("sources", [])
-          )
-          assert movie_sources, "Interstellar has no persisted sources in production API"
-          assert series_sources, "The Simpsons S21E1 has no persisted sources in production API"
-          print("playback_api_ok", {"movie_sources": len(movie_sources), "episode_sources": len(series_sources)})
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.request
+
+          base = "https://movyz-api.sameranede.workers.dev/api/v1"
+          expected_build = os.environ["EXPECTED_BUILD_ID"]
+          checks = [
+              ("/movies/tmdb/157336", "Interstellar", 3),
+              ("/movies/tmdb/278", "The Shawshank Redemption", 2),
+              ("/series/tmdb/456/watch/21/1", "The Simpsons S21E01", 36),
+          ]
+
+          for path, label, minimum_sources in checks:
+              req = urllib.request.Request(
+                  base + path,
+                  headers={"Accept": "application/json", "User-Agent": "Movyz-CI-Playback/3.0"},
+              )
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  payload = json.load(response)
+                  build_id = response.headers.get("x-movyz-build-id", "")
+                  contract = response.headers.get("x-movyz-playback-contract", "")
+
+              if build_id != expected_build:
+                  raise SystemExit(f"{label}: production build mismatch: {build_id!r} != {expected_build!r}")
+              if contract != "db-v2":
+                  raise SystemExit(f"{label}: unexpected playback contract: {contract!r}")
+              if payload.get("success") is not True:
+                  raise SystemExit(f"{label}: API response was not successful")
+
+              if "/movies/" in path:
+                  sources = payload.get("data", {}).get("movie", {}).get("sources", [])
+              else:
+                  sources = (
+                      payload.get("data", {})
+                      .get("series", {})
+                      .get("seasons", [{}])[0]
+                      .get("episodes", [{}])[0]
+                      .get("sources", [])
+                  )
+
+              if not isinstance(sources, list) or len(sources) < minimum_sources:
+                  raise SystemExit(
+                      f"{label}: expected >= {minimum_sources} sources, got "
+                      f"{len(sources) if isinstance(sources, list) else 'invalid'}"
+                  )
+
+              for source in sources:
+                  if not isinstance(source, dict):
+                      raise SystemExit(f"{label}: invalid source object")
+                  url = str(source.get("url") or "")
+                  source_type = str(source.get("type") or "").lower()
+                  quality = str(source.get("quality") or "")
+                  if not url.startswith("https://"):
+                      raise SystemExit(f"{label}: non-HTTPS source")
+                  if source_type not in {"mp4", "hls", "dash", "webm", "direct", "embed"}:
+                      raise SystemExit(f"{label}: invalid source type {source_type!r}")
+                  if quality and quality.lower() != "auto" and not re.fullmatch(r"\d{3,4}p", quality, re.I):
+                      raise SystemExit(f"{label}: non-normalized quality {quality!r}")
+
+              print(
+                  f"production_ok label={label!r} build={build_id} "
+                  f"contract={contract} sources={len(sources)}"
+              )
+
+          print("Movyz production playback verification: ALL OK")
           PY
-              exit 0
-            sleep 3
-          done
-          exit 1
