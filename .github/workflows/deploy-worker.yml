@@ -114,7 +114,9 @@ jobs:
                   query["episode"] = str(episode)
 
               path = "/playback/prepare?" + urllib.parse.urlencode(query)
-              payload, _ = get_json(path, label)
+              payload, broker_headers = get_json(path, label)
+              if broker_headers["build"] != expected_build:
+                  raise SystemExit(f"{label}: stale live build {broker_headers['build']!r}, expected {expected_build!r}")
               data = payload.get("data", {})
               sources = data.get("sources", [])
 
@@ -155,6 +157,8 @@ jobs:
           for path, label, kind in checks:
               payload, headers = get_json(path, label)
               print(f"{label}: catalog contract={headers['contract']!r} build={headers['build']!r}")
+              if headers["build"] != expected_build:
+                  raise SystemExit(f"{label}: stale catalog build {headers['build']!r}, expected {expected_build!r}")
 
               if kind == "movie":
                   content = payload.get("data", {}).get("movie", {})
