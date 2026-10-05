@@ -380,25 +380,23 @@ async function findCandidate(
       ].filter(Boolean))).slice(0, 4);
 
   for (const host of hosts) {
-    // Akwam's current homepage documents the legacy search as a search across
-    // the site's full data set, and the working indexed route uses /page/1.
-    // Use that verified route first instead of spending most of the request
-    // budget probing speculative /search?q=... endpoints that currently return
-    // 404 from worker execution.
-    if (host === base(env) && (expected === "movie" || expected === "series")) {
-      const legacyVariants = variants.slice(0, expected === "movie" ? 5 : 4);
-      for (const title of legacyVariants) {
+    // Akwam's live search endpoint is the authoritative current catalog route.
+    // The live site returns exact /movie/... links from /search?q=... and also
+    // accepts the optional section=movie|series filter.
+    if (expected === "movie" || expected === "series") {
+      const section = expected;
+      for (const title of variants) {
         const encoded = encodeURIComponent(title);
         const searchUrls = [
-          host + "/old/search/" + encoded + "/page/1",
-          host + "/old/search/" + encoded,
+          host + "/search?q=" + encoded + "&section=" + encodeURIComponent(section) + "&page=1",
+          host + "/search?q=" + encoded,
         ];
 
         for (const searchUrl of searchUrls) {
           const html = await fetchText(env, searchUrl, diagnostics, undefined, budget);
           if (!html) continue;
 
-          for (const item of parseCandidates(html, env, true)) {
+          for (const item of parseCandidates(html, env, expected === "movie")) {
             const itemScore = score(item, titles, year, expected, expectedSeason);
             if (!best || itemScore > best.score) best = { item, score: itemScore };
           }
