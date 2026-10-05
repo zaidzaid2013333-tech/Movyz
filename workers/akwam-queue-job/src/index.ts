@@ -4,7 +4,7 @@ type Env = {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   AKWAM_BASE_URL: string;
-  MAX_JOBS_PER_RUN?: string;
+  MAX_JOBS_PER_RUN: string;
   PREFILL_CONCURRENCY?: string;
 };
 
