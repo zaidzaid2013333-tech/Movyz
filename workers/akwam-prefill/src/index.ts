@@ -375,23 +375,31 @@ async function findCandidate(
       ].filter(Boolean))).slice(0, 4);
 
   for (const host of hosts) {
+    // Akwam.ss currently exposes a reliable legacy search route at
+    // /old/search/<query>; the newer /search?q=... route is returning 404s
+    // to our Worker requests. Use the verified route first, then fall back
+    // to the newer routes for titles that only exist in the current catalog.
+    if (host === base(env)) {
+      const legacyVariants = variants.slice(0, expected === "movie" ? 3 : 4);
+      for (const title of legacyVariants) {
+        const html = await fetchText(
+          env,
+          host + "/old/search/" + encodeURIComponent(title),
+          diagnostics,
+          undefined,
+          budget,
+        );
+        if (!html) continue;
+
+        for (const item of parseCandidates(html, env, true)) {
+          const itemScore = score(item, titles, year, expected, expectedSeason);
+          if (!best || itemScore > best.score) best = { item, score: itemScore };
+        }
+        if (best && best.score >= 128) return best.item;
+      }
+    }
+
     for (const title of variants) {
-      const section =
-        expected === "movie"
-          ? "movie"
-          : expected === "series" || expected === "episode"
-            ? "series"
-            : "movie";
-      // Akwam's currently verified route is /search?q=... . Some revisions
-      // return 404 when section/page query parameters are appended, so probe the
-      // canonical route first and apply our own movie/series scoring client-side.
-      // Akwam.ss current site contract:
-      //   search      = /search?q=<title>
-      //   movie       = /movie/<id>/<slug>
-      //   download    = /download/...
-      //   playback    = /watch/...
-      // The canonical search route is the fast path. Only fall back to the
-      // legacy section/page form when the canonical request itself fails.
       const canonicalUrl = host + "/search?q=" + encodeURIComponent(title);
       const html = await fetchText(env, canonicalUrl, diagnostics, undefined, budget);
 
@@ -401,23 +409,12 @@ async function findCandidate(
           if (!best || itemScore > best.score) best = { item, score: itemScore };
         }
         if (best && best.score >= 128) return best.item;
-      } else {
-        const legacySearchUrl = host + "/search?q=" + encodeURIComponent(title) +
-          "&section=" + encodeURIComponent(section) + "&page=1";
-        const legacyHtml = await fetchText(env, legacySearchUrl, diagnostics, undefined, budget);
-        if (!legacyHtml) continue;
-
-        for (const item of parseCandidates(legacyHtml, env)) {
-          const itemScore = score(item, titles, year, expected, expectedSeason);
-          if (!best || itemScore > best.score) best = { item, score: itemScore };
-        }
-        if (best && best.score >= 128) return best.item;
       }
     }
 
-    // The current search form has changed across Akwam revisions. Keep the
-    // primary /search?q= route first, then try only a small set of bounded
-    // fallback routes before touching the legacy archive.
+    // Bounded current-catalog fallbacks. Keep these after the verified legacy
+    // route and canonical route so a 404 on /search does not burn the request
+    // budget before we try the route known to work today.
     const fallbackRoutes =
       expected === "movie"
         ? [
@@ -434,30 +431,14 @@ async function findCandidate(
           : [];
 
     for (const url of fallbackRoutes) {
-      if (!url.endsWith("=")) {
-        const html = await fetchText(env, url, diagnostics);
-        if (!html) continue;
-        for (const item of parseCandidates(html, env)) {
-          const itemScore = score(item, titles, year, expected, expectedSeason);
-          if (!best || itemScore > best.score) best = { item, score: itemScore };
-        }
-        if (best && best.score >= 128) return best.item;
-      }
-    }
+      const html = await fetchText(env, url, diagnostics, undefined, budget);
+      if (!html) continue;
 
-    // Legacy search is allowed only on the single verified host, as a last resort.
-    // Old result pages use /old/... URLs, so parse them explicitly instead of
-    // discarding every legacy candidate as "other".
-    if (host === base(env)) {
-      for (const title of variants.slice(0, 1)) {
-        const html = await fetchText(env, host + "/old/search/" + encodeURIComponent(title), diagnostics, undefined, budget);
-        if (!html) continue;
-        for (const item of parseCandidates(html, env, true)) {
-          const itemScore = score(item, titles, year, expected, expectedSeason);
-          if (!best || itemScore > best.score) best = { item, score: itemScore };
-        }
-        if (best && best.score >= 128) return best.item;
+      for (const item of parseCandidates(html, env)) {
+        const itemScore = score(item, titles, year, expected, expectedSeason);
+        if (!best || itemScore > best.score) best = { item, score: itemScore };
       }
+      if (best && best.score >= 128) return best.item;
     }
   }
 
