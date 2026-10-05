@@ -380,11 +380,64 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       preferred
         ? null
         : (language === 'ar'
-          ? 'لا يوجد مصدر تشغيل محفوظ صالح لهذا العمل حاليًا.'
-          : 'No persisted playable source is currently available for this title.'),
+          ? 'لا يوجد مصدر تشغيل صالح لهذا العمل حاليًا.'
+          : 'No playable source is currently available for this title.'),
     );
     setResolverLoading(false);
   }, [mediaType, content, currentEpisode, storedPlaybackSources, language]);
+
+  useEffect(() => {
+    const targetId = mediaType === 'movie' ? content?.id : currentEpisode?.id;
+    if (!targetId) return;
+
+    let cancelled = false;
+    setResolverLoading(true);
+
+    void MovyzaApi.preparePlayback(
+      mediaType === 'movie' ? 'movie' : 'episode',
+      targetId,
+      mediaType === 'episode' ? currentEpisode?.seasonNumber : undefined,
+      mediaType === 'episode' ? currentEpisode?.episodeNumber : undefined,
+    )
+      .then((response) => {
+        if (cancelled) return;
+        const sources = Array.isArray(response.data?.sources) ? response.data.sources : [];
+        const playable = sources
+          .map(normalizePlaybackSource)
+          .filter((source): source is PlaybackSource => Boolean(source))
+          .filter((source) => source.isWorking !== false)
+          .filter(isPlayableHttpSource);
+
+        if (!playable.length) return;
+
+        const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
+        const preferred = collapsed[0] || null;
+        setRemotePlaybackSources(collapsed);
+        setRemotePlaybackSource(preferred);
+        setPlayerUnlocked(Boolean(preferred));
+        setPlaybackError(preferred ? null : (
+          language === 'ar'
+            ? 'لا يوجد مصدر تشغيل صالح لهذا العمل حاليًا.'
+            : 'No playable source is currently available for this title.'
+        ));
+      })
+      .catch(() => {
+        // Persisted sources remain the fallback path.
+      })
+      .finally(() => {
+        if (!cancelled) setResolverLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    mediaType,
+    content?.id,
+    currentEpisode?.id,
+    currentEpisode?.seasonNumber,
+    currentEpisode?.episodeNumber,
+  ]);
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const directPlaybackUrl = playbackSource?.directUrl?.trim() || '';
