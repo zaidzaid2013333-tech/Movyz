@@ -32,6 +32,14 @@ jobs:
           echo '=== relevant href/src/data attrs ==='
           grep -Eio "(href|src|data-src|data-url|data-href|data-file|data-video)=[\"'][^\"']+[\"']" /tmp/watch.html | grep -Ei 'watch|download|link|m3u8|mp4|stream|player' | head -200 || true
 
+          echo '=== movie search probe: Free Solo ==='
+          curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: text/html'             'https://akwam.ss/search?q=Free%20Solo' -o /tmp/movie-search.html
+          echo '=== Free Solo search status/bytes ==='
+          wc -c /tmp/movie-search.html
+          grep -Eio 'href=["'"'"'][^"'"'"']*(/movie/|/series/)[^"'"'"']+["'"'"']' /tmp/movie-search.html | head -50 || true
+          echo '=== Free Solo search relevant lines ==='
+          grep -Ein 'Free Solo|فيلم|movie|search' /tmp/movie-search.html | head -120 || true
+
           echo '=== download candidates from episode ==='
           python - <<'PY'
           import re
