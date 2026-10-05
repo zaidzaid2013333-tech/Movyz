@@ -18,8 +18,6 @@ import {
   Share2,
   ShieldAlert,
   Sparkles,
-  Settings2,
-  Keyboard,
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { MovyzaApi } from '../services/api';
@@ -232,7 +230,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [playerBufferedEnd, setPlayerBufferedEnd] = useState(0);
   const [playerReady, setPlayerReady] = useState(false);
   const [playerControlsVisible, setPlayerControlsVisible] = useState(true);
-  const [playerSettingsOpen, setPlayerSettingsOpen] = useState(false);
+  const playerControlsHideTimerRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
   const qualityResumeTimeRef = useRef<number | null>(null);
@@ -560,6 +558,39 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       void unlockScreenOrientation();
     };
   }, [direction]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    const shell = playerShellRef.current;
+    if (!shell) return;
+
+    const showControlsTemporarily = () => {
+      setPlayerControlsVisible(true);
+      if (playerControlsHideTimerRef.current !== null) {
+        window.clearTimeout(playerControlsHideTimerRef.current);
+      }
+      if (playerPlaying) {
+        playerControlsHideTimerRef.current = window.setTimeout(() => {
+          setPlayerControlsVisible(false);
+          playerControlsHideTimerRef.current = null;
+        }, 2600);
+      }
+    };
+
+    shell.addEventListener('pointermove', showControlsTemporarily);
+    shell.addEventListener('touchstart', showControlsTemporarily, { passive: true });
+    showControlsTemporarily();
+
+    return () => {
+      shell.removeEventListener('pointermove', showControlsTemporarily);
+      shell.removeEventListener('touchstart', showControlsTemporarily);
+      if (playerControlsHideTimerRef.current !== null) {
+        window.clearTimeout(playerControlsHideTimerRef.current);
+        playerControlsHideTimerRef.current = null;
+      }
+    };
+  }, [playerPlaying, playbackUrl]);
 
   const playbackMimeType = /\.mp4(?:$|[?#])/i.test(playbackUrl)
     ? 'video/mp4'
@@ -1250,6 +1281,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         (theaterLighting ? 'bg-[#030406]' : 'bg-[#0a0c12]')
       }
     >
+      {content.backdropUrl ? (
+        <div
+          aria-hidden="true"
+          className="movyza-watch-backdrop"
+          style={{ backgroundImage: `url("${content.backdropUrl}")` }}
+        />
+      ) : null}
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl shadow-2xl text-xs flex items-center gap-2">
           <Check className="w-4 h-4" />
@@ -1353,9 +1391,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 data-player-shell="true"
                 tabIndex={-1}
                 className="movyza-player-frame relative h-full w-full bg-black"
-                onPointerMove={() => setPlayerControlsVisible(true)}
-                onTouchStart={() => setPlayerControlsVisible(true)}
-              >
+                              >
 
               {playbackError ? (
                 <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/75 p-6 text-center">
