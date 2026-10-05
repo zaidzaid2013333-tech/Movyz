@@ -1033,6 +1033,7 @@ async function resolveLegacyAkwamDownload(
     if (!directLink || !/^https:\/\//i.test(directLink)) return null;
 
     const media = mediaFromUrl(directLink, target);
+    if (!isAkwamUrl(media.url)) return media;
     if (await validateMedia(env, media, budget)) return media;
     return null;
   } catch {
@@ -1072,8 +1073,11 @@ async function resolveTarget(
   }
 
   const media = extractMedia(html, target);
-  if (media && await validateMedia(env, media, budget)) {
-    return media;
+  if (media) {
+    // The Akwam page is the attestation point for the external CDN handoff.
+    // Avoid a second Worker-side range probe before the browser can start.
+    if (!isAkwamUrl(media.url)) return media;
+    if (await validateMedia(env, media, budget)) return media;
   }
 
   // The current player can embed media URLs in data-* attributes or JS objects
@@ -1081,6 +1085,7 @@ async function resolveTarget(
   // before walking to another Akwam navigation page.
   for (const candidate of extractMediaCandidates(html, target).slice(0, 8)) {
     const candidateMedia = mediaFromUrl(candidate.url, target, candidate.quality || html);
+    if (!isAkwamUrl(candidateMedia.url)) return candidateMedia;
     if (await validateMedia(env, candidateMedia, budget)) return candidateMedia;
   }
 
@@ -1097,10 +1102,14 @@ async function resolveTarget(
     if (nestedButton && await validateMedia(env, nestedButton, budget)) return nestedButton;
 
     const nestedMedia = extractMedia(nestedHtml, nested);
-    if (nestedMedia && await validateMedia(env, nestedMedia, budget)) return nestedMedia;
+    if (nestedMedia) {
+      if (!isAkwamUrl(nestedMedia.url)) return nestedMedia;
+      if (await validateMedia(env, nestedMedia, budget)) return nestedMedia;
+    }
 
     for (const candidate of extractMediaCandidates(nestedHtml, nested).slice(0, 6)) {
       const candidateMedia = mediaFromUrl(candidate.url, nested, candidate.quality || nestedHtml);
+      if (!isAkwamUrl(candidateMedia.url)) return candidateMedia;
       if (await validateMedia(env, candidateMedia, budget)) return candidateMedia;
     }
   }
