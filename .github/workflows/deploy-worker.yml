@@ -146,7 +146,7 @@ jobs:
                       stream_url,
                       headers={
                           "Accept": "*/*",
-                          "Range": "bytes=0-1023",
+                          "Range": "bytes=0-1048575",
                           "User-Agent": "Movyz-CI-Stream/1.0",
                       },
                   )
@@ -169,6 +169,38 @@ jobs:
                   print(
                       f"stream_ok label={label!r} status={stream_status} "
                       f"content_type={stream_type!r} bytes={len(sample)}"
+                  )
+
+                  # Verify an actual non-zero byte range too. This catches relays that
+                  # only happen to work for the first 1 KB but fail when seeking.
+                  offset_req = urllib.request.Request(
+                      stream_url,
+                      headers={
+                          "Accept": "*/*",
+                          "Range": "bytes=5242880-5243903",
+                          "User-Agent": "Movyz-CI-Stream/1.0",
+                      },
+                  )
+                  try:
+                      with urllib.request.urlopen(offset_req, timeout=30) as offset_response:
+                          offset_status = offset_response.status
+                          offset_range = str(offset_response.headers.get("content-range") or "")
+                          offset_sample = offset_response.read(1024)
+                  except urllib.error.HTTPError as exc:
+                      body = exc.read().decode("utf-8", errors="replace")
+                      raise SystemExit(f"{label}: non-zero range HTTP {exc.code}: {body[:800]}") from exc
+
+                  if offset_status not in {200, 206}:
+                      raise SystemExit(f"{label}: non-zero range returned HTTP {offset_status}")
+                  if not offset_sample:
+                      raise SystemExit(f"{label}: non-zero range returned no bytes")
+                  if offset_status == 206 and not re.search(r"bytes\\s+5242880-", offset_range, re.I):
+                      raise SystemExit(
+                          f"{label}: non-zero range returned unexpected Content-Range {offset_range!r}"
+                      )
+                  print(
+                      f"range_ok label={label!r} status={offset_status} "
+                      f"content_range={offset_range!r} bytes={len(offset_sample)}"
                   )
 
               mode = str(data.get("mode") or "")
