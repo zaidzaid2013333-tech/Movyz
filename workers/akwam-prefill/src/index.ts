@@ -980,7 +980,7 @@ async function getContext(env: Env, job: Job) {
   const table = job.content_type === "episode" ? "series" : "movies";
   const extraRows = await sb(
     env,
-    `/rest/v1/${table}?select=title_ar,title_en,original_title,alternative_titles&id=eq.${encodeURIComponent(job.content_id)}&limit=1`,
+    `/rest/v1/${table}?select=title_ar,title_en,original_title,alternative_titles,release_date&id=eq.${encodeURIComponent(job.content_id)}&limit=1`,
   );
   const extra = Array.isArray(extraRows) ? extraRows[0] : null;
   const extraTitles = [
