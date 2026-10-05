@@ -112,6 +112,19 @@ async function edgeBrokerWrite(key: string, sources: BrokerSource[]) {
   }
 }
 
+async function edgeBrokerInvalidate(key: string) {
+  playbackBrokerMemory.delete(key);
+
+  const cacheApi = (globalThis as any).caches?.default;
+  if (!cacheApi) return;
+
+  try {
+    await cacheApi.delete(new Request(key));
+  } catch {
+    // Cache invalidation is best-effort; the next resolver call can still refresh memory.
+  }
+}
+
 function normalizeBrokerMediaSources(
   sources: Array<{ url: string; type: string; quality?: string }>,
   contentType: 'movie' | 'episode',
@@ -220,37 +233,85 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
 
   const seasonNumber = typeof req.query.season === 'string' ? Number(req.query.season) : undefined;
   const episodeNumber = typeof req.query.episode === 'string' ? Number(req.query.episode) : undefined;
+  const cacheKey = brokerCacheKey(contentType, contentId);
+
+  const fetchUpstream = async (upstreamUrl: string) => {
+    const upstreamHeaders = new Headers();
+    for (const name of ['range', 'if-range', 'if-none-match', 'if-modified-since']) {
+      const value = req.headers.get(name);
+      if (value) upstreamHeaders.set(name, value);
+    }
+    upstreamHeaders.set('Accept', req.headers.get('accept') || '*/*');
+    upstreamHeaders.set('Referer', 'https://akwam.ss/');
+    upstreamHeaders.set('Origin', 'https://akwam.ss');
+    upstreamHeaders.set('User-Agent', req.headers.get('user-agent') || 'Mozilla/5.0');
+    upstreamHeaders.set('Accept-Encoding', 'identity');
+
+    return fetch(upstreamUrl, {
+      method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+      headers: upstreamHeaders,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(20000),
+    });
+  };
+
+  const isBadUpstream = (upstream: Response) => {
+    const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
+    return [401, 403, 404, 410, 429].includes(upstream.status) ||
+      contentType.includes('text/html') ||
+      contentType.includes('application/json') ||
+      contentType.includes('text/plain');
+  };
 
   try {
-    const result = await resolvePlaybackBroker(
+    let result = await resolvePlaybackBroker(
       req,
       contentType,
       contentId,
       Number.isFinite(seasonNumber) ? seasonNumber : undefined,
       Number.isFinite(episodeNumber) ? episodeNumber : undefined,
     );
-    const source = result.sources[sourceIndex];
-    const upstreamUrl = String(source?.directUrl || '').trim();
+    let source = result.sources[sourceIndex];
+    let upstreamUrl = String(source?.directUrl || '').trim();
+
+    if (!source || source.providerKey !== 'akwam' || !/^https:\/\//i.test(upstreamUrl)) {
+      await edgeBrokerInvalidate(cacheKey);
+      result = await resolvePlaybackBroker(
+        req,
+        contentType,
+        contentId,
+        Number.isFinite(seasonNumber) ? seasonNumber : undefined,
+        Number.isFinite(episodeNumber) ? episodeNumber : undefined,
+      );
+      source = result.sources[sourceIndex] || result.sources[0];
+      upstreamUrl = String(source?.directUrl || '').trim();
+    }
 
     if (!source || source.providerKey !== 'akwam' || !/^https:\/\//i.test(upstreamUrl)) {
       return fail(res, 404, 'PLAYBACK_STREAM_SOURCE_NOT_FOUND', 'Playback source is no longer available');
     }
 
-    const upstreamHeaders = new Headers();
-    for (const name of ['range', 'if-range', 'if-none-match', 'if-modified-since', 'accept']) {
-      const value = req.headers.get(name);
-      if (value) upstreamHeaders.set(name, value);
-    }
-    upstreamHeaders.set('Referer', 'https://akwam.ss/');
-    upstreamHeaders.set('User-Agent', req.headers.get('user-agent') || 'Mozilla/5.0');
-    upstreamHeaders.set('Accept-Encoding', 'identity');
+    let upstream = await fetchUpstream(upstreamUrl);
 
-    const upstream = await fetch(upstreamUrl, {
-      method: req.method === 'HEAD' ? 'HEAD' : 'GET',
-      headers: upstreamHeaders,
-      redirect: 'follow',
-      signal: AbortSignal.timeout(20000),
-    });
+    // Akwam video URLs are short-lived. Do not let a cached-but-expired CDN
+    // URL strand the player: invalidate and resolve one fresh source once.
+    if (isBadUpstream(upstream)) {
+      await edgeBrokerInvalidate(cacheKey);
+      const refreshed = await resolvePlaybackBroker(
+        req,
+        contentType,
+        contentId,
+        Number.isFinite(seasonNumber) ? seasonNumber : undefined,
+        Number.isFinite(episodeNumber) ? episodeNumber : undefined,
+      );
+      const refreshedSource = refreshed.sources[sourceIndex] || refreshed.sources[0];
+
+      if (refreshedSource?.providerKey === 'akwam' && /^https:\/\//i.test(String(refreshedSource.directUrl || ''))) {
+        source = refreshedSource;
+        upstreamUrl = String(refreshedSource.directUrl);
+        upstream = await fetchUpstream(upstreamUrl);
+      }
+    }
 
     const responseHeaders = new Headers();
     for (const name of ['content-type','content-length','content-range','accept-ranges','etag','last-modified','content-disposition']) {
@@ -261,8 +322,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     responseHeaders.set('access-control-allow-origin', req.headers.get('origin') || '*');
     responseHeaders.set('access-control-expose-headers', 'Content-Length, Content-Range, Accept-Ranges, Content-Type, ETag, Last-Modified');
 
-    const upstreamType = (upstream.headers.get('content-type') || '').toLowerCase();
-    if (upstreamType.includes('text/html') || upstreamType.includes('application/json') || upstreamType.includes('text/plain')) {
+    if (isBadUpstream(upstream)) {
       return fail(res, 502, 'PLAYBACK_STREAM_UPSTREAM_INVALID', 'Upstream playback response is not a media stream');
     }
 
@@ -274,8 +334,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     console.warn('[playback-stream]', error instanceof Error ? error.message : String(error));
     return fail(res, 502, 'PLAYBACK_STREAM_FAILED', 'Unable to stream the selected playback source');
   }
-}));
-app.get(`${api}/playback/prepare`, asyncRoute(async (req, res) => {
+}));app.get(`${api}/playback/prepare`, asyncRoute(async (req, res) => {
   const rawType = typeof req.query.type === 'string' ? req.query.type : '';
   const rawContentId = typeof req.query.contentId === 'string' ? req.query.contentId : '';
   const contentType = rawType === 'movie' || rawType === 'episode' ? rawType : null;
