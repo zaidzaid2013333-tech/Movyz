@@ -213,7 +213,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [theaterLighting, setTheaterLighting] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [remotePlaybackSources, setRemotePlaybackSources] = useState<PlaybackSource[]>([]);
-  const [playbackOrigins, setPlaybackOrigins] = useState<string[]>([]);
 
   const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
   const [resolverLoading, setResolverLoading] = useState(false);
@@ -334,17 +333,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setTheaterLighting(true);
   }, [contentId, activeSeason, activeEpisode]);
 
-  const storedPlaybackSources = useMemo(
-    () => (content ? pickPlaybackSources(content, currentEpisode) : []),
-    [content, currentEpisode],
-  );
-  const storedPlaybackSource = storedPlaybackSources.find(
-    (source) => source.isWorking !== false,
-  ) ?? storedPlaybackSources[0] ?? null;
+  // Playback is live-broker only. The API never returns persisted source rows.
   useEffect(() => {
-    const loadedTarget = mediaType === 'movie' ? Boolean(content) : Boolean(currentEpisode);
+    const targetId = mediaType === 'movie' ? content?.id : currentEpisode?.id;
 
-    if (!loadedTarget) {
+    if (!targetId) {
       setRemotePlaybackSources([]);
       setRemotePlaybackSource(null);
       setPlayerUnlocked(false);
@@ -353,45 +346,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       return;
     }
 
-    const fallback = collapseProviderQualityDuplicates(
-      storedPlaybackSources
-        .map(normalizePlaybackSource)
-        .filter((source): source is PlaybackSource => Boolean(source))
-        .filter((source) => source.isWorking !== false)
-        .filter(isPlayableHttpSource)
-        .slice(0, 20),
-    );
-
-    const preferred =
-      storedPlaybackSources
-        .map(normalizePlaybackSource)
-        .filter((source): source is PlaybackSource => Boolean(source))
-        .find((source) =>
-          source.isWorking !== false &&
-          isPlayableHttpSource(source),
-        ) ||
-      fallback[0] ||
-      null;
-
-    setRemotePlaybackSources(fallback);
-    setRemotePlaybackSource(preferred);
-    setPlayerUnlocked(Boolean(preferred));
-    setPlaybackError(
-      preferred
-        ? null
-        : (language === 'ar'
-          ? 'لا يوجد مصدر تشغيل صالح لهذا العمل حاليًا.'
-          : 'No playable source is currently available for this title.'),
-    );
-    setResolverLoading(false);
-  }, [mediaType, content, currentEpisode, storedPlaybackSources, language]);
-
-  useEffect(() => {
-    const targetId = mediaType === 'movie' ? content?.id : currentEpisode?.id;
-    if (!targetId) return;
-
     let cancelled = false;
     setResolverLoading(true);
+    setRemotePlaybackSources([]);
+    setRemotePlaybackSource(null);
+    setPlayerUnlocked(false);
+    setPlaybackError(null);
 
     void MovyzaApi.preparePlayback(
       mediaType === 'movie' ? 'movie' : 'episode',
@@ -408,21 +368,31 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           .filter((source) => source.isWorking !== false)
           .filter(isPlayableHttpSource);
 
-        if (!playable.length) return;
-
         const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
         const preferred = collapsed[0] || null;
+
         setRemotePlaybackSources(collapsed);
         setRemotePlaybackSource(preferred);
         setPlayerUnlocked(Boolean(preferred));
-        setPlaybackError(preferred ? null : (
-          language === 'ar'
-            ? 'لا يوجد مصدر تشغيل صالح لهذا العمل حاليًا.'
-            : 'No playable source is currently available for this title.'
-        ));
+        setPlaybackError(
+          preferred
+            ? null
+            : (language === 'ar'
+              ? 'لا يوجد مصدر تشغيل صالح لهذا العمل حاليًا.'
+              : 'No playable source is currently available for this title.'),
+        );
       })
       .catch(() => {
-        // Persisted sources remain the fallback path.
+        if (!cancelled) {
+          setRemotePlaybackSources([]);
+          setRemotePlaybackSource(null);
+          setPlayerUnlocked(false);
+          setPlaybackError(
+            language === 'ar'
+              ? 'تعذر الحصول على مصدر تشغيل مباشر من Akwam حاليًا.'
+              : 'Unable to obtain a live Akwam playback source right now.',
+          );
+        }
       })
       .finally(() => {
         if (!cancelled) setResolverLoading(false);
@@ -437,9 +407,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     currentEpisode?.id,
     currentEpisode?.seasonNumber,
     currentEpisode?.episodeNumber,
+    language,
   ]);
 
-  const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
+  const playbackSource = remotePlaybackSource;
   const directPlaybackUrl = playbackSource?.directUrl?.trim() || '';
   const playbackUrl = directPlaybackUrl || playbackSource?.url?.trim() || '';
   const isEmbedPlayback = String(playbackSource?.type || '').toLowerCase() === 'embed';
@@ -658,13 +629,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             : playbackSource?.type === 'dash'
               ? 'application/dash+xml'
               : undefined;
-  const availableSources = useMemo(() => {
-    const activeSources = remotePlaybackSources.length
-      ? remotePlaybackSources
-      : storedPlaybackSources;
-
-    return collapseProviderQualityDuplicates(
-      activeSources
+  const availableSources = useMemo(
+    () => collapseProviderQualityDuplicates(
+      remotePlaybackSources
         .map(normalizePlaybackSource)
         .filter((source): source is PlaybackSource => Boolean(source))
         .filter((source) => source.isWorking !== false)
@@ -673,8 +640,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           (source, index, all) =>
             index === all.findIndex((candidate) => candidate.url === source.url),
         ),
-    );
-  }, [storedPlaybackSources, remotePlaybackSources]);
+    ),
+    [remotePlaybackSources],
+  );
 
   const availableSourceGroups = useMemo(
     () => groupPlaybackSources(availableSources, language),
@@ -683,49 +651,21 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
 
   useEffect(() => {
-    let mounted = true;
-
-    try {
-      const cached = window.sessionStorage.getItem('movyz:playback-origins');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed)) setPlaybackOrigins(parsed.filter((x) => typeof x === 'string'));
-      }
-    } catch {}
-
-    void MovyzaApi.getPlaybackOrigins()
-      .then((response) => {
-        if (!mounted) return;
-        const origins = Array.isArray(response.data) ? response.data : [];
-        setPlaybackOrigins(origins);
-        try {
-          window.sessionStorage.setItem('movyz:playback-origins', JSON.stringify(origins));
-        } catch {}
-      })
-      .catch(() => undefined);
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
     if (typeof document === 'undefined') return;
 
     const head = document.head;
-    head.querySelectorAll('link[data-movyz-media-preconnect]').forEach((node) => node.remove());
-    head.querySelectorAll('link[data-movyz-media-dns]').forEach((node) => node.remove());
-
-    const origins = Array.from(new Set([
-      ...playbackOrigins,
-      ...availableSources.map((source) => {
+    const origins = Array.from(new Set(
+      availableSources.map((source) => {
         try {
           return new URL(source.url).origin;
         } catch {
           return '';
         }
-      }),
-    ].filter(Boolean)));
+      }).filter(Boolean),
+    ));
+
+    head.querySelectorAll('link[data-movyz-media-preconnect]').forEach((node) => node.remove());
+    head.querySelectorAll('link[data-movyz-media-dns]').forEach((node) => node.remove());
 
     const created: HTMLElement[] = [];
     for (const origin of origins) {
@@ -736,19 +676,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       preconnect.dataset.movyzMediaPreconnect = 'true';
       head.appendChild(preconnect);
       created.push(preconnect);
-
-      const dns = document.createElement('link');
-      dns.rel = 'dns-prefetch';
-      dns.href = origin;
-      dns.dataset.movyzMediaDns = 'true';
-      head.appendChild(dns);
-      created.push(dns);
     }
 
     return () => {
       for (const node of created) node.remove();
     };
-  }, [playbackOrigins, availableSources]);
+  }, [availableSources]);
 
   // Warm alternate MP4/direct sources before the user switches to them.
   // This only prepares browser metadata/connection state; it never proxies
