@@ -35,7 +35,10 @@ async function getFreshPlaybackSourcesForContent(
 
     // Prefer the richer provider relation, but never let a stale PostgREST
     // relation/schema cache make valid persisted sources disappear.
-    let { data, error } = await adminSupabase
+    let data: any[] | null = null;
+    let error: any = null;
+
+    const relational = await adminSupabase
       .from('playback_sources')
       .select(sourceFields + ',providers(id,key,name,enabled)')
       .eq('content_type', contentType)
@@ -43,6 +46,9 @@ async function getFreshPlaybackSourcesForContent(
       .eq('is_working', true)
       .order('quality', { ascending: false })
       .order('last_checked_at', { ascending: false });
+
+    data = relational.data as any[] | null;
+    error = relational.error;
 
     if (error) {
       console.warn(
