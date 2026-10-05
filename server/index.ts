@@ -848,6 +848,11 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
 
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
   const movie = await movieDto(data, true, req.url, req.env || {});
+    req.waitUntil?.(
+      resolvePlaybackBroker(req, 'movie', String(data.id)).catch((error) => {
+        console.warn('[playback-broker-prewarm:movie]', error instanceof Error ? error.message : String(error));
+      }),
+    );
   return ok(res, { movie, similar: [] });
 }));
 
@@ -855,6 +860,11 @@ app.get(`${api}/movies/:id`, asyncRoute(async (req, res) => {
   const { data, error } = await adminSupabase.from('movies').select('*').eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
   const movie = await movieDto(data, true, req.url, req.env || {});
+    req.waitUntil?.(
+      resolvePlaybackBroker(req, 'movie', String(data.id)).catch((error) => {
+        console.warn('[playback-broker-prewarm:movie]', error instanceof Error ? error.message : String(error));
+      }),
+    );
   return ok(res, { movie, similar: [] });
 }));
 
@@ -953,6 +963,21 @@ app.get(`${api}/series/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
 
   if (error || !data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
   const series = await seriesDto(data, false);
+    const firstSeason = series.seasons?.[0];
+    const firstEpisode = firstSeason?.episodes?.[0];
+    if (firstEpisode?.id) {
+      req.waitUntil?.(
+        resolvePlaybackBroker(
+          req,
+          'episode',
+          String(firstEpisode.id),
+          Number(firstEpisode.seasonNumber || firstSeason.seasonNumber || 1),
+          Number(firstEpisode.episodeNumber || 1),
+        ).catch((error) => {
+          console.warn('[playback-broker-prewarm:episode]', error instanceof Error ? error.message : String(error));
+        }),
+      );
+    }
   return ok(res, { series, similar: [] });
 }));
 
@@ -960,6 +985,21 @@ app.get(`${api}/series/:id`, asyncRoute(async (req, res) => {
   const { data, error } = await adminSupabase.from('series').select('*').eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error || !data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
   const series = await seriesDto(data);
+    const firstSeason = series.seasons?.[0];
+    const firstEpisode = firstSeason?.episodes?.[0];
+    if (firstEpisode?.id) {
+      req.waitUntil?.(
+        resolvePlaybackBroker(
+          req,
+          'episode',
+          String(firstEpisode.id),
+          Number(firstEpisode.seasonNumber || firstSeason.seasonNumber || 1),
+          Number(firstEpisode.episodeNumber || 1),
+        ).catch((error) => {
+          console.warn('[playback-broker-prewarm:episode]', error instanceof Error ? error.message : String(error));
+        }),
+      );
+    }
   return ok(res, { series, similar: [] });
 }));
 
