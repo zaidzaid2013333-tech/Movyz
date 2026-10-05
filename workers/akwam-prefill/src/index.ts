@@ -1212,69 +1212,6 @@ export async function resolveAkwamNow(
   return discover(env, job, ctx, budget);
 }
 
-async function providerId(env: Env) {
-  const rows = await sb(env, "/rest/v1/providers?select=id&key=eq.akwam&limit=1");
-  if (rows?.[0]?.id) return rows[0].id as string;
-  const created = await sb(env, "/rest/v1/providers?on_conflict=key&select=id", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-    body: JSON.stringify({
-      key: "akwam",
-      name: "Akwam",
-      adapter_name: "akwam-db-prefill",
-      enabled: true,
-      status: "healthy",
-      updated_at: new Date().toISOString(),
-    }),
-  });
-  if (!created?.[0]?.id) throw new Error("Akwam provider row missing");
-  return created[0].id as string;
-}
-
-async function persist(env: Env, job: Job, sources: Media[], provider: string, workerId: string) {
-  const rows = sources.map((s, i) => ({
-    source_type: s.type,
-    content_id: job.content_id,
-    url: s.url,
-    provider_reference: "akwam",
-    quality: s.quality || "Auto",
-    language: "und",
-    label_ar: `Akwam • ${s.quality || "Auto"}`,
-    label_en: `Akwam • ${s.quality || "Auto"}`,
-    expires_at: null,
-    is_working: true,
-    failure_count: 0,
-    subtitle_url: null,
-    subtitle_type: null,
-    subtitle_language: null,
-    subtitle_label_ar: null,
-    subtitle_label_en: null,
-    subtitle_default: i === 0,
-  }));
-
-  const result = await sb(env, "/rest/v1/rpc/persist_akwam_prefill_job", {
-    method: "POST",
-    body: JSON.stringify({
-      p_job_id: job.id,
-      p_provider_id: provider,
-      p_sources: rows,
-      p_worker_id: workerId,
-    }),
-  });
-
-  // PostgREST returns scalar RPC results as a JSON number, not a row array.
-  // Accept the scalar shape and keep compatibility with row/object-shaped responses.
-  const stored = Number(
-    typeof result === "number"
-      ? result
-      : result?.persist_akwam_prefill_job ?? result?.[0]?.persist_akwam_prefill_job ?? 0,
-  );
-  if (!Number.isFinite(stored) || stored < 0 || stored > rows.length) {
-    throw new Error(`AKWAM_PERSIST_VERIFY_FAILED expected=0..${rows.length} stored=${stored}`);
-  }
-  return stored;
-}
-
 async function fail(env: Env, job: Job, error: unknown, workerId: string) {
   const message = String(error).slice(0, 1800);
   const episodeNotIndexed = /AKWAM_EPISODE_NOT_INDEXED/.test(message);
@@ -1317,51 +1254,16 @@ async function fail(env: Env, job: Job, error: unknown, workerId: string) {
   });
 }
 
-async function processJob(env: Env, job: Job, workerId: string, provider: string) {
-  try {
-    const budget: RequestBudget = { used: 0, max: 50 };
-    const context = await getContext(env, job);
-    const sources = await discover(env, job, context, budget);
-    const count = await persist(env, job, sources, provider, workerId);
-    return { ok: true, count };
-  } catch (error) {
-    await fail(env, job, error, workerId);
-    return { ok: false, error: String(error) };
-  }
-}
-async function run(env: Env, workerId: string, targetOverride?: number) {
-  const requested = targetOverride ?? Number(env.MAX_JOBS_PER_RUN || 1);
-  const target = Math.max(1, Math.min(100, requested));
-
-  let provider: string;
-  try {
-    provider = await providerId(env);
-  } catch (error) {
-    throw new Error("AKWAM_PROVIDER_INIT_FAILED: " + String(error).slice(0, 1200));
-  }
-
-  const results: Array<{ ok: boolean; count?: number; error?: string }> = [];
-  const concurrency = Math.max(1, Math.min(12, Number(env.PREFILL_CONCURRENCY || 1)));
-
-  while (results.length < target) {
-    const slots = Math.min(concurrency, target - results.length);
-    const batch = await Promise.all(
-      Array.from({ length: slots }, () => claim(env, workerId))
-    );
-    const jobs = batch.filter((job): job is Job => Boolean(job));
-    if (!jobs.length) break;
-
-    const batchResults = await Promise.all(
-      jobs.map((job) => processJob(env, job, workerId, provider))
-    );
-    results.push(...batchResults);
-  }
-
+async function run(env: Env, workerId: string, _targetOverride?: number) {
+  // Persistent prefill has been retired. Playback is resolved on demand by
+  // the Playback Broker and cached only for a short period at the edge.
   return {
     workerId,
-    processed: results.length,
-    saved: results.reduce((sum, r) => sum + (r.ok ? (r.count || 0) : 0), 0),
-    failed: results.filter((r) => !r.ok).length,
+    processed: 0,
+    saved: 0,
+    failed: 0,
+    disabled: true,
+    reason: "live-playback-broker-only",
   };
 }
 
@@ -1451,7 +1353,7 @@ export default {
       return Response.json({
         ok: true,
         service: "movyz-akwam-prefill",
-        mode: "db-only",
+        mode: "live-playback-broker-only",
         executor: "cloudflare-worker",
         max_jobs_per_request: Number(env.MAX_JOBS_PER_RUN || 1),
         akwam_host: "akwam.ss",
