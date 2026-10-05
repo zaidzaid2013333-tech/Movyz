@@ -11,3 +11,4 @@ crons = ["* * * * *"]
 [[queues.producers]]
 binding = "FILL_QUEUE"
 queue = "movyz-akwam-fill"
+workers_dev = false
