@@ -1,0 +1,43 @@
+name: Deploy Movyz API Worker
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "server/**"
+      - "worker.ts"
+      - "wrangler.jsonc"
+      - "src/**"
+      - "index.html"
+      - "package.json"
+      - "vite.config.ts"
+      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: movyz-api-worker
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Build frontend assets
+        run: npm run build
+
+      - name: Deploy Cloudflare Worker
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
