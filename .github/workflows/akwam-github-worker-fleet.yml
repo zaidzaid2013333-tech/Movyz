@@ -35,7 +35,7 @@ jobs:
       MOVYZ_WORKER_ID: gha-akwam-${{ github.run_id }}-${{ matrix.worker }}
       AKWAM_WORK_MINUTES: "350"
       AKWAM_BATCH_SIZE: "100"
-      AKWAM_CONCURRENCY: "12"
+      AKWAM_CONCURRENCY: "16"
 
     steps:
       - name: Checkout worker code
