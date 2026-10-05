@@ -154,6 +154,35 @@ async function getFreshPlaybackSourcesForContent(
   }
 }
 
+app.get(`${api}/playback/origins`, asyncRoute(async (_req, res) => {
+  const { data, error } = await adminSupabase
+    .from('playback_sources')
+    .select('url')
+    .eq('is_working', true)
+    .not('url', 'is', null)
+    .limit(5000);
+
+  if (error) return fail(res, 500, 'PLAYBACK_ORIGINS_QUERY_FAILED', 'Unable to load playback origins');
+
+  const origins = Array.from(new Set(
+    (data || [])
+      .map((row: any) => String(row.url || '').trim())
+      .map((url) => {
+        try {
+          const parsed = new URL(url);
+          if (parsed.protocol !== 'https:') return '';
+          return parsed.origin;
+        } catch {
+          return '';
+        }
+      })
+      .filter(Boolean),
+  )).sort();
+
+  res.setHeader('cache-control', 'public, max-age=300, stale-while-revalidate=600');
+  return ok(res, origins);
+}));
+
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   const origin = req.headers.get('origin');
   const allow = (process.env.CORS_ORIGINS || '').split(',').map((x) => x.trim()).filter(Boolean);
