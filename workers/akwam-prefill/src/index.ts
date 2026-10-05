@@ -315,7 +315,12 @@ function parseCandidates(html: string, env: Env, allowLegacy = false): Candidate
 
     let kind = candidateKind(u.pathname);
     if (allowLegacy && kind === "other" && /^\/old\//i.test(u.pathname)) {
-      kind = /(?:فيلم|movie)/i.test(rawTextFromAnchor(m[2])) ? "movie" : /(?:مسلسل|series|show)/i.test(rawTextFromAnchor(m[2])) ? "series" : "other";
+      const anchorText = rawTextFromAnchor(m[2]);
+      kind = /(?:فيلم|فلم|افلام|أفلام|movie|film)/i.test(anchorText)
+        ? "movie"
+        : /(?:مسلسل|series|show)/i.test(anchorText)
+          ? "series"
+          : "other";
     }
     if (kind === "other" || kind === "watch") continue;
 
@@ -397,7 +402,7 @@ async function findCandidate(
       const html = await fetchText(env, url, diagnostics, undefined, budget);
       if (!html) continue;
 
-      for (const item of parseCandidates(html, env)) {
+      for (const item of parseCandidates(html, env, expected === "movie")) {
         const itemScore = score(item, titles, year, expected, expectedSeason);
         if (!best || itemScore > best.score) best = { item, score: itemScore };
       }
@@ -412,7 +417,7 @@ async function findCandidate(
 
       if (!html) continue;
 
-      for (const item of parseCandidates(html, env)) {
+      for (const item of parseCandidates(html, env, expected === "movie")) {
         const itemScore = score(item, titles, year, expected, expectedSeason);
         if (!best || itemScore > best.score) best = { item, score: itemScore };
       }
