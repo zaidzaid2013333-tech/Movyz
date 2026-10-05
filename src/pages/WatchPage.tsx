@@ -508,37 +508,153 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
 
   useEffect(() => {
-    if (!playbackUrl || typeof document === 'undefined') return;
-
-    let origin: string;
-    try {
-      origin = new URL(playbackUrl).origin;
-    } catch {
-      return;
-    }
+    if (typeof document === 'undefined' || !availableSources.length) return;
 
     const head = document.head;
-    head.querySelector('link[data-movyz-media-preconnect]')?.remove();
-    head.querySelector('link[data-movyz-media-dns]')?.remove();
+    head.querySelectorAll('link[data-movyz-media-preconnect]').forEach((node) => node.remove());
+    head.querySelectorAll('link[data-movyz-media-dns]').forEach((node) => node.remove());
 
-    const preconnect = document.createElement('link');
-    preconnect.rel = 'preconnect';
-    preconnect.href = origin;
-    preconnect.crossOrigin = 'anonymous';
-    preconnect.dataset.movyzMediaPreconnect = 'true';
-    head.appendChild(preconnect);
+    const origins = Array.from(new Set(
+      availableSources
+        .slice(0, 6)
+        .map((source) => {
+          try {
+            return new URL(source.url).origin;
+          } catch {
+            return '';
+          }
+        })
+        .filter(Boolean),
+    ));
 
-    const dns = document.createElement('link');
-    dns.rel = 'dns-prefetch';
-    dns.href = origin;
-    dns.dataset.movyzMediaDns = 'true';
-    head.appendChild(dns);
+    const created: HTMLElement[] = [];
+    for (const origin of origins) {
+      const preconnect = document.createElement('link');
+      preconnect.rel = 'preconnect';
+      preconnect.href = origin;
+      preconnect.crossOrigin = 'anonymous';
+      preconnect.dataset.movyzMediaPreconnect = 'true';
+      head.appendChild(preconnect);
+      created.push(preconnect);
+
+      const dns = document.createElement('link');
+      dns.rel = 'dns-prefetch';
+      dns.href = origin;
+      dns.dataset.movyzMediaDns = 'true';
+      head.appendChild(dns);
+      created.push(dns);
+    }
 
     return () => {
-      preconnect.remove();
-      dns.remove();
+      for (const node of created) node.remove();
     };
-  }, [playbackUrl]);
+  }, [availableSources]);
+
+  // Warm alternate MP4/direct sources before the user switches to them.
+  // This only prepares browser metadata/connection state; it never proxies
+  // or streams the video through Movyz.
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined' || !availableSources.length) return;
+
+    const sources = availableSources
+      .filter((source) => source.url !== playbackUrl)
+      .slice(0, 6);
+
+    if (!sources.length) return;
+
+    let cancelled = false;
+    const warmers: HTMLVideoElement[] = [];
+    const active = new Set<string>();
+
+    const run = async () => {
+      for (const source of sources) {
+        if (cancelled || active.size >= 3) break;
+
+        const key = `movyz:playback-warm:${source.url}`;
+        try {
+          const cached = window.sessionStorage.getItem(key);
+          if (cached) {
+            const parsed = JSON.parse(cached) as { at?: number };
+            if (parsed?.at && Date.now() - parsed.at < 10 * 60 * 1000) continue;
+          }
+        } catch {
+          // Ignore sessionStorage failures.
+        }
+
+        active.add(source.url);
+
+        const warmer = document.createElement('video');
+        warmer.preload = 'metadata';
+        warmer.muted = true;
+        warmer.playsInline = true;
+        warmer.setAttribute('aria-hidden', 'true');
+        warmer.style.position = 'fixed';
+        warmer.style.width = '1px';
+        warmer.style.height = '1px';
+        warmer.style.opacity = '0';
+        warmer.style.pointerEvents = 'none';
+        warmer.style.left = '-9999px';
+
+        const cleanup = () => {
+          warmer.removeEventListener('loadedmetadata', onMetadata);
+          warmer.removeEventListener('error', onError);
+          warmer.removeEventListener('abort', onError);
+          try {
+            warmer.pause();
+            warmer.removeAttribute('src');
+            warmer.load();
+          } catch {}
+          warmer.remove();
+          warmers.splice(warmers.indexOf(warmer), 1);
+          active.delete(source.url);
+        };
+
+        const onMetadata = () => {
+          try {
+            window.sessionStorage.setItem(
+              key,
+              JSON.stringify({
+                at: Date.now(),
+                duration: Number.isFinite(warmer.duration) ? warmer.duration : 0,
+              }),
+            );
+          } catch {}
+          cleanup();
+        };
+
+        const onError = () => cleanup();
+
+        warmer.addEventListener('loadedmetadata', onMetadata, { once: true });
+        warmer.addEventListener('error', onError, { once: true });
+        warmer.addEventListener('abort', onError, { once: true });
+        document.body.appendChild(warmer);
+        warmers.push(warmer);
+        warmer.src = source.url;
+        warmer.load();
+      }
+    };
+
+    void run();
+
+    const timer = window.setTimeout(() => {
+      cancelled = true;
+      for (const warmer of [...warmers]) {
+        try { warmer.pause(); } catch {}
+        try { warmer.removeAttribute('src'); warmer.load(); } catch {}
+        warmer.remove();
+      }
+    }, 10000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      for (const warmer of [...warmers]) {
+        try { warmer.pause(); } catch {}
+        try { warmer.removeAttribute('src'); warmer.load(); } catch {}
+        warmer.remove();
+      }
+    };
+  }, [availableSources, playbackUrl]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -883,6 +999,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       setPlaybackError(null);
       syncTime();
       syncBuffered();
+      runStartupWarmup(video, playbackUrl);
     };
     const onPause = () => setPlayerPlaying(false);
     const onWaiting = () => {
@@ -898,7 +1015,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       ['loadedmetadata', onMetadata],
       ['durationchange', syncDuration],
       ['loadeddata', () => { setPlayerReady(true); syncTime(); syncBuffered(); }],
-      ['canplay', () => { setPlayerReady(true); syncDuration(); syncBuffered(); runStartupWarmup(video, playbackUrl); }],
+      ['canplay', () => { setPlayerReady(true); syncDuration(); syncBuffered(); }],
       ['canplaythrough', () => { setPlayerReady(true); syncDuration(); syncBuffered(); }],
       ['timeupdate', syncTime],
       ['progress', syncBuffered],
