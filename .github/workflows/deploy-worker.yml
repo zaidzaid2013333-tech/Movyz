@@ -41,3 +41,29 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify persisted playback is visible through production API
+        run: |
+          set -euo pipefail
+          base="https://movyz-api.sameranede.workers.dev/api/v1"
+          for attempt in 1 2 3 4 5; do
+            movie="$(curl -fsSL --max-time 20 "$base/movies/tmdb/157336")" &&             series="$(curl -fsSL --max-time 20 "$base/series/tmdb/456/watch/21/1")" &&             python - <<'PY' "$movie" "$series"
+          import json, sys
+          movie = json.loads(sys.argv[1])
+          series = json.loads(sys.argv[2])
+          movie_sources = movie.get("data", {}).get("movie", {}).get("sources", [])
+          series_sources = (
+              series.get("data", {})
+              .get("series", {})
+              .get("seasons", [{}])[0]
+              .get("episodes", [{}])[0]
+              .get("sources", [])
+          )
+          assert movie_sources, "Interstellar has no persisted sources in production API"
+          assert series_sources, "The Simpsons S21E1 has no persisted sources in production API"
+          print("playback_api_ok", {"movie_sources": len(movie_sources), "episode_sources": len(series_sources)})
+          PY
+              exit 0
+            sleep 3
+          done
+          exit 1
