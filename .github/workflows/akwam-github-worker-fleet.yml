@@ -1,15 +1,7 @@
 name: Movyz Akwam GitHub Worker Fleet
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - "scripts/akwam-github-worker.ts"
-      - "workers/akwam-prefill/src/index.ts"
-      - ".github/workflows/akwam-github-worker-fleet.yml"
   workflow_dispatch:
-  schedule:
-    - cron: "*/5 * * * *"
 
 permissions:
   contents: read
