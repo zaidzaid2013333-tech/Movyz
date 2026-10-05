@@ -1161,7 +1161,16 @@ async function fail(env: Env, job: Job, error: unknown, workerId: string) {
   const episodeNotIndexed = /AKWAM_EPISODE_NOT_INDEXED/.test(message);
   const searchEmpty = /AKWAM_SEARCH_EMPTY/.test(message);
   const noPlayable = /AKWAM_NO_PLAYABLE_SOURCE|AKWAM_PERSIST_NO_VALID_ROWS/.test(message);
-  const baseDelay = episodeNotIndexed ? 900 : searchEmpty ? 300 : noPlayable ? 600 : 120;
+  const baseDelay =
+    episodeNotIndexed
+      ? 900
+      : searchEmpty
+        ? job.content_type === "episode"
+          ? 1800
+          : 300
+        : noPlayable
+          ? 600
+          : 120;
   const delaySeconds = Math.min(21600, baseDelay * Math.pow(2, Math.min(6, Math.max(0, job.attempts - 1))));
   const now = new Date().toISOString();
   const next = new Date(Date.now() + delaySeconds * 1000).toISOString();
