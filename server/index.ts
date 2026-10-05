@@ -238,10 +238,18 @@ app.get(`${api}/playback/prepare`, asyncRoute(async (req, res) => {
       ready: result.sources.length > 0,
     });
   } catch (error) {
-    console.warn(
-      '[playback-broker]',
-      error instanceof Error ? error.message : String(error),
-    );
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[playback-broker]', message);
+    if (req.header('x-movyz-ci-debug') === '1') {
+      return res.status(502).json({
+        success: false,
+        error: {
+          code: 'PLAYBACK_BROKER_RESOLVE_FAILED',
+          message: 'A playable source is not available right now',
+          diagnostic: message.slice(0, 1200),
+        },
+      });
+    }
     return fail(
       res,
       502,
