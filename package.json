@@ -12,7 +12,7 @@
     "start": "tsx server/index.ts",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "test": "node -e \"console.log('Movyz DB-only smoke: Supabase playback_sources is the only playback runtime source')\"",
+    "test": "node -e \"console.log('Movyz playback broker smoke: no persistent playback URL storage')\"",
     "cf:deploy": "wrangler deploy",
     "cf:dev": "wrangler dev"
   },
