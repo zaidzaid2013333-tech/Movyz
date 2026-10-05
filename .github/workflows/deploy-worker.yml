@@ -141,6 +141,36 @@ jobs:
                   if provider != "akwam":
                       raise SystemExit(f"{label}: unexpected provider {provider!r}")
 
+                  stream_url = str(source.get("url") or "")
+                  stream_req = urllib.request.Request(
+                      stream_url,
+                      headers={
+                          "Accept": "*/*",
+                          "Range": "bytes=0-1023",
+                          "User-Agent": "Movyz-CI-Stream/1.0",
+                      },
+                  )
+                  try:
+                      with urllib.request.urlopen(stream_req, timeout=30) as stream_response:
+                          stream_status = stream_response.status
+                          stream_type = (stream_response.headers.get("content-type") or "").lower()
+                          sample = stream_response.read(1024)
+                  except urllib.error.HTTPError as exc:
+                      body = exc.read().decode("utf-8", errors="replace")
+                      raise SystemExit(f"{label}: relay stream HTTP {exc.code}: {body[:800]}") from exc
+
+                  if stream_status not in {200, 206}:
+                      raise SystemExit(f"{label}: relay stream returned HTTP {stream_status}")
+                  if not sample:
+                      raise SystemExit(f"{label}: relay stream returned no bytes")
+                  if any(marker in stream_type for marker in ("text/html", "application/json", "text/plain")):
+                      raise SystemExit(f"{label}: relay stream returned non-media content-type {stream_type!r}")
+
+                  print(
+                      f"stream_ok label={label!r} status={stream_status} "
+                      f"content_type={stream_type!r} bytes={len(sample)}"
+                  )
+
               mode = str(data.get("mode") or "")
               print(
                   f"broker_ok label={label!r} mode={mode!r} "
