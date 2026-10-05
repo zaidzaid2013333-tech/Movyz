@@ -510,11 +510,24 @@ function extractMediaCandidates(text: string, baseUrl: string) {
 }
 
 function mediaFromUrl(url: string, referer?: string, qualityText = ""): Media {
+  // External media extracted from an Akwam page inherits the same page
+  // attestation as the dedicated download-button resolver. This is needed
+  // for Akwam CDNs that return TLS 526 to strict Cloudflare subrequests.
+  let trustedExternal = false;
+  try {
+    trustedExternal = Boolean(
+      referer &&
+      isAkwamUrl(referer) &&
+      new URL(url).hostname.toLowerCase() !== new URL(referer).hostname.toLowerCase(),
+    );
+  } catch {}
+
   return {
     url,
     type: mediaTypeFromUrl(url),
     quality: inferQuality(qualityText),
     referer,
+    trustedExternal,
   };
 }
 
