@@ -239,8 +239,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [playerLoadingMessage, setPlayerLoadingMessage] = useState('');
   const [seekFeedback, setSeekFeedback] = useState<{ delta: number; id: number } | null>(null);
   const [playerReloadKey, setPlayerReloadKey] = useState(0);
+  const [playbackRetry, setPlaybackRetry] = useState(0);
   const playerControlsHideTimerRef = useRef<number | null>(null);
   const playerLoadTimeoutRef = useRef<number | null>(null);
+  const playbackStallTimerRef = useRef<number | null>(null);
   const reloadRestoreRef = useRef<{ time: number; wasPlaying: boolean } | null>(null);
   const lastTouchTapRef = useRef<{ time: number; x: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -491,7 +493,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       ? playbackSource.url.trim()
       : '';
   const directPlaybackUrl = playbackSource?.directUrl?.trim() || '';
-  const playbackUrl = brokerRelayUrl || directPlaybackUrl || playbackSource?.url?.trim() || '';
+  const playbackUrl = useMemo(() => {
+    const baseUrl = brokerRelayUrl || directPlaybackUrl || playbackSource?.url?.trim() || '';
+    if (!baseUrl || !brokerRelayUrl || playbackRetry === 0) return baseUrl;
+    try {
+      const url = new URL(baseUrl);
+      url.searchParams.set('retry', String(playbackRetry));
+      return url.toString();
+    } catch {
+      return baseUrl;
+    }
+  }, [brokerRelayUrl, directPlaybackUrl, playbackSource?.url, playbackRetry]);
   const isEmbedPlayback = String(playbackSource?.type || '').toLowerCase() === 'embed';
 
   const formatPlayerTime = (value: number) => {
@@ -508,6 +520,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     if (playerLoadTimeoutRef.current !== null) {
       window.clearTimeout(playerLoadTimeoutRef.current);
       playerLoadTimeoutRef.current = null;
+    }
+  };
+  
+  const clearPlaybackStallTimer = () => {
+    if (playbackStallTimerRef.current !== null) {
+      window.clearTimeout(playbackStallTimerRef.current);
+      playbackStallTimerRef.current = null;
     }
   };
 
@@ -576,6 +595,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlayerLoadingState(true, language === 'ar' ? 'جارٍ إعادة تحميل الفيديو…' : 'Reloading video…');
     setPlayerControlsVisible(true);
     armPlayerLoadTimeout();
+    setPlaybackRetry((value) => value + 1);
     setPlayerReloadKey((value) => value + 1);
   };
 
@@ -1190,6 +1210,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     };
     const onPlaying = () => {
       clearPlayerLoadTimeout();
+      clearPlaybackStallTimer();
       setPlayerLoadingState(false);
       setPlayerPlaying(true);
       setPlayerReady(true);
@@ -1198,7 +1219,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       syncBuffered();
       reloadRestoreRef.current = null;
     };
-    const onPause = () => setPlayerPlaying(false);
+    const onPause = () => { clearPlaybackStallTimer(); setPlayerPlaying(false); };
     const onLoadStart = () => {
       setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
       armPlayerLoadTimeout();
@@ -1220,8 +1241,19 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       }
       if (!playbackStartedRef.current) setPlaybackError(null);
       setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Buffering…');
-      // Do not arm a fatal source timeout once metadata is available.
+      // Normal short buffering is fine; prolonged stalls rotate the relay
+      // candidate instead of leaving the spinner running indefinitely.
       armPlayerLoadTimeout();
+      if (playbackStallTimerRef.current !== null) window.clearTimeout(playbackStallTimerRef.current);
+      playbackStallTimerRef.current = window.setTimeout(() => {
+        playbackStallTimerRef.current = null;
+        const current = videoRef.current;
+        if (!current || current.ended || !playbackUrl) return;
+        if (current.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && !current.paused) return;
+        setPlaybackError(null);
+        setPlaybackRetry((value) => value + 1);
+        setPlayerReloadKey((value) => value + 1);
+      }, 12000);
       syncTime();
       syncBuffered();
     };
@@ -1236,6 +1268,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       ['loadeddata', () => { setPlayerReady(true); syncTime(); syncBuffered(); }],
       ['canplay', () => {
         clearPlayerLoadTimeout();
+        clearPlaybackStallTimer();
         setPlayerLoadingState(false);
         setPlayerReady(true);
         syncDuration();
@@ -1253,6 +1286,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       }],
       ['canplaythrough', () => {
         clearPlayerLoadTimeout();
+        clearPlaybackStallTimer();
         setPlayerLoadingState(false);
         setPlayerReady(true);
         syncDuration();
