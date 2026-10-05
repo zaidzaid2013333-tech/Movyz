@@ -11,7 +11,7 @@ const api = '/api/v1';
 
 app.disable('x-powered-by');
 
-// Playback backend: DB-only.
+// Playback backend: cache-first Playback Broker with persisted-source fallback.
 // User playback requests read validated persisted rows from Supabase and never
 // trigger live provider discovery or any external source resolver.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
