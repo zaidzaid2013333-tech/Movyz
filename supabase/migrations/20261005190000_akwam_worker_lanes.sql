@@ -27,6 +27,12 @@ begin
   select nullif((regexp_match(coalesce(p_worker_id,''), '^gha-akwam-[0-9]+-([0-9]+)'))[1], '')::integer into v_slot;
   v_movie_lane := coalesce(v_slot between 1 and 12, false);
 
+  if v_movie_lane then
+    if (select count(*) from public.playback_source_jobs where status='running' and content_type='movie') >= 48 then
+      return;
+    end if;
+  end if;
+
   if v_movie_lane or v_slot is null then
     select j.id into v_id from public.playback_source_jobs j
     where j.provider_lane='primary' and j.content_type='movie' and j.status='running'
