@@ -18,7 +18,7 @@ type QueueBatch = {
   messages: QueueMessage[];
 };
 
-const DEFAULT_FANOUT = 24;
+const DEFAULT_FANOUT = 4;
 
 export default {
   async fetch(): Promise<Response> {
