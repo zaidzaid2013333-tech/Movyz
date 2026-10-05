@@ -1119,6 +1119,99 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   return medias;
 }
 
+/**
+ * On-demand resolver for the playback broker.
+ * It resolves Akwam for one content item without claiming a prefill job
+ * and without persisting playback URLs to playback_sources.
+ */
+export async function resolveAkwamNow(
+  env: Env,
+  input: {
+    content_type: "movie" | "episode";
+    content_id: string;
+    season_number?: number;
+    episode_number?: number;
+  },
+) {
+  let ctx: {
+    titles: string[];
+    year?: number;
+    episodeNumber?: number;
+    seasonNumber?: number;
+  };
+
+  if (input.content_type === "movie") {
+    const rows = await sb(
+      env,
+      `/rest/v1/movies?select=title_ar,title_en,original_title,alternative_titles,release_date&id=eq.${encodeURIComponent(input.content_id)}&limit=1`,
+    );
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row) throw new Error("AKWAM_CONTENT_NOT_FOUND");
+
+    ctx = {
+      titles: Array.from(new Set([
+        row.title_ar,
+        row.title_en,
+        row.original_title,
+        ...(Array.isArray(row.alternative_titles)
+          ? row.alternative_titles.map((x: any) => x?.title).filter(Boolean)
+          : []),
+      ].filter(Boolean))),
+      year:
+        typeof row.release_date === "string"
+          ? Number(row.release_date.slice(0, 4)) || undefined
+          : undefined,
+    };
+  } else {
+    const episodeRows = await sb(
+      env,
+      `/rest/v1/episodes?select=episode_number,season_id&id=eq.${encodeURIComponent(input.content_id)}&limit=1`,
+    );
+    const episode = Array.isArray(episodeRows) ? episodeRows[0] : null;
+    if (!episode?.season_id) throw new Error("AKWAM_EPISODE_NOT_FOUND");
+
+    const seasonRows = await sb(
+      env,
+      `/rest/v1/seasons?select=series_id,season_number&id=eq.${encodeURIComponent(String(episode.season_id))}&limit=1`,
+    );
+    const season = Array.isArray(seasonRows) ? seasonRows[0] : null;
+    if (!season?.series_id) throw new Error("AKWAM_SEASON_NOT_FOUND");
+
+    const seriesRows = await sb(
+      env,
+      `/rest/v1/series?select=title_ar,title_en,original_title,alternative_titles&id=eq.${encodeURIComponent(String(season.series_id))}&limit=1`,
+    );
+    const series = Array.isArray(seriesRows) ? seriesRows[0] : null;
+    if (!series) throw new Error("AKWAM_SERIES_NOT_FOUND");
+
+    ctx = {
+      titles: Array.from(new Set([
+        series.title_ar,
+        series.title_en,
+        series.original_title,
+        ...(Array.isArray(series.alternative_titles)
+          ? series.alternative_titles.map((x: any) => x?.title).filter(Boolean)
+          : []),
+      ].filter(Boolean))),
+      seasonNumber: Number(input.season_number || season.season_number || 1),
+      episodeNumber: Number(input.episode_number || episode.episode_number || 1),
+    };
+  }
+
+  const job: Job = {
+    id: "on-demand-" + crypto.randomUUID(),
+    content_type: input.content_type,
+    content_id: input.content_id,
+    tmdb_id: null,
+    season_number: ctx.seasonNumber ?? null,
+    episode_number: ctx.episodeNumber ?? null,
+    attempts: 1,
+  };
+
+  const budget: RequestBudget = { used: 0, max: 50 };
+  return discover(env, job, ctx, budget);
+}
+
 async function providerId(env: Env) {
   const rows = await sb(env, "/rest/v1/providers?select=id&key=eq.akwam&limit=1");
   if (rows?.[0]?.id) return rows[0].id as string;
