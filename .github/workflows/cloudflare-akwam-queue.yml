@@ -8,6 +8,7 @@ on:
       - "workers/akwam-queue-consumer/**"
       - "workers/akwam-queue-dispatcher/**"
       - "workers/akwam-prefill/src/index.ts"
+      - "scripts/akwam-github-worker.ts"
       - ".github/workflows/cloudflare-akwam-queue.yml"
   workflow_dispatch:
 
@@ -122,7 +123,7 @@ jobs:
     name: Akwam GitHub worker ${{ matrix.worker }}
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     concurrency:
-      group: movyz-akwam-github-fleet-${{ matrix.worker }}
+      group: movyz-akwam-github-fleet-${{ github.run_id }}-${{ matrix.worker }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 350
