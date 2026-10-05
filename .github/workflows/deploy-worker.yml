@@ -85,7 +85,6 @@ jobs:
                       "Cache-Control": "no-cache",
                       "Pragma": "no-cache",
                       "User-Agent": "Movyz-CI-Playback/4.0",
-                      "x-movyz-ci-debug": "1",
                   },
               )
               try:
