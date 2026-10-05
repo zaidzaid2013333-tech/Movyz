@@ -14,3 +14,4 @@ max_retries = 3
 dead_letter_queue = "movyz-akwam-fill-dlq"
 max_concurrency = 2
 retry_delay = 60
+workers_dev = false
