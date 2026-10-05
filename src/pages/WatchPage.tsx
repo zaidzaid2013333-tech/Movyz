@@ -790,7 +790,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       video.pause();
       video.removeAttribute('src');
       try { video.srcObject = null; } catch {}
-      video.load();
       videoReadyReset();
     };
 
@@ -798,8 +797,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current?.destroy?.();
       playbackEngineRef.current = null;
       resetMediaElement();
+      // Load only metadata before the user presses play. The click handler
+      // upgrades preload to auto so the active stream can start aggressively.
+      video.preload = 'metadata';
       video.src = playbackUrl;
-      video.preload = 'auto';
       video.load();
     };
 
@@ -1258,7 +1259,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 poster={content.backdropUrl || content.posterUrl}
                 className={(isEmbedPlayback ? 'hidden ' : '') + 'block h-full w-full bg-black object-contain'}
                 playsInline
-                preload="auto"
+                preload="metadata"
                 disablePictureInPicture={false}
                 onLoadStart={() => {
                   playbackStartedRef.current = false;
