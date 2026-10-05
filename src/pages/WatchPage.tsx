@@ -321,65 +321,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       finish();
     }
   };
-
-    const cleanup = () => {
-      video.removeEventListener('canplay', maybeFinish);
-      video.removeEventListener('progress', maybeFinish);
-      video.removeEventListener('loadeddata', maybeFinish);
-    };
-
-    const finish = () => {
-      if (startupRecoveryTimerRef.current !== null) {
-        window.clearTimeout(startupRecoveryTimerRef.current);
-        startupRecoveryTimerRef.current = null;
-      }
-      if (startupRecoveryStageRef.current !== 'recovering') return;
-
-      cleanup();
-      try {
-        video.currentTime = originalTime;
-      } catch {
-        // Some providers reject an immediate seek while the media element is switching ranges.
-      }
-      startupRecoveryStageRef.current = 'done';
-      void video.play().catch(() => undefined);
-    };
-
-    const maybeFinish = () => {
-      if (startupRecoveryStageRef.current !== 'recovering') return;
-
-      // Require a materially larger buffer before returning to 00:00 so normal
-      // playback does not immediately enter another short startup stall.
-      const requiredAhead = Math.min(12, Math.max(3, video.duration - targetTime - 1));
-      if (getBufferedAhead() < requiredAhead) return;
-
-      finish();
-    };
-
-    video.addEventListener('canplay', maybeFinish);
-    video.addEventListener('progress', maybeFinish);
-    video.addEventListener('loadeddata', maybeFinish);
-
-    startupRecoveryTimerRef.current = window.setTimeout(() => {
-      cleanup();
-      startupRecoveryTimerRef.current = null;
-      if (startupRecoveryStageRef.current === 'recovering') {
-        startupRecoveryStageRef.current = 'idle';
-      }
-    }, 15000);
-
-    try {
-      video.currentTime = targetTime;
-    } catch {
-      cleanup();
-      if (startupRecoveryTimerRef.current !== null) {
-        window.clearTimeout(startupRecoveryTimerRef.current);
-        startupRecoveryTimerRef.current = null;
-      }
-      startupRecoveryStageRef.current = 'idle';
-    }
-  };
-
   useEffect(() => {
     let mounted = true;
 
