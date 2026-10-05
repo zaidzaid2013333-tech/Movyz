@@ -41,33 +41,58 @@ function normalizePlaybackQuality(value: unknown) {
   return match?.[1] ? `${match[1]}p` : raw;
 }
 
+const inferPlaybackType = (url: string, declaredType?: string) => {
+  const type = String(declaredType || '').trim().toLowerCase();
+  if (['hls', 'mp4', 'dash', 'webm', 'direct', 'embed'].includes(type)) return type;
+  if (/\.m3u8(?:[?#]|$)/i.test(url)) return 'hls';
+  if (/\.mpd(?:[?#]|$)/i.test(url)) return 'dash';
+  if (/\.webm(?:[?#]|$)/i.test(url)) return 'webm';
+  if (/\.mp4(?:[?#]|$)/i.test(url)) return 'mp4';
+  return 'direct';
+};
+
+const normalizePlaybackSource = (source: PlaybackSource): PlaybackSource | null => {
+  const url = String(source.directUrl || source.url || source.embedUrl || '').trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+
+  return {
+    ...source,
+    url: String(source.url || url).trim() || url,
+    type: inferPlaybackType(url, source.type) as PlaybackSource['type'],
+    quality: normalizePlaybackQuality(source.quality),
+    isWorking: source.isWorking !== false,
+    directUrl: source.directUrl?.trim() || undefined,
+  };
+};
+
 const isPlayableHttpSource = (source: PlaybackSource) => {
-  const url = source.url?.trim() || '';
+  const normalized = normalizePlaybackSource(source);
+  if (!normalized) return false;
+
+  const url = String(normalized.directUrl || normalized.url || '').trim();
   if (!/^https?:\/\//i.test(url)) return false;
-  if (!['mp4', 'hls', 'dash', 'webm', 'direct'].includes(String(source.type || '').toLowerCase())) return false;
-  if (!/^(?:\d{3,4}p|auto)$/i.test(normalizePlaybackQuality(source.quality))) return false;
+
+  const type = String(normalized.type || '').toLowerCase();
+  if (!['mp4', 'hls', 'dash', 'webm', 'direct'].includes(type)) return false;
+
   try {
     new URL(url);
   } catch {
     return false;
   }
-  return true;
-};
 
-function playbackEngineFor(source: PlaybackSource | null | undefined) {
-  const type = String(source?.type || '').toLowerCase();
-  const url = String(source?.url || '').toLowerCase();
-  if (type === 'embed') return 'embed' as const;
-  if (type === 'hls' || /\.m3u8(?:[?#]|$)/i.test(url)) return 'hls' as const;
-  if (type === 'dash' || /\.mpd(?:[?#]|$)/i.test(url)) return 'dash' as const;
-  return 'native' as const;
-}
+  return normalized.isWorking !== false;
+};
 
 const pickPlaybackSources = (content: Movie | Series, episode?: Episode) => {
   const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
-  return candidates
-    .filter(isPlayableHttpSource)
-    .slice(0, 5);
+  const normalized = candidates
+    .map(normalizePlaybackSource)
+    .filter((source): source is PlaybackSource => Boolean(source))
+    .filter((source) => source.isWorking !== false)
+    .filter(isPlayableHttpSource);
+
+  return collapseProviderQualityDuplicates(normalized).slice(0, 20);
 };
 
 const playbackQualityRank = (source: PlaybackSource) => {
@@ -304,67 +329,49 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     (source) => source.isWorking !== false,
   ) ?? storedPlaybackSources[0] ?? null;
   useEffect(() => {
-    let active = true;
+    const loadedTarget = mediaType === 'movie' ? Boolean(content) : Boolean(currentEpisode);
+
+    if (!loadedTarget) {
+      setRemotePlaybackSources([]);
+      setRemotePlaybackSource(null);
+      setPlayerUnlocked(false);
+      setPlaybackError(null);
+      setResolverLoading(true);
+      return;
+    }
 
     const fallback = collapseProviderQualityDuplicates(
       storedPlaybackSources
-        .filter(isPlayableHttpSource)
+        .map(normalizePlaybackSource)
+        .filter((source): source is PlaybackSource => Boolean(source))
         .filter((source) => source.isWorking !== false)
+        .filter(isPlayableHttpSource)
         .slice(0, 20),
     );
 
-    const targetType = mediaType === 'movie' ? 'movie' as const : 'episode' as const;
-    const targetId = mediaType === 'movie'
-      ? content?.id
-      : currentEpisode?.id;
-
-    const applySources = (ready: typeof fallback) => {
-      const preferred =
-        storedPlaybackSources.find((source) =>
-          source.isWorking !== false && isPlayableHttpSource(source),
+    const preferred =
+      storedPlaybackSources
+        .map(normalizePlaybackSource)
+        .find((source): source is PlaybackSource =>
+          Boolean(source) &&
+          source.isWorking !== false &&
+          isPlayableHttpSource(source),
         ) ||
-        ready[0] ||
-        null;
+      fallback[0] ||
+      null;
 
-      setRemotePlaybackSources(ready);
-      setRemotePlaybackSource(preferred);
-      setPlayerUnlocked(Boolean(preferred));
-      setPlaybackError(
-        preferred
-          ? null
-          : (language === 'ar'
-            ? 'تعذر الحصول على مصدر تشغيل حاليًا.'
-            : 'Unable to resolve a playable source right now.'),
-      );
-      setResolverLoading(false);
-    };
-
-    if (!targetId) {
-      applySources(fallback);
-      return () => { active = false; };
-    }
-
-    // The watch payload already contains the on-demand Akwam redirect URLs.
-    // Use them first and call /playback/prepared only as a recovery path.
-    if (fallback.length) {
-      applySources(fallback);
-      return () => { active = false; };
-    }
-
-    setResolverLoading(false);
-    setRemotePlaybackSources([]);
-    setRemotePlaybackSource(null);
-    setPlayerUnlocked(false);
+    setRemotePlaybackSources(fallback);
+    setRemotePlaybackSource(preferred);
+    setPlayerUnlocked(Boolean(preferred));
     setPlaybackError(
-      language === 'ar'
-        ? 'لا يوجد مصدر تشغيل محفوظ صالح لهذا العمل حاليًا.'
-        : 'No persisted playable source is currently available for this title.',
+      preferred
+        ? null
+        : (language === 'ar'
+          ? 'لا يوجد مصدر تشغيل محفوظ صالح لهذا العمل حاليًا.'
+          : 'No persisted playable source is currently available for this title.'),
     );
-
-    return () => {
-      active = false;
-    };
-  }, [mediaType, content?.id, currentEpisode?.id, storedPlaybackSources, language]);
+    setResolverLoading(false);
+  }, [mediaType, content, currentEpisode, storedPlaybackSources, language]);
 
   const playbackSource = remotePlaybackSource ?? storedPlaybackSource;
   const directPlaybackUrl = playbackSource?.directUrl?.trim() || '';
@@ -470,12 +477,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       : storedPlaybackSources;
 
     return collapseProviderQualityDuplicates(
-      activeSources.filter(
-        (source, index, all) =>
-          index === all.findIndex((candidate) => candidate.url === source.url),
-      ),
+      activeSources
+        .map(normalizePlaybackSource)
+        .filter((source): source is PlaybackSource => Boolean(source))
+        .filter((source) => source.isWorking !== false)
+        .filter(isPlayableHttpSource)
+        .filter(
+          (source, index, all) =>
+            index === all.findIndex((candidate) => candidate.url === source.url),
+        ),
     );
   }, [storedPlaybackSources, remotePlaybackSources]);
+
   const availableSourceGroups = useMemo(
     () => groupPlaybackSources(availableSources, language),
     [availableSources, language],
