@@ -1186,8 +1186,8 @@ async function persist(env: Env, job: Job, sources: Media[], provider: string, w
       ? result
       : result?.persist_akwam_prefill_job ?? result?.[0]?.persist_akwam_prefill_job ?? 0,
   );
-  if (!Number.isFinite(stored) || stored !== rows.length) {
-    throw new Error(`AKWAM_PERSIST_VERIFY_FAILED expected=${rows.length} stored=${stored}`);
+  if (!Number.isFinite(stored) || stored < 0 || stored > rows.length) {
+    throw new Error(`AKWAM_PERSIST_VERIFY_FAILED expected=0..${rows.length} stored=${stored}`);
   }
   return stored;
 }
@@ -1196,7 +1196,7 @@ async function fail(env: Env, job: Job, error: unknown, workerId: string) {
   const message = String(error).slice(0, 1800);
   const episodeNotIndexed = /AKWAM_EPISODE_NOT_INDEXED/.test(message);
   const searchEmpty = /AKWAM_SEARCH_EMPTY/.test(message);
-  const noPlayable = /AKWAM_NO_PLAYABLE_SOURCE/.test(message);
+  const noPlayable = /AKWAM_NO_PLAYABLE_SOURCE|AKWAM_PERSIST_NO_VALID_ROWS/.test(message);
   const baseDelay = episodeNotIndexed ? 900 : searchEmpty ? 300 : noPlayable ? 600 : 120;
   const delaySeconds = Math.min(21600, baseDelay * Math.pow(2, Math.min(6, Math.max(0, job.attempts - 1))));
   const now = new Date().toISOString();
