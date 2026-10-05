@@ -250,6 +250,66 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const activeSeason = seasonNumber || 1;
   const activeEpisode = episodeNumber || 1;
 
+  const startupRecoveryStageRef = useRef<'idle' | 'recovering' | 'done'>('idle');
+  const startupRecoveryTimerRef = useRef<number | null>(null);
+
+  const recoverStartupBuffer = () => {
+    const video = videoRef.current;
+    if (
+      !video ||
+      startupRecoveryStageRef.current !== 'idle' ||
+      !Number.isFinite(video.duration) ||
+      video.duration < 45 ||
+      video.currentTime >= 20
+    ) {
+      return;
+    }
+
+    startupRecoveryStageRef.current = 'recovering';
+    const originalTime = Math.max(0, video.currentTime);
+    const targetTime = Math.min(
+      Math.max(originalTime + 120, 120),
+      Math.max(video.duration - 15, 1),
+    );
+
+    const finish = () => {
+      if (startupRecoveryTimerRef.current !== null) {
+        window.clearTimeout(startupRecoveryTimerRef.current);
+        startupRecoveryTimerRef.current = null;
+      }
+      if (startupRecoveryStageRef.current !== 'recovering') return;
+
+      video.removeEventListener('canplay', finish);
+      try {
+        video.currentTime = originalTime;
+      } catch {
+        // Some providers reject an immediate seek while the media element is switching ranges.
+      }
+      startupRecoveryStageRef.current = 'done';
+      void video.play().catch(() => undefined);
+    };
+
+    video.addEventListener('canplay', finish, { once: true });
+    startupRecoveryTimerRef.current = window.setTimeout(() => {
+      video.removeEventListener('canplay', finish);
+      startupRecoveryTimerRef.current = null;
+      if (startupRecoveryStageRef.current === 'recovering') {
+        startupRecoveryStageRef.current = 'idle';
+      }
+    }, 12000);
+
+    try {
+      video.currentTime = targetTime;
+    } catch {
+      video.removeEventListener('canplay', finish);
+      if (startupRecoveryTimerRef.current !== null) {
+        window.clearTimeout(startupRecoveryTimerRef.current);
+        startupRecoveryTimerRef.current = null;
+      }
+      startupRecoveryStageRef.current = 'idle';
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
 
@@ -273,6 +333,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         userPlayRequestedRef.current = false;
         playbackStartedRef.current = false;
         startupTriedUrlsRef.current.clear();
+        startupRecoveryStageRef.current = 'idle';
+        if (startupRecoveryTimerRef.current !== null) {
+          window.clearTimeout(startupRecoveryTimerRef.current);
+          startupRecoveryTimerRef.current = null;
+        }
 
         const legacyTmdbId = /^\d+$/.test(contentId) ? Number(contentId) : null;
         const response = mediaType === 'movie'
@@ -797,9 +862,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current?.destroy?.();
       playbackEngineRef.current = null;
       resetMediaElement();
-      // Load only metadata before the user presses play. The click handler
-      // upgrades preload to auto so the active stream can start aggressively.
-      video.preload = 'metadata';
+      // Keep the active stream primed from the first render. Akwam relay playback
+      // relies on early range requests; metadata-only preload leaves the browser with
+      // too little media buffered and produces the 00:00 -> seek -> recovery pattern.
+      video.preload = 'auto';
       video.src = playbackUrl;
       video.load();
     };
@@ -893,6 +959,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current?.destroy?.();
       playbackEngineRef.current = null;
       video.pause();
+      if (startupRecoveryTimerRef.current !== null) {
+        window.clearTimeout(startupRecoveryTimerRef.current);
+        startupRecoveryTimerRef.current = null;
+      }
+      startupRecoveryStageRef.current = 'idle';
     };
   }, [playbackUrl, playbackSource?.type, language]);
 
@@ -1262,10 +1333,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 poster={content.backdropUrl || content.posterUrl}
                 className={(isEmbedPlayback ? 'hidden ' : '') + 'block h-full w-full bg-black object-contain'}
                 playsInline
-                preload="metadata"
+                preload="auto"
                 disablePictureInPicture={false}
                 onLoadStart={() => {
                   playbackStartedRef.current = false;
+                  startupRecoveryStageRef.current = 'idle';
+                  if (startupRecoveryTimerRef.current !== null) {
+                    window.clearTimeout(startupRecoveryTimerRef.current);
+                    startupRecoveryTimerRef.current = null;
+                  }
                   setPlaybackError(null);
                   if (playbackUrl) startupTriedUrlsRef.current.add(playbackUrl);
                 }}
@@ -1287,13 +1363,25 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
 
                   const resumeTime = qualityResumeTimeRef.current;
-                  if (resumeTime === null || !Number.isFinite(video.duration) || video.duration <= 0) return;
+                  if (resumeTime !== null && Number.isFinite(video.duration) && video.duration > 0) {
+                    qualityResumeTimeRef.current = null;
+                    try {
+                      video.currentTime = Math.min(resumeTime, Math.max(0, video.duration - 0.5));
+                    } catch {
+                      // Ignore sources that reject a resume seek.
+                    }
+                  }
 
-                  qualityResumeTimeRef.current = null;
-                  try {
-                    video.currentTime = Math.min(resumeTime, Math.max(0, video.duration - 0.5));
-                  } catch {
-                    // Ignore sources that reject a resume seek.
+                  // Akwam's MP4/CDN responses can expose metadata while keeping only
+                  // a tiny initial range warm. Jumping forward once forces a second
+                  // usable range to be opened, then we restore the original position.
+                  if (
+                    video.currentTime < 1 &&
+                    Number.isFinite(video.duration) &&
+                    video.duration >= 45 &&
+                    video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
+                  ) {
+                    window.setTimeout(() => recoverStartupBuffer(), 250);
                   }
                 }}
                 onDurationChange={() => {
@@ -1351,12 +1439,36 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       void video.play().catch(() => undefined);
                     }
                   }
+
+                  // Once the browser reports enough data at any position, finish any
+                  // startup recovery and leave the player back at the user's position.
+                  if (startupRecoveryStageRef.current === 'recovering' && video.currentTime >= 60) {
+                    const finishTime = Math.max(0, video.currentTime);
+                    if (startupRecoveryTimerRef.current !== null) {
+                      window.clearTimeout(startupRecoveryTimerRef.current);
+                      startupRecoveryTimerRef.current = null;
+                    }
+                    startupRecoveryStageRef.current = 'done';
+                    video.currentTime = Math.min(finishTime, Math.max(0, video.duration - 0.5));
+                  }
                 }}
                 onWaiting={() => {
-                  if (!playbackStartedRef.current) setPlaybackError(null);
+                  if (!playbackStartedRef.current) {
+                    setPlaybackError(null);
+                    const video = videoRef.current;
+                    if (video && video.currentTime < 20) {
+                      recoverStartupBuffer();
+                    }
+                  }
                 }}
                 onStalled={() => {
-                  if (!playbackStartedRef.current) setPlaybackError(null);
+                  if (!playbackStartedRef.current) {
+                    setPlaybackError(null);
+                    const video = videoRef.current;
+                    if (video && video.currentTime < 20) {
+                      recoverStartupBuffer();
+                    }
+                  }
                 }}
                 onClick={() => {
                   togglePlayerPlayback();
@@ -1462,7 +1574,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                         onChange={(event) => setPlayerVolumeLevel(Number(event.target.value))}
                         className="hidden sm:block w-20 accent-amber-400 cursor-pointer"
                       />
-                      <span className="min-w-[92px] text-[11px] font-mono text-white/75 tabular-nums">
+                      <span className="min-w-20 text-[11px] font-mono text-white/75 tabular-nums">
                         {formatPlayerTime(playerCurrentTime)} / {formatPlayerTime(playerDuration)}
                       </span>
                       <div className="flex-1" />
