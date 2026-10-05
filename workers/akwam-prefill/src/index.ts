@@ -346,22 +346,26 @@ async function findCandidate(
           : expected === "series" || expected === "episode"
             ? "series"
             : "movie";
-      const url =
-        host +
-        "/search?q=" +
-        encodeURIComponent(title) +
-        "&section=" +
-        encodeURIComponent(section) +
-        "&page=1";
-      const html = await fetchText(env, url, diagnostics, undefined, budget);
-      if (!html) continue;
+      // Akwam's currently verified route is /search?q=... . Some revisions
+      // return 404 when section/page query parameters are appended, so probe the
+      // canonical route first and apply our own movie/series scoring client-side.
+      const urls = [
+        host + "/search?q=" + encodeURIComponent(title),
+        host + "/search?q=" + encodeURIComponent(title) +
+          "&section=" + encodeURIComponent(section) + "&page=1",
+      ];
 
-      for (const item of parseCandidates(html, env)) {
-        const itemScore = score(item, titles, year, expected, expectedSeason);
-        if (!best || itemScore > best.score) best = { item, score: itemScore };
+      for (const url of urls) {
+        const html = await fetchText(env, url, diagnostics, undefined, budget);
+        if (!html) continue;
+
+        for (const item of parseCandidates(html, env)) {
+          const itemScore = score(item, titles, year, expected, expectedSeason);
+          if (!best || itemScore > best.score) best = { item, score: itemScore };
+        }
+
+        if (best && best.score >= 128) return best.item;
       }
-
-      if (best && best.score >= 128) return best.item;
     }
 
     // The current search form has changed across Akwam revisions. Keep the
@@ -1137,6 +1141,34 @@ async function run(env: Env, workerId: string) {
   };
 }
 
+async function runFleet(env: Env, fleetSize = 4) {
+  const size = Math.max(1, Math.min(6, fleetSize));
+  const workers = await Promise.all(
+    Array.from({ length: size }, async (_, index) => {
+      const workerId = `cf-fleet-${Date.now()}-${index}-${crypto.randomUUID().slice(0, 8)}`;
+      try {
+        return await run(env, workerId);
+      } catch (error) {
+        return {
+          workerId,
+          processed: 0,
+          saved: 0,
+          failed: 0,
+          fatal: String(error).slice(0, 1200),
+        };
+      }
+    }),
+  );
+
+  return {
+    workers,
+    processed: workers.reduce((n, w) => n + w.processed, 0),
+    saved: workers.reduce((n, w) => n + w.saved, 0),
+    failed: workers.reduce((n, w) => n + w.failed, 0),
+    fatal: workers.filter((w) => "fatal" in w).length,
+  };
+}
+
 async function acquireCronLease(env: Env) {
   const rows = await sb(env, "/rest/v1/rpc/acquire_akwam_cron_lease", {
     method: "POST",
@@ -1228,21 +1260,25 @@ export default {
           },
         });
 
-        const workerId = `cf-cron-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-        const result = await run(env, workerId);
+        const result = await runFleet(env, 4);
         const finishedAt = new Date().toISOString();
 
         await writeCronState(env, {
           last_run_at: startedAt,
-          last_success_at: result.failed === 0 ? finishedAt : null,
-          last_error: result.failed === 0 ? null : `processed=${result.processed} failed=${result.failed}`,
+          last_success_at: result.failed === 0 && result.fatal === 0 ? finishedAt : null,
+          last_error:
+            result.failed === 0 && result.fatal === 0
+              ? null
+              : `processed=${result.processed} saved=${result.saved} failed=${result.failed} fatal=${result.fatal}`,
           stats: {
-            state: result.failed === 0 ? "success" : "degraded",
-            executor: "cloudflare-cron",
-            worker: workerId,
+            state: result.failed === 0 && result.fatal === 0 ? "success" : "degraded",
+            executor: "cloudflare-cron-fleet",
+            fleet_size: 4,
+            workers: result.workers,
             processed: result.processed,
             saved: result.saved,
             failed: result.failed,
+            fatal: result.fatal,
             at: finishedAt,
           },
         });
