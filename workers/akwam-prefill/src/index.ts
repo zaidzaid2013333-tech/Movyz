@@ -92,7 +92,7 @@ async function sb(env: Env, path: string, init: RequestInit = {}) {
 async function claim(env: Env, workerId: string): Promise<Job | null> {
   const rows = await sb(env, "/rest/v1/rpc/claim_akwam_prefill_job", {
     method: "POST",
-    body: JSON.stringify({ p_worker_id: workerId, p_lease_seconds: 300 }),
+    body: JSON.stringify({ p_worker_id: workerId, p_lease_seconds: 900 }),
   });
   return Array.isArray(rows) && rows[0] ? (rows[0] as Job) : null;
 }
@@ -1207,7 +1207,7 @@ async function runFleet(env: Env, fleetSize = 4) {
 async function acquireCronLease(env: Env) {
   const rows = await sb(env, "/rest/v1/rpc/acquire_akwam_cron_lease", {
     method: "POST",
-    body: JSON.stringify({ p_lease_seconds: 90 }),
+    body: JSON.stringify({ p_lease_seconds: 900 }),
   });
   return rows === true || rows?.acquire_akwam_cron_lease === true || rows?.[0]?.acquire_akwam_cron_lease === true;
 }
