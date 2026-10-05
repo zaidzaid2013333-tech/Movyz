@@ -664,7 +664,7 @@
   .movyza-player-frame { border-radius: 0; }
   .movyza-player-controls { padding: 62px 10px 10px !important; }
   .movyza-player-btn { width: 42px; height: 42px; }
-  .movyza-player-controls .min-w-\\[92px\\] { min-width: 72px; font-size: 10px; }
+  .movyza-player-controls .min-w-20 { min-width: 72px; font-size: 10px; }
   .movyza-watch-meta-modern { border-radius: 22px; padding: 20px !important; }
 }
 @media (orientation: landscape) and (max-height: 560px) {
