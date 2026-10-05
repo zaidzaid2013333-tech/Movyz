@@ -91,8 +91,7 @@ export default {
       // Queues 10,000 operations/day allowance while each message fans out
       // into 24 isolated Worker invocations through a service binding.
       const messages = [
-        { body: { kind: "claim", contentType, fanout: 24 } },
-        { body: { kind: "claim", contentType, fanout: 24 } },
+        { body: { kind: "claim", contentType, fanout: 4 } },
       ];
 
       await env.FILL_QUEUE.sendBatch(messages);
