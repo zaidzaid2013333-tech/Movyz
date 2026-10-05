@@ -1047,7 +1047,6 @@ async function resolveTarget(
   referer?: string,
   budget?: RequestBudget,
   session?: AkwamSession,
-  trace?: string[],
 ): Promise<Media | null> {
   const direct = mediaFromUrl(target, referer);
   if (!isLikelyNavigationUrl(target) && await validateMedia(env, direct, budget)) return direct;
@@ -1057,17 +1056,12 @@ async function resolveTarget(
     if (legacyMedia) return legacyMedia;
   }
 
-  const html = await fetchText(env, target, trace, referer, budget, session);
-  if (!html) {
-    trace?.push('target=' + target + ' fetch=empty');
-    return null;
-  }
-  trace?.push('target=' + target + ' html=' + html.length);
+  const html = await fetchText(env, target, undefined, referer, budget, session);
+  if (!html) return null;
 
   // Interstellar reference path:
   // target (/download or /link-promoted download) -> btn-loader -> final CDN URL.
   const buttonMedia = extractDownloadButtonMedia(html, target);
-  trace?.push('target=' + target + ' btn=' + (buttonMedia?.url || 'none'));
   if (buttonMedia) {
     // Akwam's btn-loader is the authoritative hand-off to its video host.
     // Cloudflare Workers may be unable to probe that external host because of
@@ -1091,20 +1085,14 @@ async function resolveTarget(
   }
 
   const nestedTargets = extractTargets(html, target).slice(0, 5);
-  trace?.push('target=' + target + ' nested=' + (nestedTargets.map((x) => { try { return new URL(x).pathname; } catch { return 'invalid'; } }).join('|') || 'none'));
   for (const nested of nestedTargets) {
     const directNested = mediaFromUrl(nested, target);
     if (!isLikelyNavigationUrl(nested) && await validateMedia(env, directNested, budget)) return directNested;
 
-    const nestedHtml = await fetchText(env, nested, trace, target, budget, session);
-    if (!nestedHtml) {
-      trace?.push('nested=' + nested + ' fetch=empty');
-      continue;
-    }
-    trace?.push('nested=' + nested + ' html=' + nestedHtml.length);
+    const nestedHtml = await fetchText(env, nested, undefined, target, budget, session);
+    if (!nestedHtml) continue;
 
     const nestedButton = extractDownloadButtonMedia(nestedHtml, nested);
-    trace?.push('nested=' + nested + ' btn=' + (nestedButton?.url || 'none'));
     if (nestedButton && !isAkwamUrl(nestedButton.url)) return nestedButton;
     if (nestedButton && await validateMedia(env, nestedButton, budget)) return nestedButton;
 
@@ -1208,10 +1196,9 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
 
   const medias: Media[] = [];
   const sourceReferer = candidate.url;
-  const trace: string[] = [];
   // Same bounded resolution order that produced the working Interstellar sources.
   for (const target of targets.slice(0, 6)) {
-    const media = await resolveTarget(env, target, sourceReferer, budget, session, trace);
+    const media = await resolveTarget(env, target, sourceReferer, budget, session);
     if (!media) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);
     if (medias.length >= 3) break;
@@ -1221,7 +1208,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
     const summary = targets.slice(0, 10).map((url) => {
       try { return new URL(url).pathname; } catch { return "invalid"; }
     }).join(",");
-    throw new Error("AKWAM_NO_PLAYABLE_SOURCE candidate=" + candidate.url + " targets=" + summary + " trace=" + trace.slice(0, 40).join(" || "));
+    throw new Error("AKWAM_NO_PLAYABLE_SOURCE candidate=" + candidate.url + " targets=" + summary );
   }
   return medias;
 }
