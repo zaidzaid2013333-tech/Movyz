@@ -4,7 +4,6 @@ import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } from './auth';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId, importCuratedCatalog } from './tmdb';
-import { curatedCatalogSeed } from './curatedCatalog';
 import { resolveAkwamNow } from '../workers/akwam-prefill/src/index';
 
 export const app = new MiniApp();
@@ -1441,28 +1440,56 @@ app.post(`${api}/admin/sync/tmdb/episodes`, requireAuth, requireAdmin, asyncRout
       message: `Episode sync completed: ${result.episodes} episodes across ${result.seasons} seasons`,
     });
   } catch (error) {
-    return fail(res, 502, 'TMDB_EPISODE_SYNC_FAILED', error instanceof Errapp.get(`${api}/internal/tmdb/seed-curated-20261005`, asyncRoute(async (req, res) => {
+    return fail(res, 502, 'TMDB_EPISODE_SYNC_FAILED', error instanceof Error ? error.message : 'Episode sync failed');
+  }
+}));
+
+app.post(`${api}/internal/tmdb/import-curated`, asyncRoute(async (req, res) => {
+  const expectedKey = String(req.env?.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  const providedKey = String(req.header('x-movyz-internal-key') || '').trim();
+  if (!expectedKey || !providedKey || providedKey !== expectedKey) {
+    return fail(res, 401, 'UNAUTHORIZED', 'Unauthorized internal import request');
+  }
+
+  const body = z.object({
+    items: z.array(z.object({
+      rank: z.number().int().min(1).max(200),
+      title: z.string().trim().min(1).max(300),
+      year: z.number().int().min(1900).max(2100).optional(),
+      mediaType: z.enum(['movie', 'series']),
+    })).min(1).max(200),
+  }).safeParse(req.body || {});
+
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid curated catalog payload');
+
+  try {
+    const result = await importCuratedCatalog(body.data.items);
+    return ok(res, result);
+  } catch (error) {
+    return fail(res, 502, 'CURATED_IMPORT_FAILED', error instanceof Error ? error.message : String(error));
+  }
+}));
+
+app.get(`${api}/internal/tmdb/seed-curated-20261005`, asyncRoute(async (req, res) => {
   const batch = Math.max(0, Number(req.query.batch || 0));
   const batchSize = 8;
   const unique = new Map<string, (typeof curatedCatalogSeed)[number]>();
   for (const item of curatedCatalogSeed) {
-    const key = item.mediaType + '|' + item.title.toLowerCase().replace(/\\s+(?:season|series)\\s*\\d+$/i, '').trim();
+    const key = item.mediaType + '|' + item.title.toLowerCase().replace(/\s+(?:season|series)\s*\d+$/i, '').trim();
     if (!unique.has(key)) unique.set(key, item);
   }
-  const items = [...unique.values()].sort((a,b) => a.rank-b.rank);
+  const items = [...unique.values()].sort((a, b) => a.rank - b.rank);
   const start = batch * batchSize;
   const chunk = items.slice(start, start + batchSize);
   if (!chunk.length) return ok(res, { accepted: false, batch, done: true, total: items.length });
-  req.waitUntil(importCuratedCatalog(chunk).then((result) => {
-    console.log('[curated-seed]', JSON.stringify({ batch, ...result }));
-  }).catch((error) => {
-    console.error('[curated-seed]', batch, error instanceof Error ? error.message : String(error));
-  }));
-  return ok(res, { accepted: true, batch, count: chunk.length, start, total: items.length });
-}));
 
-ceof Error ? error.message : String(error));
-  }
+  req.waitUntil(
+    importCuratedCatalog(chunk)
+      .then((result) => console.log('[curated-seed]', JSON.stringify({ batch, ...result })))
+      .catch((error) => console.error('[curated-seed]', batch, error instanceof Error ? error.message : String(error))),
+  );
+
+  return ok(res, { accepted: true, batch, count: chunk.length, start, total: items.length });
 }));
 
 app.get(`${api}/admin/sync/jobs`, requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
