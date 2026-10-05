@@ -238,18 +238,10 @@ app.get(`${api}/playback/prepare`, asyncRoute(async (req, res) => {
       ready: result.sources.length > 0,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn('[playback-broker]', message);
-    if (req.header('x-movyz-ci-debug') === '1') {
-      return res.status(502).json({
-        success: false,
-        error: {
-          code: 'PLAYBACK_BROKER_RESOLVE_FAILED',
-          message: 'A playable source is not available right now',
-          diagnostic: message.slice(0, 1200),
-        },
-      });
-    }
+    console.warn(
+      '[playback-broker]',
+      error instanceof Error ? error.message : String(error),
+    );
     return fail(
       res,
       502,
@@ -271,10 +263,6 @@ app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
   res.setHeader('x-frame-options', 'SAMEORIGIN');
   res.setHeader('x-movyz-build-id', MOVYZ_BUILD_ID);
   res.setHeader('x-movyz-playback-contract', MOVYZ_PLAYBACK_CONTRACT);
-  try {
-    const ciProbe = new URL(req.url).searchParams.has('__movyz_ci');
-    if (ciProbe) res.setHeader('cache-control', 'no-store');
-  } catch {}
   if (req.method === 'OPTIONS') return res.status(204).send();
   return next();
 });
