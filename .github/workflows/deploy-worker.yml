@@ -1,7 +1,7 @@
 name: Deploy Movyz API Worker
 
 # Deployment trigger kept explicit so broker changes can be released from main.
-# Priority redeploy trigger: this run intentionally supersedes older queued runs in the same concurrency group.
+# Deployments use a dedicated concurrency group so retired legacy runs cannot block production releases.
 
 on:
   push:
@@ -19,12 +19,12 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: movyz-full-movie-secondary-prewarm
+  group: movyz-api-deploy
   cancel-in-progress: true
 
 jobs:
   deploy:
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
