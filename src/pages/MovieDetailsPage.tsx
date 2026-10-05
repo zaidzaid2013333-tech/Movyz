@@ -65,6 +65,11 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({
     };
   }, [movieId]);
 
+  useEffect(() => {
+    if (!movie?.id) return;
+    void MovyzaApi.preparePlayback('movie', movie.id).catch(() => undefined);
+  }, [movie?.id]);
+
   const handleShare = () => {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(window.location.href);
