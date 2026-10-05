@@ -415,8 +415,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   ]);
 
   const playbackSource = remotePlaybackSource;
+  const brokerRelayUrl =
+    playbackSource?.providerKey === 'akwam' &&
+    /\/api\/v1\/playback\/stream(?:\?|$)/i.test(String(playbackSource?.url || ''))
+      ? playbackSource.url.trim()
+      : '';
   const directPlaybackUrl = playbackSource?.directUrl?.trim() || '';
-  const playbackUrl = directPlaybackUrl || playbackSource?.url?.trim() || '';
+  const playbackUrl = brokerRelayUrl || directPlaybackUrl || playbackSource?.url?.trim() || '';
   const isEmbedPlayback = String(playbackSource?.type || '').toLowerCase() === 'embed';
 
   const formatPlayerTime = (value: number) => {
