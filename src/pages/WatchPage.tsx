@@ -18,6 +18,8 @@ import {
   Share2,
   ShieldAlert,
   Sparkles,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { MovyzaApi } from '../services/api';
@@ -233,7 +235,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [playerReady, setPlayerReady] = useState(false);
   const [playerControlsVisible, setPlayerControlsVisible] = useState(true);
   const [playerSettingsOpen, setPlayerSettingsOpen] = useState(false);
+  const [playerLoading, setPlayerLoading] = useState(false);
+  const [playerLoadingMessage, setPlayerLoadingMessage] = useState('');
+  const [seekFeedback, setSeekFeedback] = useState<{ delta: number; id: number } | null>(null);
+  const [playerReloadKey, setPlayerReloadKey] = useState(0);
   const playerControlsHideTimerRef = useRef<number | null>(null);
+  const playerLoadTimeoutRef = useRef<number | null>(null);
+  const reloadRestoreRef = useRef<{ time: number; wasPlaying: boolean } | null>(null);
+  const lastTouchTapRef = useRef<{ time: number; x: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
   const qualityResumeTimeRef = useRef<number | null>(null);
@@ -527,6 +536,68 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return hours > 0 ? `${String(hours).padStart(2, '0')}:${base}` : base;
   };
 
+  const clearPlayerLoadTimeout = () => {
+    if (playerLoadTimeoutRef.current !== null) {
+      window.clearTimeout(playerLoadTimeoutRef.current);
+      playerLoadTimeoutRef.current = null;
+    }
+  };
+
+  const setPlayerLoadingState = (loading: boolean, message = '') => {
+    if (loading) {
+      setPlayerLoading(true);
+      setPlayerLoadingMessage(
+        message ||
+          (language === 'ar'
+            ? 'جارٍ تحميل الفيديو…'
+            : 'Loading video…'),
+      );
+    } else {
+      setPlayerLoading(false);
+      setPlayerLoadingMessage('');
+    }
+  };
+
+  const armPlayerLoadTimeout = () => {
+    clearPlayerLoadTimeout();
+    playerLoadTimeoutRef.current = window.setTimeout(() => {
+      playerLoadTimeoutRef.current = null;
+      setPlayerLoadingState(false);
+      setPlaybackError(
+        language === 'ar'
+          ? 'استغرق تحميل الفيديو وقتًا أطول من المتوقع. أعد المحاولة أو اختر مصدرًا آخر.'
+          : 'The video took too long to load. Retry or choose another source.',
+      );
+    }, 20000);
+  };
+
+  const reloadPlayer = () => {
+    const video = videoRef.current;
+
+    if (!video || !playbackUrl || isEmbedPlayback) {
+      if (isEmbedPlayback) {
+        setPlayerLoadingState(true, language === 'ar' ? 'جارٍ إعادة تحميل المشغل…' : 'Reloading player…');
+        setPlayerReloadKey((value) => value + 1);
+        armPlayerLoadTimeout();
+      }
+      return;
+    }
+
+    reloadRestoreRef.current = {
+      time: Number.isFinite(video.currentTime) ? Math.max(0, video.currentTime) : 0,
+      wasPlaying: !video.paused && !video.ended,
+    };
+    qualityResumeTimeRef.current = null;
+    qualitySwitchPendingRef.current = false;
+    playbackStartedRef.current = false;
+    setPlaybackError(null);
+    setPlayerReady(false);
+    setPlayerLoadingState(true, language === 'ar' ? 'جارٍ إعادة تحميل الفيديو…' : 'Reloading video…');
+    setPlayerControlsVisible(true);
+    armPlayerLoadTimeout();
+    setPlayerReloadKey((value) => value + 1);
+  };
+
   const togglePlayerPlayback = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -538,6 +609,34 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   };
 
   const seekPlayerBy = (seconds: number) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration)) return;
+    const nextTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + seconds));
+    video.currentTime = nextTime;
+    setPlayerCurrentTime(nextTime);
+    setSeekFeedback({ delta: seconds, id: Date.now() });
+    window.setTimeout(() => setSeekFeedback(null), 520);
+  };
+
+  const handlePlayerDoubleTap = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'touch') return;
+    const now = Date.now();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const previous = lastTouchTapRef.current;
+
+    if (previous && now - previous.time < 360 && Math.abs(previous.x - x) < 90) {
+      event.preventDefault();
+      event.stopPropagation();
+      seekPlayerBy(x < rect.width / 2 ? -10 : 10);
+      lastTouchTapRef.current = null;
+      return;
+    }
+
+    lastTouchTapRef.current = { time: now, x };
+  };
+
+
     const video = videoRef.current;
     if (!video || !Number.isFinite(video.duration)) return;
     video.currentTime = Math.min(
@@ -658,18 +757,24 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       if (event.key === ' ' || event.key.toLowerCase() === 'k') {
         event.preventDefault();
         togglePlayerPlayback();
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        seekPlayerBy(-5);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        seekPlayerBy(5);
+      } else if (event.key.toLowerCase() === 'j') {
+        event.preventDefault();
+        seekPlayerBy(-10);
+      } else if (event.key.toLowerCase() === 'l') {
+        event.preventDefault();
+        seekPlayerBy(10);
       } else if (event.key.toLowerCase() === 'm') {
         event.preventDefault();
         togglePlayerMute();
       } else if (event.key.toLowerCase() === 'f') {
         event.preventDefault();
         void togglePlayerFullscreen();
-      } else if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        seekPlayerBy(direction === 'rtl' ? 10 : -10);
-      } else if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        seekPlayerBy(direction === 'rtl' ? -10 : 10);
       } else if (event.key === 'Escape') {
         setPlayerSettingsOpen(false);
       }
@@ -700,7 +805,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         playerControlsHideTimerRef.current = window.setTimeout(() => {
           setPlayerControlsVisible(false);
           playerControlsHideTimerRef.current = null;
-        }, 2600);
+        }, 3000);
       }
     };
 
@@ -882,6 +987,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     let cancelled = false;
     startupTriedUrlsRef.current.add(playbackUrl);
+    setPlayerLoadingState(true, language === 'ar' ? 'جارٍ فتح مصدر الفيديو…' : 'Opening playback source…');
+    armPlayerLoadTimeout();
 
     const resetMediaElement = () => {
       video.pause();
@@ -898,6 +1005,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       // relies on early range requests; metadata-only preload leaves the browser with
       // too little media buffered and produces the 00:00 -> seek -> recovery pattern.
       video.preload = 'auto';
+      setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
+      armPlayerLoadTimeout();
       video.src = playbackUrl;
       video.load();
     };
@@ -930,6 +1039,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             startLevel: -1,
           });
           playbackEngineRef.current = hls;
+          hls.on(Hls.Events.FRAG_LOADING, () => {
+            if (!cancelled) {
+              setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل جزء من الفيديو…' : 'Loading video segment…');
+              armPlayerLoadTimeout();
+            }
+          });
+          hls.on(Hls.Events.FRAG_BUFFERED, () => {
+            if (!cancelled) {
+              clearPlayerLoadTimeout();
+              setPlayerLoadingState(false);
+            }
+          });
           hls.on(Hls.Events.ERROR, (_event, data) => {
             if (!data.fatal || cancelled) return;
             setPlaybackError(
@@ -937,6 +1058,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 ? 'تعذر تهيئة بث HLS من المصدر الحالي.'
                 : 'The current HLS source could not be initialized.',
             );
+            clearPlayerLoadTimeout();
+            setPlayerLoadingState(false);
             hls.destroy();
             playbackEngineRef.current = null;
           });
@@ -997,7 +1120,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       }
       startupRecoveryStageRef.current = 'idle';
     };
-  }, [playbackUrl, playbackSource?.type, language]);
+  }, [playbackUrl, playbackSource?.type, language, playerReloadKey]);
 
   useEffect(() => {
     if (isEmbedPlayback) {
@@ -1068,17 +1191,44 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       syncDuration();
       syncTime();
       syncBuffered();
+      const restore = reloadRestoreRef.current;
+      if (restore && Number.isFinite(video.duration) && video.duration > 0) {
+        try {
+          video.currentTime = Math.min(restore.time, Math.max(0, video.duration - 0.25));
+        } catch {
+          // Some providers reject a seek until enough data is available.
+        }
+      }
     };
     const onPlaying = () => {
+      clearPlayerLoadTimeout();
+      setPlayerLoadingState(false);
       setPlayerPlaying(true);
       setPlayerReady(true);
       setPlaybackError(null);
       syncTime();
       syncBuffered();
+      reloadRestoreRef.current = null;
     };
     const onPause = () => setPlayerPlaying(false);
+    const onLoadStart = () => {
+      setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
+      armPlayerLoadTimeout();
+    };
+    const onSeeking = () => {
+      setPlayerLoadingState(true, language === 'ar' ? 'جارٍ الانتقال إلى الموضع…' : 'Seeking…');
+      armPlayerLoadTimeout();
+      syncTime();
+    };
+    const onSeeked = () => {
+      clearPlayerLoadTimeout();
+      setPlayerLoadingState(false);
+      syncTime();
+    };
     const onWaiting = () => {
       if (!playbackStartedRef.current) setPlaybackError(null);
+      setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Buffering…');
+      armPlayerLoadTimeout();
       syncTime();
       syncBuffered();
     };
@@ -1087,17 +1237,42 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       setPlayerMuted(video.muted);
     };
     const events: Array<[string, EventListener]> = [
+      ['loadstart', onLoadStart],
       ['loadedmetadata', onMetadata],
       ['durationchange', syncDuration],
       ['loadeddata', () => { setPlayerReady(true); syncTime(); syncBuffered(); }],
-      ['canplay', () => { setPlayerReady(true); syncDuration(); syncBuffered(); }],
-      ['canplaythrough', () => { setPlayerReady(true); syncDuration(); syncBuffered(); }],
+      ['canplay', () => {
+        clearPlayerLoadTimeout();
+        setPlayerLoadingState(false);
+        setPlayerReady(true);
+        syncDuration();
+        syncBuffered();
+        const restore = reloadRestoreRef.current;
+        if (restore) {
+          const shouldPlay = restore.wasPlaying;
+          reloadRestoreRef.current = null;
+          if (shouldPlay) void video.play().catch(() => undefined);
+        }
+      }],
+      ['canplaythrough', () => {
+        clearPlayerLoadTimeout();
+        setPlayerLoadingState(false);
+        setPlayerReady(true);
+        syncDuration();
+        syncBuffered();
+      }],
       ['timeupdate', syncTime],
       ['progress', syncBuffered],
       ['playing', onPlaying],
       ['pause', onPause],
       ['waiting', onWaiting],
       ['stalled', onWaiting],
+      ['seeking', onSeeking],
+      ['seeked', onSeeked],
+      ['error', () => {
+        clearPlayerLoadTimeout();
+        setPlayerLoadingState(false);
+      }],
       ['volumechange', onVolume],
       ['ended', () => setPlayerPlaying(false)],
     ];
@@ -1108,33 +1283,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     };
   }, [playbackUrl, playbackSource?.type, isEmbedPlayback]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!videoRef.current || !playerShellRef.current) return;
-      const target = event.target as HTMLElement | null;
-      if (target && ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(target.tagName)) return;
-
-      if (event.code === 'Space') {
-        event.preventDefault();
-        togglePlayerPlayback();
-      } else if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        seekPlayerBy(-10);
-      } else if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        seekPlayerBy(10);
-      } else if (event.key.toLowerCase() === 'm') {
-        event.preventDefault();
-        togglePlayerMute();
-      } else if (event.key.toLowerCase() === 'f') {
-        event.preventDefault();
-        void togglePlayerFullscreen();
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  });
 
   if (loading) {
     return (
@@ -1315,6 +1463,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </div>
         )}
 
+        {resolverLoading && (
+          <div className="movyza-source-wait" role="status" aria-live="polite">
+            <Loader2 className="h-4 w-4 animate-spin text-amber-300" />
+            <span>
+              {language === 'ar'
+                ? 'انتظر قليلاً، الموقع يحاول جلب مصدر للفيديو لك…'
+                : 'Please wait a moment while the site fetches a video source…'}
+            </span>
+          </div>
+        )}
+
         <div className="movyza-player-shell overflow-hidden shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
             <div
@@ -1351,7 +1510,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
               {isEmbedPlayback ? (
                 <iframe
-                  key={playbackUrl}
+                  key={`${playbackUrl}-${playerReloadKey}`}
                   src={playbackUrl}
                   title={displayTitle || 'Movyz player'}
                   className="absolute inset-0 h-full w-full border-0 bg-black"
@@ -1369,6 +1528,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 disablePictureInPicture={false}
                 onLoadStart={() => {
                   playbackStartedRef.current = false;
+                  setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
+                  armPlayerLoadTimeout();
                   startupRecoveryStageRef.current = 'idle';
                   if (startupRecoveryTimerRef.current !== null) {
                     window.clearTimeout(startupRecoveryTimerRef.current);
@@ -1393,6 +1554,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   }
                   setPlayerReady(true);
                   if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
+
+                  const reloadRestore = reloadRestoreRef.current;
+                  if (reloadRestore && Number.isFinite(video.duration) && video.duration > 0) {
+                    try {
+                      video.currentTime = Math.min(reloadRestore.time, Math.max(0, video.duration - 0.25));
+                    } catch {}
+                  }
 
                   const resumeTime = qualityResumeTimeRef.current;
                   if (resumeTime !== null && Number.isFinite(video.duration) && video.duration > 0) {
@@ -1457,6 +1625,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   const video = videoRef.current;
                   if (!video) return;
 
+                  clearPlayerLoadTimeout();
+                  setPlayerLoadingState(false);
+
                   if (startupGuardTimerRef.current !== null) {
                     window.clearTimeout(startupGuardTimerRef.current);
                     startupGuardTimerRef.current = null;
@@ -1474,6 +1645,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
                 }}
                 onWaiting={() => {
+                  setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Buffering…');
+                  armPlayerLoadTimeout();
                   if (!playbackStartedRef.current) {
                     setPlaybackError(null);
                     const video = videoRef.current;
@@ -1483,6 +1656,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   }
                 }}
                 onStalled={() => {
+                  setPlayerLoadingState(true, language === 'ar' ? 'الاتصال بالمصدر بطيء…' : 'The source is responding slowly…');
+                  armPlayerLoadTimeout();
                   if (!playbackStartedRef.current) {
                     setPlaybackError(null);
                     const video = videoRef.current;
@@ -1491,17 +1666,34 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     }
                   }
                 }}
+                onSeeking={() => {
+                  setPlayerLoadingState(true, language === 'ar' ? 'جارٍ الانتقال…' : 'Seeking…');
+                  armPlayerLoadTimeout();
+                }}
+                onSeeked={() => {
+                  clearPlayerLoadTimeout();
+                  setPlayerLoadingState(false);
+                }}
                 onClick={() => {
                   togglePlayerPlayback();
                 }}
-                onDoubleClick={() => {
-                  void togglePlayerFullscreen();
+                onPointerUp={handlePlayerDoubleTap}
+                onDoubleClick={(event) => {
+                  const target = event.target as HTMLElement | null;
+                  if (target?.closest('button,input,select')) return;
+                  const rect = playerShellRef.current?.getBoundingClientRect();
+                  if (!rect) return;
+                  seekPlayerBy(event.clientX - rect.left < rect.width / 2 ? -10 : 10);
                 }}
                 onPlaying={() => {
+                  clearPlayerLoadTimeout();
+                  setPlayerLoadingState(false);
                   playbackStartedRef.current = true;
                   setPlaybackError(null);
                 }}
                 onError={() => {
+                  clearPlayerLoadTimeout();
+                  setPlayerLoadingState(false);
                   playbackStartedRef.current = false;
                   if (!playbackUrl) return;
 
@@ -1525,9 +1717,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               </video>
  
               
-              {!isEmbedPlayback && !playbackError && !playerReady ? (
-                <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center">
-                  <div className="h-10 w-10 rounded-full border-2 border-white/15 border-t-amber-400 animate-spin" />
+              {!isEmbedPlayback && playerLoading ? (
+                <div className="movyza-player-loading pointer-events-none absolute inset-0 z-25 flex items-center justify-center" aria-live="polite">
+                  <div className="movyza-player-loading-card">
+                    <div className="movyza-player-spinner" />
+                    <span>{playerLoadingMessage}</span>
+                  </div>
+                </div>
+              ) : null}
+
+              {seekFeedback ? (
+                <div className={"movyza-seek-feedback " + (seekFeedback.delta < 0 ? 'is-left' : 'is-right')} key={seekFeedback.id}>
+                  <span>{seekFeedback.delta < 0 ? '−10' : '+10'}</span>
                 </div>
               ) : null}
 
@@ -1536,10 +1737,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               >
                 <div className={'movyza-player-controls pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent pt-16 pb-3 px-3 sm:px-4 ' + (playerControlsVisible ? 'is-visible' : 'is-hidden')}>
                   <div className="flex flex-col gap-2">
-                    <div className="relative">
+                    <div className="movyza-progress-track relative">
                       <div
-                        className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-white/15 pointer-events-none"
+                        className="movyza-progress-buffered"
                         style={{ width: playerDuration > 0 ? `${Math.min(100, Math.max(0, playerBufferedEnd / playerDuration * 100))}%` : '0%' }}
+                      />
+                      <div
+                        className="movyza-progress-played"
+                        style={{ width: playerDuration > 0 ? `${Math.min(100, Math.max(0, playerCurrentTime / playerDuration * 100))}%` : '0%' }}
                       />
                       <input
                         aria-label={language === 'ar' ? 'موضع الفيديو' : 'Video position'}
@@ -1549,10 +1754,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                         step="0.1"
                         value={Math.min(playerCurrentTime, Math.max(playerDuration, 0))}
                         onChange={(event) => setPlayerProgress(Number(event.target.value))}
+                        dir="ltr"
                         className="movyza-player-seek relative z-10 w-full accent-amber-400 cursor-pointer"
                       />
                     </div>
-                    <div className="flex items-center gap-2 text-white">
+                    <div className="movyza-player-control-row flex items-center gap-2 text-white flex-wrap">
                       <button
                         type="button"
                         onClick={togglePlayerPlayback}
@@ -1593,13 +1799,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                         step="0.01"
                         value={playerMuted ? 0 : playerVolume}
                         onChange={(event) => setPlayerVolumeLevel(Number(event.target.value))}
-                        className="hidden sm:block w-20 accent-amber-400 cursor-pointer"
+                        className="movyza-volume-slider hidden sm:block w-20 accent-amber-400 cursor-pointer"
                       />
-                      <span className="min-w-20 text-[11px] font-mono text-white/75 tabular-nums">
+                      <span className="movyza-player-time min-w-20 text-[11px] font-mono text-white/75 tabular-nums">
                         {formatPlayerTime(playerCurrentTime)} / {formatPlayerTime(playerDuration)}
                       </span>
                       <div className="flex-1" />
-                      <label className="flex items-center gap-1.5 text-[11px] text-white/80">
+                      <label className="movyza-player-speed flex items-center gap-1.5 text-[11px] text-white/80">
                         <span className="hidden sm:inline">{language === 'ar' ? 'السرعة' : 'Speed'}</span>
                         <select
                           aria-label={language === 'ar' ? 'سرعة التشغيل' : 'Playback speed'}
@@ -1617,6 +1823,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                           ))}
                         </select>
                       </label>
+                      <button
+                        type="button"
+                        onClick={reloadPlayer}
+                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        aria-label={language === 'ar' ? 'إعادة تحميل الفيديو' : 'Reload video'}
+                        title={language === 'ar' ? 'إعادة تحميل الفيديو' : 'Reload video'}
+                      >
+                        <RefreshCw size={17} className={playerLoading ? 'animate-spin' : ''} />
+                      </button>
+
                       {document.pictureInPictureEnabled && typeof videoRef.current?.requestPictureInPicture === 'function' ? (
                         <button
                           type="button"
