@@ -385,21 +385,32 @@ async function findCandidate(
       // Akwam's currently verified route is /search?q=... . Some revisions
       // return 404 when section/page query parameters are appended, so probe the
       // canonical route first and apply our own movie/series scoring client-side.
-      const urls = [
-        host + "/search?q=" + encodeURIComponent(title),
-        host + "/search?q=" + encodeURIComponent(title) +
-          "&section=" + encodeURIComponent(section) + "&page=1",
-      ];
+      // Akwam.ss current site contract:
+      //   search      = /search?q=<title>
+      //   movie       = /movie/<id>/<slug>
+      //   download    = /download/...
+      //   playback    = /watch/...
+      // The canonical search route is the fast path. Only fall back to the
+      // legacy section/page form when the canonical request itself fails.
+      const canonicalUrl = host + "/search?q=" + encodeURIComponent(title);
+      const html = await fetchText(env, canonicalUrl, diagnostics, undefined, budget);
 
-      for (const url of urls) {
-        const html = await fetchText(env, url, diagnostics, undefined, budget);
-        if (!html) continue;
-
+      if (html) {
         for (const item of parseCandidates(html, env)) {
           const itemScore = score(item, titles, year, expected, expectedSeason);
           if (!best || itemScore > best.score) best = { item, score: itemScore };
         }
+        if (best && best.score >= 128) return best.item;
+      } else {
+        const legacySearchUrl = host + "/search?q=" + encodeURIComponent(title) +
+          "&section=" + encodeURIComponent(section) + "&page=1";
+        const legacyHtml = await fetchText(env, legacySearchUrl, diagnostics, undefined, budget);
+        if (!legacyHtml) continue;
 
+        for (const item of parseCandidates(legacyHtml, env)) {
+          const itemScore = score(item, titles, year, expected, expectedSeason);
+          if (!best || itemScore > best.score) best = { item, score: itemScore };
+        }
         if (best && best.score >= 128) return best.item;
       }
     }
