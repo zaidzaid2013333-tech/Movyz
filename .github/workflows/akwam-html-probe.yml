@@ -54,6 +54,15 @@ jobs:
                   print(m.group(0))
           PY
 
+          echo '=== legacy Akwam frontend script resolver scan ==='
+          for js in             'https://akwam.ss/old/scripts/site/js/custom.js'             'https://akwam.ss/old/scripts/site/js/newcustom.js'; do
+            name=$(basename "$js")
+            curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: application/javascript,text/javascript,*/*;q=0.8' "$js" -o "/tmp/$name" || true
+            echo "--- $js ---"
+            wc -c "/tmp/$name" || true
+            grep -Ein 'location\.hash|hash[[:space:]]*=|\.hash|old/download|download_btn|download_button|direct_link|hash_data|location_link|ajax|\.post\(|\.get\(' "/tmp/$name" | head -220 || true
+          done
+
           echo '=== legacy Free Solo download probe ==='
           old_download='https://akwam.ss/old/download/d25b122d795c/Free-Solo-2018-Ar-HD720p-akoam-net-mkv'
           echo '--- headers / redirect ---'
