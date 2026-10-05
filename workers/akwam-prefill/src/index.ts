@@ -485,7 +485,8 @@ function isLikelyNavigationUrl(url: string) {
     const parsed = new URL(url);
     if (!AKWAM_HOSTS.has(parsed.hostname.toLowerCase())) return false;
     const path = parsed.pathname.toLowerCase();
-    return /^\/(?:download|link|watch|episode|show\/episode|movie|series)\//i.test(path);
+    return /^\/(?:download|link|watch|episode|show\/episode|movie|series)\//i.test(path) ||
+      /^\/old\/(?:download|link|watch|episode)\//i.test(path);
   } catch {
     return false;
   }
@@ -696,9 +697,9 @@ function targetResolutionScore(raw: string) {
   try {
     const path = new URL(raw).pathname.toLowerCase();
     if (/(?:\.m3u8|\.mp4|\.mpd|\.webm)(?:\?|$)/i.test(path)) return 260;
-    if (/^\/(?:download|link)\//i.test(path)) return 220;
-    if (/^\/watch\//i.test(path)) return 170;
-    if (/^\/(?:episode|show\/episode)\//i.test(path)) return 150;
+    if (/^\/(?:download|link)\//i.test(path) || /^\/old\/(?:download|link)\//i.test(path)) return 220;
+    if (/^\/watch\//i.test(path) || /^\/old\/watch\//i.test(path)) return 170;
+    if (/^\/(?:episode|show\/episode)\//i.test(path) || /^\/old\/episode\//i.test(path)) return 150;
     return 10;
   } catch {
     return 0;
@@ -730,7 +731,7 @@ function extractTargets(html: string, baseUrl: string) {
       const observed = new URL(decodeHtml(href), baseUrl);
       if (!isAkwamUrl(observed.href)) return;
 
-      if (/^\/download\//i.test(observed.pathname)) {
+      if (/^\/(?:download)\//i.test(observed.pathname) || /^\/old\/download\//i.test(observed.pathname)) {
         add(observed.href, 155);
         return;
       }
@@ -916,6 +917,26 @@ async function resolveTarget(
 ): Promise<Media | null> {
   const direct = mediaFromUrl(target, referer);
   if (!isLikelyNavigationUrl(target) && await validateMedia(env, direct, budget)) return direct;
+
+  if (/^https:\/\/akwam\.ss\/old\/download\//i.test(target)) {
+    try {
+      consumeRequest(budget);
+      const redirected = await fetch(target, {
+        headers: {
+          ...headers(env),
+          Accept: "text/html,*/*;q=0.8",
+          ...(referer ? { Referer: referer } : {}),
+        },
+        redirect: "manual",
+        signal: AbortSignal.timeout(5000),
+      });
+      const location = redirected.headers.get("location");
+      if (location) {
+        const media = mediaFromUrl(new URL(location, target).href, target);
+        if (!isLikelyNavigationUrl(media.url) && await validateMedia(env, media, budget)) return media;
+      }
+    } catch {}
+  }
 
   const html = await fetchText(env, target, undefined, referer, budget);
   if (!html) return null;
