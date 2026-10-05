@@ -1,5 +1,6 @@
 // Akwam prep: staged discovery + exact episode-to-watch resolution.
 // Prefill diagnostic: keep movie search/source resolution bounded and observable.
+// Interstellar regression-proven extraction path is authoritative for movies.
 type ExecutionContextLike = {
   waitUntil(promise: Promise<unknown>): void;
 };
