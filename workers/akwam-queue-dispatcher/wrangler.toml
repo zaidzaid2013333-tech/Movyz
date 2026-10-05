@@ -1,0 +1,13 @@
+name = "movyz-akwam-queue-dispatcher"
+main = "src/index.ts"
+compatibility_date = "2026-10-04"
+
+[vars]
+DISPATCH_FANOUT = "24"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[queues.producers]]
+binding = "FILL_QUEUE"
+queue = "movyz-akwam-fill"
