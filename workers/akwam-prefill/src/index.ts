@@ -42,6 +42,10 @@ type RequestBudget = {
   max: number;
 };
 
+type AkwamSession = {
+  cookies: Map<string, string>;
+};
+
 function consumeRequest(budget?: RequestBudget) {
   if (!budget) return;
   budget.used += 1;
@@ -76,6 +80,27 @@ function headers(env: Env) {
   };
 }
 
+function sessionCookieHeader(session?: AkwamSession) {
+  if (!session?.cookies.size) return "";
+  return Array.from(session.cookies.entries())
+    .map(([name, value]) => name + "=" + value)
+    .join("; ");
+}
+
+function absorbSetCookie(session: AkwamSession | undefined, response: Response) {
+  if (!session) return;
+  const raw = response.headers.get("set-cookie") || "";
+  if (!raw) return;
+
+  const re = /(?:^|,\s*)([^=;,\s]+)=([^;,]*)(?:;|$)/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(raw))) {
+    const name = match[1]?.trim();
+    if (!name) continue;
+    session.cookies.set(name, match[2] ?? "");
+  }
+}
+
 async function sb(env: Env, path: string, init: RequestInit = {}) {
   const response = await fetch(env.SUPABASE_URL.replace(/\/+$/, "") + path, {
     ...init,
@@ -99,17 +124,27 @@ async function claim(env: Env, workerId: string): Promise<Job | null> {
   return Array.isArray(rows) && rows[0] ? (rows[0] as Job) : null;
 }
 
-async function fetchText(env: Env, url: string, diagnostics?: string[], referer?: string, budget?: RequestBudget): Promise<string | null> {
+async function fetchText(
+  env: Env,
+  url: string,
+  diagnostics?: string[],
+  referer?: string,
+  budget?: RequestBudget,
+  session?: AkwamSession,
+): Promise<string | null> {
   try {
     consumeRequest(budget);
+    const cookie = sessionCookieHeader(session);
     const response = await fetch(url, {
       headers: {
         ...headers(env),
         ...(referer ? { Referer: referer } : {}),
+        ...(cookie ? { Cookie: cookie } : {}),
       },
       redirect: "follow",
       signal: AbortSignal.timeout(7000),
     });
+    absorbSetCookie(session, response);
     if (!response.ok) {
       diagnostics?.push(new URL(url).hostname + ":" + response.status);
       return null;
