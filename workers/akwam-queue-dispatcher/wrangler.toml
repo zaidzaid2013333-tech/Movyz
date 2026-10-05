@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2026-10-04"
 
 [vars]
-DISPATCH_FANOUT = "24"
+DISPATCH_FANOUT = "32"
 
 [triggers]
 crons = ["* * * * *"]
