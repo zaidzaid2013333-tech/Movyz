@@ -1,5 +1,7 @@
 name: Deploy Movyz API Worker
 
+# Deployment trigger kept explicit so broker changes can be released from main.
+
 on:
   push:
     branches: ["main"]
