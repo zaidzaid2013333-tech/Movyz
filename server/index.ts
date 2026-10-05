@@ -30,11 +30,14 @@ async function getFreshPlaybackSourcesForContent(
   _env?: Record<string, unknown>,
 ) {
   try {
-    const { data, error } = await adminSupabase
+    const sourceFields =
+      'id,provider_id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,provider_reference';
+
+    // Prefer the richer provider relation, but never let a stale PostgREST
+    // relation/schema cache make valid persisted sources disappear.
+    let { data, error } = await adminSupabase
       .from('playback_sources')
-      .select(
-        'id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,provider_reference,providers(id,key,name,enabled)',
-      )
+      .select(sourceFields + ',providers(id,key,name,enabled)')
       .eq('content_type', contentType)
       .eq('content_id', contentId)
       .eq('is_working', true)
@@ -42,8 +45,53 @@ async function getFreshPlaybackSourcesForContent(
       .order('last_checked_at', { ascending: false });
 
     if (error) {
-      console.warn(`[playback-cache:${MOVYZ_PLAYBACK_CONTRACT}] source lookup failed:`, error.message);
-      return [];
+      console.warn(
+        `[playback-cache:${MOVYZ_PLAYBACK_CONTRACT}] relational source lookup failed; retrying flat query:`,
+        error.message,
+      );
+
+      const flat = await adminSupabase
+        .from('playback_sources')
+        .select(sourceFields)
+        .eq('content_type', contentType)
+        .eq('content_id', contentId)
+        .eq('is_working', true)
+        .order('quality', { ascending: false })
+        .order('last_checked_at', { ascending: false });
+
+      data = flat.data;
+      error = flat.error;
+
+      if (error) {
+        console.warn(
+          `[playback-cache:${MOVYZ_PLAYBACK_CONTRACT}] flat source lookup failed:`,
+          error.message,
+        );
+        return [];
+      }
+    }
+
+    // Resolve provider metadata independently only when the relation was not
+    // available. This keeps playback DB-only and prevents relation-cache issues
+    // from becoming a "no source" player error.
+    const providerIds = Array.from(
+      new Set((data || []).map((row: any) => String(row.provider_id || '')).filter(Boolean)),
+    );
+    const providerMap = new Map<string, any>();
+
+    if (providerIds.length && (data || []).some((row: any) => !row.providers)) {
+      const { data: providers, error: providerError } = await adminSupabase
+        .from('providers')
+        .select('id,key,name,enabled')
+        .in('id', providerIds);
+
+      if (!providerError) {
+        for (const provider of providers || []) {
+          providerMap.set(String(provider.id), provider);
+        }
+      } else {
+        console.warn('[playback-cache] provider metadata lookup failed:', providerError.message);
+      }
     }
 
     const now = Date.now();
@@ -55,23 +103,42 @@ async function getFreshPlaybackSourcesForContent(
         return Number.isFinite(expires) && expires > now;
       })
       .map((row: any) => {
-        const provider = row.providers || {};
+        const relationProvider = Array.isArray(row.providers)
+          ? row.providers[0]
+          : row.providers;
+        const provider = relationProvider || providerMap.get(String(row.provider_id || '')) || {};
+        const providerKey = String(
+          provider.key ||
+          row.provider_reference ||
+          (String(row.provider_id || '') === 'd54c5f13-2b99-4b81-9e0f-3d333250f1e3' ? 'akwam' : ''),
+        ).trim().toLowerCase();
+        const providerName = String(
+          provider.name ||
+          (providerKey === 'akwam' ? 'Akwam' : '') ||
+          row.label_ar ||
+          row.label_en ||
+          'Source',
+        );
+
         return {
           id: String(row.id),
           type: String(row.source_type || 'direct').toLowerCase(),
           quality: normalizePlaybackQuality(row.quality),
           language: String(row.language || 'und'),
-          label: String(row.label_ar || row.label_en || provider.name || provider.key || 'Akwam'),
-          labelEn: String(row.label_en || row.label_ar || provider.name || provider.key || 'Akwam'),
+          label: String(row.label_ar || row.label_en || providerName),
+          labelEn: String(row.label_en || row.label_ar || providerName),
           url: String(row.url || ''),
           isWorking: true,
-          provider: String(provider.name || provider.key || 'Akwam'),
-          providerKey: String(provider.key || ''),
-          providerReference: String(row.provider_reference || provider.key || ''),
+          provider: providerName,
+          providerKey,
+          providerReference: String(row.provider_reference || providerKey || ''),
           expiresAt: row.expires_at || null,
         };
       })
-      .filter((source: any) => /^https:\/\//i.test(source.url));
+      .filter((source: any) =>
+        /^https:\/\//i.test(source.url) &&
+        ['mp4', 'hls', 'dash', 'webm', 'direct', 'embed'].includes(String(source.type || '').toLowerCase()),
+      );
   } catch (error) {
     console.warn(
       '[playback-cache]',
