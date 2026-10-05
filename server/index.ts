@@ -256,55 +256,6 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     });
   };
 
-  const primeUpstream = async (upstream: Response, timeoutMs = 6000) => {
-    if (req.method === 'HEAD' || !upstream.body) return { response: upstream, body: null as ReadableStream<Uint8Array> | null };
-
-    const reader = upstream.body.getReader();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const first = await Promise.race([
-        reader.read(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('PLAYBACK_STREAM_START_TIMEOUT')), timeoutMs);
-        }),
-      ]);
-
-      if (timer) clearTimeout(timer);
-      if (first.done || !first.value?.byteLength) {
-        await reader.cancel();
-        throw new Error('PLAYBACK_STREAM_EMPTY');
-      }
-
-      const firstChunk = first.value;
-      const body = new ReadableStream<Uint8Array>({
-        async start(controller) {
-          controller.enqueue(firstChunk);
-          try {
-            while (true) {
-              const next = await reader.read();
-              if (next.done) break;
-              if (next.value?.byteLength) controller.enqueue(next.value);
-            }
-            controller.close();
-          } catch (error) {
-            controller.error(error);
-          } finally {
-            reader.releaseLock();
-          }
-        },
-        cancel(reason) {
-          return reader.cancel(reason);
-        },
-      });
-
-      return { response: upstream, body };
-    } catch (error) {
-      if (timer) clearTimeout(timer);
-      try { await reader.cancel(); } catch {}
-      throw error;
-    }
-  };
-
   const isBadUpstream = (upstream: Response) => {
     const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
     return [304, 401, 403, 404, 410, 416, 429].includes(upstream.status) ||
@@ -337,8 +288,10 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
           const candidateResponse = await fetchUpstream(candidateUrl);
           if (isBadUpstream(candidateResponse)) continue;
 
-          const primed = await primeUpstream(candidateResponse);
-          return { source: candidate, upstream: primed.response, body: primed.body };
+          // Do not wait for the first media bytes here. Once Akwam accepts the
+          // ranged request and returns a media response, stream that body to the
+          // browser immediately. Waiting here added an artificial startup stall.
+          return { source: candidate, upstream: candidateResponse, body: candidateResponse.body };
         } catch (error) {
           console.warn(
             '[playback-stream-candidate]',
