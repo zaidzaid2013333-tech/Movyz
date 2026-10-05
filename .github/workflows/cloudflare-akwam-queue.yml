@@ -99,7 +99,7 @@ jobs:
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues/$queue_id/messages" \
-            --data '{"body":{"kind":"smoke","contentType":"movie","fanout":24}}'
+            --data '{"body":{"kind":"smoke","contentType":"movie","fanout":1}}'
           echo "Queue smoke message accepted by Cloudflare."
 
 
