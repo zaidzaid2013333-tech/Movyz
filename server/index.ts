@@ -11,11 +11,9 @@ const api = '/api/v1';
 
 app.disable('x-powered-by');
 
-// Playback backend: cache-first Playback Broker with persisted-source fallback.
-// User playback requests read validated persisted rows from Supabase and never
-// trigger live provider discovery or any external source resolver.
+// Playback backend: cache-first, live Akwam resolution. No playback URLs are
+// persisted in Supabase; only short-lived edge/memory cache entries are used.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
-const MOVYZ_PLAYBACK_CONTRACT = 'broker-v1';
 
 function normalizePlaybackQuality(value: unknown) {
   const raw = String(value ?? '').trim();
@@ -25,140 +23,9 @@ function normalizePlaybackQuality(value: unknown) {
   return match?.[1] ? `${match[1]}p` : raw;
 }
 
-async function getFreshPlaybackSourcesForContent(
-  contentType: 'movie' | 'episode',
-  contentId: string,
-  _env?: Record<string, unknown>,
-) {
-  try {
-    const sourceFields =
-      'id,provider_id,source_type,url,quality,language,label_ar,label_en,expires_at,is_working,provider_reference';
-
-    // Prefer the richer provider relation, but never let a stale PostgREST
-    // relation/schema cache make valid persisted sources disappear.
-    let data: any[] | null = null;
-    let error: any = null;
-
-    const relational = await adminSupabase
-      .from('playback_sources')
-      .select(sourceFields + ',providers(id,key,name,enabled)')
-      .eq('content_type', contentType)
-      .eq('content_id', contentId)
-      .eq('is_working', true)
-      .order('quality', { ascending: false })
-      .order('last_checked_at', { ascending: false });
-
-    data = relational.data as any[] | null;
-    error = relational.error;
-
-    if (error) {
-      console.warn(
-        `[playback-cache:${MOVYZ_PLAYBACK_CONTRACT}] relational source lookup failed; retrying flat query:`,
-        error.message,
-      );
-
-      const flat = await adminSupabase
-        .from('playback_sources')
-        .select(sourceFields)
-        .eq('content_type', contentType)
-        .eq('content_id', contentId)
-        .eq('is_working', true)
-        .order('quality', { ascending: false })
-        .order('last_checked_at', { ascending: false });
-
-      data = flat.data;
-      error = flat.error;
-
-      if (error) {
-        console.warn(
-          `[playback-cache:${MOVYZ_PLAYBACK_CONTRACT}] flat source lookup failed:`,
-          error.message,
-        );
-        return [];
-      }
-    }
-
-    // Resolve provider metadata independently only when the relation was not
-    // available. This keeps playback DB-only and prevents relation-cache issues
-    // from becoming a "no source" player error.
-    const providerIds = Array.from(
-      new Set((data || []).map((row: any) => String(row.provider_id || '')).filter(Boolean)),
-    );
-    const providerMap = new Map<string, any>();
-
-    if (providerIds.length && (data || []).some((row: any) => !row.providers)) {
-      const { data: providers, error: providerError } = await adminSupabase
-        .from('providers')
-        .select('id,key,name,enabled')
-        .in('id', providerIds);
-
-      if (!providerError) {
-        for (const provider of providers || []) {
-          providerMap.set(String(provider.id), provider);
-        }
-      } else {
-        console.warn('[playback-cache] provider metadata lookup failed:', providerError.message);
-      }
-    }
-
-    const now = Date.now();
-
-    return (data || [])
-      .filter((row: any) => {
-        if (!row.expires_at) return true;
-        const expires = new Date(row.expires_at).getTime();
-        return Number.isFinite(expires) && expires > now;
-      })
-      .map((row: any) => {
-        const relationProvider = Array.isArray(row.providers)
-          ? row.providers[0]
-          : row.providers;
-        const provider = relationProvider || providerMap.get(String(row.provider_id || '')) || {};
-        const providerKey = String(
-          provider.key ||
-          row.provider_reference ||
-          (String(row.provider_id || '') === 'd54c5f13-2b99-4b81-9e0f-3d333250f1e3' ? 'akwam' : ''),
-        ).trim().toLowerCase();
-        const providerName = String(
-          provider.name ||
-          (providerKey === 'akwam' ? 'Akwam' : '') ||
-          row.label_ar ||
-          row.label_en ||
-          'Source',
-        );
-
-        return {
-          id: String(row.id),
-          type: String(row.source_type || 'direct').toLowerCase(),
-          quality: normalizePlaybackQuality(row.quality),
-          language: String(row.language || 'und'),
-          label: String(row.label_ar || row.label_en || providerName),
-          labelEn: String(row.label_en || row.label_ar || providerName),
-          url: String(row.url || ''),
-          isWorking: true,
-          provider: providerName,
-          providerKey,
-          providerReference: String(row.provider_reference || providerKey || ''),
-          expiresAt: row.expires_at || null,
-        };
-      })
-      .filter((source: any) =>
-        /^https:\/\//i.test(source.url) &&
-        ['mp4', 'hls', 'dash', 'webm', 'direct', 'embed'].includes(String(source.type || '').toLowerCase()),
-      );
-  } catch (error) {
-    console.warn(
-      '[playback-cache]',
-      error instanceof Error ? error.message : String(error),
-    );
-    return [];
-  }
-}
-
-
-// Playback Broker: cache-first, DB fallback, then on-demand Akwam resolution.
+// Playback Broker: cache-first, live Akwam resolution.
 // Playback URLs are never persisted by this path. The edge cache is short-lived
-// so the same title can be reused immediately without creating a 120k-row archive.
+// so the same title can be reused immediately without creating a source archive.
 type BrokerSource = {
   id: string;
   type: string;
@@ -281,33 +148,12 @@ async function resolvePlaybackBroker(
   contentId: string,
   seasonNumber?: number,
   episodeNumber?: number,
-): Promise<{ sources: BrokerSource[]; mode: 'edge-cache' | 'persisted' | 'live' }> {
+): Promise<{ sources: BrokerSource[]; mode: 'edge-cache' | 'live' }> {
   const key = brokerCacheKey(contentType, contentId);
 
   const cached = await edgeBrokerRead(key);
   if (cached?.length) {
     return { sources: cached, mode: 'edge-cache' };
-  }
-
-  const persisted = await getFreshPlaybackSourcesForContent(contentType, contentId, req.env);
-  if (persisted.length) {
-    const sources = persisted.map((source: any) => ({
-      id: String(source.id),
-      type: String(source.type || 'direct').toLowerCase(),
-      quality: normalizePlaybackQuality(source.quality),
-      language: String(source.language || 'und'),
-      label: String(source.label || source.provider || 'Source'),
-      labelEn: String(source.labelEn || source.label || source.provider || 'Source'),
-      url: String(source.url || ''),
-      directUrl: String(source.url || ''),
-      isWorking: source.isWorking !== false,
-      provider: String(source.provider || 'Source'),
-      providerKey: String(source.providerKey || source.providerReference || 'source'),
-      providerReference: String(source.providerReference || source.providerKey || 'source'),
-      expiresAt: source.expiresAt || null,
-    } as BrokerSource));
-    await edgeBrokerWrite(key, sources);
-    return { sources, mode: 'persisted' };
   }
 
   const existing = playbackBrokerInflight.get(key);
@@ -402,35 +248,6 @@ app.get(`${api}/playback/prepare`, asyncRoute(async (req, res) => {
       'A playable source is not available right now',
     );
   }
-}));
-
-app.get(`${api}/playback/origins`, asyncRoute(async (_req, res) => {
-  const { data, error } = await adminSupabase
-    .from('playback_sources')
-    .select('url')
-    .eq('is_working', true)
-    .not('url', 'is', null)
-    .limit(5000);
-
-  if (error) return fail(res, 500, 'PLAYBACK_ORIGINS_QUERY_FAILED', 'Unable to load playback origins');
-
-  const origins = Array.from(new Set(
-    (data || [])
-      .map((row: any) => String(row.url || '').trim())
-      .map((url) => {
-        try {
-          const parsed = new URL(url);
-          if (parsed.protocol !== 'https:') return '';
-          return parsed.origin;
-        } catch {
-          return '';
-        }
-      })
-      .filter(Boolean),
-  )).sort();
-
-  res.setHeader('cache-control', 'public, max-age=300, stale-while-revalidate=600');
-  return ok(res, origins);
 }));
 
 app.use(async (req: HttpRequest, res: HttpResponse, next: NextFunction) => {
@@ -555,18 +372,11 @@ async function batchSeriesGenres(ids: string[]) {
   return map;
 }
 
-async function movieDto(row: any, includePlaybackSources = false, requestUrl?: string, env?: Record<string, unknown>) {
-  const playbackPromise = includePlaybackSources
-    ? getFreshPlaybackSourcesForContent('movie', row.id, env).catch((error) => {
-        console.warn('[movie-playback-cache]', error instanceof Error ? error.message : String(error));
-        return [];
-      })
-    : Promise.resolve([]);
+async function movieDto(row: any) {
 
-  const [genres, cast, playbackSources] = await Promise.all([
+  const [genres, cast] = await Promise.all([
     adminSupabase.from('movie_genres').select('genres(id,name_ar,name_en,slug)').eq('movie_id', row.id),
     adminSupabase.from('movie_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('movie_id', row.id).order('cast_order'),
-    playbackPromise,
   ]);
   return {
     id: row.id, tmdbId: Number(row.tmdb_id || 0), type: 'movie',
@@ -586,7 +396,7 @@ async function movieDto(row: any, includePlaybackSources = false, requestUrl?: s
       character: x.character_ar || '', characterEn: x.character_en || '',
       avatarUrl: x.people.avatar_url || '',
     })),
-    sources: playbackSources,
+    sources: [],
     isFeatured: !!row.featured, isTrending: !!row.trending, isPopular: !!row.popular,
     addedAt: row.created_at, ageRating: row.age_rating || '',
   } as any;
@@ -663,20 +473,7 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
     .from('episodes').select('*').eq('season_id', season.id).order('episode_number');
   if (episodesError) throw new Error('Unable to load season episodes: ' + episodesError.message);
 
-  const playbackByEpisode = new Map<string, any[]>();
-  const currentEpisode = (episodes || []).find((episode: any) => Number(episode.episode_number) === episodeNumber);
-
-  if (currentEpisode?.id) {
-    try {
-      const prepared = await getFreshPlaybackSourcesForContent('episode', String(currentEpisode.id), env);
-      playbackByEpisode.set(String(currentEpisode.id), prepared);
-    } catch (playbackError) {
-      console.warn(
-        '[series-watch-playback-cache]',
-        playbackError instanceof Error ? playbackError.message : String(playbackError),
-      );
-    }
-  }
+  // Playback is resolved exclusively by the live Broker for the selected episode.
 
   const seasonDto = {
     id: season.id, seriesId: row.id, seasonNumber: season.season_number,
@@ -692,7 +489,7 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
       overview: e.overview_ar || '', overviewEn: e.overview_en || e.overview_ar || '',
       stillUrl: e.still_url || '', duration: Number(e.runtime_minutes || 0),
       airDate: e.air_date || '',
-      sources: playbackByEpisode.get(String(e.id)) || [],
+      sources: [],
     })),
   };
 
@@ -847,7 +644,7 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
   }
 
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
-  const movie = await movieDto(data, true, req.url, req.env || {});
+  const movie = await movieDto(data);
     req.waitUntil?.(
       resolvePlaybackBroker(req, 'movie', String(data.id)).catch((error) => {
         console.warn('[playback-broker-prewarm:movie]', error instanceof Error ? error.message : String(error));
@@ -859,7 +656,7 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
 app.get(`${api}/movies/:id`, asyncRoute(async (req, res) => {
   const { data, error } = await adminSupabase.from('movies').select('*').eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
-  const movie = await movieDto(data, true, req.url, req.env || {});
+  const movie = await movieDto(data);
     req.waitUntil?.(
       resolvePlaybackBroker(req, 'movie', String(data.id)).catch((error) => {
         console.warn('[playback-broker-prewarm:movie]', error instanceof Error ? error.message : String(error));
@@ -904,7 +701,7 @@ app.get(`${api}/series/tmdb/:tmdbId/watch/:season/:episode`, asyncRoute(async (r
     .eq('tmdb_id', tmdbId).eq('status', 'published').maybeSingle();
   if (error) return fail(res, 500, 'SERIES_QUERY_FAILED', 'Unable to load series');
   if (!data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
-  const series = await seriesWatchDto(data, seasonNumber, episodeNumber, req.url, req.env || {});
+  const series = await seriesWatchDto(data, seasonNumber, episodeNumber);
   if (!series) return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
   if (!series.seasons[0].episodes.some((item: any) => item.episodeNumber === episodeNumber)) {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
@@ -923,7 +720,7 @@ app.get(`${api}/series/:id/watch/:season/:episode`, asyncRoute(async (req, res) 
     .eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error) return fail(res, 500, 'SERIES_QUERY_FAILED', 'Unable to load series');
   if (!data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
-  const series = await seriesWatchDto(data, seasonNumber, episodeNumber, req.url, req.env || {});
+  const series = await seriesWatchDto(data, seasonNumber, episodeNumber);
   if (!series) return fail(res, 404, 'SEASON_NOT_FOUND', 'Season not found');
   if (!series.seasons[0].episodes.some((item: any) => item.episodeNumber === episodeNumber)) {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
@@ -1085,7 +882,7 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
       contentType,
       id,
       tmdbId: Number(data.tmdb_id || 0),
-      content: await movieDto(data, true, req.url, req.env || {}),
+      content: await movieDto(data),
     });
   }
 
@@ -1098,12 +895,6 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
   if (error || !episode || !series || series.status !== 'published') {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
   }
-
-  const playbackSources = await getFreshPlaybackSourcesForContent('episode', String(episode.id), req.env || {})
-    .catch((sourceError) => {
-      console.warn('[episode-playback-cache]', sourceError instanceof Error ? sourceError.message : String(sourceError));
-      return [];
-    });
 
   return ok(res, {
     contentType,
