@@ -37,7 +37,7 @@ jobs:
         id: app_version
         shell: bash
         run: |
-          APP_SHA="$(git log -1 --format=%H -- server worker.ts src index.html package.json vite.config.ts)"
+          APP_SHA="$(git log -1 --format=%H -- server worker.ts workers src index.html package.json vite.config.ts)"
           test -n "$APP_SHA"
           echo "sha=$APP_SHA" >> "$GITHUB_OUTPUT"
           echo "Application build SHA: $APP_SHA"
