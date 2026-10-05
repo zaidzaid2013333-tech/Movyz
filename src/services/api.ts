@@ -110,6 +110,8 @@ export const MovyzaApi = {
       cast: { name: string; nameEn: string; worksCount: number; avatarUrl: string }[];
     }>(`/search?q=${encodeURIComponent(search)}`, {}, { skipAuth: true }),
 
+  getPlaybackOrigins: () => request<string[]>('/playback/origins', {}, { skipAuth: true }),
+
   getGenres: () => request<Genre[]>('/genres'),
 
   getWatchlist: () => request<WatchlistItem[]>('/watchlist'),
