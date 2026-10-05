@@ -272,6 +272,24 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       Math.max(video.duration - 15, 1),
     );
 
+    const getBufferedAhead = () => {
+      if (!video.buffered.length) return 0;
+      for (let index = 0; index < video.buffered.length; index += 1) {
+        const startTime = video.buffered.start(index);
+        const endTime = video.buffered.end(index);
+        if (video.currentTime >= startTime && video.currentTime <= endTime) {
+          return Math.max(0, endTime - video.currentTime);
+        }
+      }
+      return 0;
+    };
+
+    const cleanup = () => {
+      video.removeEventListener('canplay', maybeFinish);
+      video.removeEventListener('progress', maybeFinish);
+      video.removeEventListener('loadeddata', maybeFinish);
+    };
+
     const finish = () => {
       if (startupRecoveryTimerRef.current !== null) {
         window.clearTimeout(startupRecoveryTimerRef.current);
@@ -279,7 +297,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       }
       if (startupRecoveryStageRef.current !== 'recovering') return;
 
-      video.removeEventListener('canplay', finish);
+      cleanup();
       try {
         video.currentTime = originalTime;
       } catch {
@@ -289,19 +307,33 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       void video.play().catch(() => undefined);
     };
 
-    video.addEventListener('canplay', finish, { once: true });
+    const maybeFinish = () => {
+      if (startupRecoveryStageRef.current !== 'recovering') return;
+
+      // Require a materially larger buffer before returning to 00:00 so normal
+      // playback does not immediately enter another short startup stall.
+      const requiredAhead = Math.min(12, Math.max(3, video.duration - targetTime - 1));
+      if (getBufferedAhead() < requiredAhead) return;
+
+      finish();
+    };
+
+    video.addEventListener('canplay', maybeFinish);
+    video.addEventListener('progress', maybeFinish);
+    video.addEventListener('loadeddata', maybeFinish);
+
     startupRecoveryTimerRef.current = window.setTimeout(() => {
-      video.removeEventListener('canplay', finish);
+      cleanup();
       startupRecoveryTimerRef.current = null;
       if (startupRecoveryStageRef.current === 'recovering') {
         startupRecoveryStageRef.current = 'idle';
       }
-    }, 12000);
+    }, 15000);
 
     try {
       video.currentTime = targetTime;
     } catch {
-      video.removeEventListener('canplay', finish);
+      cleanup();
       if (startupRecoveryTimerRef.current !== null) {
         window.clearTimeout(startupRecoveryTimerRef.current);
         startupRecoveryTimerRef.current = null;
