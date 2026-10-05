@@ -32,6 +32,15 @@ jobs:
           echo '=== relevant href/src/data attrs ==='
           grep -Eio "(href|src|data-src|data-url|data-href|data-file|data-video)=[\"'][^\"']+[\"']" /tmp/watch.html | grep -Ei 'watch|download|link|m3u8|mp4|stream|player' | head -200 || true
 
+          echo '=== legacy Free Solo page probe ==='
+          curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: text/html'             'https://akwam.ss/old/155349/%D8%A7%D9%84%D9%81%D9%8A%D9%84%D9%85-%D8%A7%D9%84%D9%88%D8%AB%D8%A7%D8%A6%D9%82%D9%8A-Free-Solo-2018-%D9%85%D8%AF%D8%A8%D9%84%D8%AC-HD' -o /tmp/free-solo-old.html
+          echo '=== legacy page bytes ==='
+          wc -c /tmp/free-solo-old.html
+          echo '=== legacy media/download candidates ==='
+          grep -Eio 'https?://[^"'"'"'<> ]+|href=["'"'"'][^"'"'"']+["'"'"']|src=["'"'"'][^"'"'"']+["'"'"']|download[^< ]*|mp4|m3u8|1080|720|480' /tmp/free-solo-old.html | head -300 || true
+          echo '=== legacy scripts around download ==='
+          grep -Ein 'download|تحميل|video|file|source|player|stream|mp4|m3u8|downet' /tmp/free-solo-old.html | head -300 || true
+
           echo '=== movie search probe: Free Solo ==='
           curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: text/html'             'https://akwam.ss/search?q=Free%20Solo' -o /tmp/movie-search.html
           echo '=== Free Solo search status/bytes ==='
