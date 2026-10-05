@@ -1293,6 +1293,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   const isEpisode = job.content_type === "episode";
   const season = ctx.seasonNumber || job.season_number || 1;
   const episode = ctx.episodeNumber || job.episode_number || 1;
+  const session: AkwamSession = { cookies: new Map() };
 
   let candidate: Candidate | null = null;
   let episodeTarget: string | null = null;
@@ -1301,18 +1302,18 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   if (isEpisode) {
     // Prefer an exact episode search so large/paginated series pages do not hide
     // valid episodes from the resolver.
-    episodeTarget = await findEpisodeTargetBySearch(env, ctx.titles, season, episode, budget);
+    episodeTarget = await findEpisodeTargetBySearch(env, ctx.titles, season, episode, budget, session);
     if (episodeTarget) {
-      const episodeHtml = await fetchText(env, episodeTarget, undefined, base(env), budget);
+      const episodeHtml = await fetchText(env, episodeTarget, undefined, base(env), budget, session);
       if (episodeHtml) targets = extractTargets(episodeHtml, episodeTarget);
     }
 
     // Fallback to the series page and accept both current and legacy episode links.
     if (!targets.length) {
-      candidate = await findCandidate(env, ctx.titles, ctx.year, "series", season, budget);
+      candidate = await findCandidate(env, ctx.titles, ctx.year, "series", season, budget, session);
       if (!candidate) throw new Error("AKWAM_NOT_FOUND");
 
-      const detail = await fetchText(env, candidate.url, undefined, undefined, budget);
+      const detail = await fetchText(env, candidate.url, undefined, undefined, budget, session);
       if (!detail) throw new Error("AKWAM_DETAIL_FETCH_FAILED");
 
       const exactEpisode = extractEpisodeTarget(detail, candidate.url, season, episode);
@@ -1328,7 +1329,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
       }
 
       episodeTarget = exactEpisode;
-      const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget);
+      const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget, session);
       if (!episodeHtml) throw new Error("AKWAM_EPISODE_FETCH_FAILED");
       targets = extractTargets(episodeHtml, exactEpisode);
       if (!targets.length) {
@@ -1336,7 +1337,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
       }
     }
   } else {
-    candidate = await findCandidate(env, ctx.titles, ctx.year, "movie", undefined, budget);
+    candidate = await findCandidate(env, ctx.titles, ctx.year, "movie", undefined, budget, session);
     if (!candidate) throw new Error("AKWAM_NOT_FOUND");
 
     const detail = await fetchText(env, candidate.url, undefined, undefined, budget);
@@ -1349,7 +1350,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
 
   // Same bounded resolution order that produced the working Interstellar sources.
   for (const target of targets.slice(0, 8)) {
-    const media = await resolveTarget(env, target, sourceReferer, budget);
+    const media = await resolveTarget(env, target, sourceReferer, budget, session);
     if (!media) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);
     if (medias.length >= 3) break;
