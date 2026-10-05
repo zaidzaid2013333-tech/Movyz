@@ -266,82 +266,61 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     }
 
     startupRecoveryStageRef.current = 'recovering';
-    const originalTime = Math.max(0, video.currentTime);
-    const targetTime = Math.min(
-      Math.max(originalTime + 120, 120),
-      Math.max(video.duration - 15, 1),
-    );
+    const originalTime = Math.max(0, Math.min(video.currentTime, 2));
+    const targetTime = Math.min(120, Math.max(1, video.duration - 5));
 
-    const getBufferedAhead = () => {
-      if (!video.buffered.length) return 0;
-      for (let index = 0; index < video.buffered.length; index += 1) {
-        const startTime = video.buffered.start(index);
-        const endTime = video.buffered.end(index);
-        if (video.currentTime >= startTime && video.currentTime <= endTime) {
-          return Math.max(0, endTime - video.currentTime);
-        }
-      }
-      return 0;
-    };
+    if (targetTime <= originalTime + 5) {
+      startupRecoveryStageRef.current = 'idle';
+      return;
+    }
 
-    const cleanup = () => {
-      video.removeEventListener('canplay', maybeFinish);
-      video.removeEventListener('progress', maybeFinish);
-      video.removeEventListener('loadeddata', maybeFinish);
-    };
+    let finished = false;
 
-    const finish = () => {
+    function cleanup() {
+      video.removeEventListener('seeked', finish);
+      video.removeEventListener('timeupdate', maybeFinish);
       if (startupRecoveryTimerRef.current !== null) {
         window.clearTimeout(startupRecoveryTimerRef.current);
         startupRecoveryTimerRef.current = null;
       }
-      if (startupRecoveryStageRef.current !== 'recovering') return;
+    }
 
+    function finish() {
+      if (finished || startupRecoveryStageRef.current !== 'recovering') return;
+      finished = true;
       cleanup();
+
       try {
+        // Force a fresh range near 02:00, then immediately return to the real start.
         video.currentTime = originalTime;
       } catch {
-        // Some providers reject an immediate seek while the media element is switching ranges.
+        // Ignore providers that reject the second seek during an active range switch.
       }
+
       startupRecoveryStageRef.current = 'done';
-      void video.play().catch(() => undefined);
-    };
+      window.setTimeout(() => {
+        const currentVideo = videoRef.current;
+        if (currentVideo) void currentVideo.play().catch(() => undefined);
+      }, 0);
+    }
 
-    const maybeFinish = () => {
-      if (startupRecoveryStageRef.current !== 'recovering') return;
+    function maybeFinish() {
+      if (finished || startupRecoveryStageRef.current !== 'recovering') return;
+      if (video.currentTime >= Math.max(targetTime - 3, 1)) finish();
+    }
 
-      // Require a materially larger buffer before returning to 00:00 so normal
-      // playback does not immediately enter another short startup stall.
-      const requiredAhead = Math.min(12, Math.max(3, video.duration - targetTime - 1));
-      if (getBufferedAhead() < requiredAhead) return;
+    video.addEventListener('seeked', finish);
+    video.addEventListener('timeupdate', maybeFinish);
 
-      finish();
-    };
-
-    video.addEventListener('canplay', maybeFinish);
-    video.addEventListener('progress', maybeFinish);
-    video.addEventListener('loadeddata', maybeFinish);
-
-    startupRecoveryTimerRef.current = window.setTimeout(() => {
-      cleanup();
-      startupRecoveryTimerRef.current = null;
-      if (startupRecoveryStageRef.current === 'recovering') {
-        startupRecoveryStageRef.current = 'idle';
-      }
-    }, 15000);
+    // Never leave playback parked at 02:00 when the CDN is slow to emit seek events.
+    startupRecoveryTimerRef.current = window.setTimeout(finish, 700);
 
     try {
       video.currentTime = targetTime;
     } catch {
-      cleanup();
-      if (startupRecoveryTimerRef.current !== null) {
-        window.clearTimeout(startupRecoveryTimerRef.current);
-        startupRecoveryTimerRef.current = null;
-      }
-      startupRecoveryStageRef.current = 'idle';
+      finish();
     }
   };
-
   useEffect(() => {
     let mounted = true;
 
@@ -1472,17 +1451,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     }
                   }
 
-                  // Once the browser reports enough data at any position, finish any
-                  // startup recovery and leave the player back at the user's position.
-                  if (startupRecoveryStageRef.current === 'recovering' && video.currentTime >= 60) {
-                    const finishTime = Math.max(0, video.currentTime);
-                    if (startupRecoveryTimerRef.current !== null) {
-                      window.clearTimeout(startupRecoveryTimerRef.current);
-                      startupRecoveryTimerRef.current = null;
-                    }
-                    startupRecoveryStageRef.current = 'done';
-                    video.currentTime = Math.min(finishTime, Math.max(0, video.duration - 0.5));
-                  }
                 }}
                 onWaiting={() => {
                   if (!playbackStartedRef.current) {
