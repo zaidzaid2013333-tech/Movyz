@@ -1056,8 +1056,13 @@ async function resolveTarget(
   // Interstellar reference path:
   // target (/download or /link-promoted download) -> btn-loader -> final CDN URL.
   const buttonMedia = extractDownloadButtonMedia(html, target);
-  if (buttonMedia && await validateMedia(env, buttonMedia, budget)) {
-    return buttonMedia;
+  if (buttonMedia) {
+    // Akwam's btn-loader is the authoritative hand-off to its video host.
+    // Cloudflare Workers may be unable to probe that external host because of
+    // TLS/range/anti-bot behavior, while the browser can still consume the
+    // short-lived URL. Trust an HTTPS external hand-off from Akwam directly.
+    if (!isAkwamUrl(buttonMedia.url)) return buttonMedia;
+    if (await validateMedia(env, buttonMedia, budget)) return buttonMedia;
   }
 
   const media = extractMedia(html, target);
