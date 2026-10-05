@@ -375,46 +375,9 @@ async function findCandidate(
       ].filter(Boolean))).slice(0, 4);
 
   for (const host of hosts) {
-    // Akwam.ss currently exposes a reliable legacy search route at
-    // /old/search/<query>; the newer /search?q=... route is returning 404s
-    // to our Worker requests. Use the verified route first, then fall back
-    // to the newer routes for titles that only exist in the current catalog.
-    if (host === base(env)) {
-      const legacyVariants = variants.slice(0, expected === "movie" ? 3 : 4);
-      for (const title of legacyVariants) {
-        const html = await fetchText(
-          env,
-          host + "/old/search/" + encodeURIComponent(title),
-          diagnostics,
-          undefined,
-          budget,
-        );
-        if (!html) continue;
-
-        for (const item of parseCandidates(html, env, true)) {
-          const itemScore = score(item, titles, year, expected, expectedSeason);
-          if (!best || itemScore > best.score) best = { item, score: itemScore };
-        }
-        if (best && best.score >= 128) return best.item;
-      }
-    }
-
-    for (const title of variants) {
-      const canonicalUrl = host + "/search?q=" + encodeURIComponent(title);
-      const html = await fetchText(env, canonicalUrl, diagnostics, undefined, budget);
-
-      if (html) {
-        for (const item of parseCandidates(html, env)) {
-          const itemScore = score(item, titles, year, expected, expectedSeason);
-          if (!best || itemScore > best.score) best = { item, score: itemScore };
-        }
-        if (best && best.score >= 128) return best.item;
-      }
-    }
-
-    // Bounded current-catalog fallbacks. Keep these after the verified legacy
-    // route and canonical route so a 404 on /search does not burn the request
-    // budget before we try the route known to work today.
+    // Prefer the live catalog routes first. The legacy /old/search endpoint
+    // contains stale/ambiguous archive entries and can return a wrong movie
+    // for modern titles; use it only after current-catalog probes fail.
     const fallbackRoutes =
       expected === "movie"
         ? [
@@ -439,6 +402,43 @@ async function findCandidate(
         if (!best || itemScore > best.score) best = { item, score: itemScore };
       }
       if (best && best.score >= 128) return best.item;
+    }
+
+    // The newer /search?q= route is also attempted, but direct Worker requests
+    // may receive 404/challenge responses on the current Akwam deployment.
+    for (const title of variants) {
+      const canonicalUrl = host + "/search?q=" + encodeURIComponent(title);
+      const html = await fetchText(env, canonicalUrl, diagnostics, undefined, budget);
+
+      if (!html) continue;
+
+      for (const item of parseCandidates(html, env)) {
+        const itemScore = score(item, titles, year, expected, expectedSeason);
+        if (!best || itemScore > best.score) best = { item, score: itemScore };
+      }
+      if (best && best.score >= 128) return best.item;
+    }
+
+    // Last resort: legacy archive search. Keep it bounded and only on the
+    // verified Akwam host; semantic guards still reject mismatched content.
+    if (host === base(env)) {
+      const legacyVariants = variants.slice(0, expected === "movie" ? 3 : 4);
+      for (const title of legacyVariants) {
+        const html = await fetchText(
+          env,
+          host + "/old/search/" + encodeURIComponent(title),
+          diagnostics,
+          undefined,
+          budget,
+        );
+        if (!html) continue;
+
+        for (const item of parseCandidates(html, env, true)) {
+          const itemScore = score(item, titles, year, expected, expectedSeason);
+          if (!best || itemScore > best.score) best = { item, score: itemScore };
+        }
+        if (best && best.score >= 128) return best.item;
+      }
     }
   }
 
@@ -1015,7 +1015,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
     const ep = ctx.episodeNumber || job.episode_number || 1;
     const season = ctx.seasonNumber || job.season_number || 1;
 
-    if (!/^\/series\//i.test(new URL(candidate.url).pathname)) {
+    if (!/^\/(?:series|shows?)\//i.test(new URL(candidate.url).pathname)) {
       throw new Error("AKWAM_SERIES_CANDIDATE_INVALID candidate=" + candidate.url);
     }
 
