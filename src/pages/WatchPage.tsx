@@ -846,64 +846,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const markPlaybackSourceFailed = () => {
   };
 
+  // Keep startup non-invasive. The Akwam Edge Relay now supports byte ranges,
+  // so an artificial seek to 02:00 followed by a seek-back only adds a second
+  // buffering cycle and can leave some mobile browsers parked at 00:00.
   const runStartupWarmup = (video: HTMLVideoElement, url: string) => {
-    const key = `${url}::${playbackSource?.type || 'native'}`;
-    if (startupWarmupDoneRef.current.has(key)) return;
-    if (!Number.isFinite(video.duration) || video.duration < 125) return;
-    if (video.currentTime > 1) return;
-    if (qualityResumeTimeRef.current !== null && qualityResumeTimeRef.current > 1) return;
-
-    const targetTime = Math.min(120, Math.max(0, video.duration - 2));
-    if (targetTime <= 1) return;
-
-    startupWarmupDoneRef.current.add(key);
-    const originalTime = Math.max(0, video.currentTime);
-    const wasPlaying = !video.paused && !video.ended;
-    let restored = false;
-
-    const cleanup = () => {
-      video.removeEventListener('seeked', onSeeked);
-      video.removeEventListener('error', restore);
-      if (startupWarmupTimerRef.current !== null) {
-        window.clearTimeout(startupWarmupTimerRef.current);
-        startupWarmupTimerRef.current = null;
-      }
-    };
-
-    const restore = () => {
-      if (restored) return;
-      restored = true;
-      cleanup();
-
-      const active = videoRef.current;
-      if (!active || playbackUrl !== url) return;
-
-      try {
-        active.currentTime = originalTime;
-        if (!wasPlaying) active.pause();
-      } catch {
-        // Ignore sources that reject the immediate seek-back.
-      }
-    };
-
-    const onSeeked = () => {
-      if (startupWarmupTimerRef.current !== null) {
-        window.clearTimeout(startupWarmupTimerRef.current);
-      }
-      startupWarmupTimerRef.current = window.setTimeout(restore, 900);
-    };
-
-    video.addEventListener('seeked', onSeeked, { once: true });
-    video.addEventListener('error', restore, { once: true });
-
-    startupWarmupTimerRef.current = window.setTimeout(restore, 1800);
-
-    try {
-      video.currentTime = targetTime;
-      if (wasPlaying) void video.play().catch(() => undefined);
-    } catch {
-      restore();
-    }
+    if (playbackUrl !== url) return;
+    video.preload = 'auto';
   };
 
   const handleSelectPlaybackSource = (source: PlaybackSource) => {
@@ -1054,10 +1002,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       if (startupGuardTimerRef.current !== null) {
         window.clearTimeout(startupGuardTimerRef.current);
         startupGuardTimerRef.current = null;
-      }
-      if (startupWarmupTimerRef.current !== null) {
-        window.clearTimeout(startupWarmupTimerRef.current);
-        startupWarmupTimerRef.current = null;
       }
       playbackEngineRef.current?.destroy?.();
       playbackEngineRef.current = null;
