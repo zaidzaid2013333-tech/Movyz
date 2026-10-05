@@ -6,7 +6,9 @@ on:
     paths-ignore:
       - "supabase/**"
       - ".github/workflows/**"
-      - "workers/akwam-queue-*"
+      - "workers/akwam-queue-job/**"
+      - "workers/akwam-queue-consumer/**"
+      - "workers/akwam-queue-dispatcher/**"
   workflow_dispatch:
 
 permissions:
