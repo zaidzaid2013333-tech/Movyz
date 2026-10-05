@@ -290,11 +290,11 @@ async function syncPeople(
 async function findExisting(table: 'movies' | 'series', tmdbId: number) {
   const { data, error } = await adminSupabase
     .from(table)
-    .select('id,status')
+    .select('id,status,metadata')
     .eq('tmdb_id', tmdbId)
     .maybeSingle();
   if (error) throw new Error(`Failed to inspect existing ${table} row: ${error.message}`);
-  return data as { id: string; status: 'draft' | 'published' | 'archived' } | null;
+  return data as { id: string; status: 'draft' | 'published' | 'archived'; metadata?: Record<string, unknown> | null } | null;
 }
 
 async function syncMovie(arMovie: any, enMovie: any) {
@@ -326,7 +326,7 @@ async function syncMovie(arMovie: any, enMovie: any) {
     status: existing?.status || 'draft',
     popular: true,
     metadata: {
-      ...(existing ? {} : {}),
+      ...(existing?.metadata || {}),
       director_en: (detail.credits?.crew || []).find((x: any) => x.job === 'Director')?.name || '',
       tmdb_popularity: enMovie.popularity || arMovie.popularity || 0,
     },
@@ -433,6 +433,7 @@ async function syncSeries(arSeries: any, enSeries: any) {
     status: existing?.status || 'draft',
     popular: true,
     metadata: {
+      ...(existing?.metadata || {}),
       creator_en: (detailEn.created_by || []).map((x: any) => x.name).join(', '),
       creator_ar: (detailAr.created_by || []).map((x: any) => x.name).join(', '),
       tmdb_popularity: enSeries.popularity || arSeries.popularity || 0,
