@@ -842,7 +842,8 @@ async function findEpisodeTargetBySearch(
     if (best && best.score >= 430) return best.url;
   }
 
-  return best && best.score >= 250 ? best.url : null;
+  if (!best) return null;
+  return best.score >= 250 ? best.url : null;
 }
  
 function targetResolutionScore(raw: string) {
