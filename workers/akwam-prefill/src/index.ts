@@ -672,7 +672,7 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
     // Reject any explicit SxxEyy declaration that conflicts with the requested
     // episode before scoring by episode number. Without this guard, S11E01 could
     // win for an S01E01 request because the episode number matches.
-    const explicitPair = hay.match(/\\bs0*(\\d{1,3})[^a-z0-9]{0,8}e0*(\\d{1,3})\\b/i);
+    const explicitPair = hay.match(/\\bs0*(\\d{1,3})[^a-z0-9]{0,8}(?:e|ep)0*(\\d{1,3})\\b/i);
     if (explicitPair) {
       const declaredPairSeason = Number(explicitPair[1]);
       const declaredPairEpisode = Number(explicitPair[2]);
