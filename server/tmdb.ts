@@ -604,6 +604,51 @@ export async function syncEpisodesForSeries(seriesLimit?: number) {
   }
 }
 
+
+export async function runFreshTmdbSync(options: { pages?: number } = {}) {
+  const pages = Math.min(Math.max(options.pages || 2, 1), 3);
+  const job = await startJob('fresh-catalog', pages);
+  if (!job) throw new Error('Unable to start fresh TMDB sync');
+  const counts: Counts = { movies: 0, series: 0, seasons: 0, episodes: 0, pages };
+  try {
+    await assertDatabaseReady();
+    await updateJob(job.id, { stage: 'fresh-movies' });
+    await syncGenres();
+    for (let page = 1; page <= pages; page++) {
+      const [ar, en] = await Promise.all([
+        tmdbGet<any>('/movie/now_playing', { language: 'ar-SA', page, region: 'US' }),
+        tmdbGet<any>('/movie/now_playing', { language: 'en-US', page, region: 'US' }),
+      ]);
+      const enById = new Map<number, any>((en.results || []).map((x: any) => [x.id, x]));
+      for (const arMovie of ar.results || []) {
+        await syncMovie(arMovie, enById.get(arMovie.id) || arMovie);
+        counts.movies++;
+        await throttle();
+      }
+    }
+    await updateJob(job.id, { stage: 'fresh-series' });
+    for (let page = 1; page <= pages; page++) {
+      const [ar, en] = await Promise.all([
+        tmdbGet<any>('/tv/on_the_air', { language: 'ar-SA', page }),
+        tmdbGet<any>('/tv/on_the_air', { language: 'en-US', page }),
+      ]);
+      const enById = new Map<number, any>((en.results || []).map((x: any) => [x.id, x]));
+      for (const arSeries of ar.results || []) {
+        const result = await syncSeries(arSeries, enById.get(arSeries.id) || arSeries);
+        counts.series++;
+        counts.seasons += result.seasons;
+        counts.episodes += result.episodes;
+        await throttle();
+      }
+    }
+    await finishJob(job.id, 'succeeded', counts);
+    return { ...counts, total: counts.movies + counts.series };
+  } catch (error) {
+    await finishJob(job.id, 'failed', counts, error);
+    throw error;
+  }
+}
+
 export async function runTmdbSync(options: { pages?: number } = {}) {
   const pages = Math.min(Math.max(options.pages || 6, 1), MAX_PAGES);
   const job = await startJob('catalog', pages);
