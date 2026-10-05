@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   worker:
-    name: Akwam worker \${{ matrix.worker }}
+    name: Akwam worker ${{ matrix.worker }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
@@ -30,9 +30,9 @@ jobs:
         worker: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
 
     env:
-      SUPABASE_URL: \${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: \${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      MOVYZ_WORKER_ID: gha-akwam-\${{ github.run_id }}-\${{ matrix.worker }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MOVYZ_WORKER_ID: gha-akwam-${{ github.run_id }}-${{ matrix.worker }}
       AKWAM_WORK_MINUTES: "340"
       AKWAM_BATCH_SIZE: "100"
       AKWAM_CONCURRENCY: "3"
