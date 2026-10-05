@@ -8,8 +8,6 @@ on:
       - "workers/akwam-prefill/**"
       - "scripts/run-akwam-prefill.ts"
       - ".github/workflows/akwam-db-prefill-deploy.yml"
-  schedule:
-    - cron: "0 */4 * * *"
 
 permissions:
   contents: read
