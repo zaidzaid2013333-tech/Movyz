@@ -1,6 +1,7 @@
-// Production playback core: Movyz API -> persisted Supabase playback_sources -> Movyz player.
-// Akwam workers populate and validate playback_sources before the watch request.
-// TMDB/Supabase remain the catalog layer; playback is DB-only at runtime.
+// Production playback core: Movyz API -> cache-first Playback Broker -> Movyz player.
+// Supabase playback_sources remains a fast legacy/fallback cache; live Akwam
+// resolution is on-demand and never needs to populate the full catalog.
+// TMDB/Supabase remain the catalog layer.
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
 
