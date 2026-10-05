@@ -719,13 +719,12 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
   for (const link of links) {
     let rawPath = "";
     try { rawPath = decodeURIComponent(new URL(link.url).pathname); } catch { rawPath = link.url; }
-    if (/^\/old(?:\/|$)/i.test(rawPath)) continue;
 
     const hay = decodeUrlPath(decodeHtml(link.text + " " + rawPath));
     // Reject any explicit SxxEyy declaration that conflicts with the requested
     // episode before scoring by episode number. Without this guard, S11E01 could
     // win for an S01E01 request because the episode number matches.
-    const explicitPair = hay.match(/\\bs0*(\\d{1,3})[^a-z0-9]{0,8}(?:e|ep)0*(\\d{1,3})\\b/i);
+    const explicitPair = hay.match(/\bs0*(\d{1,3})[^a-z0-9]{0,8}(?:e|ep)0*(\d{1,3})\b/i);
     if (explicitPair) {
       const declaredPairSeason = Number(explicitPair[1]);
       const declaredPairEpisode = Number(explicitPair[2]);
@@ -761,9 +760,91 @@ function extractEpisodeTarget(html: string, baseUrl: string, season: number, epi
     }
   }
 
+
   return best?.url || null;
 }
 
+async function findEpisodeTargetBySearch(
+  env: Env,
+  titles: string[],
+  season: number,
+  episode: number,
+  budget?: RequestBudget,
+  session?: AkwamSession,
+) {
+  const host = base(env);
+  const seeds = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
+  const variants = Array.from(new Set([
+    ...seeds.map((title) => searchQueryVariant(title)).filter(Boolean),
+    ...(seeds[0] ? [
+      seeds[0] + " S" + String(season).padStart(2, "0") + "E" + String(episode).padStart(2, "0"),
+      seeds[0] + " season " + season + " episode " + episode,
+      seeds[0] + " الموسم " + season + " الحلقة " + episode,
+      seeds[0] + " الحلقة " + episode,
+    ] : []),
+  ].filter(Boolean))).slice(0, 7);
+
+  let best: { url: string; score: number } | null = null;
+
+  for (const variant of variants) {
+    const url = host + "/search?q=" + encodeURIComponent(variant) + "&page=1";
+    const html = await fetchText(env, url, undefined, undefined, budget, session);
+    if (!html) continue;
+
+    for (const link of extractPageLinks(html, host)) {
+      let rawPath = "";
+      try { rawPath = decodeURIComponent(new URL(link.url).pathname); } catch { rawPath = link.url; }
+
+      const hay = decodeUrlPath(decodeHtml(link.text + " " + rawPath));
+      const normalizedHay = normalize(hay);
+      if (!normalizedHay) continue;
+
+      const explicitPair = hay.match(/\bs0*(\d{1,3})[^a-z0-9]{0,8}(?:e|ep)0*(\d{1,3})\b/i);
+      if (explicitPair) {
+        if (Number(explicitPair[1]) !== season || Number(explicitPair[2]) !== episode) continue;
+      }
+
+      const declaredSeason = explicitSeason(hay);
+      if (declaredSeason !== undefined && declaredSeason !== season) continue;
+
+      const looksLikeEpisode =
+        /(?:حلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay) ||
+        /\/(?:episode|show\/episode|watch)\//i.test(rawPath);
+      if (!looksLikeEpisode) continue;
+
+      let titleRelevance = 0;
+      for (const title of titles) {
+        const normalizedTitle = normalize(title);
+        if (!normalizedTitle) continue;
+        if (normalizedHay.includes(normalizedTitle)) {
+          titleRelevance = Math.max(titleRelevance, 100);
+        } else {
+          titleRelevance = Math.max(titleRelevance, overlap(normalizedHay, normalizedTitle) * 100);
+        }
+      }
+      if (titleRelevance < 28) continue;
+
+      const exactPair = new RegExp("s0*" + season + "e0*" + episode + "(?![0-9])", "i").test(hay + " " + rawPath);
+      const exactEpisode =
+        new RegExp("(?:الحلقة|الحلقه|episode|ep(?:isode)?)[-_\\s]*(?:رقم[-_\\s]*)?0*" + episode + "(?![0-9.])", "i").test(hay) ||
+        new RegExp("(?:^|[^0-9.])0*" + episode + "(?:$|[^0-9.])", "i").test(rawPath);
+
+      let scoreValue = titleRelevance;
+      if (exactPair) scoreValue += 320;
+      else if (declaredSeason === season) scoreValue += 70;
+      if (exactEpisode) scoreValue += 180;
+      if (/\/episode\//i.test(rawPath)) scoreValue += 80;
+      if (/\/show\/episode\//i.test(rawPath)) scoreValue += 60;
+
+      if (!best || scoreValue > best.score) best = { url: link.url, score: scoreValue };
+    }
+
+    if (best && best.score >= 430) return best.url;
+  }
+
+  return best && best.score >= 250 ? best.url : null;
+}
+ 
 function targetResolutionScore(raw: string) {
   try {
     const path = new URL(raw).pathname.toLowerCase();
@@ -1015,7 +1096,7 @@ async function validateMedia(env: Env, media: Media, budget?: RequestBudget) {
 
 function extractSessionCookie(response: Response) {
   const raw = response.headers.get("set-cookie") || "";
-  const match = raw.match(/(?:^|,\\s*)(prefixakoam_session=[^;]+)/i);
+  const match = raw.match(/(?:^|,\s*)(prefixakoam_session=[^;]+)/i);
   return match?.[1] || "";
 }
 
@@ -1209,50 +1290,66 @@ async function getContext(env: Env, job: Job) {
 }
 
 async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
-  const expected = job.content_type === "episode" ? "series" : "movie";
-  const session: AkwamSession = { cookies: new Map() };
-  const candidate = await findCandidate(
-    env,
-    ctx.titles,
-    ctx.year,
-    expected,
-    job.content_type === "episode" ? (ctx.seasonNumber || job.season_number || 1) : undefined,
-    budget,
-    session,
-  );
-  if (!candidate) throw new Error("AKWAM_NOT_FOUND");
+  const isEpisode = job.content_type === "episode";
+  const season = ctx.seasonNumber || job.season_number || 1;
+  const episode = ctx.episodeNumber || job.episode_number || 1;
 
-  const detail = await fetchText(env, candidate.url, undefined, undefined, budget, session);
-  if (!detail) throw new Error("AKWAM_DETAIL_FETCH_FAILED");
-
+  let candidate: Candidate | null = null;
+  let episodeTarget: string | null = null;
   let targets: string[] = [];
-  if (job.content_type === "episode") {
-    const ep = ctx.episodeNumber || job.episode_number || 1;
-    const season = ctx.seasonNumber || job.season_number || 1;
 
-    if (!/^\/(?:series|shows?)\//i.test(new URL(candidate.url).pathname)) {
-      throw new Error("AKWAM_SERIES_CANDIDATE_INVALID candidate=" + candidate.url);
+  if (isEpisode) {
+    // Prefer an exact episode search so large/paginated series pages do not hide
+    // valid episodes from the resolver.
+    episodeTarget = await findEpisodeTargetBySearch(env, ctx.titles, season, episode, budget);
+    if (episodeTarget) {
+      const episodeHtml = await fetchText(env, episodeTarget, undefined, base(env), budget);
+      if (episodeHtml) targets = extractTargets(episodeHtml, episodeTarget);
     }
 
-    const exactEpisode = extractEpisodeTarget(detail, candidate.url, season, ep);
-    if (!exactEpisode) {
-      throw new Error("AKWAM_EPISODE_NOT_INDEXED candidate=" + candidate.url + " season=" + season + " episode=" + ep);
+    // Fallback to the series page and accept both current and legacy episode links.
+    if (!targets.length) {
+      candidate = await findCandidate(env, ctx.titles, ctx.year, "series", season, budget);
+      if (!candidate) throw new Error("AKWAM_NOT_FOUND");
+
+      const detail = await fetchText(env, candidate.url, undefined, undefined, budget);
+      if (!detail) throw new Error("AKWAM_DETAIL_FETCH_FAILED");
+
+      const exactEpisode = extractEpisodeTarget(detail, candidate.url, season, episode);
+      if (!exactEpisode) {
+        throw new Error(
+          "AKWAM_EPISODE_NOT_INDEXED candidate=" +
+          candidate.url +
+          " season=" +
+          season +
+          " episode=" +
+          episode,
+        );
+      }
+
+      episodeTarget = exactEpisode;
+      const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget);
+      if (!episodeHtml) throw new Error("AKWAM_EPISODE_FETCH_FAILED");
+      targets = extractTargets(episodeHtml, exactEpisode);
+      if (!targets.length) {
+        throw new Error("AKWAM_EPISODE_LINKS_EMPTY episode=" + new URL(exactEpisode).pathname);
+      }
     }
-
-    const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget, session);
-    if (!episodeHtml) throw new Error("AKWAM_EPISODE_FETCH_FAILED");
-
-    targets = extractTargets(episodeHtml, exactEpisode);
-    if (!targets.length) throw new Error("AKWAM_EPISODE_LINKS_EMPTY episode=" + new URL(exactEpisode).pathname);
   } else {
+    candidate = await findCandidate(env, ctx.titles, ctx.year, "movie", undefined, budget);
+    if (!candidate) throw new Error("AKWAM_NOT_FOUND");
+
+    const detail = await fetchText(env, candidate.url, undefined, undefined, budget);
+    if (!detail) throw new Error("AKWAM_DETAIL_FETCH_FAILED");
     targets = usefulResolutionTargets(extractTargets(detail, candidate.url), 10);
   }
 
   const medias: Media[] = [];
-  const sourceReferer = candidate.url;
+  const sourceReferer = episodeTarget || candidate?.url || base(env);
+
   // Same bounded resolution order that produced the working Interstellar sources.
-  for (const target of targets.slice(0, 6)) {
-    const media = await resolveTarget(env, target, sourceReferer, budget, session);
+  for (const target of targets.slice(0, 8)) {
+    const media = await resolveTarget(env, target, sourceReferer, budget);
     if (!media) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);
     if (medias.length >= 3) break;
@@ -1262,8 +1359,14 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
     const summary = targets.slice(0, 10).map((url) => {
       try { return new URL(url).pathname; } catch { return "invalid"; }
     }).join(",");
-    throw new Error("AKWAM_NO_PLAYABLE_SOURCE candidate=" + candidate.url + " targets=" + summary );
+    throw new Error(
+      "AKWAM_NO_PLAYABLE_SOURCE candidate=" +
+      (candidate?.url || episodeTarget || "search") +
+      " targets=" +
+      summary,
+    );
   }
+
   return medias;
 }
 
