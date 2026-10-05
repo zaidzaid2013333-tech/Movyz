@@ -330,14 +330,18 @@ async function findCandidate(
   let best: { item: Candidate; score: number } | null = null;
   const diagnostics: string[] = [];
   const seeds = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
-  const variants = Array.from(new Set([
-    ...seeds,
-    year && seeds[0] ? `${seeds[0]} ${year}` : "",
-    expectedSeason && seeds[0] ? `${seeds[0]} season ${expectedSeason}` : "",
-    expectedSeason && seeds[0] ? `${seeds[0]} الموسم ${expectedSeason}` : "",
-    expectedSeason && seeds[0] ? `${seeds[0]} S${String(expectedSeason).padStart(2, "0")}` : "",
-  ].filter(Boolean))).slice(0, 4);
-
+  const variants = expected === "movie"
+    ? Array.from(new Set([
+        seeds[0] || "",
+        year && seeds[0] ? seeds[0] + " " + year : "",
+      ].filter(Boolean))).slice(0, 2)
+    : Array.from(new Set([
+        ...seeds,
+        year && seeds[0] ? seeds[0] + " " + year : "",
+        expectedSeason && seeds[0] ? seeds[0] + " season " + expectedSeason : "",
+        expectedSeason && seeds[0] ? seeds[0] + " الموسم " + expectedSeason : "",
+        expectedSeason && seeds[0] ? seeds[0] + " S" + String(expectedSeason).padStart(2, "0") : "",
+      ].filter(Boolean))).slice(0, 4);
   for (const host of hosts) {
     for (const title of variants) {
       const section =
