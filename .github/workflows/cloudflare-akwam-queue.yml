@@ -108,5 +108,13 @@ jobs:
           npx --yes wrangler@4.140.0 queues info movyz-akwam-fill
           npx --yes wrangler@4.140.0 queues info movyz-akwam-fill-dlq
 
+      - name: Verify dispatcher cron trigger
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/movyz-akwam-queue-dispatcher/schedules" \
+            | jq .
+
       - if: always()
         run: rm -f .env.queue-job .env.queue-dispatcher
