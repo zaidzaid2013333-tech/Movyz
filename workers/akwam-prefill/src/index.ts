@@ -142,6 +142,26 @@ function searchQueryVariant(value: string) {
     .trim();
 }
 
+function movieSearchVariants(value: string) {
+  const raw = decodeHtml(value).trim();
+  const out = new Set<string>();
+  if (raw) out.add(raw);
+  const compact = raw
+    .replace(/\s*[:\-|]\s*(?:the\s+)?movie\b/gi, "")
+    .replace(/\s+(?:the\s+)?movie\b/gi, "")
+    .replace(/\s*[:\-|]\s*part\s+\d+\b/gi, "")
+    .replace(/\s+part\s+\d+\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (compact && compact !== raw) out.add(compact);
+  const beforeColon = raw.split(/\s*:\s*/)[0].trim();
+  if (beforeColon && beforeColon !== raw) out.add(beforeColon);
+  const normalized = searchQueryVariant(raw);
+  if (normalized) out.add(normalized);
+  const normalizedCompact = searchQueryVariant(compact);
+  if (normalizedCompact) out.add(normalizedCompact);
+  return Array.from(out).filter(Boolean).slice(0, 5);
+}
 function normalize(value: string) {
   return decodeHtml(value)
     .toLowerCase()
@@ -342,11 +362,10 @@ async function findCandidate(
   const seeds = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
   const variants = expected === "movie"
     ? Array.from(new Set([
-        ...seeds,
-        ...seeds.map(searchQueryVariant),
+        ...seeds.flatMap(movieSearchVariants),
         year && seeds[0] ? seeds[0] + " " + year : "",
         year && seeds[0] ? searchQueryVariant(seeds[0]) + " " + year : "",
-      ].filter(Boolean))).slice(0, 4)
+      ].filter(Boolean))).slice(0, 8)
     : Array.from(new Set([
         ...seeds,
         year && seeds[0] ? seeds[0] + " " + year : "",
@@ -938,8 +957,26 @@ async function getContext(env: Env, job: Job) {
   const ctx = rows?.[0];
   if (!ctx) throw new Error("AKWAM_CONTEXT_NOT_FOUND");
 
+  const table = job.content_type === "episode" ? "series" : "movies";
+  const extraRows = await sb(
+    env,
+    `/rest/v1/${table}?select=title_ar,title_en,original_title,alternative_titles&id=eq.${encodeURIComponent(job.content_id)}&limit=1`,
+  );
+  const extra = Array.isArray(extraRows) ? extraRows[0] : null;
+  const extraTitles = [
+    extra?.title_ar,
+    extra?.title_en,
+    extra?.original_title,
+    ...(Array.isArray(extra?.alternative_titles)
+      ? extra.alternative_titles.map((x: any) => x?.title).filter(Boolean)
+      : []),
+  ].filter(Boolean);
+
   return {
-    titles: Array.isArray(ctx.titles) ? (ctx.titles.filter(Boolean) as string[]) : [],
+    titles: Array.from(new Set([
+      ...(Array.isArray(ctx.titles) ? ctx.titles.filter(Boolean) : []),
+      ...extraTitles,
+    ])) as string[],
     year: ctx.year ? Number(ctx.year) : undefined,
     episodeNumber: ctx.episode_number ? Number(ctx.episode_number) : undefined,
     seasonNumber: ctx.season_number ? Number(ctx.season_number) : undefined,
