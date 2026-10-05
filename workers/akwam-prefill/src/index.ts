@@ -1106,8 +1106,9 @@ async function processJob(env: Env, job: Job, workerId: string, provider: string
     return { ok: false, error: String(error) };
   }
 }
-async function run(env: Env, workerId: string) {
-  const target = Math.max(1, Math.min(100, Number(env.MAX_JOBS_PER_RUN || 1)));
+async function run(env: Env, workerId: string, targetOverride?: number) {
+  const requested = targetOverride ?? Number(env.MAX_JOBS_PER_RUN || 1);
+  const target = Math.max(1, Math.min(100, requested));
 
   let provider: string;
   try {
@@ -1147,7 +1148,7 @@ async function runFleet(env: Env, fleetSize = 4) {
     Array.from({ length: size }, async (_, index) => {
       const workerId = `cf-fleet-${Date.now()}-${index}-${crypto.randomUUID().slice(0, 8)}`;
       try {
-        return await run(env, workerId);
+        return await run(env, workerId, 2);
       } catch (error) {
         return {
           workerId,
