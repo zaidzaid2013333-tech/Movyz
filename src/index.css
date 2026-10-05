@@ -676,3 +676,41 @@
 @media (prefers-reduced-motion: reduce) {
   .movyza-player-controls { transition: none; }
 }
+
+.movyza-watch-backdrop {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: min(1500px, 100vw);
+  height: 620px;
+  transform: translateX(-50%);
+  background-size: cover;
+  background-position: center top;
+  opacity: .16;
+  filter: blur(18px) saturate(.82);
+  mask-image: linear-gradient(to bottom, #000 0%, rgba(0,0,0,.78) 42%, transparent 92%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, rgba(0,0,0,.78) 42%, transparent 92%);
+  pointer-events: none;
+  z-index: -2;
+}
+.movyza-watch-backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(3,4,6,.12), rgba(3,4,6,.94) 88%);
+}
+@media (max-width: 700px) {
+  .movyza-source-deck > .grid {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+  .movyza-source-deck > .grid::-webkit-scrollbar { display: none; }
+  .movyza-source-deck > .grid > .movyza-source-group {
+    flex: 0 0 min(86vw, 330px);
+    scroll-snap-align: start;
+  }
+}
