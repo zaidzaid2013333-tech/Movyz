@@ -229,6 +229,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [playerBufferedEnd, setPlayerBufferedEnd] = useState(0);
   const [playerReady, setPlayerReady] = useState(false);
   const [playerControlsVisible, setPlayerControlsVisible] = useState(true);
+  const [playerSettingsOpen, setPlayerSettingsOpen] = useState(false);
   const playerControlsHideTimerRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
@@ -356,8 +357,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     void MovyzaApi.preparePlayback(
       mediaType === 'movie' ? 'movie' : 'episode',
       targetId,
-      mediaType === 'episode' ? currentEpisode?.seasonNumber : undefined,
-      mediaType === 'episode' ? currentEpisode?.episodeNumber : undefined,
+      mediaType === 'series' ? currentEpisode?.seasonNumber : undefined,
+      mediaType === 'series' ? currentEpisode?.episodeNumber : undefined,
     )
       .then((response) => {
         if (cancelled) return;
