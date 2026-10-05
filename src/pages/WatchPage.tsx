@@ -52,7 +52,8 @@ const inferPlaybackType = (url: string, declaredType?: string) => {
 };
 
 const normalizePlaybackSource = (source: PlaybackSource): PlaybackSource | null => {
-  const url = String(source.directUrl || source.url || source.embedUrl || '').trim();
+  const isAkwamRelay = source.providerKey === 'akwam' && /\/api\/v1\/playback\/stream(?:\?|$)/i.test(String(source.url || ''));
+  const url = String(isAkwamRelay ? source.url : (source.directUrl || source.url || source.embedUrl || '')).trim();
   if (!/^https?:\/\//i.test(url)) return null;
 
   return {
@@ -67,7 +68,8 @@ const normalizePlaybackSource = (source: PlaybackSource): PlaybackSource | null 
 
 function playbackEngineFor(source: PlaybackSource | null | undefined) {
   const type = String(source?.type || '').toLowerCase();
-  const url = String(source?.directUrl || source?.url || source?.embedUrl || '').toLowerCase();
+  const isAkwamRelay = source?.providerKey === 'akwam' && /\/api\/v1\/playback\/stream(?:\?|$)/i.test(String(source.url || ''));
+  const url = String(isAkwamRelay ? source.url : (source?.directUrl || source?.url || source?.embedUrl || '')).toLowerCase();
   if (type === 'embed') return 'embed' as const;
   if (type === 'hls' || /\.m3u8(?:[?#]|$)/i.test(url)) return 'hls' as const;
   if (type === 'dash' || /\.mpd(?:[?#]|$)/i.test(url)) return 'dash' as const;
@@ -78,7 +80,8 @@ const isPlayableHttpSource = (source: PlaybackSource) => {
   const normalized = normalizePlaybackSource(source);
   if (!normalized) return false;
 
-  const url = String(normalized.directUrl || normalized.url || '').trim();
+  const isAkwamRelay = normalized.providerKey === 'akwam' && /\/api\/v1\/playback\/stream(?:\?|$)/i.test(String(normalized.url || ''));
+  const url = String(isAkwamRelay ? normalized.url : (normalized.directUrl || normalized.url || '')).trim();
   if (!/^https?:\/\//i.test(url)) return false;
 
   const type = String(normalized.type || '').toLowerCase();
