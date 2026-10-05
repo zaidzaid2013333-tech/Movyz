@@ -824,7 +824,13 @@ function extractTargets(html: string, baseUrl: string) {
 
   for (const u of extractMediaLikeUrls(html)) add(u, 260);
 
-  return ranked.sort((x, y) => y.score - x.score).map((x) => x.url).slice(0, 16);
+  // Ignore fragment-only UI tabs such as #tab-5. They are quality labels,
+  // not resolution targets, and can consume the bounded resolution budget.
+  const useful = ranked
+    .filter((item) => targetResolutionScore(item.url) > 10)
+    .sort((x, y) => y.score - x.score);
+
+  return useful.map((x) => x.url).slice(0, 16);
 }
 
 function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null {
@@ -1197,7 +1203,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
     targets = extractTargets(episodeHtml, exactEpisode);
     if (!targets.length) throw new Error("AKWAM_EPISODE_LINKS_EMPTY episode=" + new URL(exactEpisode).pathname);
   } else {
-    targets = extractTargets(detail, candidate.url);
+    targets = usefulResolutionTargets(extractTargets(detail, candidate.url), 10);
   }
 
   const medias: Media[] = [];
