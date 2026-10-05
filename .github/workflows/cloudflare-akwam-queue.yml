@@ -1,0 +1,96 @@
+name: Deploy Movyz Akwam Cloudflare Queue Engine
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "workers/akwam-queue-job/**"
+      - "workers/akwam-queue-consumer/**"
+      - "workers/akwam-queue-dispatcher/**"
+      - "workers/akwam-prefill/src/index.ts"
+      - ".github/workflows/cloudflare-akwam-queue.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-akwam-queue-engine
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN1 }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID1 }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check Cloudflare identity
+        run: |
+          npx --yes wrangler@4.140.0 whoami
+
+      - name: Ensure Movyz queues exist
+        run: |
+          set -euo pipefail
+
+          ensure_queue() {
+            name="$1"
+            retention="$2"
+            if npx --yes wrangler@4.140.0 queues info "$name" >/dev/null 2>&1; then
+              echo "Queue exists: $name"
+            else
+              echo "Creating queue: $name"
+              npx --yes wrangler@4.140.0 queues create "$name" \
+                --message-retention-period-secs "$retention"
+            fi
+          }
+
+          ensure_queue "movyz-akwam-fill" 86400
+          ensure_queue "movyz-akwam-fill-dlq" 86400
+
+      - name: Prepare job Worker secrets
+        run: |
+          umask 077
+          printf 'SUPABASE_URL=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\n' \
+            "$SUPABASE_URL" "$SUPABASE_SERVICE_ROLE_KEY" > .env.queue-job
+          printf 'SUPABASE_URL=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\n' \
+            "$SUPABASE_URL" "$SUPABASE_SERVICE_ROLE_KEY" > .env.queue-dispatcher
+
+      - name: Deploy isolated Akwam job Worker
+        run: |
+          npx --yes wrangler@4.140.0 deploy \
+            --config workers/akwam-queue-job/wrangler.toml \
+            --secrets-file .env.queue-job
+
+      - name: Deploy Queue consumer
+        run: |
+          npx --yes wrangler@4.140.0 deploy \
+            --config workers/akwam-queue-consumer/wrangler.toml
+
+      - name: Deploy Queue dispatcher
+        run: |
+          npx --yes wrangler@4.140.0 deploy \
+            --config workers/akwam-queue-dispatcher/wrangler.toml \
+            --secrets-file .env.queue-dispatcher
+
+      - name: Verify Queue consumer
+        run: |
+          npx --yes wrangler@4.140.0 queues consumer list movyz-akwam-fill --json
+
+      - name: Verify Queue metadata
+        run: |
+          npx --yes wrangler@4.140.0 queues info movyz-akwam-fill
+          npx --yes wrangler@4.140.0 queues info movyz-akwam-fill-dlq
+
+      - if: always()
+        run: rm -f .env.queue-job .env.queue-dispatcher
