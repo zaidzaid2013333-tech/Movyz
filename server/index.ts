@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } from './auth';
-import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId, importCuratedCatalog } from './tmdb';
+import { runTmdbSync, runFreshTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId, importCuratedCatalog } from './tmdb';
 import { resolveAkwamNow } from '../workers/akwam-prefill/src/index';
 
 export const app = new MiniApp();
@@ -252,8 +252,50 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
       method: req.method === 'HEAD' ? 'HEAD' : 'GET',
       headers: upstreamHeaders,
       redirect: 'follow',
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(8000),
     });
+  };
+ 
+  const readFirstMediaChunk = async (response: Response, timeoutMs = 6500): Promise<ReadableStream<Uint8Array> | null> => {
+    if (!response.body) return null;
+    const reader = response.body.getReader();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const first = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('UPSTREAM_FIRST_BYTE_TIMEOUT')), timeoutMs);
+        }),
+      ]);
+      if (first.done || !first.value?.byteLength) {
+        await reader.cancel();
+        return null;
+      }
+      const firstChunk = first.value;
+      return new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(firstChunk);
+          try {
+            while (true) {
+              const next = await reader.read();
+              if (next.done) break;
+              if (next.value) controller.enqueue(next.value);
+            }
+            controller.close();
+          } catch (error) {
+            controller.error(error);
+          } finally {
+            reader.releaseLock();
+          }
+        },
+        cancel(reason) { void reader.cancel(reason).catch(() => undefined); },
+      });
+    } catch (error) {
+      await reader.cancel().catch(() => undefined);
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   };
 
   const isBadUpstream = (upstream: Response) => {
@@ -288,10 +330,9 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
           const candidateResponse = await fetchUpstream(candidateUrl);
           if (isBadUpstream(candidateResponse)) continue;
 
-          // Do not wait for the first media bytes here. Once Akwam accepts the
-          // ranged request and returns a media response, stream that body to the
-          // browser immediately. Waiting here added an artificial startup stall.
-          return { source: candidate, upstream: candidateResponse, body: candidateResponse.body };
+          const body = await readFirstMediaChunk(candidateResponse);
+          if (!body) continue;
+          return { source: candidate, upstream: candidateResponse, body };
         } catch (error) {
           console.warn(
             '[playback-stream-candidate]',
@@ -1421,6 +1462,16 @@ app.delete(`${api}` + '/admin/episodes/:id', requireAuth, requireAdmin, asyncRou
   if (error) return fail(res, 500, 'EPISODE_DELETE_FAILED', 'Unable to delete episode');
   await writeAudit(req.userId!, 'delete_episode', 'episode', req.params.id);
   return ok(res, { deleted:true });
+}));
+
+app.post(`${api}/internal/tmdb/sync-fresh`, asyncRoute(async (req, res) => {
+  const expectedKey = String(req.env?.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  const providedKey = String(req.header('x-movyz-internal-key') || '').trim();
+  if (!expectedKey || !providedKey || providedKey !== expectedKey) return fail(res, 401, 'UNAUTHORIZED', 'Unauthorized internal fresh sync request');
+  const body = z.object({ pages: z.number().int().min(1).max(3).default(2) }).safeParse(req.body || {});
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid fresh sync options');
+  try { return ok(res, await runFreshTmdbSync({ pages: body.data.pages })); }
+  catch (error) { return fail(res, 502, 'TMDB_FRESH_SYNC_FAILED', error instanceof Error ? error.message : String(error)); }
 }));
 
 app.post(`${api}/admin/sync/tmdb/episodes`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
