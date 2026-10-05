@@ -18,7 +18,7 @@ type QueueBatch = {
   messages: QueueMessage[];
 };
 
-const DEFAULT_FANOUT = 24;
+const DEFAULT_FANOUT = 32;
 
 export default {
   async fetch(): Promise<Response> {
@@ -33,7 +33,7 @@ export default {
     for (const message of batch.messages) {
       const fanout = Math.max(
         1,
-        Math.min(24, Number(message.body?.fanout || DEFAULT_FANOUT)),
+        Math.min(32, Number(message.body?.fanout || DEFAULT_FANOUT)),
       );
 
       const calls = await Promise.allSettled(
