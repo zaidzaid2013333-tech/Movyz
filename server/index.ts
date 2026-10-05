@@ -14,6 +14,7 @@ app.disable('x-powered-by');
 // Playback backend: cache-first, live Akwam resolution. No playback URLs are
 // persisted in Supabase; only short-lived edge/memory cache entries are used.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
+const MOVYZ_PLAYBACK_CONTRACT = 'broker-v1';
 
 function normalizePlaybackQuality(value: unknown) {
   const raw = String(value ?? '').trim();
@@ -1361,4 +1362,4 @@ app.use((err: any, _req: HttpRequest, res: HttpResponse, _next: NextFunction) =>
 
   return fail(res, 500, 'INTERNAL_ERROR', 'Internal server error');
 });
-// Playback runtime is intentionally DB-only; persisted Supabase sources are authoritative.
+// Playback runtime uses live Akwam resolution with short-lived edge/memory caching.
