@@ -51,6 +51,18 @@ jobs:
           file /tmp/free-solo-old-download.bin || true
           grep -Eaio 'https?://[^"'"'"'<> ]+\.(m3u8|mp4|mpd|webm)(\?[^"'"'"'<> ]+)?|https?://[^"'"'"'<> ]+downet[^"'"'"'<> ]+' /tmp/free-solo-old-download.bin | head -100 || true
           strings -n 12 /tmp/free-solo-old-download.bin | grep -Ei 'location|redirect|downet|mp4|m3u8|video|file|source|download' | head -120 || true
+          echo '=== legacy download javascript/API markers ==='
+          grep -Ein 'direct_link|hash_data|downloadUrl|download_button|\$\.ajax|\$\.get|\$\.post|XMLHttpRequest|fetch\(|ajax|api|downloadalt|url:' /tmp/free-solo-old-download.bin | head -180 || true
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('/tmp/free-solo-old-download.bin').read_text('utf-8','ignore')
+          keys=['direct_link','hash_data','downloadUrl','download_button','downloadalt','$.ajax','$.get','$.post','XMLHttpRequest','fetch(']
+          for k in keys:
+              i=s.find(k)
+              if i>=0:
+                  print(f'--- {k} ---')
+                  print(s[max(0,i-2500):i+6000])
+          PY
 
           echo '=== movie search probe: Free Solo ==='
           curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: text/html'             'https://akwam.ss/search?q=Free%20Solo' -o /tmp/movie-search.html
