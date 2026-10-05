@@ -1055,7 +1055,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     );
   }
 
-  if (!playbackUrl) {
+  // Keep the watch page mounted while the live broker resolves a source.
+  // A resolver delay is a loading state, not a playback failure.
+  if (!playbackUrl && !resolverLoading && playbackError) {
     return (
       <div className="min-h-screen bg-[#030406] text-slate-100 flex items-center justify-center p-4">
         <div className="w-full max-w-3xl rounded-3xl overflow-hidden border border-amber-500/20 bg-black shadow-2xl">
@@ -1072,7 +1074,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-black/20" />
             <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
               <ErrorState
-                message={playbackError || (language === 'ar' ? 'لا يوجد مصدر تشغيل حاليًا.' : 'No playable source is currently available.')}
+                message={playbackError}
                 onRetry={() => window.location.reload()}
                 onGoHome={() => onNavigate('/')}
               />
@@ -1082,6 +1084,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       </div>
     );
   }
+
 
   const isMovie = content.type === 'movie';
   const resolvedTmdbId = content.tmdbId;
