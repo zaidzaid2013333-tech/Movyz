@@ -422,10 +422,44 @@ async function findCandidate(
 
 
 function extractMediaLikeUrls(text: string) {
-  const decoded = decodeHtml(text);
-  return Array.from(new Set(
-    decoded.match(/https?:\/\/[^\s"'<>]+/gi) || [],
-  ));
+  const decoded = decodeHtml(text)
+    .replace(/\\u002f/gi, "/")
+    .replace(/\\u003a/gi, ":")
+    .replace(/\\x2f/gi, "/")
+    .replace(/\\x3a/gi, ":")
+    .replace(/\\\//g, "/");
+
+  const candidates: string[] = [];
+  const push = (value: string) => {
+    const raw = value.trim().replace(/[),;]+$/g, "");
+    if (!raw) return;
+    candidates.push(raw);
+
+    // Akwam download pages sometimes keep the final CDN URL URL-encoded inside JS/JSON.
+    if (/%3a%2f%2f/i.test(raw)) {
+      try {
+        candidates.push(decodeURIComponent(raw));
+      } catch {}
+    }
+  };
+
+  // Quoted and unquoted absolute URLs, including JSON/JS escaped forms.
+  for (const match of decoded.match(/https?:\\/\\/[^\\s"'<>\\]+/gi) || []) push(match);
+  for (const match of decoded.match(/https?%3A%2F%2F[^\\s"'<>\\]+/gi) || []) push(match);
+
+  // Explicitly surface Akwam's external download CDN links even when they are
+  // embedded without a media extension or without HTML quotes.
+  for (const match of decoded.match(/https?:\\/\\/[^\\s"'<>\\]+\\/download\\/[^\\s"'<>\\]+/gi) || []) {
+    push(match);
+  }
+
+  return Array.from(new Set(candidates.map((value) => {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  })));
 }
 
 function inferQuality(text: string) {
