@@ -973,6 +973,7 @@ async function resolveLegacyAkwamDownload(
   target: string,
   referer?: string,
   budget?: RequestBudget,
+  session?: AkwamSession,
 ): Promise<Media | null> {
   try {
     consumeRequest(budget);
@@ -981,15 +982,16 @@ async function resolveLegacyAkwamDownload(
         ...headers(env),
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         ...(referer ? { Referer: referer } : {}),
+        ...((sessionCookieHeader(session)) ? { Cookie: sessionCookieHeader(session) } : {}),
       },
       redirect: "follow",
       signal: AbortSignal.timeout(7000),
     });
     if (!page.ok) return null;
 
-    // The legacy Akwam resolver authenticates the POST with the session
-    // cookie created by this GET. Browser jQuery does the same automatically.
-    const sessionCookie = extractSessionCookie(page);
+    // The legacy resolver uses the session cookie created by the initial GET.
+    absorbSetCookie(session, page);
+    const sessionCookie = extractSessionCookie(page) || sessionCookieHeader(session);
     if (!sessionCookie) return null;
 
     consumeRequest(budget);
@@ -1038,16 +1040,17 @@ async function resolveTarget(
   target: string,
   referer?: string,
   budget?: RequestBudget,
+  session?: AkwamSession,
 ): Promise<Media | null> {
   const direct = mediaFromUrl(target, referer);
   if (!isLikelyNavigationUrl(target) && await validateMedia(env, direct, budget)) return direct;
 
   if (/^https:\/\/akwam\.ss\/old\/download\//i.test(target)) {
-    const legacyMedia = await resolveLegacyAkwamDownload(env, target, referer, budget);
+    const legacyMedia = await resolveLegacyAkwamDownload(env, target, referer, budget, session);
     if (legacyMedia) return legacyMedia;
   }
 
-  const html = await fetchText(env, target, undefined, referer, budget);
+  const html = await fetchText(env, target, undefined, referer, budget, session);
   if (!html) return null;
 
   // Interstellar reference path:
@@ -1062,11 +1065,19 @@ async function resolveTarget(
     return media;
   }
 
-  for (const nested of extractTargets(html, target).slice(0, 3)) {
+  // The current player can embed media URLs in data-* attributes or JS objects
+  // rather than a visible <video>/<source> tag. Try those structured candidates
+  // before walking to another Akwam navigation page.
+  for (const candidate of extractMediaCandidates(html, target).slice(0, 8)) {
+    const candidateMedia = mediaFromUrl(candidate.url, target, candidate.quality || html);
+    if (await validateMedia(env, candidateMedia, budget)) return candidateMedia;
+  }
+
+  for (const nested of extractTargets(html, target).slice(0, 5)) {
     const directNested = mediaFromUrl(nested, target);
     if (!isLikelyNavigationUrl(nested) && await validateMedia(env, directNested, budget)) return directNested;
 
-    const nestedHtml = await fetchText(env, nested, undefined, target, budget);
+    const nestedHtml = await fetchText(env, nested, undefined, target, budget, session);
     if (!nestedHtml) continue;
 
     const nestedButton = extractDownloadButtonMedia(nestedHtml, nested);
@@ -1074,6 +1085,11 @@ async function resolveTarget(
 
     const nestedMedia = extractMedia(nestedHtml, nested);
     if (nestedMedia && await validateMedia(env, nestedMedia, budget)) return nestedMedia;
+
+    for (const candidate of extractMediaCandidates(nestedHtml, nested).slice(0, 6)) {
+      const candidateMedia = mediaFromUrl(candidate.url, nested, candidate.quality || nestedHtml);
+      if (await validateMedia(env, candidateMedia, budget)) return candidateMedia;
+    }
   }
 
   return null;
@@ -1127,6 +1143,7 @@ async function getContext(env: Env, job: Job) {
 
 async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   const expected = job.content_type === "episode" ? "series" : "movie";
+  const session: AkwamSession = { cookies: new Map() };
   const candidate = await findCandidate(
     env,
     ctx.titles,
@@ -1134,10 +1151,11 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
     expected,
     job.content_type === "episode" ? (ctx.seasonNumber || job.season_number || 1) : undefined,
     budget,
+    session,
   );
   if (!candidate) throw new Error("AKWAM_NOT_FOUND");
 
-  const detail = await fetchText(env, candidate.url, undefined, undefined, budget);
+  const detail = await fetchText(env, candidate.url, undefined, undefined, budget, session);
   if (!detail) throw new Error("AKWAM_DETAIL_FETCH_FAILED");
 
   let targets: string[] = [];
@@ -1154,7 +1172,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
       throw new Error("AKWAM_EPISODE_NOT_INDEXED candidate=" + candidate.url + " season=" + season + " episode=" + ep);
     }
 
-    const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget);
+    const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget, session);
     if (!episodeHtml) throw new Error("AKWAM_EPISODE_FETCH_FAILED");
 
     targets = extractTargets(episodeHtml, exactEpisode);
@@ -1167,7 +1185,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   const sourceReferer = candidate.url;
   // Same bounded resolution order that produced the working Interstellar sources.
   for (const target of targets.slice(0, 6)) {
-    const media = await resolveTarget(env, target, sourceReferer, budget);
+    const media = await resolveTarget(env, target, sourceReferer, budget, session);
     if (!media) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);
     if (medias.length >= 3) break;
