@@ -253,6 +253,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const startupGuardTimerRef = useRef<number | null>(null);
+  const startupWarmupTimerRef = useRef<number | null>(null);
+  const resumeAfterBufferingRef = useRef(false);
   const progressSaveTimerRef = useRef<number | null>(null);
   const lastProgressSaveAtRef = useRef(0);
   const playbackEngineRef = useRef<{ destroy?: () => void; reset?: () => void } | null>(null);
@@ -268,86 +270,52 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       !video ||
       startupRecoveryStageRef.current !== 'idle' ||
       !Number.isFinite(video.duration) ||
-      video.duration < 45 ||
+      video.duration < 125 ||
       video.currentTime >= 20
     ) {
       return;
     }
 
     startupRecoveryStageRef.current = 'recovering';
-    const originalTime = Math.max(0, video.currentTime);
-    const targetTime = Math.min(
-      Math.max(originalTime + 120, 120),
-      Math.max(video.duration - 15, 1),
+    setPlayerLoadingState(
+      true,
+      language === 'ar' ? 'جارٍ تهيئة التشغيل…' : 'Preparing playback…',
     );
 
-    const getBufferedAhead = () => {
-      if (!video.buffered.length) return 0;
-      for (let index = 0; index < video.buffered.length; index += 1) {
-        const startTime = video.buffered.start(index);
-        const endTime = video.buffered.end(index);
-        if (video.currentTime >= startTime && video.currentTime <= endTime) {
-          return Math.max(0, endTime - video.currentTime);
-        }
-      }
-      return 0;
-    };
+    const targetTime = Math.min(120, Math.max(1, video.duration - 1));
 
-    const cleanup = () => {
-      video.removeEventListener('canplay', maybeFinish);
-      video.removeEventListener('progress', maybeFinish);
-      video.removeEventListener('loadeddata', maybeFinish);
-    };
-
-    const finish = () => {
-      if (startupRecoveryTimerRef.current !== null) {
-        window.clearTimeout(startupRecoveryTimerRef.current);
-        startupRecoveryTimerRef.current = null;
+    const finishWarmup = () => {
+      if (startupWarmupTimerRef.current !== null) {
+        window.clearTimeout(startupWarmupTimerRef.current);
+        startupWarmupTimerRef.current = null;
       }
       if (startupRecoveryStageRef.current !== 'recovering') return;
 
-      cleanup();
       try {
-        video.currentTime = originalTime;
+        video.currentTime = 0;
       } catch {
-        // Some providers reject an immediate seek while the media element is switching ranges.
+        // Some providers reject a seek while a range is still being opened.
       }
+
       startupRecoveryStageRef.current = 'done';
+      setPlayerCurrentTime(0);
+      setPlayerLoadingState(false);
+      resumeAfterBufferingRef.current = false;
       void video.play().catch(() => undefined);
     };
 
-    const maybeFinish = () => {
-      if (startupRecoveryStageRef.current !== 'recovering') return;
-
-      // Require a materially larger buffer before returning to 00:00 so normal
-      // playback does not immediately enter another short startup stall.
-      const requiredAhead = Math.min(4, Math.max(3, video.duration - targetTime - 1));
-      if (getBufferedAhead() < requiredAhead) return;
-
-      finish();
-    };
-
-    video.addEventListener('canplay', maybeFinish);
-    video.addEventListener('progress', maybeFinish);
-    video.addEventListener('loadeddata', maybeFinish);
-
-    startupRecoveryTimerRef.current = window.setTimeout(() => {
-      cleanup();
-      startupRecoveryTimerRef.current = null;
-      if (startupRecoveryStageRef.current === 'recovering') {
-        startupRecoveryStageRef.current = 'idle';
-      }
-    }, 15000);
+    if (startupWarmupTimerRef.current !== null) {
+      window.clearTimeout(startupWarmupTimerRef.current);
+    }
 
     try {
+      // Force a fast range request around 02:00, then return to 00:00 almost
+      // immediately. The loading overlay hides the transient seek from the UI.
       video.currentTime = targetTime;
+      startupWarmupTimerRef.current = window.setTimeout(finishWarmup, 120);
     } catch {
-      cleanup();
-      if (startupRecoveryTimerRef.current !== null) {
-        window.clearTimeout(startupRecoveryTimerRef.current);
-        startupRecoveryTimerRef.current = null;
-      }
       startupRecoveryStageRef.current = 'idle';
+      setPlayerLoadingState(false);
     }
   };
 
@@ -604,8 +572,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     if (video.paused) {
       // Load aggressively only when the user actually asks to play.
       video.preload = 'auto';
+      userPlayRequestedRef.current = true;
+      resumeAfterBufferingRef.current = true;
       void video.play().catch(() => undefined);
-    } else video.pause();
+    } else {
+      resumeAfterBufferingRef.current = false;
+      userPlayRequestedRef.current = false;
+      video.pause();
+    }
   };
 
   const seekPlayerBy = (seconds: number) => {
@@ -1041,6 +1015,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             if (!cancelled) {
               clearPlayerLoadTimeout();
               setPlayerLoadingState(false);
+              if (resumeAfterBufferingRef.current && video.paused && !video.ended) {
+                resumeAfterBufferingRef.current = false;
+                void video.play().catch(() => undefined);
+              }
             }
           });
           hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -1109,6 +1087,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       if (startupRecoveryTimerRef.current !== null) {
         window.clearTimeout(startupRecoveryTimerRef.current);
         startupRecoveryTimerRef.current = null;
+      }
+      if (startupWarmupTimerRef.current !== null) {
+        window.clearTimeout(startupWarmupTimerRef.current);
+        startupWarmupTimerRef.current = null;
       }
       startupRecoveryStageRef.current = 'idle';
     };
@@ -1218,6 +1200,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       syncTime();
     };
     const onWaiting = () => {
+      const wasPlaying = !video.paused && !video.ended;
+      if (wasPlaying || userPlayRequestedRef.current) {
+        resumeAfterBufferingRef.current = true;
+      }
       if (!playbackStartedRef.current) setPlaybackError(null);
       setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Buffering…');
       armPlayerLoadTimeout();
@@ -1244,6 +1230,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           const shouldPlay = restore.wasPlaying;
           reloadRestoreRef.current = null;
           if (shouldPlay) void video.play().catch(() => undefined);
+        }
+        if (resumeAfterBufferingRef.current && video.paused && !video.ended) {
+          resumeAfterBufferingRef.current = false;
+          void video.play().catch(() => undefined);
         }
       }],
       ['canplaythrough', () => {
@@ -1564,16 +1554,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     }
                   }
 
-                  // Akwam's MP4/CDN responses can expose metadata while keeping only
-                  // a tiny initial range warm. Jumping forward once forces a second
-                  // usable range to be opened, then we restore the original position.
+                  // Every video gets a very fast hidden 02:00 warmup, then snaps back to 00:00.
                   if (
                     video.currentTime < 1 &&
                     Number.isFinite(video.duration) &&
-                    video.duration >= 45 &&
-                    video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
+                    video.duration >= 125
                   ) {
-                    window.setTimeout(() => recoverStartupBuffer(), 250);
+                    window.setTimeout(() => recoverStartupBuffer(), 40);
                   }
                 }}
                 onDurationChange={() => {
@@ -1592,7 +1579,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onTimeUpdate={() => {
                   const video = videoRef.current;
                   if (!video) return;
-                  setPlayerCurrentTime(video.currentTime || 0);
+                  setPlayerCurrentTime(
+                    startupRecoveryStageRef.current === 'recovering' ? 0 : (video.currentTime || 0),
+                  );
                   if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
                   if (video.buffered.length > 0) {
                     try {
@@ -1605,7 +1594,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   if (!video) return;
                   setPlayerReady(true);
                   if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
-                  setPlayerCurrentTime(video.currentTime || 0);
+                  setPlayerCurrentTime(
+                    startupRecoveryStageRef.current === 'recovering' ? 0 : (video.currentTime || 0),
+                  );
                 }}
                 onVolumeChange={() => {
                   const video = videoRef.current;
@@ -1637,22 +1628,30 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
                 }}
                 onWaiting={() => {
+                  const video = videoRef.current;
+                  const wasPlaying = Boolean(video && !video.paused && !video.ended);
+                  if (wasPlaying || userPlayRequestedRef.current) {
+                    resumeAfterBufferingRef.current = true;
+                  }
                   setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Buffering…');
                   armPlayerLoadTimeout();
                   if (!playbackStartedRef.current) {
                     setPlaybackError(null);
-                    const video = videoRef.current;
                     if (video && video.currentTime < 20) {
                       recoverStartupBuffer();
                     }
                   }
                 }}
                 onStalled={() => {
+                  const video = videoRef.current;
+                  const wasPlaying = Boolean(video && !video.paused && !video.ended);
+                  if (wasPlaying || userPlayRequestedRef.current) {
+                    resumeAfterBufferingRef.current = true;
+                  }
                   setPlayerLoadingState(true, language === 'ar' ? 'الاتصال بالمصدر بطيء…' : 'The source is responding slowly…');
                   armPlayerLoadTimeout();
                   if (!playbackStartedRef.current) {
                     setPlaybackError(null);
-                    const video = videoRef.current;
                     if (video && video.currentTime < 20) {
                       recoverStartupBuffer();
                     }
