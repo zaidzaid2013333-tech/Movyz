@@ -15,7 +15,8 @@ const results: Array<Record<string, unknown>> = [];
 
 for (const item of repairs) {
   try {
-    const id = await syncSeriesByTmdbId(item.tmdbId);
+    const synced = await syncSeriesByTmdbId(item.tmdbId);
+    const id = synced.id;
     const { error } = await adminSupabase
       .from('series')
       .update({
