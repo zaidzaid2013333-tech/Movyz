@@ -41,6 +41,17 @@ jobs:
           echo '=== legacy scripts around download ==='
           grep -Ein 'download|تحميل|video|file|source|player|stream|mp4|m3u8|downet' /tmp/free-solo-old.html | head -300 || true
 
+          echo '=== legacy Free Solo download probe ==='
+          old_download='https://akwam.ss/old/download/d25b122d795c/Free-Solo-2018-Ar-HD720p-akoam-net-mkv'
+          echo '--- headers / redirect ---'
+          curl -k -I -L --max-redirs 5 --max-time 30 -A "$ua" -H 'Accept: */*' "$old_download" || true
+          echo '--- body bytes / content signals ---'
+          curl -k -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: */*' "$old_download" -o /tmp/free-solo-old-download.bin
+          wc -c /tmp/free-solo-old-download.bin
+          file /tmp/free-solo-old-download.bin || true
+          grep -Eaio 'https?://[^"'"'"'<> ]+\.(m3u8|mp4|mpd|webm)(\?[^"'"'"'<> ]+)?|https?://[^"'"'"'<> ]+downet[^"'"'"'<> ]+' /tmp/free-solo-old-download.bin | head -100 || true
+          strings -n 12 /tmp/free-solo-old-download.bin | grep -Ei 'location|redirect|downet|mp4|m3u8|video|file|source|download' | head -120 || true
+
           echo '=== movie search probe: Free Solo ==='
           curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: text/html'             'https://akwam.ss/search?q=Free%20Solo' -o /tmp/movie-search.html
           echo '=== Free Solo search status/bytes ==='
