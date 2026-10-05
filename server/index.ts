@@ -237,10 +237,11 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
 
   const fetchUpstream = async (upstreamUrl: string) => {
     const upstreamHeaders = new Headers();
-    for (const name of ['range', 'if-range', 'if-none-match', 'if-modified-since']) {
-      const value = req.headers.get(name);
-      if (value) upstreamHeaders.set(name, value);
-    }
+    // Media startup/seek is driven by byte ranges. Do not forward conditional-cache
+    // validators from the browser because a 304 has no media body and can leave a
+    // <video> element stuck at 00:00 behind the relay.
+    const range = req.headers.get('range');
+    if (range) upstreamHeaders.set('range', range);
     upstreamHeaders.set('Accept', req.headers.get('accept') || '*/*');
     upstreamHeaders.set('Referer', 'https://akwam.ss/');
     upstreamHeaders.set('Origin', 'https://akwam.ss');
@@ -257,7 +258,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
 
   const isBadUpstream = (upstream: Response) => {
     const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
-    return [401, 403, 404, 410, 429].includes(upstream.status) ||
+    return [304, 401, 403, 404, 410, 416, 429].includes(upstream.status) ||
       contentType.includes('text/html') ||
       contentType.includes('application/json') ||
       contentType.includes('text/plain');
