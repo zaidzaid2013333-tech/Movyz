@@ -256,6 +256,55 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     });
   };
 
+  const primeUpstream = async (upstream: Response, timeoutMs = 6000) => {
+    if (req.method === 'HEAD' || !upstream.body) return { response: upstream, body: null as ReadableStream<Uint8Array> | null };
+
+    const reader = upstream.body.getReader();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const first = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('PLAYBACK_STREAM_START_TIMEOUT')), timeoutMs);
+        }),
+      ]);
+
+      if (timer) clearTimeout(timer);
+      if (first.done || !first.value?.byteLength) {
+        await reader.cancel();
+        throw new Error('PLAYBACK_STREAM_EMPTY');
+      }
+
+      const firstChunk = first.value;
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(firstChunk);
+          try {
+            while (true) {
+              const next = await reader.read();
+              if (next.done) break;
+              if (next.value?.byteLength) controller.enqueue(next.value);
+            }
+            controller.close();
+          } catch (error) {
+            controller.error(error);
+          } finally {
+            reader.releaseLock();
+          }
+        },
+        cancel(reason) {
+          return reader.cancel(reason);
+        },
+      });
+
+      return { response: upstream, body };
+    } catch (error) {
+      if (timer) clearTimeout(timer);
+      try { await reader.cancel(); } catch {}
+      throw error;
+    }
+  };
+
   const isBadUpstream = (upstream: Response) => {
     const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
     return [304, 401, 403, 404, 410, 416, 429].includes(upstream.status) ||
@@ -272,10 +321,41 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
       Number.isFinite(seasonNumber) ? seasonNumber : undefined,
       Number.isFinite(episodeNumber) ? episodeNumber : undefined,
     );
-    let source = result.sources[sourceIndex];
-    let upstreamUrl = String(source?.directUrl || '').trim();
 
-    if (!source || source.providerKey !== 'akwam' || !/^https:\/\//i.test(upstreamUrl)) {
+    const buildCandidateIndices = (sources: BrokerSource[]) =>
+      [sourceIndex, ...sources.map((_, index) => index).filter((index) => index !== sourceIndex)];
+
+    const trySources = async (
+      sources: BrokerSource[],
+    ): Promise<{ source: BrokerSource; upstream: Response; body: ReadableStream<Uint8Array> | null } | null> => {
+      for (const candidateIndex of buildCandidateIndices(sources)) {
+        const candidate = sources[candidateIndex];
+        const candidateUrl = String(candidate?.directUrl || '').trim();
+        if (!candidate || candidate.providerKey !== 'akwam' || !/^https:\/\//i.test(candidateUrl)) continue;
+
+        try {
+          const candidateResponse = await fetchUpstream(candidateUrl);
+          if (isBadUpstream(candidateResponse)) continue;
+
+          const primed = await primeUpstream(candidateResponse);
+          return { source: candidate, upstream: primed.response, body: primed.body };
+        } catch (error) {
+          console.warn(
+            '[playback-stream-candidate]',
+            candidateIndex,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+      return null;
+    };
+
+    let selected = await trySources(result.sources);
+
+    // Akwam URLs can expire or a specific CDN node can stall a ranged read.
+    // Invalidate the short-lived broker cache once and resolve a fresh source set
+    // before giving up so the player can recover without a manual source switch.
+    if (!selected) {
       await edgeBrokerInvalidate(cacheKey);
       result = await resolvePlaybackBroker(
         req,
@@ -284,41 +364,26 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
         Number.isFinite(seasonNumber) ? seasonNumber : undefined,
         Number.isFinite(episodeNumber) ? episodeNumber : undefined,
       );
-      source = result.sources[sourceIndex] || result.sources[0];
-      upstreamUrl = String(source?.directUrl || '').trim();
+      selected = await trySources(result.sources);
     }
 
-    if (!source || source.providerKey !== 'akwam' || !/^https:\/\//i.test(upstreamUrl)) {
-      return fail(res, 404, 'PLAYBACK_STREAM_SOURCE_NOT_FOUND', 'Playback source is no longer available');
+    if (!selected) {
+      return fail(res, 502, 'PLAYBACK_STREAM_UPSTREAM_INVALID', 'No responsive Akwam media source is available');
     }
 
-    let upstream = await fetchUpstream(upstreamUrl);
-
-    // Akwam video URLs are short-lived. Do not let a cached-but-expired CDN
-    // URL strand the player: invalidate and resolve one fresh source once.
-    if (isBadUpstream(upstream)) {
-      await edgeBrokerInvalidate(cacheKey);
-      const refreshed = await resolvePlaybackBroker(
-        req,
-        contentType,
-        contentId,
-        Number.isFinite(seasonNumber) ? seasonNumber : undefined,
-        Number.isFinite(episodeNumber) ? episodeNumber : undefined,
-      );
-      const refreshedSource = refreshed.sources[sourceIndex] || refreshed.sources[0];
-
-      if (refreshedSource?.providerKey === 'akwam' && /^https:\/\//i.test(String(refreshedSource.directUrl || ''))) {
-        source = refreshedSource;
-        upstreamUrl = String(refreshedSource.directUrl);
-        upstream = await fetchUpstream(upstreamUrl);
-      }
-    }
-
+    const { source, upstream } = selected;
     const responseHeaders = new Headers();
     for (const name of ['content-type','content-length','content-range','accept-ranges','etag','last-modified','content-disposition']) {
       const value = upstream.headers.get(name);
       if (value) responseHeaders.set(name, value);
     }
+
+    const sourceType = String(source.type || '').toLowerCase();
+    const currentContentType = String(responseHeaders.get('content-type') || '').toLowerCase();
+    if (sourceType === 'mp4' && (!currentContentType || currentContentType.includes('application/octet-stream'))) {
+      responseHeaders.set('content-type', 'video/mp4');
+    }
+
     responseHeaders.set('cache-control', 'private, no-store');
     responseHeaders.set('access-control-allow-origin', req.headers.get('origin') || '*');
     responseHeaders.set('access-control-expose-headers', 'Content-Length, Content-Range, Accept-Ranges, Content-Type, ETag, Last-Modified');
@@ -327,7 +392,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
       return fail(res, 502, 'PLAYBACK_STREAM_UPSTREAM_INVALID', 'Upstream playback response is not a media stream');
     }
 
-    return new Response(req.method === 'HEAD' ? null : upstream.body, {
+    return new Response(req.method === 'HEAD' ? null : selected.body, {
       status: upstream.status,
       headers: responseHeaders,
     });
