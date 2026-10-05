@@ -112,6 +112,13 @@ export const MovyzaApi = {
 
   getPlaybackOrigins: () => request<string[]>('/playback/origins', {}, { skipAuth: true }),
 
+  preparePlayback: (contentType: 'movie' | 'episode', contentId: string, season?: number, episode?: number) =>
+    request<{ contentType: 'movie' | 'episode'; contentId: string; mode: string; ready: boolean; sources: any[] }>(
+      `/playback/prepare?type=${encodeURIComponent(contentType)}&contentId=${encodeURIComponent(contentId)}${season ? `&season=${encodeURIComponent(String(season))}` : ''}${episode ? `&episode=${encodeURIComponent(String(episode))}` : ''}`,
+      {},
+      { skipAuth: true },
+    ),
+
   getGenres: () => request<Genre[]>('/genres'),
 
   getWatchlist: () => request<WatchlistItem[]>('/watchlist'),
