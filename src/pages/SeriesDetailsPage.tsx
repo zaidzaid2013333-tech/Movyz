@@ -69,17 +69,6 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
     };
   }, [seriesId]);
 
-  useEffect(() => {
-    const firstEpisode = series?.seasons?.[0]?.episodes?.[0];
-    if (!firstEpisode?.id) return;
-    void MovyzaApi.preparePlayback(
-      'episode',
-      firstEpisode.id,
-      firstEpisode.seasonNumber,
-      firstEpisode.episodeNumber,
-    ).catch(() => undefined);
-  }, [series?.id]);
-
   const handleShare = () => {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(window.location.href);
