@@ -1,16 +1,9 @@
-name: Movyz Cloudflare Deploy
+name: Movyz Cloudflare Deploy (Manual Legacy)
 
 on:
-  push:
-    branches: ["main"]
-    paths-ignore:
-      - "supabase/**"
-      - ".github/workflows/**"
-      - "workers/akwam-queue-job/**"
-      - "workers/akwam-queue-consumer/**"
-      - "workers/akwam-queue-dispatcher/**"
   workflow_dispatch:
 
+# Deprecated automatic deploy path. Production deploys are owned by deploy-worker.yml.
 permissions:
   contents: read
 
