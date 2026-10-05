@@ -97,7 +97,7 @@ jobs:
                       "continuing because the live playback contract and sources "
                       "are verified below"
                   )
-              if contract != "db-v2":
+              if contract != "broker-v1":
                   raise SystemExit(f"{label}: unexpected playback contract: {contract!r}")
               if payload.get("success") is not True:
                   raise SystemExit(f"{label}: API response was not successful")
