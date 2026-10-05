@@ -88,9 +88,9 @@ export default {
       }
 
       // Two queue messages/minute stay below the current Workers Free
-      // Queues 10,000 operations/day allowance while each message fans out
-      // into 24 isolated Worker invocations through a service binding.
-      const fanout = Math.max(1, Math.min(24, Number((env as Env & { DISPATCH_FANOUT?: string }).DISPATCH_FANOUT || 24)));
+      // Queues daily operation allowance while each message fans out
+      // into 32 isolated Worker invocations through a service binding.
+      const fanout = Math.max(1, Math.min(24, Number((env as Env & { DISPATCH_FANOUT?: string }).DISPATCH_FANOUT || 32)));
       const messageCount = 2;
       const messages = Array.from({ length: messageCount }, () => ({
         body: { kind: "claim", contentType, fanout },
