@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: movyz-api-worker
+  group: movyz-full-movie-secondary-prewarm
   cancel-in-progress: true
 
 jobs:
