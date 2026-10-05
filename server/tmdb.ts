@@ -687,75 +687,107 @@ export async function importCuratedCatalog(items: CuratedCatalogItem[]) {
     if (!unique.has(key)) unique.set(key, item);
   }
 
+  const ordered = [...unique.values()].sort((a, b) => a.rank - b.rank);
   const results: Array<Record<string, unknown>> = [];
-  for (const item of [...unique.values()].sort((a, b) => a.rank - b.rank)) {
-    try {
-      const path = item.mediaType === 'movie' ? '/search/movie' : '/search/tv';
-      const yearParam = item.mediaType === 'movie' ? 'primary_release_year' : 'first_air_date_year';
-      let search = await tmdbGet<any>(path, {
-        query: item.title.replace(/[:：\\-–—]\\s*(?:season|series)\\s*\\d+$/i, '').trim(),
-        language: 'en-US',
-        include_adult: false,
-        page: 1,
-        ...(item.year ? { [yearParam]: item.year } : {}),
-      });
+  const concurrency = Math.min(
+    2,
+    Math.max(1, Number(process.env.CURATED_IMPORT_CONCURRENCY || 2)),
+  );
 
-      let candidates = Array.isArray(search?.results) ? search.results : [];
-      if (!candidates.length && item.year) {
-        search = await tmdbGet<any>(path, {
-          query: item.title.replace(/[:：\\-–—]\\s*(?:season|series)\\s*\\d+$/i, '').trim(),
+  for (let offset = 0; offset < ordered.length; offset += concurrency) {
+    const chunk = ordered.slice(offset, offset + concurrency);
+
+    await Promise.all(chunk.map(async (item) => {
+      try {
+        const path = item.mediaType === 'movie' ? '/search/movie' : '/search/tv';
+        const yearParam = item.mediaType === 'movie' ? 'primary_release_year' : 'first_air_date_year';
+        let search = await tmdbGet<any>(path, {
+          query: item.title.replace(/[:：\-–—]\s*(?:season|series)\s*\d+$/i, '').trim(),
           language: 'en-US',
           include_adult: false,
           page: 1,
+          ...(item.year ? { [yearParam]: item.year } : {}),
         });
-        candidates = Array.isArray(search?.results) ? search.results : [];
+
+        let candidates = Array.isArray(search?.results) ? search.results : [];
+        if (!candidates.length && item.year) {
+          search = await tmdbGet<any>(path, {
+            query: item.title.replace(/[:：\-–—]\s*(?:season|series)\s*\d+$/i, '').trim(),
+            language: 'en-US',
+            include_adult: false,
+            page: 1,
+          });
+          candidates = Array.isArray(search?.results) ? search.results : [];
+        }
+
+        const ranked = candidates
+          .map((candidate: any) => ({
+            candidate,
+            score: curatedCandidateScore(item, candidate, item.mediaType),
+          }))
+          .sort((a: any, b: any) => b.score - a.score);
+
+        const best = ranked[0];
+        if (!best || best.score < 0.48 || !Number.isInteger(best.candidate?.id)) {
+          results.push({ rank: item.rank, title: item.title, mediaType: item.mediaType, status: 'not_found' });
+          return;
+        }
+
+        if (item.mediaType === 'movie') {
+          const id = await syncMovieByTmdbId(Number(best.candidate.id));
+          const trending = item.rank <= 50;
+          const featured = item.rank <= 10;
+          const { error } = await adminSupabase.from('movies').update({
+            status: 'published',
+            popular: true,
+            trending,
+            featured,
+            metadata: { curated_rank: item.rank, curated_year: item.year || null },
+          }).eq('id', id);
+          if (error) throw new Error(error.message);
+          results.push({
+            rank: item.rank,
+            title: item.title,
+            tmdbId: best.candidate.id,
+            mediaType: item.mediaType,
+            status: 'imported',
+            score: Number(best.score.toFixed(3)),
+          });
+        } else {
+          const synced = await syncSeriesByTmdbId(Number(best.candidate.id));
+          const trending = item.rank <= 50;
+          const featured = item.rank <= 10;
+          const { error } = await adminSupabase.from('series').update({
+            status: 'published',
+            popular: true,
+            trending,
+            featured,
+            metadata: { curated_rank: item.rank, curated_year: item.year || null },
+          }).eq('id', synced.id);
+          if (error) throw new Error(error.message);
+          results.push({
+            rank: item.rank,
+            title: item.title,
+            tmdbId: best.candidate.id,
+            mediaType: item.mediaType,
+            status: 'imported',
+            score: Number(best.score.toFixed(3)),
+            seasons: synced.seasons,
+            episodes: synced.episodes,
+          });
+        }
+      } catch (error) {
+        results.push({
+          rank: item.rank,
+          title: item.title,
+          mediaType: item.mediaType,
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        await throttle();
       }
-
-      const ranked = candidates
-        .map((candidate: any) => ({
-          candidate,
-          score: curatedCandidateScore(item, candidate, item.mediaType),
-        }))
-        .sort((a: any, b: any) => b.score - a.score);
-
-      const best = ranked[0];
-      if (!best || best.score < 0.48 || !Number.isInteger(best.candidate?.id)) {
-        results.push({ rank: item.rank, title: item.title, mediaType: item.mediaType, status: 'not_found' });
-        continue;
-      }
-
-      if (item.mediaType === 'movie') {
-        const id = await syncMovieByTmdbId(Number(best.candidate.id));
-        const trending = item.rank <= 50;
-        const featured = item.rank <= 10;
-        const { error } = await adminSupabase.from('movies').update({
-          status: 'published',
-          popular: true,
-          trending,
-          featured,
-          metadata: { curated_rank: item.rank, curated_year: item.year || null },
-        }).eq('id', id);
-        if (error) throw new Error(error.message);
-        results.push({ rank: item.rank, title: item.title, tmdbId: best.candidate.id, mediaType: item.mediaType, status: 'imported', score: Number(best.score.toFixed(3)) });
-      } else {
-        const synced = await syncSeriesByTmdbId(Number(best.candidate.id));
-        const trending = item.rank <= 50;
-        const featured = item.rank <= 10;
-        const { error } = await adminSupabase.from('series').update({
-          status: 'published',
-          popular: true,
-          trending,
-          featured,
-          metadata: { curated_rank: item.rank, curated_year: item.year || null },
-        }).eq('id', synced.id);
-        if (error) throw new Error(error.message);
-        results.push({ rank: item.rank, title: item.title, tmdbId: best.candidate.id, mediaType: item.mediaType, status: 'imported', score: Number(best.score.toFixed(3)), seasons: synced.seasons, episodes: synced.episodes });
-      }
-    } catch (error) {
-      results.push({ rank: item.rank, title: item.title, mediaType: item.mediaType, status: 'error', error: error instanceof Error ? error.message : String(error) });
-    }
-
-    await throttle();
+    }));
   }
 
   return {
@@ -763,7 +795,7 @@ export async function importCuratedCatalog(items: CuratedCatalogItem[]) {
     imported: results.filter((x) => x.status === 'imported').length,
     notFound: results.filter((x) => x.status === 'not_found').length,
     errors: results.filter((x) => x.status === 'error').length,
-    results,
+    results: results.sort((a, b) => Number(a.rank) - Number(b.rank)),
   };
 }
 
