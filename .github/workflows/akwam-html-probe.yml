@@ -107,6 +107,17 @@ jobs:
           grep -Eio 'href=["'"'"'][^"'"'"']*(/movie/|/series/)[^"'"'"']+["'"'"']' /tmp/movie-search.html | head -50 || true
           echo '=== Free Solo search relevant lines ==='
           grep -Ein 'Free Solo|فيلم|movie|search' /tmp/movie-search.html | head -120 || true
+          echo '=== Free Solo search form (exact filter names) ==='
+          sed -n '185,230p' /tmp/movie-search.html || true
+          echo '=== Free Solo search candidate links ==='
+          grep -Eio 'href=["'"'"'][^"'"'"']+["'"'"']' /tmp/movie-search.html | grep -Ei '/movie/|/series/|/old/' | head -100 || true
+          echo '=== Filter route probes ==='
+          for u in             'https://akwam.ss/search?q=Free%20Solo&section=movie'             'https://akwam.ss/search?q=Free%20Solo&type=movie'             'https://akwam.ss/search?q=Free%20Solo&category=movie'             'https://akwam.ss/search?q=Free%20Solo&filter=movie'; do
+            echo "--- $u ---"
+            curl -L --fail-with-body --silent --show-error --max-time 30 -A "$ua" -H 'Accept: text/html' "$u" -o /tmp/filter.html
+            wc -c /tmp/filter.html
+            grep -Eio 'href=["'"'"'][^"'"'"']*(/movie/|/series/)[^"'"'"']+["'"'"']' /tmp/filter.html | head -20 || true
+          done
 
           echo '=== download candidates from episode ==='
           python - <<'PY'
