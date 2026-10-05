@@ -1,15 +1,6 @@
 name: Deploy Movyz Akwam Cloudflare Queue Engine
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - "workers/akwam-queue-job/**"
-      - "workers/akwam-queue-consumer/**"
-      - "workers/akwam-queue-dispatcher/**"
-      - "workers/akwam-prefill/src/index.ts"
-      - "scripts/akwam-github-worker.ts"
-      - ".github/workflows/cloudflare-akwam-queue.yml"
   workflow_dispatch:
 
 permissions:
