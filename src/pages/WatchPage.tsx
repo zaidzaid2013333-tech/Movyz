@@ -528,15 +528,28 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const armPlayerLoadTimeout = () => {
     clearPlayerLoadTimeout();
+
+    const video = videoRef.current;
+    // Once metadata is available, a later waiting/stalled event is buffering—not
+    // a failed source. Only guard the initial source acquisition before metadata.
+    if (video && video.readyState >= HTMLMediaElement.HAVE_METADATA) return;
+
     playerLoadTimeoutRef.current = window.setTimeout(() => {
       playerLoadTimeoutRef.current = null;
+
+      const currentVideo = videoRef.current;
+      if (currentVideo && currentVideo.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        // Metadata arrived while the timer was pending; keep buffering gracefully.
+        return;
+      }
+
       setPlayerLoadingState(false);
       setPlaybackError(
         language === 'ar'
           ? 'استغرق تحميل الفيديو وقتًا أطول من المتوقع. أعد المحاولة أو اختر مصدرًا آخر.'
           : 'The video took too long to load. Retry or choose another source.',
       );
-    }, 20000);
+    }, 60000);
   };
 
   const reloadPlayer = () => {
@@ -1157,6 +1170,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       } catch {}
     };
     const onMetadata = () => {
+      clearPlayerLoadTimeout();
       if (startupGuardTimerRef.current !== null) {
         window.clearTimeout(startupGuardTimerRef.current);
         startupGuardTimerRef.current = null;
@@ -1206,6 +1220,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       }
       if (!playbackStartedRef.current) setPlaybackError(null);
       setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Buffering…');
+      // Do not arm a fatal source timeout once metadata is available.
       armPlayerLoadTimeout();
       syncTime();
       syncBuffered();
@@ -1634,6 +1649,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     resumeAfterBufferingRef.current = true;
                   }
                   setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Buffering…');
+                  // Metadata-aware armPlayerLoadTimeout() will no-op during normal buffering.
                   armPlayerLoadTimeout();
                   if (!playbackStartedRef.current) {
                     setPlaybackError(null);
