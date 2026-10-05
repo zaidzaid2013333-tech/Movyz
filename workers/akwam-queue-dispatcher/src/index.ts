@@ -39,8 +39,6 @@ async function hasReadyJob(env: Env, contentType: "movie" | "episode") {
   return Array.isArray(rows) && rows.length > 0;
 }
 
-
-
 async function writeState(env: Env, patch: Record<string, unknown>) {
   const base = env.SUPABASE_URL.replace(/\/+$/, "");
   try {
@@ -90,7 +88,14 @@ export default {
       // Two queue messages/minute stay below the current Workers Free
       // Queues daily operation allowance while each message fans out
       // into 32 isolated Worker invocations through a service binding.
-      const fanout = Math.max(1, Math.min(24, Number((env as Env & { DISPATCH_FANOUT?: string }).DISPATCH_FANOUT || 32)));
+      // Keep the code cap aligned with the configured 32 fanout value.
+      const fanout = Math.max(
+        1,
+        Math.min(
+          32,
+          Number((env as Env & { DISPATCH_FANOUT?: string }).DISPATCH_FANOUT || 32),
+        ),
+      );
       const messageCount = 2;
       const messages = Array.from({ length: messageCount }, () => ({
         body: { kind: "claim", contentType, fanout },
