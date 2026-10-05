@@ -4,6 +4,7 @@ import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } from './auth';
 import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
+import { resolveAkwamNow } from '../workers/akwam-prefill/src/index';
 
 export const app = new MiniApp();
 const api = '/api/v1';
@@ -14,7 +15,7 @@ app.disable('x-powered-by');
 // User playback requests read validated persisted rows from Supabase and never
 // trigger live provider discovery or any external source resolver.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
-const MOVYZ_PLAYBACK_CONTRACT = 'db-v2';
+const MOVYZ_PLAYBACK_CONTRACT = 'broker-v1';
 
 function normalizePlaybackQuality(value: unknown) {
   const raw = String(value ?? '').trim();
@@ -153,6 +154,255 @@ async function getFreshPlaybackSourcesForContent(
     return [];
   }
 }
+
+
+// Playback Broker: cache-first, DB fallback, then on-demand Akwam resolution.
+// Playback URLs are never persisted by this path. The edge cache is short-lived
+// so the same title can be reused immediately without creating a 120k-row archive.
+type BrokerSource = {
+  id: string;
+  type: string;
+  quality: string;
+  language: string;
+  label: string;
+  labelEn: string;
+  url: string;
+  directUrl?: string;
+  isWorking: boolean;
+  provider: string;
+  providerKey: string;
+  providerReference: string;
+  expiresAt: string | null;
+};
+
+type BrokerCacheValue = {
+  sources: BrokerSource[];
+  cachedAt: number;
+};
+
+const playbackBrokerMemory = new Map<string, BrokerCacheValue>();
+const playbackBrokerInflight = new Map<string, Promise<BrokerSource[]>>();
+const PLAYBACK_BROKER_TTL_MS = 2 * 60 * 1000;
+const PLAYBACK_BROKER_MAX_MEMORY_KEYS = 256;
+
+function brokerCacheKey(contentType: 'movie' | 'episode', contentId: string) {
+  return `https://movyz-cache.invalid/playback/${contentType}/${encodeURIComponent(contentId)}`;
+}
+
+function trimBrokerMemory() {
+  while (playbackBrokerMemory.size > PLAYBACK_BROKER_MAX_MEMORY_KEYS) {
+    const first = playbackBrokerMemory.keys().next().value;
+    if (!first) break;
+    playbackBrokerMemory.delete(first);
+  }
+}
+
+async function edgeBrokerRead(key: string): Promise<BrokerSource[] | null> {
+  const now = Date.now();
+  const memory = playbackBrokerMemory.get(key);
+  if (memory && memory.cachedAt + PLAYBACK_BROKER_TTL_MS > now) {
+    return memory.sources;
+  }
+  if (memory) playbackBrokerMemory.delete(key);
+
+  const cacheApi = (globalThis as any).caches?.default;
+  if (!cacheApi) return null;
+
+  try {
+    const cached = await cacheApi.match(new Request(key));
+    if (!cached) return null;
+    const payload = await cached.json() as { sources?: BrokerSource[] };
+    const sources = Array.isArray(payload?.sources) ? payload.sources : [];
+    if (!sources.length) return null;
+    playbackBrokerMemory.set(key, { sources, cachedAt: now });
+    trimBrokerMemory();
+    return sources;
+  } catch {
+    return null;
+  }
+}
+
+async function edgeBrokerWrite(key: string, sources: BrokerSource[]) {
+  const cachedAt = Date.now();
+  playbackBrokerMemory.set(key, { sources, cachedAt });
+  trimBrokerMemory();
+
+  const cacheApi = (globalThis as any).caches?.default;
+  if (!cacheApi) return;
+
+  try {
+    const response = new Response(JSON.stringify({ sources, cachedAt }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'public, max-age=0, s-maxage=120, stale-while-revalidate=300',
+      },
+    });
+    await cacheApi.put(new Request(key), response);
+  } catch {
+    // Edge Cache is an optimization; playback remains functional without it.
+  }
+}
+
+function normalizeBrokerMediaSources(
+  sources: Array<{ url: string; type: string; quality?: string }>,
+  contentType: 'movie' | 'episode',
+  contentId: string,
+): BrokerSource[] {
+  return sources
+    .filter((source) => /^https:\/\//i.test(String(source?.url || '')))
+    .map((source, index) => {
+      const quality = normalizePlaybackQuality(source.quality || 'Auto');
+      return {
+        id: `akwam-live:${contentType}:${contentId}:${index}`,
+        type: String(source.type || 'direct').toLowerCase(),
+        quality,
+        language: 'und',
+        label: `Akwam • ${quality}`,
+        labelEn: `Akwam • ${quality}`,
+        url: String(source.url),
+        directUrl: String(source.url),
+        isWorking: true,
+        provider: 'Akwam',
+        providerKey: 'akwam',
+        providerReference: 'akwam',
+        expiresAt: null,
+      };
+    })
+    .filter((source) =>
+      ['mp4', 'hls', 'dash', 'webm', 'direct'].includes(source.type) &&
+      /^https:\/\//i.test(source.url),
+    );
+}
+
+async function resolvePlaybackBroker(
+  req: HttpRequest,
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  seasonNumber?: number,
+  episodeNumber?: number,
+): Promise<{ sources: BrokerSource[]; mode: 'edge-cache' | 'persisted' | 'live' }> {
+  const key = brokerCacheKey(contentType, contentId);
+
+  const cached = await edgeBrokerRead(key);
+  if (cached?.length) {
+    return { sources: cached, mode: 'edge-cache' };
+  }
+
+  const persisted = await getFreshPlaybackSourcesForContent(contentType, contentId, req.env);
+  if (persisted.length) {
+    const sources = persisted.map((source: any) => ({
+      id: String(source.id),
+      type: String(source.type || 'direct').toLowerCase(),
+      quality: normalizePlaybackQuality(source.quality),
+      language: String(source.language || 'und'),
+      label: String(source.label || source.provider || 'Source'),
+      labelEn: String(source.labelEn || source.label || source.provider || 'Source'),
+      url: String(source.url || ''),
+      directUrl: String(source.url || ''),
+      isWorking: source.isWorking !== false,
+      provider: String(source.provider || 'Source'),
+      providerKey: String(source.providerKey || source.providerReference || 'source'),
+      providerReference: String(source.providerReference || source.providerKey || 'source'),
+      expiresAt: source.expiresAt || null,
+    } as BrokerSource));
+    await edgeBrokerWrite(key, sources);
+    return { sources, mode: 'persisted' };
+  }
+
+  const existing = playbackBrokerInflight.get(key);
+  if (existing) {
+    return { sources: await existing, mode: 'live' };
+  }
+
+  const resolverUrl = String(req.env?.SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+  const serviceRoleKey = String(
+    req.env?.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  ).trim();
+
+  if (!resolverUrl || !serviceRoleKey) {
+    throw new Error('PLAYBACK_BROKER_CONFIG_MISSING');
+  }
+
+  const resolverPromise = (async () => {
+    const media = await resolveAkwamNow(
+      {
+        SUPABASE_URL: resolverUrl,
+        SUPABASE_SERVICE_ROLE_KEY: serviceRoleKey,
+        AKWAM_BASE_URL: 'https://akwam.ss',
+        MAX_JOBS_PER_RUN: '1',
+        PREFILL_CONCURRENCY: '1',
+      },
+      {
+        content_type: contentType,
+        content_id: contentId,
+        season_number: seasonNumber,
+        episode_number: episodeNumber,
+      },
+    );
+
+    const sources = normalizeBrokerMediaSources(media, contentType, contentId);
+    if (!sources.length) throw new Error('PLAYBACK_BROKER_NO_PLAYABLE_SOURCE');
+    await edgeBrokerWrite(key, sources);
+    return sources;
+  })();
+
+  playbackBrokerInflight.set(key, resolverPromise);
+  try {
+    return { sources: await resolverPromise, mode: 'live' };
+  } finally {
+    playbackBrokerInflight.delete(key);
+  }
+}
+
+app.get(`${api}/playback/prepare`, asyncRoute(async (req, res) => {
+  const rawType = typeof req.query.type === 'string' ? req.query.type : '';
+  const rawContentId = typeof req.query.contentId === 'string' ? req.query.contentId : '';
+  const contentType = rawType === 'movie' || rawType === 'episode' ? rawType : null;
+  const contentId = rawContentId.trim();
+
+  if (!contentType || !contentId) {
+    return fail(res, 400, 'PLAYBACK_BROKER_INVALID_REQUEST', 'Playback type and contentId are required');
+  }
+
+  const seasonNumber = typeof req.query.season === 'string' ? Number(req.query.season) : undefined;
+  const episodeNumber = typeof req.query.episode === 'string' ? Number(req.query.episode) : undefined;
+
+  try {
+    const result = await resolvePlaybackBroker(
+      req,
+      contentType,
+      contentId,
+      Number.isFinite(seasonNumber) ? seasonNumber : undefined,
+      Number.isFinite(episodeNumber) ? episodeNumber : undefined,
+    );
+
+    res.setHeader(
+      'cache-control',
+      result.mode === 'live'
+        ? 'private, no-store'
+        : 'public, max-age=15, stale-while-revalidate=60',
+    );
+    return ok(res, {
+      contentType,
+      contentId,
+      mode: result.mode,
+      sources: result.sources,
+      ready: result.sources.length > 0,
+    });
+  } catch (error) {
+    console.warn(
+      '[playback-broker]',
+      error instanceof Error ? error.message : String(error),
+    );
+    return fail(
+      res,
+      502,
+      'PLAYBACK_BROKER_RESOLVE_FAILED',
+      'A playable source is not available right now',
+    );
+  }
+}));
 
 app.get(`${api}/playback/origins`, asyncRoute(async (_req, res) => {
   const { data, error } = await adminSupabase
