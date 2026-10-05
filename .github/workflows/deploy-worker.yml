@@ -194,7 +194,7 @@ jobs:
                       raise SystemExit(f"{label}: non-zero range returned HTTP {offset_status}")
                   if not offset_sample:
                       raise SystemExit(f"{label}: non-zero range returned no bytes")
-                  if offset_status == 206 and not re.search(r"bytes\\s+5242880-", offset_range, re.I):
+                  if offset_status == 206 and not re.search(r"bytes\s+5242880-", offset_range, re.I):
                       raise SystemExit(
                           f"{label}: non-zero range returned unexpected Content-Range {offset_range!r}"
                       )
