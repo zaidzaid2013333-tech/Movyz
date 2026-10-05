@@ -63,9 +63,16 @@ jobs:
           ]
 
           for path, label, minimum_sources in checks:
+              separator = "&" if "?" in path else "?"
+              cache_busted_path = f"{path}{separator}__movyz_ci={expected_build}"
               req = urllib.request.Request(
-                  base + path,
-                  headers={"Accept": "application/json", "User-Agent": "Movyz-CI-Playback/3.0"},
+                  base + cache_busted_path,
+                  headers={
+                      "Accept": "application/json",
+                      "Cache-Control": "no-cache",
+                      "Pragma": "no-cache",
+                      "User-Agent": "Movyz-CI-Playback/3.1",
+                  },
               )
               with urllib.request.urlopen(req, timeout=60) as response:
                   payload = json.load(response)
