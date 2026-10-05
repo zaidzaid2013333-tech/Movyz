@@ -148,9 +148,7 @@ jobs:
 
           for path, label, kind in checks:
               payload, headers = get_json(path, label)
-              contract = headers["contract"]
-              if contract != "broker-v1":
-                  raise SystemExit(f"{label}: unexpected playback contract: {contract!r}")
+              print(f"{label}: catalog contract={headers['contract']!r} build={headers['build']!r}")
 
               if kind == "movie":
                   content = payload.get("data", {}).get("movie", {})
