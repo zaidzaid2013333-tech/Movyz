@@ -618,7 +618,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     window.setTimeout(() => setSeekFeedback(null), 520);
   };
 
-  const handlePlayerDoubleTap = (event: React.PointerEvent<HTMLDivElement>) => {
+  const handlePlayerDoubleTap = (event: React.PointerEvent<HTMLVideoElement>) => {
     if (event.pointerType !== 'touch') return;
     const now = Date.now();
     const rect = event.currentTarget.getBoundingClientRect();
