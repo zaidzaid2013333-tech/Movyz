@@ -213,6 +213,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [theaterLighting, setTheaterLighting] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [remotePlaybackSources, setRemotePlaybackSources] = useState<PlaybackSource[]>([]);
+  const [playbackOrigins, setPlaybackOrigins] = useState<string[]>([]);
+
   const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
   const [resolverLoading, setResolverLoading] = useState(false);
   const [playerUnlocked, setPlayerUnlocked] = useState(false);
@@ -508,24 +510,49 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
 
   useEffect(() => {
-    if (typeof document === 'undefined' || !availableSources.length) return;
+    let mounted = true;
+
+    try {
+      const cached = window.sessionStorage.getItem('movyz:playback-origins');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) setPlaybackOrigins(parsed.filter((x) => typeof x === 'string'));
+      }
+    } catch {}
+
+    void MovyzaApi.getPlaybackOrigins()
+      .then((response) => {
+        if (!mounted) return;
+        const origins = Array.isArray(response.data) ? response.data : [];
+        setPlaybackOrigins(origins);
+        try {
+          window.sessionStorage.setItem('movyz:playback-origins', JSON.stringify(origins));
+        } catch {}
+      })
+      .catch(() => undefined);
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
 
     const head = document.head;
     head.querySelectorAll('link[data-movyz-media-preconnect]').forEach((node) => node.remove());
     head.querySelectorAll('link[data-movyz-media-dns]').forEach((node) => node.remove());
 
-    const origins = Array.from(new Set(
-      availableSources
-        .slice(0, 6)
-        .map((source) => {
-          try {
-            return new URL(source.url).origin;
-          } catch {
-            return '';
-          }
-        })
-        .filter(Boolean),
-    ));
+    const origins = Array.from(new Set([
+      ...playbackOrigins,
+      ...availableSources.map((source) => {
+        try {
+          return new URL(source.url).origin;
+        } catch {
+          return '';
+        }
+      }),
+    ].filter(Boolean)));
 
     const created: HTMLElement[] = [];
     for (const origin of origins) {
@@ -548,7 +575,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return () => {
       for (const node of created) node.remove();
     };
-  }, [availableSources]);
+  }, [playbackOrigins, availableSources]);
 
   // Warm alternate MP4/direct sources before the user switches to them.
   // This only prepares browser metadata/connection state; it never proxies
