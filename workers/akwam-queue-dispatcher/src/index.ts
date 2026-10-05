@@ -90,9 +90,11 @@ export default {
       // Two queue messages/minute stay below the current Workers Free
       // Queues 10,000 operations/day allowance while each message fans out
       // into 24 isolated Worker invocations through a service binding.
-      const messages = [
-        { body: { kind: "claim", contentType, fanout: 4 } },
-      ];
+      const fanout = Math.max(1, Math.min(24, Number((env as Env & { DISPATCH_FANOUT?: string }).DISPATCH_FANOUT || 24)));
+      const messageCount = 2;
+      const messages = Array.from({ length: messageCount }, () => ({
+        body: { kind: "claim", contentType, fanout },
+      }));
 
       await env.FILL_QUEUE.sendBatch(messages);
       await writeState(env, {
@@ -104,11 +106,11 @@ export default {
           executor: "cloudflare-queue-dispatcher",
           content_type: contentType,
           messages: messages.length,
-          fanout: 24,
+          fanout,
         },
       });
       console.log(
-        `[akwam-queue-dispatcher] queued=2 contentType=${contentType} fanout=24`,
+        `[akwam-queue-dispatcher] queued=${messages.length} contentType=${contentType} fanout=${fanout}`,
       );
     } catch (error) {
       await writeState(env, {
