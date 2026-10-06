@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyz-production-github-actions
+  group: movyz-production-github-actions-v2
   cancel-in-progress: true
 
 jobs:
@@ -251,7 +251,7 @@ jobs:
           PY
 
       - name: Full curated catalog playback audit
-        if: always()
+        if: ${{ success() }}
         timeout-minutes: 18
         run: |
           python - <<'PY'
