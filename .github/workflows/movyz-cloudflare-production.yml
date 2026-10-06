@@ -85,7 +85,7 @@ jobs:
               "year": 2014,
           }
           req = urllib.request.Request(
-              resolver + "/resolve",
+              resolver,
               data=json.dumps(payload).encode(),
               headers={"Content-Type":"application/json","Accept":"application/json","User-Agent":"Movyz-GitHub-Actions-Resolver-Smoke/1.0","x-movyz-resolver-key":os.environ["SUPABASE_SERVICE_ROLE_KEY"]},
               method="POST",
