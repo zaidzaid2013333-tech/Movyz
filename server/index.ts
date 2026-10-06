@@ -41,6 +41,7 @@ type BrokerSource = {
   providerKey: string;
   providerReference: string;
   expiresAt: string | null;
+  referer?: string;
 };
 
 type BrokerCacheValue = {
@@ -135,7 +136,7 @@ async function edgeBrokerInvalidate(key: string) {
 }
 
 function normalizeBrokerMediaSources(
-  sources: Array<{ url: string; type: string; quality?: string }>,
+  sources: Array<{ url: string; type: string; quality?: string; referer?: string }>,
   contentType: 'movie' | 'episode',
   contentId: string,
   requestUrl: string,
@@ -169,6 +170,9 @@ function normalizeBrokerMediaSources(
         providerKey: 'akwam',
         providerReference: 'akwam',
         expiresAt: null,
+        referer: typeof source.referer === 'string' && /^https:\/\//i.test(source.referer)
+          ? source.referer
+          : 'https://akwam.ss/',
       };
     })
     .filter((source) =>
@@ -260,7 +264,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
   const episodeNumber = typeof req.query.episode === 'string' ? Number(req.query.episode) : undefined;
   const cacheKey = brokerCacheKey(contentType, contentId, seasonNumber, episodeNumber);
 
-  const fetchUpstream = async (upstreamUrl: string) => {
+  const fetchUpstream = async (upstreamUrl: string, referer?: string) => {
     const upstreamHeaders = new Headers();
     // Media startup/seek is driven by byte ranges. Do not forward conditional-cache
     // validators from the browser because a 304 has no media body and can leave a
@@ -268,8 +272,13 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     const range = req.headers.get('range');
     if (range) upstreamHeaders.set('range', range);
     upstreamHeaders.set('Accept', req.headers.get('accept') || '*/*');
-    upstreamHeaders.set('Referer', 'https://akwam.ss/');
-    upstreamHeaders.set('Origin', 'https://akwam.ss');
+    const sourceReferer = /^https:\/\//i.test(String(referer || '')) ? String(referer) : 'https://akwam.ss/';
+    upstreamHeaders.set('Referer', sourceReferer);
+    try {
+      upstreamHeaders.set('Origin', new URL(sourceReferer).origin);
+    } catch {
+      upstreamHeaders.set('Origin', 'https://akwam.ss');
+    }
     upstreamHeaders.set('User-Agent', req.headers.get('user-agent') || 'Mozilla/5.0');
     upstreamHeaders.set('Accept-Encoding', 'identity');
 
@@ -311,7 +320,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
         if (!candidate || candidate.providerKey !== 'akwam' || !/^https:\/\//i.test(candidateUrl)) continue;
 
         try {
-          const candidateResponse = await fetchUpstream(candidateUrl);
+          const candidateResponse = await fetchUpstream(candidateUrl, candidate.referer);
           if (isBadUpstream(candidateResponse)) continue;
 
           return {
