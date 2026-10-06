@@ -34,7 +34,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [iframeFailed, setIframeFailed] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [playbackAvailability, setPlaybackAvailability] = useState<'checking' | 'available' | 'unavailable' | 'unknown'>('checking');
 
   const isSeries = mediaType === 'series';
   const safeSeason = Math.max(1, Number(seasonNumber || 1));
@@ -76,13 +75,24 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     const load = async () => {
       try {
         if (isSeries) {
-          const res = await MovyzaApi.getSeriesWatchByTmdbId(Number(contentId), safeSeason, safeEpisode);
+          // Playback must not depend on a season/episode metadata request.
+          // Load the series details first, then fetch the selected season as a
+          // best-effort enhancement without blocking the player.
+          const res = await MovyzaApi.getSeriesByTmdbId(Number(contentId));
           if (!mounted) return;
           setSeries(res.data.series);
-          setActiveSeason(res.data.currentSeason);
+          setActiveSeason(null);
           setMovie(null);
           setSimilarMovies([]);
           setSimilarSeries(res.data.similar || []);
+
+          void MovyzaApi.getSeriesSeasonByTmdbId(Number(contentId), safeSeason)
+            .then((seasonRes) => {
+              if (mounted) setActiveSeason(seasonRes.data);
+            })
+            .catch(() => {
+              // Season metadata is optional; the external player can still play.
+            });
         } else {
           const res = await MovyzaApi.getMovieByTmdbId(Number(contentId));
           if (!mounted) return;
@@ -104,38 +114,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }, [contentId, isSeries, safeSeason, safeEpisode, language]);
 
 
-  useEffect(() => {
-    if (!contentId) {
-      setPlaybackAvailability('unavailable');
-      return;
-    }
-
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 6000);
-    setPlaybackAvailability('checking');
-
-    const infoUrl = isSeries
-      ? 'https://vidsrc.sh/info/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode + '.json'
-      : 'https://vidsrc.sh/info/movie/' + encodeURIComponent(contentId) + '.json';
-
-    fetch(infoUrl, { signal: controller.signal, cache: 'no-store' })
-      .then((response) => {
-        if (response.status === 404) {
-          setPlaybackAvailability('unavailable');
-          return;
-        }
-        setPlaybackAvailability(response.ok ? 'available' : 'unknown');
-      })
-      .catch(() => {
-        setPlaybackAvailability('unknown');
-      })
-      .finally(() => window.clearTimeout(timeout));
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timeout);
-    };
-  }, [contentId, isSeries, safeSeason, safeEpisode]);
 
   const activeEpisode: Episode | null =
     activeSeason?.episodes.find((episode) => episode.episodeNumber === safeEpisode) || null;
@@ -235,7 +213,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 {subtitleHint}
               </div>
               <div className="relative aspect-video w-full overflow-hidden rounded-2xl sm:rounded-3xl bg-black border border-white/[0.09] shadow-2xl">
-                {!iframeLoaded && !iframeFailed && playbackAvailability !== 'checking' && playbackAvailability !== 'unavailable' && (
+                {!iframeLoaded && !iframeFailed && (
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#030405]">
                     <div className="flex flex-col items-center gap-3 text-slate-300">
                       <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
@@ -244,37 +222,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   </div>
                 )}
 
-                {playbackAvailability === 'unavailable' ? (
-                  <div className="absolute inset-0 flex items-center justify-center p-6 text-center bg-[#030405]">
-                    <div className="max-w-md space-y-4">
-                      <Film className="mx-auto w-10 h-10 text-rose-300" />
-                      <h2 className="text-lg font-bold">{language === 'ar' ? 'هذا المحتوى غير متاح حاليًا' : 'This title is not currently available'}</h2>
-                      <p className="text-xs sm:text-sm text-slate-400 leading-6">
-                        {language === 'ar' ? 'تم فحص توفر المصدر قبل تشغيل المشغل. جرّب حلقة أخرى أو أعد المحاولة لاحقًا.' : 'Availability was checked before opening the player. Try another episode or retry later.'}
-                      </p>
-                      <div className="flex flex-wrap justify-center gap-2">
-                        <button
-                          onClick={() => window.location.reload()}
-                          className="px-4 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs sm:text-sm"
-                        >
-                          {language === 'ar' ? 'إعادة الفحص' : 'Check again'}
-                        </button>
-                        <a href={embedUrl} target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 text-slate-200 font-semibold text-xs sm:text-sm">
-                          <ExternalLink className="w-4 h-4" />
-                          {language === 'ar' ? 'فتح مباشرة' : 'Open directly'}
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                ) : playbackAvailability === 'checking' ? (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#030405]">
-                    <div className="flex flex-col items-center gap-3 text-slate-300">
-                      <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
-                      <span className="text-xs sm:text-sm">{language === 'ar' ? 'فحص توفر الحلقة…' : 'Checking episode availability…'}</span>
-                    </div>
-                  </div>
-                ) : iframeFailed ? (
+                {iframeFailed ? (
                   <div className="absolute inset-0 flex items-center justify-center p-6 text-center bg-[#030405]">
                     <div className="max-w-md space-y-4">
                       <Film className="mx-auto w-10 h-10 text-rose-300" />
@@ -302,7 +250,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     onError={() => setIframeFailed(true)}
                   />
                 )}
-              </div>
 
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3 px-1">
                 <div className="flex items-center gap-2 text-[11px] text-slate-500">
