@@ -1362,49 +1362,25 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   const medias: Media[] = [];
   const sourceReferer = episodeTarget || candidate?.url || base(env);
 
-  const rankedTargets = usefulResolutionTargets(targets, isEpisode ? 6 : 4);
+  // Keep the candidate set intentionally small: Akwam's highest-ranked target is
+  // normally the authoritative download/watch hand-off. Fewer parallel probes reduce
+  // tail latency while the broker still refreshes the source set if playback fails.
+  const rankedTargets = usefulResolutionTargets(targets, isEpisode ? 3 : 2);
 
-  // Do not wait for every candidate target to finish before returning a playable source.
-  // A single stale/slow Akwam target used to hold the whole prepare request open even
-  // after another target had already produced a valid CDN hand-off. Resolve candidates
-  // concurrently, return the first playable result, then allow a short grace window for
-  // up to two additional sources.
-  const pendingTargets = rankedTargets.map((target, index) => ({
-    index,
-    promise: resolveTarget(env, target, sourceReferer, budget, session)
-      .then((media) => ({ index, media }))
-      .catch(() => ({ index, media: null })),
-  }));
+  const resolvedTargets = await Promise.all(
+    rankedTargets.map(async (target, index) => {
+      try {
+        return { index, media: await resolveTarget(env, target, sourceReferer, budget, session) };
+      } catch {
+        return { index, media: null };
+      }
+    }),
+  );
 
-  const firstSourceDeadline = Date.now() + (isEpisode ? 9000 : 7500);
-  let firstSourceFoundAt: number | null = null;
-
-  while (pendingTargets.length && medias.length < 3) {
-    const now = Date.now();
-    const deadline = firstSourceFoundAt === null
-      ? firstSourceDeadline
-      : Math.min(firstSourceDeadline, firstSourceFoundAt + 700);
-    const remainingMs = deadline - now;
-    if (remainingMs <= 0) break;
-
-    const timeout = new Promise<{ index: -1; media: null }>((resolve) => {
-      setTimeout(() => resolve({ index: -1, media: null }), remainingMs);
-    });
-
-    const result = await Promise.race([
-      ...pendingTargets.map((entry) => entry.promise),
-      timeout,
-    ]);
-
-    if (result.index === -1) break;
-
-    const position = pendingTargets.findIndex((entry) => entry.index === result.index);
-    if (position >= 0) pendingTargets.splice(position, 1);
-
-    if (result.media && !medias.some((item) => item.url === result.media!.url)) {
-      medias.push(result.media);
-      if (firstSourceFoundAt === null) firstSourceFoundAt = Date.now();
-    }
+  for (const result of resolvedTargets.sort((a, b) => a.index - b.index)) {
+    if (!result.media) continue;
+    if (!medias.some((x) => x.url === result.media!.url)) medias.push(result.media!);
+    if (medias.length >= 3) break;
   }
 
   if (!medias.length) {
