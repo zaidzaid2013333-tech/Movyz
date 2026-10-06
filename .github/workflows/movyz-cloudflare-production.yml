@@ -68,6 +68,35 @@ jobs:
             printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
           } > .env.production
 
+      - name: Direct resolver diagnostic - Interstellar
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          node --version
+          npx --yes tsx@4.21.0 -e '
+            import { resolveAkwamWithContext } from "./workers/akwam-prefill/src/index.ts";
+            const env = {
+              SUPABASE_URL: process.env.SUPABASE_URL,
+              SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+              AKWAM_BASE_URL: "https://akwam.ss",
+              MAX_JOBS_PER_RUN: "1",
+              PREFILL_CONCURRENCY: "1",
+            };
+            try {
+              const media = await resolveAkwamWithContext(
+                env,
+                { content_type: "movie", content_id: "6591564a-13a9-4892-a166-247d1ff9158b" },
+                { titles: ["Interstellar", "بين النجوم"], year: 2014 },
+              );
+              console.log("INTERSTELLAR_RESOLVER_OK", JSON.stringify(media));
+            } catch (error) {
+              console.error("INTERSTELLAR_RESOLVER_ERROR", error instanceof Error ? error.message : String(error));
+              process.exitCode = 1;
+            }
+          '
+
       - name: Deploy Worker to Cloudflare
         uses: cloudflare/wrangler-action@v4
         with:
