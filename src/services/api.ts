@@ -158,7 +158,11 @@ export const MovyzaApi = {
       id: Number(g.id), name: g.name || '', nameEn: g.name || '', slug: String(g.name || '').toLowerCase().replace(/\s+/g, '-'),
     }));
     const hero = trendingMapped[0] || movieItems[0] || seriesItems[0];
-    const history = await MovyzaApi.getWatchHistory().catch(() => ok<WatchProgress[]>([]));
+    // The public catalog must never depend on Supabase being configured.
+    // Supabase is only required for authenticated user data (watchlist/history/profile).
+    const history = supabase
+      ? await MovyzaApi.getWatchHistory().catch(() => ok<WatchProgress[]>([]))
+      : ok<WatchProgress[]>([]);
     return ok({
       hero, continueWatching: history.data.filter((x) => !x.completed && x.percentage > 2).slice(0, 10),
       trending: trendingMapped, popularMovies: movieItems, featuredSeries: seriesItems,
