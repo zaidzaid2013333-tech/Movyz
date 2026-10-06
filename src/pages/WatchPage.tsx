@@ -418,14 +418,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }, [contentId, activeSeason, activeEpisode]);
 
   // Playback is live-broker only. The API never returns persisted source rows.
-  useEffect(() => {
-    // Every movie and episode must enter the same live playback pipeline with
-    // the canonical Supabase UUID. TMDB IDs are metadata/navigation identifiers,
-    // never the primary playback identity.
-    const targetId =
-      mediaType === 'movie'
+  // Numeric route IDs are already supported by the broker and should start
+  // resolving immediately instead of waiting for the metadata request to finish.
+  const playbackTargetId =
+    /^\d+$/.test(contentId)
+      ? contentId
+      : mediaType === 'movie'
         ? (content as Movie | null)?.id
         : currentEpisode?.id;
+
+  useEffect(() => {
+    const targetId = playbackTargetId;
 
     if (!targetId) {
       setRemotePlaybackSources([]);
@@ -505,8 +508,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     };
   }, [
     mediaType,
-    content?.id,
-    currentEpisode?.id,
+    playbackTargetId,
     activeSeason,
     activeEpisode,
     language,
