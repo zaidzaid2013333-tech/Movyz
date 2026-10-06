@@ -1057,3 +1057,45 @@ body,
     animation: none !important;
   }
 }
+
+/* Video.js 10 watch player */
+.movyza-videojs-host {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #000;
+}
+.movyza-videojs-skin {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: #000;
+}
+.movyza-videojs-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.movyza-videojs-host:fullscreen,
+.movyza-videojs-host:fullscreen .movyza-videojs-skin {
+  width: 100vw;
+  height: 100vh;
+  border: 0;
+  border-radius: 0;
+}
+@media (max-width: 700px) {
+  .movyza-videojs-host,
+  .movyza-videojs-skin {
+    border-radius: 0 !important;
+  }
+}
