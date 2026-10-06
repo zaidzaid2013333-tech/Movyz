@@ -1,0 +1,93 @@
+name: Movyz Production Deploy
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "src/**"
+      - "index.html"
+      - "public/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - "tsconfig.json"
+      - ".github/workflows/vercel-production.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-vercel-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: prj_syIASdEt2y2ellWW8lbtWGVfmp4S
+      VERCEL_ORG_ID: team_k6ix2FuZObAmwiIzZfdjyz0U
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Configure npm resilience
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set audit false
+          npm config set fund false
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Core smoke test
+        run: npm test
+
+      - name: Build frontend
+        env:
+          VITE_MOVYZ_BUILD_ID: ${{ github.sha }}
+        run: npm run build
+
+      - name: Validate Vercel credentials
+        run: |
+          test -n "${VERCEL_TOKEN:-}" || {
+            echo "Missing GitHub secret: VERCEL_TOKEN"
+            exit 1
+          }
+
+      - name: Link Movyz project
+        run: |
+          mkdir -p .vercel
+          cat > .vercel/project.json <<'JSON'
+          {
+            "projectId": "prj_syIASdEt2y2ellWW8lbtWGVfmp4S",
+            "orgId": "team_k6ix2FuZObAmwiIzZfdjyz0U"
+          }
+          JSON
+
+      - name: Pull production environment
+        run: npx --yes vercel@latest pull --yes --environment=production --token "$VERCEL_TOKEN"
+
+      - name: Build Vercel artifact
+        run: npx --yes vercel@latest build --prod --token "$VERCEL_TOKEN"
+
+      - name: Deploy to Vercel production
+        run: npx --yes vercel@latest deploy --prebuilt --prod --token "$VERCEL_TOKEN" --yes
+
+      - name: Deployment marker
+        run: echo "MOVYZ_DEPLOYED_COMMIT=${{ github.sha }}"
