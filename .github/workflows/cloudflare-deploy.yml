@@ -60,6 +60,21 @@ jobs:
           command: deploy --var MOVYZ_BUILD_ID:${{ github.sha }}
       - name: Live health check
         run: |
-          curl --fail --silent --show-error https://movyz.sameranede.workers.dev/ >/dev/null
-          body="$(curl --fail --silent --show-error "https://movyz.sameranede.workers.dev/tmdb/movie/550?language=en-US")"
+          set -euo pipefail
+          base="https://movyz.sameranede.workers.dev"
+          html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/")"
+          printf '%s' "$html" | grep -q "${{ github.sha }}"
+          printf '%s' "$html" | grep -q 'Movyza'
+          printf '%s' "$html" | grep -q '<script type="module"'
+          printf '%s' "$html" | grep -qv 'Supabase is not configured'
+          assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | sort -u)"
+          test -n "$assets"
+          for asset in $assets; do
+            js="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base$asset")"
+            if printf '%s' "$js" | grep -Fq 'Supabase is not configured'; then
+              echo "ERROR: stale Supabase error found in live JS: $asset"
+              exit 1
+            fi
+          done
+          body="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/tmdb/movie/550?language=en-US")"
           printf '%s' "$body" | grep -q '"id":550'
