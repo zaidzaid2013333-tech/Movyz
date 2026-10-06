@@ -251,9 +251,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const failedPlaybackUrlsRef = useRef<Set<string>>(new Set());
-  // Technical fallback tracking: direct Akwam -> Movyz relay for the same source.
-  // This never changes provider/source/quality automatically.
-  const sameSourceRelayTriedRef = useRef<Set<string>>(new Set());
   const startupGuardTimerRef = useRef<number | null>(null);
   const startupWarmupTimerRef = useRef<number | null>(null);
   const resumeAfterBufferingRef = useRef(false);
@@ -470,7 +467,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
           const preferred = preferredPlaybackSource(collapsed);
           failedPlaybackUrlsRef.current.clear();
-          sameSourceRelayTriedRef.current.clear();
           setRemotePlaybackSources(collapsed);
           setRemotePlaybackSource(preferred);
           setPlayerUnlocked(Boolean(preferred));
@@ -518,23 +514,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   ]);
 
   const playbackSource = remotePlaybackSource;
-  const isBrokerRelaySource = /\/api\/v1\/playback\/stream(?:\?|$)/i.test(
-    String(playbackSource?.url || ''),
-  );
-  const brokerRelayUrl = isBrokerRelaySource ? (playbackSource?.url?.trim() || '') : '';
-  // Browser playback is Relay-only. directUrl is resolver metadata and must
-  // never become the media element's network target.
+  // The Resolver already gives us the final Akwam media URL. Let the browser
+  // connect to that URL directly: no Relay hop, no second resolver request,
+  // and no URL mutation that could invalidate Akwam's signed media URL.
+  const directPlaybackUrl = playbackSource?.directUrl?.trim() || '';
   const playbackUrl = useMemo(() => {
-    const baseUrl = brokerRelayUrl || playbackSource?.url?.trim() || '';
-    if (!baseUrl || playbackRetry === 0) return baseUrl;
-    try {
-      const url = new URL(baseUrl);
-      url.searchParams.set('retry', String(playbackRetry));
-      return url.toString();
-    } catch {
-      return baseUrl;
-    }
-  }, [brokerRelayUrl, playbackSource?.url, playbackRetry]);
+    if (directPlaybackUrl) return directPlaybackUrl;
+    const sourceUrl = playbackSource?.url?.trim() || '';
+    if (/\/api\/v1\/playback\/stream(?:\?|$)/i.test(sourceUrl)) return '';
+    return sourceUrl;
+  }, [directPlaybackUrl, playbackSource?.url]);
   const isEmbedPlayback = String(playbackSource?.type || '').toLowerCase() === 'embed';
 
   const syncPlayerNaturalResolution = () => {
@@ -985,7 +974,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         .filter(isPlayableHttpSource)
         .filter(
           (source, index, all) =>
-            index === all.findIndex((candidate) => candidate.url === source.url),
+            index === all.findIndex(
+              (candidate) =>
+                (candidate.directUrl?.trim() || candidate.url) ===
+                (source.directUrl?.trim() || source.url),
+            ),
         ),
     ),
     [remotePlaybackSources],
@@ -1011,7 +1004,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         if (ab !== bb) return ab - bb;
         return Math.abs(720 - aq) - Math.abs(720 - bq);
       }),
-    [availableSources, playbackSource?.url],
+    [availableSources, playbackSource?.directUrl, playbackSource?.url],
   );
 
 
@@ -1145,48 +1138,21 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const markPlaybackSourceFailed = () => {
     const source = playbackSource;
-    const failedUrl = playbackUrl || source?.url || '';
+    const failedUrl = playbackUrl || source?.directUrl?.trim() || '';
     if (!source || !failedUrl) return false;
-
-    const directUrl = source.directUrl?.trim() || '';
-    const relayFallback = source.fallbackUrl?.trim() || '';
-    const isDirect = Boolean(
-      directUrl &&
-      failedUrl === directUrl &&
-      relayFallback &&
-      relayFallback !== failedUrl,
-    );
-
-    if (isDirect && !sameSourceRelayTriedRef.current.has(directUrl)) {
-      sameSourceRelayTriedRef.current.add(directUrl);
-      clearPlayerLoadTimeout();
-      clearPlaybackStallTimer();
-      playbackStartedRef.current = false;
-      setPlaybackError(null);
-      setPlayerLoadingState(
-        true,
-        language === 'ar'
-          ? 'جارٍ استخدام مسار التشغيل البديل لنفس المصدر…'
-          : 'Switching to the technical relay for the same source…',
-      );
-      setRemotePlaybackSource({
-        ...source,
-        url: relayFallback,
-      });
-      return false;
-    }
 
     failedPlaybackUrlsRef.current.add(failedUrl);
     setPlaybackError(
       language === 'ar'
-        ? 'تعذر تشغيل المصدر الحالي. يمكنك اختيار مصدر/جودة أخرى يدويًا أو الضغط على إعادة المحاولة.'
-        : 'The current source could not be started. Choose another source manually or press retry.',
+        ? 'تعذر تشغيل رابط Akwam الحالي. اختر جودة/مصدرًا آخر يدويًا أو اضغط إعادة المحاولة.'
+        : 'The current Akwam URL could not be started. Choose another quality/source manually or press retry.',
     );
     return false;
   };
 
   const handleSelectPlaybackSource = (source: PlaybackSource) => {
-    if (source.url === playbackUrl) return;
+    const nextPlaybackUrl = source.directUrl?.trim() || source.url?.trim() || '';
+    if (!nextPlaybackUrl || nextPlaybackUrl === playbackUrl) return;
 
     const video = videoRef.current;
     qualityResumeTimeRef.current =
@@ -1195,9 +1161,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         : 0;
     resumeAfterQualitySwitchRef.current = !!video && !video.paused;
     qualitySwitchPendingRef.current = true;
-    startupTriedUrlsRef.current.add(source.url);
-    failedPlaybackUrlsRef.current.delete(source.url);
-    sameSourceRelayTriedRef.current.delete(source.directUrl?.trim() || source.url);
+    startupTriedUrlsRef.current.add(nextPlaybackUrl);
+    failedPlaybackUrlsRef.current.delete(nextPlaybackUrl);
     playbackStartedRef.current = false;
     setPlaybackError(null);
     setPlayerUnlocked(true);
@@ -1232,7 +1197,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     video.controls = true;
     video.playsInline = true;
-    video.preload = 'metadata';
+    // Start fetching the selected Akwam file immediately. Native media loading
+    // still uses HTTP range requests; it does not require downloading the whole
+    // movie/episode before playback can begin.
+    video.preload = 'auto';
 
     const sourceType = String(playbackSource?.type || '').toLowerCase();
     const isHls = sourceType === 'hls' || /\.m3u8(?:[?#]|$)/i.test(playbackUrl);
@@ -1283,6 +1251,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       hls.loadSource(playbackUrl);
     } else {
       video.src = playbackUrl;
+      video.preload = 'auto';
       video.load();
     }
 
@@ -1620,7 +1589,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
             <div className="flex flex-wrap gap-1.5">
               {availableSources.map((source) => {
-                const active = source.url === playbackSource?.url;
+                const active =
+                  (source.directUrl?.trim() || source.url) ===
+                  (playbackSource?.directUrl?.trim() || playbackSource?.url || '');
                 return (
                   <button
                     key={source.id || source.url}
@@ -1656,7 +1627,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 className="block h-full w-full bg-black object-contain"
                 playsInline
                 controls
-                preload="metadata"
+                preload="auto"
                 aria-label={displayTitle || 'Movyz video player'}
               >
                 {language === 'ar'
