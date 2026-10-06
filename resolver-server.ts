@@ -191,7 +191,7 @@ async function handle(request: Request): Promise<Response> {
 
   const titles: string[] = Array.isArray(body?.titles)
     ? Array.from(
-        new Set(
+        new Set<string>(
           body.titles
             .filter((x: unknown): x is string => typeof x === "string")
             .map((x: string) => x.trim())
