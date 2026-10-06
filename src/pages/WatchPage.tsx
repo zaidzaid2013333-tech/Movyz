@@ -483,7 +483,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlaybackError(null);
 
     const prepare = async () => {
-      const attempts = 2;
+      const attempts = 1;
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
           const response = await MovyzaApi.preparePlayback(
@@ -504,7 +504,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             continue;
           }
           const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
-          const preferred = collapsed[0] || null;
+          const preferred = preferredPlaybackSource(collapsed);
           failedPlaybackUrlsRef.current.clear();
           setRemotePlaybackSources(collapsed);
           setRemotePlaybackSource(preferred);
@@ -520,12 +520,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         } catch {
           if (cancelled) return;
           if (attempt < attempts) {
-            setPlaybackError(
-              language === 'ar'
-                ? 'تعذر فتح المصدر الآن، جارٍ إعادة المحاولة…'
-                : 'The source did not respond; retrying…',
-            );
-            await new Promise((resolve) => window.setTimeout(resolve, 450));
             continue;
           }
         }
@@ -626,7 +620,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       if (!userPlayRequestedRef.current && !playbackStartedRef.current) return;
       if (playbackStartedRef.current || !videoRef.current) return;
       markPlaybackSourceFailed();
-    }, 12000);
+    }, 20000);
   };
 
   const reloadPlayer = () => {
@@ -1392,7 +1386,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         ) {
           markPlaybackSourceFailed();
         }
-      }, 9000);
+      }, 12000);
       syncTime();
       syncBuffered();
     };
