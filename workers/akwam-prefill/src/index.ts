@@ -513,9 +513,18 @@ async function findCandidate(
 
   // Legacy archive is a bounded fallback for older movies only.
   if (expected === "movie") {
+    const legacyVariants = variants.slice(0, 2);
     await fetchSearchSet(
-      variants.slice(0, 2).map((title) =>
+      legacyVariants.map((title) =>
         host + "/old/search/" + encodeURIComponent(title) + "/page/1",
+      ),
+      true,
+    );
+    if (best && best.score >= 120) return best.item;
+
+    await fetchSearchSet(
+      legacyVariants.map((title) =>
+        host + "/old/search/" + encodeURIComponent(title),
       ),
       true,
     );
