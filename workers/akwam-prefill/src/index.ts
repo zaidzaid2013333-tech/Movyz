@@ -1069,7 +1069,8 @@ async function findEpisodeTargetBySearch(
           const path = new URL(url).pathname.toLowerCase();
           return (
             /(?:season|seasons|episode|episodes|show|series|tv|watch)/i.test(path) &&
-            !/(?:\\.(?:m3u8|mp4|mpd|webm)|\\/(?:download|link|stream|file|get|source|media|video)\\/)/i.test(path)
+            !/\\/(?:download|link|stream|file|get|source|media|video)\\//i.test(path) &&
+            !/\\.(?:m3u8|mp4|mpd|webm)(?:$|\\?)/i.test(path)
           );
         } catch {
           return false;
@@ -1121,9 +1122,8 @@ async function findEpisodeTargetBySearch(
       else if (declaredSeason === season) scoreValue += 55;
       if (exactEpisode) scoreValue += 170;
 
-      if (titleRelevanceForEpisode(candidate, titles) >= 20) {
-        scoreValue += Math.round(titleRelevanceForEpisode(candidate, titles));
-      }
+      const relevance = titleRelevanceForEpisode(candidate, titles);
+      if (relevance >= 20) scoreValue += Math.round(relevance);
 
       if (!externalBest || scoreValue > externalBest.score) {
         externalBest = { url: candidate.url, score: scoreValue };
