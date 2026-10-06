@@ -166,11 +166,11 @@ jobs:
         timeout-minutes: 18
         run: |
           python - <<'PY'
-          import concurrent.futures, json, urllib.parse, urllib.request
+          import concurrent.futures, json, os, urllib.parse, urllib.request
 
           api = "https://movyz-api.sameranede.workers.dev"
-          supabase = "\${{ secrets.SUPABASE_URL }}".rstrip('/')
-          service = "\${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+          supabase = os.environ["SUPABASE_URL"].rstrip('/')
+          service = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
           headers = {"apikey": service, "Authorization": "Bearer " + service, "Accept": "application/json"}
 
           def sb(path):
