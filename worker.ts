@@ -77,7 +77,7 @@ const proxyArabicSubtitle = async (request: Request, env: MovyzEnvironment) => {
   } else {
     tmdbId = parts[2] || '';
     season = parts[3] || '';
-    episode = (parts[4] || '').replace(/\\.srt$/i, '');
+    episode = (parts[4] || '').replace(/\.srt$/i, '');
   }
 
   if (!/^\d+$/.test(tmdbId) || (isTv && (!/^\d+$/.test(season) || !/^\d+$/.test(episode)))) {
