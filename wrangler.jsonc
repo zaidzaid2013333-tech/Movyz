@@ -1,6 +1,6 @@
 {
   "$schema":"node_modules/wrangler/config-schema.json",
-  "name":"movyza",
+  "name":"movyz-api",
   "main":"worker.ts",
   "compatibility_date":"2026-10-06",
   "build":{"command":"npm run build"},
