@@ -22,7 +22,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({
   const { language } = useLanguage();
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const displayTitle = language === 'ar' ? movie.title : movie.titleEn || movie.title;
+  const displayTitle = movie.titleEn || movie.title;
   const isStill = layout === 'still';
 
   return (
