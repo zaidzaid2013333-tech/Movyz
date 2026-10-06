@@ -189,13 +189,13 @@ async function handle(request: Request): Promise<Response> {
   const contentId =
     typeof body?.contentId === "string" ? body.contentId.trim() : "";
 
-  const titles = Array.isArray(body?.titles)
+  const titles: string[] = Array.isArray(body?.titles)
     ? Array.from(
         new Set(
           body.titles
-            .filter((x: unknown) => typeof x === "string")
+            .filter((x: unknown): x is string => typeof x === "string")
             .map((x: string) => x.trim())
-            .filter(Boolean),
+            .filter((x: string) => x.length > 0),
         ),
       ).slice(0, 12)
     : [];
