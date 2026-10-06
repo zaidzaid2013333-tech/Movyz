@@ -1916,7 +1916,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 className={(isEmbedPlayback ? 'hidden ' : '') + 'pointer-events-none absolute inset-0 z-10'}
               >
                 {playerSettingsOpen && !isEmbedPlayback ? (
-                  <div className="movyza-player-settings absolute bottom-[74px] end-3 z-40 w-[min(340px,calc(100%-24px))] rounded-2xl border border-white/10 bg-[#090b10]/95 p-3 shadow-2xl backdrop-blur-2xl">
+                  <div className="movyza-player-settings pointer-events-auto absolute bottom-[74px] end-3 z-40 w-[min(340px,calc(100%-24px))] rounded-2xl border border-white/10 bg-[#090b10]/95 p-3 shadow-2xl backdrop-blur-2xl">
                     <div className="flex items-center justify-between gap-3 px-1 pb-2">
                       <div>
                         <div className="text-xs font-bold text-white">
