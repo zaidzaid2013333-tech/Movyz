@@ -340,13 +340,13 @@ async function discoverAkwamUrlsViaSearch(
       const path = (() => {
         try { return new URL(url).pathname.toLowerCase(); } catch { return ""; }
       })();
-      if (expected === "movie" && !/\/movie(?:s)?\//i.test(path)) continue;
-      if (expected === "series" && !/\/(?:shows?|series|episodes?)\//i.test(path)) continue;
+      const inferredKind = inferCandidateKind(path, text);
+      if (inferredKind === "other") continue;
       const candidateScore = score(
         {
           url,
           title: text,
-          kind: expected === "movie" ? "movie" : "series",
+          kind: inferredKind,
         },
         [query],
         undefined,
@@ -358,7 +358,7 @@ async function discoverAkwamUrlsViaSearch(
       output.push({
         url,
         title: text,
-        kind: expected === "movie" ? "movie" : "series",
+        kind: inferredKind,
         rank: candidateScore + 50,
       });
     }
