@@ -9,7 +9,7 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/,
 async function request<T>(
   path: string,
   init: RequestInit = {},
-  options: { skipAuth?: boolean } = {},
+  options: { skipAuth?: boolean; timeoutMs?: number } = {},
 ): Promise<ApiResponse<T>> {
   const session = options.skipAuth ? null : (supabase ? (await supabase.auth.getSession()).data.session : null);
   const headers = new Headers(init.headers);
@@ -25,7 +25,8 @@ async function request<T>(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+      const timeoutMs = Math.max(5000, Number(options.timeoutMs || 12000));
+      const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
       try {
         response = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: init.signal || controller.signal });
       } finally {
@@ -140,7 +141,7 @@ export const MovyzaApi = {
     request<{ contentType: 'movie' | 'episode'; contentId: string; mode: string; ready: boolean; sources: any[] }>(
       `/playback/prepare?type=${encodeURIComponent(contentType)}&contentId=${encodeURIComponent(contentId)}${season ? `&season=${encodeURIComponent(String(season))}` : ''}${episode ? `&episode=${encodeURIComponent(String(episode))}` : ''}`,
       {},
-      { skipAuth: true },
+      { skipAuth: true, timeoutMs: 15000 },
     ),
 
   getGenres: () => request<Genre[]>('/genres'),

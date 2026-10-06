@@ -75,6 +75,48 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }}
 
+      - name: Retire legacy Akwam workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          for worker in \
+            movyz-akwam-prefill \
+            movyz-akwam-launcher \
+            movyz-akwam-queue-dispatcher \
+            movyz-akwam-queue-consumer \
+            movyz-akwam-job
+          do
+            echo "Retiring $worker"
+            npx --yes wrangler@4.147.0 delete "$worker" --force || true
+          done
+
+      - name: Verify exact Cloudflare build
+        run: |
+          python - <<'PY'
+          import urllib.request
+          import os
+
+          expected = os.environ["EXPECTED_SHA"]
+          req = urllib.request.Request(
+              "https://movyz-api.sameranede.workers.dev/health",
+              headers={"User-Agent": "Movyz-GitHub-Actions/1.0"},
+          )
+          with urllib.request.urlopen(req, timeout=30) as response:
+              body = response.read().decode("utf-8", "replace")
+              deployed = response.headers.get("x-movyz-build-id", "")
+              print("health status =", response.status)
+              print("deployed build =", deployed)
+              if response.status != 200:
+                  raise SystemExit("Production health check failed")
+              if deployed != expected:
+                  raise SystemExit(f"Cloudflare build mismatch: expected {expected}, got {deployed}")
+              print(body[:1000])
+          PY
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+
       - name: Live playback smoke - movie and relay
         run: |
           python - <<'PY'
