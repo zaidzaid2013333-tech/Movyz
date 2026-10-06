@@ -947,12 +947,12 @@ async function findEpisodeTargetBySearch(
         if (normalizedHay.includes(normalizedTitle)) titleRelevance = Math.max(titleRelevance, 100);
         else titleRelevance = Math.max(titleRelevance, overlap(normalizedHay, normalizedTitle) * 100);
       }
-      if (titleRelevance < 28) continue;
-
       const exactPair = new RegExp("s0*" + season + "e0*" + episode + "(?![0-9])", "i").test(hay + " " + rawPath);
       const exactEpisode =
         new RegExp("(?:الحلقة|الحلقه|episode|ep(?:isode)?)[-_\\s]*(?:رقم[-_\\s]*)?0*" + episode + "(?![0-9.])", "i").test(hay) ||
         new RegExp("(?:^|[^0-9.])0*" + episode + "(?:$|[^0-9.])", "i").test(rawPath);
+      if (titleRelevance < 28 && !exactPair && !(/\/(?:episode|show\/episode)\//i.test(rawPath) && exactEpisode)) continue;
+
       let scoreValue = titleRelevance;
       if (exactPair) scoreValue += 320;
       else if (declaredSeason === season) scoreValue += 70;
