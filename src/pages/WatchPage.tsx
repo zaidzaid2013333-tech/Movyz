@@ -617,9 +617,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   };
 
   const armPlayerLoadTimeout = () => {
-    // Playback timeout is intentionally non-fatal. The media element decides
-    // whether the current source can actually play; buffering stays recoverable.
     clearPlayerLoadTimeout();
+    if (!playbackUrl) return;
+    playerLoadTimeoutRef.current = window.setTimeout(() => {
+      playerLoadTimeoutRef.current = null;
+      // Do not punish a source just because metadata loading is slow before the
+      // user presses Play. Once playback is requested, a 12s silent stall is a
+      // source failure and can safely move to the next relay candidate.
+      if (!userPlayRequestedRef.current && !playbackStartedRef.current) return;
+      if (playbackStartedRef.current || !videoRef.current) return;
+      markPlaybackSourceFailed();
+    }, 12000);
   };
 
   const reloadPlayer = () => {
@@ -1374,11 +1382,19 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       }
       if (!playbackStartedRef.current) setPlaybackError(null);
       setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Buffering…');
-      // Normal short buffering is fine; prolonged stalls rotate the relay
-      // candidate instead of leaving the spinner running indefinitely.
       armPlayerLoadTimeout();
       if (playbackStallTimerRef.current !== null) window.clearTimeout(playbackStallTimerRef.current);
-      playbackStallTimerRef.current = null;
+      playbackStallTimerRef.current = window.setTimeout(() => {
+        playbackStallTimerRef.current = null;
+        if (
+          !cancelled &&
+          (userPlayRequestedRef.current || !video.paused) &&
+          !video.ended &&
+          video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
+        ) {
+          markPlaybackSourceFailed();
+        }
+      }, 9000);
       syncTime();
       syncBuffered();
     };
@@ -1842,6 +1858,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 }}
                 onError={() => {
                   clearPlayerLoadTimeout();
+                  clearPlaybackStallTimer();
                   setPlayerLoadingState(false);
                   playbackStartedRef.current = false;
                   if (!playbackUrl) return;
