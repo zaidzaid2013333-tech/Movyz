@@ -241,6 +241,32 @@ jobs:
               body = error.read().decode("utf-8", "replace")
               raise SystemExit(f"movie relay HTTP {error.code}: {body[:900]}")
 
+          # Canonical playback contract regression: the legacy TMDB route
+          # must normalize internally to the same episode UUID architecture.
+          status, _, legacy_episode_payload = request_json(
+              api + "/api/v1/playback/prepare?type=episode&contentId=1396&season=1&episode=1"
+          )
+          legacy_episode_sources = legacy_episode_payload.get("data", {}).get("sources", [])
+          if status != 200 or legacy_episode_payload.get("success") is not True or not legacy_episode_sources:
+              raise SystemExit(
+                  f"canonical TMDB episode playback failed: status={status} "
+                  f"sources={len(legacy_episode_sources) if isinstance(legacy_episode_sources,list) else 0}"
+              )
+          print("CANONICAL_TMDB_EPISODE_PLAYBACK_OK", len(legacy_episode_sources), "sources")
+
+          # The movie side must use the same contract as well; numeric TMDB IDs
+          # are metadata identifiers and are normalized by the broker.
+          status, _, tmdb_movie_payload = request_json(
+              api + "/api/v1/playback/prepare?type=movie&contentId=27205"
+          )
+          tmdb_movie_sources = tmdb_movie_payload.get("data", {}).get("sources", [])
+          if status != 200 or tmdb_movie_payload.get("success") is not True or not tmdb_movie_sources:
+              raise SystemExit(
+                  f"canonical TMDB movie playback failed: status={status} "
+                  f"sources={len(tmdb_movie_sources) if isinstance(tmdb_movie_sources,list) else 0}"
+              )
+          print("CANONICAL_TMDB_MOVIE_PLAYBACK_OK", len(tmdb_movie_sources), "sources")
+
           status, _, watch_payload = request_json(
               api + "/api/v1/series/tmdb/1396/watch/1/1"
           )
