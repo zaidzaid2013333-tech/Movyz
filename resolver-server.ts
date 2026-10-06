@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { resolveAkwamWithContext } from "./workers/akwam-prefill/src/index.ts";
+import { resolveVidLink, type VidLinkContext } from "./providers/vidlink.ts";
 
 const port = Number(process.env.PORT || 8787);
 const sharedKey = String(process.env.PLAYBACK_RESOLVER_KEY || "").trim();
@@ -17,6 +18,8 @@ type MediaSource = {
   type: string;
   quality?: string | null;
   referer?: string;
+  provider?: string;
+  providerKey?: string;
 };
 
 type Context = {
@@ -76,7 +79,11 @@ function normalizeSources(sources: any[]): MediaSource[] {
       referer:
         typeof source.referer === "string" && /^https:\/\//i.test(source.referer)
           ? source.referer
-          : "https://akwam.ss/",
+          : source.providerKey === "vidlink"
+            ? "https://vidlink.pro/"
+            : "https://akwam.ss/",
+      provider: String(source.provider || "Akwam"),
+      providerKey: String(source.providerKey || "akwam"),
     }));
 }
 
@@ -98,48 +105,96 @@ async function resolve(context: Context): Promise<MediaSource[]> {
     activeResolutions += 1;
     try {
       const startedAt = Date.now();
-      const sources = await resolveAkwamWithContext(
-        {
-          SUPABASE_URL: "",
-          SUPABASE_SERVICE_ROLE_KEY: "",
-          AKWAM_BASE_URL: "https://akwam.ss",
-          MAX_JOBS_PER_RUN: "1",
-          PREFILL_CONCURRENCY: "1",
-        },
-        {
-          content_type: context.contentType,
-          content_id: context.contentId,
-          season_number: context.seasonNumber,
-          episode_number: context.episodeNumber,
-        },
-        {
-          titles: context.titles,
-          year: context.year,
-          seasonNumber: context.seasonNumber,
-          episodeNumber: context.episodeNumber,
-        },
-      );
+      let akwamError = "";
 
-      const normalized = normalizeSources(sources);
-      if (!normalized.length) throw new Error("NO_PLAYABLE_SOURCES");
+      try {
+        const sources = await resolveAkwamWithContext(
+          {
+            SUPABASE_URL: "",
+            SUPABASE_SERVICE_ROLE_KEY: "",
+            AKWAM_BASE_URL: "https://akwam.ss",
+            MAX_JOBS_PER_RUN: "1",
+            PREFILL_CONCURRENCY: "1",
+          },
+          {
+            content_type: context.contentType,
+            content_id: context.contentId,
+            season_number: context.seasonNumber,
+            episode_number: context.episodeNumber,
+          },
+          {
+            titles: context.titles,
+            year: context.year,
+            seasonNumber: context.seasonNumber,
+            episodeNumber: context.episodeNumber,
+          },
+        );
 
-      resolutionCache.set(key, {
-        expiresAt: Date.now() + cacheTtlMs,
-        sources: normalized,
-      });
+        const normalized = normalizeSources(sources);
+        if (normalized.length) {
+          resolutionCache.set(key, {
+            expiresAt: Date.now() + cacheTtlMs,
+            sources: normalized,
+          });
 
-      console.log(
-        JSON.stringify({
-          event: "resolution_success",
-          contentType: context.contentType,
-          contentId: context.contentId,
-          sourceCount: normalized.length,
-          durationMs: Date.now() - startedAt,
-          cacheTtlMs,
-        }),
-      );
+          console.log(
+            JSON.stringify({
+              event: "resolution_success",
+              provider: normalized[0]?.providerKey || "akwam",
+              contentType: context.contentType,
+              contentId: context.contentId,
+              sourceCount: normalized.length,
+              durationMs: Date.now() - startedAt,
+              cacheTtlMs,
+            }),
+          );
 
-      return normalized;
+          return normalized;
+        }
+
+        akwamError = "NO_PLAYABLE_SOURCES";
+      } catch (error) {
+        akwamError = error instanceof Error ? error.message : String(error);
+      }
+
+      const vidlinkContext: VidLinkContext = {
+        contentType: context.contentType,
+        contentId: context.contentId,
+        seasonNumber: context.seasonNumber,
+        episodeNumber: context.episodeNumber,
+      };
+
+      try {
+        const vidlinkSources = await resolveVidLink(vidlinkContext);
+        const normalized = normalizeSources(vidlinkSources);
+        if (!normalized.length) throw new Error("VIDLINK_NO_PLAYABLE_SOURCES");
+
+        resolutionCache.set(key, {
+          expiresAt: Date.now() + cacheTtlMs,
+          sources: normalized,
+        });
+
+        console.log(
+          JSON.stringify({
+            event: "resolution_success",
+            provider: normalized[0]?.providerKey || "vidlink",
+            fallbackFrom: akwamError || "akwam-empty",
+            contentType: context.contentType,
+            contentId: context.contentId,
+            sourceCount: normalized.length,
+            durationMs: Date.now() - startedAt,
+            cacheTtlMs,
+          }),
+        );
+
+        return normalized;
+      } catch (vidlinkError) {
+        const vidlinkMessage =
+          vidlinkError instanceof Error ? vidlinkError.message : String(vidlinkError);
+        throw new Error(
+          `NO_PLAYABLE_SOURCES akwam=${akwamError || "unknown"} vidlink=${vidlinkMessage}`,
+        );
+      }
     } finally {
       activeResolutions -= 1;
     }
@@ -160,7 +215,8 @@ async function handle(request: Request): Promise<Response> {
     return json(200, {
       ok: true,
       service: "movyz-live-resolver",
-      mode: "akwam-live",
+      mode: "akwam-primary-vidlink-fallback",
+      providers: ["akwam", "vidlink"],
       active: activeResolutions,
       maxConcurrent,
     });
@@ -234,6 +290,7 @@ async function handle(request: Request): Promise<Response> {
       contentType,
       contentId,
       mode: hadCached ? "cache" : hadInflight ? "inflight" : "live",
+      provider: sources[0]?.providerKey || null,
       sourceCount: sources.length,
       durationMs: Date.now() - startedAt,
       sources,

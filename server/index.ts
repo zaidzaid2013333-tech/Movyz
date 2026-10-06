@@ -146,7 +146,14 @@ async function edgeBrokerInvalidate(key: string) {
 }
 
 function normalizeBrokerMediaSources(
-  sources: Array<{ url: string; type: string; quality?: string; referer?: string }>,
+  sources: Array<{
+    url: string;
+    type: string;
+    quality?: string;
+    referer?: string;
+    provider?: string;
+    providerKey?: string;
+  }>,
   contentType: 'movie' | 'episode',
   contentId: string,
   requestUrl: string,
@@ -167,18 +174,18 @@ function normalizeBrokerMediaSources(
       if (Number.isFinite(episodeNumber)) relayParams.set('episode', String(episodeNumber));
       const relayUrl = relayOrigin + api + '/playback/stream?' + relayParams.toString();
       return {
-        id: `akwam-live:${contentType}:${contentId}:${index}`,
+        id: `${source.providerKey || 'akwam'}-live:${contentType}:${contentId}:${index}`,
         type: String(source.type || 'direct').toLowerCase(),
         quality,
         language: 'und',
-        label: `Akwam • ${quality}`,
-        labelEn: `Akwam • ${quality}`,
+        label: `${source.provider || 'Akwam'} • ${quality}`,
+        labelEn: `${source.provider || 'Akwam'} • ${quality}`,
         url: relayUrl,
         directUrl: String(source.url),
         isWorking: true,
-        provider: 'Akwam',
-        providerKey: 'akwam',
-        providerReference: 'akwam',
+        provider: String(source.provider || 'Akwam'),
+        providerKey: String(source.providerKey || 'akwam'),
+        providerReference: String(source.providerKey || 'akwam'),
         expiresAt: null,
         referer: typeof source.referer === 'string' && /^https:\/\//i.test(source.referer)
           ? source.referer
