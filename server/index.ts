@@ -11,9 +11,8 @@ const api = '/api/v1';
 app.disable('x-powered-by');
 
 // Playback backend: cache-first, live Akwam resolution through the dedicated
-// external resolver service. No playback URLs are persisted in Supabase.
- cache-first, live Akwam resolution. No playback URLs are
-// persisted in Supabase; only short-lived edge/memory cache entries are used.
+// external resolver service. No playback URLs are persisted in Supabase; only
+// short-lived edge/memory cache entries are used.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 const MOVYZ_PLAYBACK_CONTRACT = 'broker-v1';
 
