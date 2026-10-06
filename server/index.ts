@@ -53,8 +53,17 @@ const playbackBrokerInflight = new Map<string, Promise<BrokerSource[]>>();
 const PLAYBACK_BROKER_TTL_MS = 2 * 60 * 1000;
 const PLAYBACK_BROKER_MAX_MEMORY_KEYS = 256;
 
-function brokerCacheKey(contentType: 'movie' | 'episode', contentId: string) {
-  return `https://movyz-cache.invalid/playback/${contentType}/${encodeURIComponent(contentId)}`;
+function brokerCacheKey(
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  seasonNumber?: number,
+  episodeNumber?: number,
+) {
+  const query = new URLSearchParams();
+  if (Number.isFinite(seasonNumber)) query.set('season', String(Math.trunc(Number(seasonNumber))));
+  if (Number.isFinite(episodeNumber)) query.set('episode', String(Math.trunc(Number(episodeNumber))));
+  const suffix = query.toString();
+  return `https://movyz-cache.invalid/playback/${contentType}/${encodeURIComponent(contentId)}${suffix ? `?${suffix}` : ''}`;
 }
 
 function trimBrokerMemory() {
@@ -175,7 +184,7 @@ async function resolvePlaybackBroker(
   seasonNumber?: number,
   episodeNumber?: number,
 ): Promise<{ sources: BrokerSource[]; mode: 'edge-cache' | 'live' }> {
-  const key = brokerCacheKey(contentType, contentId);
+  const key = brokerCacheKey(contentType, contentId, seasonNumber, episodeNumber);
 
   const cached = await edgeBrokerRead(key);
   if (cached?.length) {
@@ -249,7 +258,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
 
   const seasonNumber = typeof req.query.season === 'string' ? Number(req.query.season) : undefined;
   const episodeNumber = typeof req.query.episode === 'string' ? Number(req.query.episode) : undefined;
-  const cacheKey = brokerCacheKey(contentType, contentId);
+  const cacheKey = brokerCacheKey(contentType, contentId, seasonNumber, episodeNumber);
 
   const fetchUpstream = async (upstreamUrl: string) => {
     const upstreamHeaders = new Headers();
