@@ -205,7 +205,7 @@ async function fetchText(
         ...(cookie ? { Cookie: cookie } : {}),
       },
       redirect: "follow",
-      signal: AbortSignal.timeout(7000),
+      signal: AbortSignal.timeout(5000),
     });
     absorbSetCookie(session, response);
     if (!response.ok) {
@@ -459,121 +459,67 @@ async function findCandidate(
   budget?: RequestBudget,
   session?: AkwamSession,
 ) {
-  const hosts = [base(env)];
-
+  const host = base(env);
   let best: { item: Candidate; score: number } | null = null;
   const diagnostics: string[] = [];
   const seeds = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
+
   const variants = expected === "movie"
     ? Array.from(new Set([
         ...seeds.flatMap(movieSearchVariants),
         year && seeds[0] ? seeds[0] + " " + year : "",
-        year && seeds[0] ? searchQueryVariant(seeds[0]) + " " + year : "",
-      ].filter(Boolean))).slice(0, 8)
+      ].filter(Boolean))).slice(0, 4)
     : Array.from(new Set([
         ...seeds,
         year && seeds[0] ? seeds[0] + " " + year : "",
-        expectedSeason && seeds[0] ? seeds[0] + " season " + expectedSeason : "",
-        expectedSeason && seeds[0] ? seeds[0] + " الموسم " + expectedSeason : "",
         expectedSeason && seeds[0] ? seeds[0] + " S" + String(expectedSeason).padStart(2, "0") : "",
-      ].filter(Boolean))).slice(0, 4);
+      ].filter(Boolean))).slice(0, 3);
 
-  for (const host of hosts) {
-    // Akwam's live search endpoint is the authoritative current catalog route.
-    // The live site returns exact /movie/... links from /search?q=... and also
-    // accepts the optional section=movie|series filter.
-    if (expected === "movie" || expected === "series") {
-      const section = expected;
-      for (const title of variants) {
-        const encoded = encodeURIComponent(title);
-        const searchUrls = [
-          host + "/search?q=" + encoded + "&section=" + encodeURIComponent(section) + "&page=1",
-          host + "/search?q=" + encoded,
-        ];
-
-        // Prefer the authoritative section-filtered search. Only hit the
-        // unfiltered fallback when the first request did not produce a strong
-        // semantic match; this removes a large amount of serial resolver latency.
-        const primaryHtml = await fetchText(
-          env,
-          searchUrls[0],
-          diagnostics,
-          undefined,
-          budget,
-          session,
-        );
-        if (primaryHtml) {
-          for (const item of parseCandidates(primaryHtml, env, expected === "movie")) {
-            const itemScore = score(item, titles, year, expected, expectedSeason);
-            if (!best || itemScore > best.score) best = { item, score: itemScore };
-          }
-        }
-        if (best && best.score >= 128) return best.item;
-
-        const fallbackHtml = await fetchText(
-          env,
-          searchUrls[1],
-          diagnostics,
-          undefined,
-          budget,
-          session,
-        );
-        if (fallbackHtml) {
-          for (const item of parseCandidates(fallbackHtml, env, expected === "movie")) {
-            const itemScore = score(item, titles, year, expected, expectedSeason);
-            if (!best || itemScore > best.score) best = { item, score: itemScore };
-          }
-        }
-        if (best && best.score >= 128) return best.item;
-      }
+  const scoreHtml = (html: string, allowLegacy: boolean) => {
+    for (const item of parseCandidates(html, env, allowLegacy)) {
+      const itemScore = score(item, titles, year, expected, expectedSeason);
+      if (!best || itemScore > best.score) best = { item, score: itemScore };
     }
+  };
 
-    // Legacy fallback for movies: many older Akwam titles still live under
-    // /old/search while the current /search index only covers the new catalog.
-    // Keep current search authoritative, then use the legacy archive with the
-    // existing semantic/year guards before accepting a result.
-    if (expected === "movie" && host === base(env)) {
-      const legacyVariants = variants.slice(0, 5);
-      for (const title of legacyVariants) {
-        const encoded = encodeURIComponent(title);
-        const legacyUrls = [
-          host + "/old/search/" + encoded + "/page/1",
-          host + "/old/search/" + encoded,
-        ];
-
-        const primaryLegacyHtml = await fetchText(
-          env,
-          legacyUrls[0],
-          diagnostics,
-          undefined,
-          budget,
-          session,
-        );
-        if (primaryLegacyHtml) {
-          for (const item of parseCandidates(primaryLegacyHtml, env, true)) {
-            const itemScore = score(item, titles, year, expected, expectedSeason);
-            if (!best || itemScore > best.score) best = { item, score: itemScore };
-          }
-        }
-        if (best && best.score >= 128) return best.item;
-
-        const fallbackLegacyHtml = await fetchText(
-          env,
-          legacyUrls[1],
-          diagnostics,
-          undefined,
-          budget,
-          session,
-        );
-        if (fallbackLegacyHtml) {
-          for (const item of parseCandidates(fallbackLegacyHtml, env, true)) {
-            const itemScore = score(item, titles, year, expected, expectedSeason);
-            if (!best || itemScore > best.score) best = { item, score: itemScore };
-          }
-        }
-        if (best && best.score >= 128) return best.item;
-      }
+  const fetchSearchSet = async (urls: string[], allowLegacy = false) => {
+    const responses = await Promise.all(
+      urls.map(async (url) => {
+        const html = await fetchText(env, url, diagnostics, undefined, budget, session);
+        return html ? { url, html } : null;
+      }),
+    );
+    for (const response of responses) {
+      if (response) scoreHtml(response.html, allowLegacy);
     }
+  };
+
+  if (expected === "movie" || expected === "series") {
+    // Current section searches run concurrently; fallback requests are only
+    // started when the primary set does not produce a strong match.
+    await fetchSearchSet(
+      variants.map((title) =>
+        host + "/search?q=" + encodeURIComponent(title) +
+        "&section=" + encodeURIComponent(expected) + "&page=1",
+      ),
+    );
+    if (best && best.score >= 128) return best.item;
+
+    await fetchSearchSet(
+      variants.map((title) => host + "/search?q=" + encodeURIComponent(title) + "&page=1"),
+    );
+    if (best && best.score >= 118) return best.item;
+  }
+
+  // Legacy archive is a bounded fallback for older movies only.
+  if (expected === "movie") {
+    await fetchSearchSet(
+      variants.slice(0, 2).map((title) =>
+        host + "/old/search/" + encodeURIComponent(title) + "/page/1",
+      ),
+      true,
+    );
+    if (best && best.score >= 100) return best.item;
   }
 
   const winner = best as { item: Candidate; score: number } | null;
@@ -1076,6 +1022,7 @@ async function readPrefix(response: Response, maxBytes = 8192) {
 async function validateMedia(env: Env, media: Media, budget?: RequestBudget) {
   try {
     if (!/^https:\/\//i.test(media.url)) return false;
+    if (media.trustedExternal) return true;
 
     consumeRequest(budget);
     const response = await fetch(media.url, {
@@ -1414,15 +1361,21 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   const medias: Media[] = [];
   const sourceReferer = episodeTarget || candidate?.url || base(env);
 
-  // Use the same ranked target selection for both movies and episodes.
-  // Episode pages often expose several navigation/download hops before the
-  // final media hand-off; keeping only the first six can discard the usable
-  // link for otherwise valid series.
-  const rankedTargets = usefulResolutionTargets(targets, 10);
-  for (const target of rankedTargets) {
-    const media = await resolveTarget(env, target, sourceReferer, budget, session);
-    if (!media) continue;
-    if (!medias.some((x) => x.url === media.url)) medias.push(media);
+  const rankedTargets = usefulResolutionTargets(targets, isEpisode ? 6 : 4);
+
+  const resolvedTargets = await Promise.all(
+    rankedTargets.map(async (target, index) => {
+      try {
+        return { index, media: await resolveTarget(env, target, sourceReferer, budget, session) };
+      } catch {
+        return { index, media: null };
+      }
+    }),
+  );
+
+  for (const result of resolvedTargets.sort((a, b) => a.index - b.index)) {
+    if (!result.media) continue;
+    if (!medias.some((x) => x.url === result.media!.url)) medias.push(result.media!);
     if (medias.length >= 3) break;
   }
 
@@ -1462,10 +1415,15 @@ export async function resolveAkwamNow(
     seasonNumber?: number;
   };
 
+  const rawId = String(input.content_id || "").trim();
+  const numericId = /^\d+$/.test(rawId);
+
   if (input.content_type === "movie") {
     const rows = await sb(
       env,
-      `/rest/v1/movies?select=title_ar,title_en,original_title,alternative_titles,release_date&id=eq.${encodeURIComponent(input.content_id)}&limit=1`,
+      numericId
+        ? `/rest/v1/movies?select=id,title_ar,title_en,original_title,alternative_titles,release_date&tmdb_id=eq.${encodeURIComponent(rawId)}&limit=1`
+        : `/rest/v1/movies?select=id,title_ar,title_en,original_title,alternative_titles,release_date&id=eq.${encodeURIComponent(rawId)}&limit=1`,
     );
     const row = Array.isArray(rows) ? rows[0] : null;
     if (!row) throw new Error("AKWAM_CONTENT_NOT_FOUND");
@@ -1485,26 +1443,55 @@ export async function resolveAkwamNow(
           : undefined,
     };
   } else {
-    const episodeRows = await sb(
-      env,
-      `/rest/v1/episodes?select=episode_number,season_id&id=eq.${encodeURIComponent(input.content_id)}&limit=1`,
-    );
-    const episode = Array.isArray(episodeRows) ? episodeRows[0] : null;
-    if (!episode?.season_id) throw new Error("AKWAM_EPISODE_NOT_FOUND");
+    let episode: any = null;
+    let season: any = null;
+    let series: any = null;
 
-    const seasonRows = await sb(
-      env,
-      `/rest/v1/seasons?select=series_id,season_number&id=eq.${encodeURIComponent(String(episode.season_id))}&limit=1`,
-    );
-    const season = Array.isArray(seasonRows) ? seasonRows[0] : null;
-    if (!season?.series_id) throw new Error("AKWAM_SEASON_NOT_FOUND");
+    if (numericId) {
+      const seriesRows = await sb(
+        env,
+        `/rest/v1/series?select=id,title_ar,title_en,original_title,alternative_titles&tmdb_id=eq.${encodeURIComponent(rawId)}&limit=1`,
+      );
+      series = Array.isArray(seriesRows) ? seriesRows[0] : null;
+      if (!series?.id) throw new Error("AKWAM_SERIES_NOT_FOUND");
 
-    const seriesRows = await sb(
-      env,
-      `/rest/v1/series?select=title_ar,title_en,original_title,alternative_titles&id=eq.${encodeURIComponent(String(season.series_id))}&limit=1`,
-    );
-    const series = Array.isArray(seriesRows) ? seriesRows[0] : null;
-    if (!series) throw new Error("AKWAM_SERIES_NOT_FOUND");
+      const wantedSeason = Number(input.season_number || 1);
+      const seasonRows = await sb(
+        env,
+        `/rest/v1/seasons?select=id,series_id,season_number&series_id=eq.${encodeURIComponent(String(series.id))}&season_number=eq.${wantedSeason}&limit=1`,
+      );
+      season = Array.isArray(seasonRows) ? seasonRows[0] : null;
+      if (!season?.id) throw new Error("AKWAM_SEASON_NOT_FOUND");
+
+      const wantedEpisode = Number(input.episode_number || 1);
+      const episodeRows = await sb(
+        env,
+        `/rest/v1/episodes?select=id,episode_number,season_id&season_id=eq.${encodeURIComponent(String(season.id))}&episode_number=eq.${wantedEpisode}&limit=1`,
+      );
+      episode = Array.isArray(episodeRows) ? episodeRows[0] : null;
+      if (!episode?.id) throw new Error("AKWAM_EPISODE_NOT_FOUND");
+    } else {
+      const episodeRows = await sb(
+        env,
+        `/rest/v1/episodes?select=id,episode_number,season_id&id=eq.${encodeURIComponent(rawId)}&limit=1`,
+      );
+      episode = Array.isArray(episodeRows) ? episodeRows[0] : null;
+      if (!episode?.season_id) throw new Error("AKWAM_EPISODE_NOT_FOUND");
+
+      const seasonRows = await sb(
+        env,
+        `/rest/v1/seasons?select=series_id,season_number&id=eq.${encodeURIComponent(String(episode.season_id))}&limit=1`,
+      );
+      season = Array.isArray(seasonRows) ? seasonRows[0] : null;
+      if (!season?.series_id) throw new Error("AKWAM_SEASON_NOT_FOUND");
+
+      const seriesRows = await sb(
+        env,
+        `/rest/v1/series?select=title_ar,title_en,original_title,alternative_titles&id=eq.${encodeURIComponent(String(season.series_id))}&limit=1`,
+      );
+      series = Array.isArray(seriesRows) ? seriesRows[0] : null;
+      if (!series) throw new Error("AKWAM_SERIES_NOT_FOUND");
+    }
 
     ctx = {
       titles: Array.from(new Set([
@@ -1548,7 +1535,7 @@ export async function resolveAkwamWithContext(
     attempts: 1,
   };
 
-  const budget: RequestBudget = { used: 0, max: 50 };
+  const budget: RequestBudget = { used: 0, max: 40 };
   return discover(env, job, ctx, budget);
 }
 
