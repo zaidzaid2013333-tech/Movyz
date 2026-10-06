@@ -415,12 +415,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             throw new Error('Unexpected series response');
           }
           const series = loaded.series;
-          const season =
-            series.seasons.find((item) => item.seasonNumber === activeSeason) ||
-            series.seasons[0];
-          const episode =
-            season?.episodes.find((item) => item.episodeNumber === activeEpisode) ||
-            season?.episodes[0];
+          const season = series.seasons.find(
+            (item) => item.seasonNumber === activeSeason,
+          );
+          const episode = season?.episodes.find(
+            (item) => item.episodeNumber === activeEpisode,
+          );
+
+          if (!season || !episode) {
+            throw new Error(
+              `Requested episode S${activeSeason}E${activeEpisode} is not present in the catalog response`,
+            );
+          }
 
           setContent(series);
           setCurrentEpisode(episode);
