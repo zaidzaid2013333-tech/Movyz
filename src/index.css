@@ -631,6 +631,40 @@
   background: rgba(13,16,22,.84);
   color: #fff;
 }
+
+.movyza-player-settings {
+  animation: movyza-settings-in 160ms ease-out both;
+}
+.movyza-player-setting-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 14px;
+  padding: 10px;
+  background: rgba(255,255,255,.025);
+  color: rgba(255,255,255,.5);
+  font-size: 10px;
+}
+.movyza-player-setting-card strong {
+  font-size: 12px;
+  font-weight: 700;
+}
+.movyza-player-settings button {
+  -webkit-tap-highlight-color: transparent;
+}
+.movyza-player-settings ::-webkit-scrollbar {
+  width: 5px;
+}
+.movyza-player-settings ::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: rgba(255,255,255,.15);
+}
+@keyframes movyza-settings-in {
+  from { opacity: 0; transform: translateY(6px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .movyza-watch-meta-modern {
   position: relative;
   overflow: hidden;
@@ -1055,47 +1089,5 @@ body,
   .movyza-seek-feedback,
   .movyza-seek-feedback::before {
     animation: none !important;
-  }
-}
-
-/* Video.js 10 watch player */
-.movyza-videojs-host {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  background: #000;
-}
-.movyza-videojs-skin {
-  display: block;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  background: #000;
-}
-.movyza-videojs-media {
-  display: block;
-  width: 100%;
-  height: 100%;
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  background: #000;
-}
-.movyza-videojs-host:fullscreen,
-.movyza-videojs-host:fullscreen .movyza-videojs-skin {
-  width: 100vw;
-  height: 100vh;
-  border: 0;
-  border-radius: 0;
-}
-@media (max-width: 700px) {
-  .movyza-videojs-host,
-  .movyza-videojs-skin {
-    border-radius: 0 !important;
   }
 }
