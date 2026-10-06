@@ -205,6 +205,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [remotePlaybackSources, setRemotePlaybackSources] = useState<PlaybackSource[]>([]);
 
+  // Derived values used by hooks must be available before the conditional
+  // loading/error returns below.
+  const isMovie = content?.type === 'movie';
+  const displayTitle = content?.titleEn || content?.title || '';
+
   const [remotePlaybackSource, setRemotePlaybackSource] = useState<PlaybackSource | null>(null);
   const [resolverLoading, setResolverLoading] = useState(false);
   const [playerUnlocked, setPlayerUnlocked] = useState(false);
@@ -1543,9 +1548,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }
 
 
-  const isMovie = content.type === 'movie';
   const resolvedTmdbId = content.tmdbId;
-  const displayTitle = content.titleEn || content.title;
   const originalTitle = content.originalTitle;
   const overview = isMovie
     ? language === 'ar'
