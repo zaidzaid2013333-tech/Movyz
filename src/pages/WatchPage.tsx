@@ -538,12 +538,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const playerResolutionLabel = useMemo(() => {
     if (playerNaturalWidth > 0 && playerNaturalHeight > 0) {
-      if (playerNaturalWidth >= 3800 || playerNaturalHeight >= 2100) return '4K';
-      if (playerNaturalWidth >= 1900 || playerNaturalHeight >= 1000) return '1080p';
-      if (playerNaturalWidth >= 1200 || playerNaturalHeight >= 700) return '720p';
-      if (playerNaturalWidth >= 900 || playerNaturalHeight >= 500) return '576p';
-      if (playerNaturalWidth >= 700 || playerNaturalHeight >= 400) return '480p';
-      if (playerNaturalWidth >= 500 || playerNaturalHeight >= 300) return '360p';
+      const dimension = Math.max(playerNaturalWidth, playerNaturalHeight);
+      if (dimension >= 3800) return '4K';
+      if (dimension >= 1900) return '1080p';
+      if (dimension >= 1200) return '720p';
+      if (dimension >= 900) return '576p';
+      if (dimension >= 700) return '480p';
+      if (dimension >= 500) return '360p';
       return playerNaturalWidth + '×' + playerNaturalHeight;
     }
     return normalizePlaybackQuality(playbackSource?.quality);
@@ -1647,7 +1648,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         {availableSources.length > 0 && (
           <div dir={direction} className="movyza-source-panel rounded-2xl p-3 sm:p-4 mb-3 space-y-3">
             <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 font-mono">
-              <span>{language === 'ar' ? 'الجودة المتاحة من الوسيط:' : 'Available broker qualities:'}</span>
+              <span>{language === 'ar' ? 'جودات Akwam المتاحة:' : 'Available Akwam qualities:'}</span>
               <span className="text-amber-400/70">{availableSources.length}</span>
             </div>
 
