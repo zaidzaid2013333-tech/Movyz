@@ -4,84 +4,15 @@ import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } from './auth';
 import { runTmdbSync, runFreshTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId, importCuratedCatalog } from './tmdb';
-import { resolveAkwamNow } from '../workers/akwam-prefill/src/index';
 
 export const app = new MiniApp();
 const api = '/api/v1';
 
 app.disable('x-powered-by');
 
-app.get(api + '/internal/diagnostics/akwam', asyncRoute(async (req, res) => {
-  const expectedKey = String(
-    req.env?.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '',
-  ).trim();
-  const providedKey = String(req.header('x-movyz-internal-key') || '').trim();
-
-  if (!expectedKey || !providedKey || providedKey !== expectedKey) {
-    return fail(res, 401, 'UNAUTHORIZED', 'Unauthorized internal diagnostic request');
-  }
-
-  const movieId = '6591564a-13a9-4892-a166-247d1ff9158b';
-  const akwamUrl = 'https://akwam.ss/movie/248/interstellar-2';
-  const readerUrl = 'https://r.jina.ai/' + akwamUrl;
-  const reader: Record<string, unknown> = { url: readerUrl };
-
-  try {
-    const readerResponse = await fetch(readerUrl, {
-      headers: {
-        Accept: 'text/plain,text/markdown;q=0.9,*/*;q=0.5',
-        'User-Agent': 'Movyz/1.0 CloudflareDiagnostic',
-      },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(12000),
-    });
-    const readerBody = await readerResponse.text();
-    reader.status = readerResponse.status;
-    reader.bytes = readerBody.length;
-    reader.sample = readerBody.slice(0, 1200);
-  } catch (error) {
-    reader.error = error instanceof Error ? error.message : String(error);
-  }
-
-  try {
-    const media = await resolveAkwamNow(
-      {
-        SUPABASE_URL: String(req.env?.SUPABASE_URL || process.env.SUPABASE_URL || ''),
-        SUPABASE_SERVICE_ROLE_KEY: expectedKey,
-        AKWAM_BASE_URL: 'https://akwam.ss',
-        MAX_JOBS_PER_RUN: '1',
-        PREFILL_CONCURRENCY: '1',
-      },
-      { content_type: 'movie', content_id: movieId },
-    );
-
-    return ok(res, {
-      reader,
-      resolver: {
-        ok: true,
-        sourceCount: media.length,
-        sources: media.map((item) => ({
-          type: item.type,
-          quality: item.quality,
-          host: (() => {
-            try { return new URL(item.url).hostname; } catch { return ''; }
-          })(),
-          referer: item.referer || null,
-        })),
-      },
-    });
-  } catch (error) {
-    return ok(res, {
-      reader,
-      resolver: {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      },
-    });
-  }
-}));
-
-// Playback backend: cache-first, live Akwam resolution. No playback URLs are
+// Playback backend: cache-first, live Akwam resolution through the dedicated
+// external resolver service. No playback URLs are persisted in Supabase.
+ cache-first, live Akwam resolution. No playback URLs are
 // persisted in Supabase; only short-lived edge/memory cache entries are used.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
 const MOVYZ_PLAYBACK_CONTRACT = 'broker-v1';
@@ -251,6 +182,142 @@ function normalizeBrokerMediaSources(
     );
 }
 
+async function loadPlaybackResolverContext(
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  seasonNumber?: number,
+  episodeNumber?: number,
+) {
+  if (contentType === 'movie') {
+    const isTmdbId = /^\d+$/.test(contentId);
+    const query = adminSupabase
+      .from('movies')
+      .select('id,title_ar,title_en,original_title,alternative_titles,release_date')
+      .limit(1);
+    const { data, error } = isTmdbId
+      ? await query.eq('tmdb_id', Number(contentId))
+      : await query.eq('id', contentId);
+    if (error || !data?.[0]) throw new Error('PLAYBACK_CONTENT_NOT_FOUND');
+
+    const row: any = data[0];
+    const titles = Array.from(new Set([
+      row.title_ar,
+      row.title_en,
+      row.original_title,
+      ...(Array.isArray(row.alternative_titles)
+        ? row.alternative_titles.map((x: any) => x?.title).filter(Boolean)
+        : []),
+    ].filter((value): value is string => typeof value === 'string' && value.trim())));
+
+    return {
+      titles,
+      year: typeof row.release_date === 'string' ? Number(row.release_date.slice(0, 4)) || undefined : undefined,
+      seasonNumber: undefined,
+      episodeNumber: undefined,
+    };
+  }
+
+  const { data: episodeData, error: episodeError } = await adminSupabase
+    .from('episodes')
+    .select('season_id,episode_number')
+    .eq('id', contentId)
+    .limit(1);
+  const episode = episodeData?.[0] as any;
+  if (episodeError || !episode?.season_id) throw new Error('PLAYBACK_EPISODE_NOT_FOUND');
+
+  const { data: seasonData, error: seasonError } = await adminSupabase
+    .from('seasons')
+    .select('series_id,season_number')
+    .eq('id', episode.season_id)
+    .limit(1);
+  const season = seasonData?.[0] as any;
+  if (seasonError || !season?.series_id) throw new Error('PLAYBACK_SEASON_NOT_FOUND');
+
+  const { data: seriesData, error: seriesError } = await adminSupabase
+    .from('series')
+    .select('title_ar,title_en,original_title,alternative_titles')
+    .eq('id', season.series_id)
+    .limit(1);
+  const series = seriesData?.[0] as any;
+  if (seriesError || !series) throw new Error('PLAYBACK_SERIES_NOT_FOUND');
+
+  const titles = Array.from(new Set([
+    series.title_ar,
+    series.title_en,
+    series.original_title,
+    ...(Array.isArray(series.alternative_titles)
+      ? series.alternative_titles.map((x: any) => x?.title).filter(Boolean)
+      : []),
+  ].filter((value): value is string => typeof value === 'string' && value.trim())));
+
+  return {
+    titles,
+    year: undefined,
+    seasonNumber: Number.isFinite(seasonNumber) ? seasonNumber : Number(season.season_number),
+    episodeNumber: Number.isFinite(episodeNumber) ? episodeNumber : Number(episode.episode_number),
+  };
+}
+
+async function resolveAkwamThroughExternalResolver(
+  req: HttpRequest,
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  seasonNumber?: number,
+  episodeNumber?: number,
+) {
+  const resolverBase = String(
+    (req.env as any)?.PLAYBACK_RESOLVER_URL ||
+    process.env.PLAYBACK_RESOLVER_URL ||
+    '',
+  ).trim().replace(/\/+$/, '');
+  if (!resolverBase) throw new Error('PLAYBACK_RESOLVER_CONFIG_MISSING');
+
+  const context = await loadPlaybackResolverContext(
+    contentType,
+    contentId,
+    seasonNumber,
+    episodeNumber,
+  );
+
+  const headers = new Headers({
+    'content-type': 'application/json',
+    accept: 'application/json',
+    'user-agent': 'Movyz-Cloudflare-Playback/1.0',
+  });
+  const resolverKey = String(
+    (req.env as any)?.PLAYBACK_RESOLVER_KEY ||
+    process.env.PLAYBACK_RESOLVER_KEY ||
+    '',
+  ).trim();
+  if (resolverKey) headers.set('x-movyz-resolver-key', resolverKey);
+
+  const response = await fetch(resolverBase + '/resolve', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      contentType,
+      contentId,
+      titles: context.titles,
+      year: context.year,
+      seasonNumber: context.seasonNumber,
+      episodeNumber: context.episodeNumber,
+    }),
+    signal: AbortSignal.timeout(35000),
+  });
+
+  const raw = await response.text();
+  let payload: any = null;
+  try { payload = JSON.parse(raw); } catch {}
+
+  if (!response.ok || payload?.ok !== true) {
+    const detail = String(payload?.error || raw || ('HTTP_' + response.status)).slice(0, 900);
+    throw new Error('PLAYBACK_EXTERNAL_RESOLVER_FAILED ' + detail);
+  }
+
+  const media = Array.isArray(payload.sources) ? payload.sources : [];
+  return media.filter((source: any) => /^https:\/\//i.test(String(source?.url || '')));
+}
+
 async function resolvePlaybackBroker(
   req: HttpRequest,
   contentType: 'movie' | 'episode',
@@ -270,30 +337,13 @@ async function resolvePlaybackBroker(
     return { sources: await existing, mode: 'live' };
   }
 
-  const resolverUrl = String(req.env?.SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
-  const serviceRoleKey = String(
-    req.env?.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '',
-  ).trim();
-
-  if (!resolverUrl || !serviceRoleKey) {
-    throw new Error('PLAYBACK_BROKER_CONFIG_MISSING');
-  }
-
   const resolverPromise = (async () => {
-    const media = await resolveAkwamNow(
-      {
-        SUPABASE_URL: resolverUrl,
-        SUPABASE_SERVICE_ROLE_KEY: serviceRoleKey,
-        AKWAM_BASE_URL: 'https://akwam.ss',
-        MAX_JOBS_PER_RUN: '1',
-        PREFILL_CONCURRENCY: '1',
-      },
-      {
-        content_type: contentType,
-        content_id: contentId,
-        season_number: seasonNumber,
-        episode_number: episodeNumber,
-      },
+    const media = await resolveAkwamThroughExternalResolver(
+      req,
+      contentType,
+      contentId,
+      seasonNumber,
+      episodeNumber,
     );
 
     const sources = normalizeBrokerMediaSources(
@@ -1688,4 +1738,4 @@ app.use((err: any, _req: HttpRequest, res: HttpResponse, _next: NextFunction) =>
 
   return fail(res, 500, 'INTERNAL_ERROR', 'Internal server error');
 });
-// Playback runtime uses live Akwam resolution with short-lived edge/memory caching.
+// Playback runtime uses the external live Akwam resolver with only short-lived edge/memory caching.
