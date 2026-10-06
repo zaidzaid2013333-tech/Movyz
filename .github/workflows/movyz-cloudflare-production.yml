@@ -68,6 +68,18 @@ jobs:
             printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
           } > .env.production
 
+      - name: Probe Akwam reader fallback
+        run: |
+          python - <<'PY'
+          import urllib.request
+          url = "https://r.jina.ai/https://akwam.ss/movie/248/interstellar-2"
+          req = urllib.request.Request(url, headers={"User-Agent": "Movyz-GitHub-Actions/1.0"})
+          with urllib.request.urlopen(req, timeout=20) as response:
+              body = response.read(12000)
+              print("AKWAM_READER_PROBE", response.status, len(body))
+              print(body[:1500].decode("utf-8", "replace"))
+          PY
+
       - name: Direct resolver diagnostic - Interstellar
         continue-on-error: true
         env:
@@ -75,7 +87,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           node --version
-          npx --yes tsx@4.21.0 -e '
+          timeout 90s npx --yes tsx@4.21.0 -e '
             (async () => {
               const { resolveAkwamWithContext } = await import("./workers/akwam-prefill/src/index.ts");
               const env = {
