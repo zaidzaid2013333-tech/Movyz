@@ -94,8 +94,8 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
   }
 
   const isSaved = watchlist.includes(series.id);
-  const titlePrimary = language === 'ar' ? series.title : series.titleEn;
-  const titleSecondary = language === 'ar' ? series.titleEn : series.originalTitle;
+  const titlePrimary = series.titleEn || series.title;
+  const titleSecondary = series.originalTitle;
   const overview = language === 'ar' ? series.overview : series.overviewEn;
 
   const activeSeason =
@@ -306,7 +306,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
         {/* Episodes Grid with Celluloid Film Frame Style */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {activeSeason?.episodes.map((episode) => {
-            const epTitle = language === 'ar' ? episode.title : episode.titleEn;
+            const epTitle = episode.titleEn || episode.title;
             const epOverview = language === 'ar' ? episode.overview : episode.overviewEn;
 
             return (
