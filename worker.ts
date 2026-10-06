@@ -73,14 +73,14 @@ const proxyArabicSubtitle = async (request: Request, env: MovyzEnvironment) => {
   let episode = '';
 
   if (isMovie) {
-    tmdbId = parts[2].replace(/\\.srt$/i, '');
+    tmdbId = parts[2].replace(/\.srt$/i, '');
   } else {
     tmdbId = parts[2] || '';
     season = parts[3] || '';
     episode = (parts[4] || '').replace(/\\.srt$/i, '');
   }
 
-  if (!/^\\d+$/.test(tmdbId) || (isTv && (!/^\\d+$/.test(season) || !/^\\d+$/.test(episode)))) {
+  if (!/^\d+$/.test(tmdbId) || (isTv && (!/^\d+$/.test(season) || !/^\d+$/.test(episode)))) {
     return noSubtitle(400, 'Bad subtitle identifier');
   }
 
