@@ -1653,6 +1653,53 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
             episodeTarget = exactEpisode;
             const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget, session);
             if (episodeHtml) targets = extractTargets(episodeHtml, exactEpisode);
+          } else {
+            // Generic second-level traversal: some Akwam catalog generations
+            // expose the series -> season -> episode relationship through
+            // navigation pages rather than explicit episode links on the detail.
+            // Follow only a bounded set of Akwam navigation targets, then reuse
+            // the exact same episode matcher. No title-specific routes.
+            const navigationTargets = Array.from(new Set(
+              extractTargets(detail, candidate.url)
+                .filter((url) => isAkwamUrl(url))
+                .filter((url) => {
+                  try {
+                    const path = new URL(url).pathname.toLowerCase();
+                    const blocked = [
+                      "/download/","/link/","/stream/","/file/","/get/",
+                      "/source/","/media/","/video/",
+                    ].some((segment) => path.includes(segment));
+                    const mediaPath = /\.(?:m3u8|mp4|mpd|webm)(?:$|\?)/i.test(path);
+                    return !blocked && !mediaPath &&
+                      /(?:season|seasons|episode|episodes|show|series|tv|watch)/i.test(path);
+                  } catch {
+                    return false;
+                  }
+                }),
+            )).slice(0, 4);
+
+            const pages = await Promise.all(
+              navigationTargets.map(async (url) => {
+                const html = await fetchText(env, url, undefined, candidate.url, budget, session);
+                return html ? { url, html } : null;
+              }),
+            );
+
+            for (const page of pages) {
+              if (!page || episodeTarget) continue;
+              const nestedEpisode = extractEpisodeTarget(page.html, page.url, season, episode);
+              if (!nestedEpisode) continue;
+              episodeTarget = nestedEpisode;
+              const nestedHtml = await fetchText(
+                env,
+                nestedEpisode,
+                undefined,
+                page.url,
+                budget,
+                session,
+              );
+              if (nestedHtml) targets = extractTargets(nestedHtml, nestedEpisode);
+            }
           }
         }
       }
