@@ -892,15 +892,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     };
 
     shell.addEventListener('pointermove', showControlsTemporarily);
-    shell.addEventListener('touchstart', showControlsTemporarily, { passive: true });
     showControlsTemporarily();
 
     return () => {
       shell.removeEventListener('pointermove', showControlsTemporarily);
-      shell.removeEventListener('touchstart', showControlsTemporarily);
       if (playerControlsHideTimerRef.current !== null) {
         window.clearTimeout(playerControlsHideTimerRef.current);
         playerControlsHideTimerRef.current = null;
+      }
+      if (touchSingleTapTimerRef.current !== null) {
+        window.clearTimeout(touchSingleTapTimerRef.current);
+        touchSingleTapTimerRef.current = null;
       }
     };
   }, [playerPlaying, playbackUrl]);
