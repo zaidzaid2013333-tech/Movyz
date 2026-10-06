@@ -1,6 +1,5 @@
 // Production playback core: Movyz API -> cache-first Playback Broker -> Movyz player.
-// Supabase playback_sources remains a fast legacy/fallback cache; live Akwam
-// resolution is on-demand and never needs to populate the full catalog.
+// Akwam sources are resolved live on demand; no persistent playback-source table is used.
 // TMDB/Supabase remain the catalog layer.
 import { app } from './server/index';
 import type { WorkerEnvironment } from './server/mini-http';
