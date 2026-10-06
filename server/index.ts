@@ -891,7 +891,7 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
       await syncMovieByTmdbId(tmdbId);
       const refreshed = await adminSupabase
         .from('movies')
-        .select('*')
+        .select('id,tmdb_id,title_ar,title_en,original_title,release_date,rating,vote_count,runtime_minutes,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating')
         .eq('tmdb_id', tmdbId)
         .eq('status', 'published')
         .maybeSingle();
@@ -912,7 +912,7 @@ app.get(`${api}/movies/:id`, asyncRoute(async (req, res) => {
   const { data, error } = await adminSupabase.from('movies').select('id,tmdb_id,title_ar,title_en,original_title,release_date,rating,vote_count,runtime_minutes,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating').eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
   const movie = await movieDto(data);
-  res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=60, stale-while-revalidate=120');
+  res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=300, stale-while-revalidate=600');
   return ok(res, { movie, similar: [] });
 }));
 
@@ -957,7 +957,7 @@ app.get(`${api}/series/tmdb/:tmdbId/watch/:season/:episode`, asyncRoute(async (r
   if (!series.seasons[0].episodes.some((item: any) => item.episodeNumber === episodeNumber)) {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
   }
-  res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=60, stale-while-revalidate=120');
+  res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=300, stale-while-revalidate=600');
   return ok(res, { series, currentSeason: series.seasons[0] });
 }));
 
@@ -967,7 +967,7 @@ app.get(`${api}/series/:id/watch/:season/:episode`, asyncRoute(async (req, res) 
   if (!Number.isInteger(seasonNumber) || seasonNumber < 1 || !Number.isInteger(episodeNumber) || episodeNumber < 1) {
     return fail(res, 400, 'INVALID_WATCH_REQUEST', 'Invalid series watch request');
   }
-  const { data, error } = await adminSupabase.from('series').select('*')
+  const { data, error } = await adminSupabase.from('series').select('id,tmdb_id,title_ar,title_en,original_title,first_air_date,last_air_date,rating,vote_count,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating')
     .eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error) return fail(res, 500, 'SERIES_QUERY_FAILED', 'Unable to load series');
   if (!data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
@@ -976,7 +976,7 @@ app.get(`${api}/series/:id/watch/:season/:episode`, asyncRoute(async (req, res) 
   if (!series.seasons[0].episodes.some((item: any) => item.episodeNumber === episodeNumber)) {
     return fail(res, 404, 'EPISODE_NOT_FOUND', 'Episode not found');
   }
-  res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=60, stale-while-revalidate=120');
+  res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=300, stale-while-revalidate=600');
   return ok(res, { series, currentSeason: series.seasons[0] });
 }));
 
@@ -986,7 +986,7 @@ app.get(`${api}/series/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
 
   let { data, error } = await adminSupabase
     .from('series')
-    .select('*')
+    .select('id,tmdb_id,title_ar,title_en,original_title,first_air_date,last_air_date,rating,vote_count,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating')
     .eq('tmdb_id', tmdbId)
     .eq('status', 'published')
     .maybeSingle();
@@ -998,7 +998,7 @@ app.get(`${api}/series/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
       await syncSeriesByTmdbId(tmdbId);
       const refreshed = await adminSupabase
         .from('series')
-        .select('*')
+        .select('id,tmdb_id,title_ar,title_en,original_title,first_air_date,last_air_date,rating,vote_count,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating')
         .eq('tmdb_id', tmdbId)
         .eq('status', 'published')
         .maybeSingle();
@@ -1143,8 +1143,8 @@ app.get(`${api}/watch/:id`, asyncRoute(async (req, res) => {
 app.get(`${api}/search`, asyncRoute(async (req, res) => {
   const q = z.string().trim().min(1).max(100).parse(req.query.q);
   const [movies, series, people] = await Promise.all([
-    adminSupabase.from('movies').select('*').eq('status', 'published').or(`title_ar.ilike.%${q}%,title_en.ilike.%${q}%,original_title.ilike.%${q}%`).limit(24),
-    adminSupabase.from('series').select('*').eq('status', 'published').or(`title_ar.ilike.%${q}%,title_en.ilike.%${q}%,original_title.ilike.%${q}%`).limit(24),
+    adminSupabase.from('movies').select('id,tmdb_id,title_ar,title_en,original_title,release_date,rating,vote_count,runtime_minutes,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating').eq('status', 'published').or(`title_ar.ilike.%${q}%,title_en.ilike.%${q}%,original_title.ilike.%${q}%`).limit(24),
+    adminSupabase.from('series').select('id,tmdb_id,title_ar,title_en,original_title,first_air_date,last_air_date,rating,vote_count,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating').eq('status', 'published').or(`title_ar.ilike.%${q}%,title_en.ilike.%${q}%,original_title.ilike.%${q}%`).limit(24),
     adminSupabase.from('people').select('id,name_ar,name_en,original_name,avatar_url').or(`name_ar.ilike.%${q}%,name_en.ilike.%${q}%,original_name.ilike.%${q}%`).limit(12),
   ]);
   const movieRows = movies.data || []; const seriesRows = series.data || []; const personRows = people.data || [];
@@ -1163,10 +1163,10 @@ app.get(`${api}/search`, asyncRoute(async (req, res) => {
 }));
 app.get(`${api}/home`, asyncRoute(async (_req, res) => {
   const [movies, series, recentMovies, recentSeries, genres] = await Promise.all([
-    adminSupabase.from('movies').select('*').eq('status', 'published').order('vote_count', { ascending: false }).limit(12),
-    adminSupabase.from('series').select('*').eq('status', 'published').order('vote_count', { ascending: false }).limit(12),
-    adminSupabase.from('movies').select('*').eq('status', 'published').order('created_at', { ascending: false }).limit(12),
-    adminSupabase.from('series').select('*').eq('status', 'published').order('created_at', { ascending: false }).limit(12),
+    adminSupabase.from('movies').select('id,tmdb_id,title_ar,title_en,original_title,release_date,rating,vote_count,runtime_minutes,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating').eq('status', 'published').order('vote_count', { ascending: false }).limit(12),
+    adminSupabase.from('series').select('id,tmdb_id,title_ar,title_en,original_title,first_air_date,last_air_date,rating,vote_count,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating').eq('status', 'published').order('vote_count', { ascending: false }).limit(12),
+    adminSupabase.from('movies').select('id,tmdb_id,title_ar,title_en,original_title,release_date,rating,vote_count,runtime_minutes,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating').eq('status', 'published').order('created_at', { ascending: false }).limit(12),
+    adminSupabase.from('series').select('id,tmdb_id,title_ar,title_en,original_title,first_air_date,last_air_date,rating,vote_count,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating').eq('status', 'published').order('created_at', { ascending: false }).limit(12),
     adminSupabase.from('genres').select('id,name_ar,name_en,slug').order('id'),
   ]);
   const movieRows = movies.data || [];
