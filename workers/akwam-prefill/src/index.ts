@@ -1738,7 +1738,7 @@ async function fail(env: Env, job: Job, error: unknown, workerId: string) {
   const message = String(error).slice(0, 1800);
   const episodeNotIndexed = /AKWAM_EPISODE_NOT_INDEXED/.test(message);
   const searchEmpty = /AKWAM_SEARCH_EMPTY/.test(message);
-  const noPlayable = /AKWAM_NO_PLAYABLE_SOURCE|AKWAM_PERSIST_NO_VALID_ROWS/.test(message);
+  const noPlayable = /AKWAM_NO_PLAYABLE_SOURCE/.test(message);
   const baseDelay =
     episodeNotIndexed
       ? 900
@@ -1766,7 +1766,7 @@ async function fail(env: Env, job: Job, error: unknown, workerId: string) {
       updated_at: now,
       details: {
         provider: "akwam",
-        mode: "db-only-prefill",
+        mode: "live-playback-broker-only",
         worker: workerId,
         retryable: true,
         delay_seconds: delaySeconds,
