@@ -9,7 +9,9 @@ function positiveEnv(name: string, fallback: number, minimum: number) {
   return Number.isFinite(parsed) ? Math.max(minimum, parsed) : fallback;
 }
 
-const maxConcurrent = positiveEnv("PLAYBACK_RESOLVER_MAX_CONCURRENCY", 4, 1);
+const maxConcurrent = positiveEnv("PLAYBACK_RESOLVER_MAX_CONCURRENCY", 8, 1);
+const maxQueued = positiveEnv("PLAYBACK_RESOLVER_MAX_QUEUE", 32, 1);
+const queueWaitMs = positiveEnv("PLAYBACK_RESOLVER_QUEUE_WAIT_MS", 15000, 1000);
 const cacheTtlMs = positiveEnv("PLAYBACK_RESOLVER_CACHE_TTL_MS", 45_000, 5_000);
 const cacheMaxKeys = positiveEnv("PLAYBACK_RESOLVER_CACHE_MAX_KEYS", 256, 32);
 
@@ -29,9 +31,11 @@ type Context = {
   year?: number;
   seasonNumber?: number;
   episodeNumber?: number;
+  tmdbId?: number;
 };
 
 let activeResolutions = 0;
+let queuedResolutions = 0;
 const inflight = new Map<string, Promise<MediaSource[]>>();
 const resolutionCache = new Map<string, { expiresAt: number; sources: MediaSource[] }>();
 
@@ -65,6 +69,7 @@ function requestKey(context: Context) {
     context.contentId,
     context.seasonNumber ?? null,
     context.episodeNumber ?? null,
+    context.tmdbId ?? null,
   ]);
 }
 
@@ -98,7 +103,17 @@ async function resolve(context: Context): Promise<MediaSource[]> {
   if (running) return running;
 
   if (activeResolutions >= maxConcurrent) {
-    throw new Error("RESOLVER_BUSY");
+    if (queuedResolutions >= maxQueued) throw new Error("RESOLVER_BUSY");
+    queuedResolutions += 1;
+    const deadline = Date.now() + queueWaitMs;
+    try {
+      while (activeResolutions >= maxConcurrent) {
+        if (Date.now() >= deadline) throw new Error("RESOLVER_BUSY");
+        await new Promise((resolve) => setTimeout(resolve, 125));
+      }
+    } finally {
+      queuedResolutions -= 1;
+    }
   }
 
   const promise = (async () => {
@@ -157,9 +172,13 @@ async function resolve(context: Context): Promise<MediaSource[]> {
         akwamError = error instanceof Error ? error.message : String(error);
       }
 
+      const vidlinkContentId = Number.isFinite(context.tmdbId)
+        ? String(context.tmdbId)
+        : context.contentId;
+
       const vidlinkContext: VidLinkContext = {
         contentType: context.contentType,
-        contentId: context.contentId,
+        contentId: vidlinkContentId,
         seasonNumber: context.seasonNumber,
         episodeNumber: context.episodeNumber,
       };
@@ -218,7 +237,9 @@ async function handle(request: Request): Promise<Response> {
       mode: "akwam-primary-vidlink-fallback",
       providers: ["akwam", "vidlink"],
       active: activeResolutions,
+      queued: queuedResolutions,
       maxConcurrent,
+      maxQueued,
     });
   }
 
@@ -244,6 +265,9 @@ async function handle(request: Request): Promise<Response> {
 
   const contentId =
     typeof body?.contentId === "string" ? body.contentId.trim() : "";
+  const tmdbId = Number.isFinite(Number(body?.tmdbId))
+    ? Number(body.tmdbId)
+    : undefined;
 
   const titles: string[] = Array.isArray(body?.titles)
     ? Array.from(
@@ -275,6 +299,7 @@ async function handle(request: Request): Promise<Response> {
     year,
     seasonNumber,
     episodeNumber,
+    tmdbId,
   };
 
   try {

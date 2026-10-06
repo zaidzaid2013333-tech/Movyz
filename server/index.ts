@@ -57,6 +57,7 @@ const PLAYBACK_CONTEXT_TTL_MS = 5 * 60 * 1000;
 const PLAYBACK_CONTEXT_MAX_KEYS = 512;
 type PlaybackResolverContext = {
   contentId: string;
+  tmdbId?: number;
   titles: string[];
   year?: number;
   seasonNumber?: number;
@@ -230,7 +231,7 @@ async function loadPlaybackResolverContext(
     const isTmdbId = /^\d+$/.test(contentId);
     const query = adminSupabase
       .from('movies')
-      .select('id,title_ar,title_en,original_title,alternative_titles,release_date')
+      .select('id,tmdb_id,title_ar,title_en,original_title,alternative_titles,release_date')
       .limit(1);
     const { data, error } = isTmdbId
       ? await query.eq('tmdb_id', Number(contentId))
@@ -240,6 +241,7 @@ async function loadPlaybackResolverContext(
     const row: any = data[0];
     return store({
       contentId: String(row.id),
+      tmdbId: Number.isFinite(Number(row.tmdb_id)) ? Number(row.tmdb_id) : undefined,
       titles: Array.from(new Set([
         row.title_ar,
         row.title_en,
@@ -258,7 +260,7 @@ async function loadPlaybackResolverContext(
   // Older schemas can still fall back to the three-query path below.
   const nested = await adminSupabase
     .from('episodes')
-    .select('id,episode_number,season_id,seasons!inner(series_id,season_number,series!inner(title_ar,title_en,original_title,alternative_titles))')
+    .select('id,episode_number,season_id,seasons!inner(series_id,season_number,series!inner(tmdb_id,title_ar,title_en,original_title,alternative_titles))')
     .eq('id', contentId)
     .limit(1);
 
@@ -269,6 +271,7 @@ async function loadPlaybackResolverContext(
   if (!nested.error && nestedRow && nestedSeason && nestedSeries) {
     const value = {
       contentId: String(nestedRow.id),
+      tmdbId: Number.isFinite(Number(nestedSeries.tmdb_id)) ? Number(nestedSeries.tmdb_id) : undefined,
       titles: Array.from(new Set([
         nestedSeries.title_ar,
         nestedSeries.title_en,
@@ -297,7 +300,7 @@ async function loadPlaybackResolverContext(
   ) {
     const { data: seriesByTmdb, error: seriesByTmdbError } = await adminSupabase
       .from('series')
-      .select('id,title_ar,title_en,original_title,alternative_titles')
+      .select('id,tmdb_id,title_ar,title_en,original_title,alternative_titles')
       .eq('tmdb_id', Number(contentId))
       .limit(1);
 
@@ -323,6 +326,7 @@ async function loadPlaybackResolverContext(
         if (!episodeByNumberError && episodeRow?.id) {
           return store({
             contentId: String(episodeRow.id),
+            tmdbId: Number.isFinite(Number(seriesRow.tmdb_id)) ? Number(seriesRow.tmdb_id) : undefined,
             titles: Array.from(new Set([
               seriesRow.title_ar,
               seriesRow.title_en,
@@ -357,7 +361,7 @@ async function loadPlaybackResolverContext(
 
   const { data: seriesData, error: seriesError } = await adminSupabase
     .from('series')
-    .select('title_ar,title_en,original_title,alternative_titles')
+    .select('tmdb_id,title_ar,title_en,original_title,alternative_titles')
     .eq('id', season.series_id)
     .limit(1);
   const series = seriesData?.[0] as any;
@@ -365,6 +369,7 @@ async function loadPlaybackResolverContext(
 
   return store({
     contentId: String(episode.id),
+    tmdbId: Number.isFinite(Number(series.tmdb_id)) ? Number(series.tmdb_id) : undefined,
     titles: Array.from(new Set([
       series.title_ar,
       series.title_en,
@@ -415,6 +420,7 @@ async function resolveAkwamThroughExternalResolver(
   const body = JSON.stringify({
     contentType,
     contentId: context.contentId,
+    tmdbId: context.tmdbId,
     titles: context.titles,
     year: context.year,
     seasonNumber: context.seasonNumber,
