@@ -192,7 +192,7 @@ function markdownToSyntheticHtml(markdown: string) {
   );
 
   value = value.replace(
-    /(^|[\s>])(https?:\/\/akwam\.ss\/[^^\s<)]+)/gi,
+    /(^|[\s>])(https?:\/\/akwam\.ss\/[\s\S]*?)(?=[\s<)])/gi,
     (_match, prefix, href) => prefix + '<a href="' + href + '">' + href + "</a>",
   );
 
