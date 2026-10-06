@@ -1619,6 +1619,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       // Ignore sources that reject a resume seek.
                     }
                   }
+                }}
 
                 onDurationChange={() => {
                   const video = videoRef.current;
@@ -1740,7 +1741,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   playbackStartedRef.current = false;
                   if (!playbackUrl) return;
 
-                  markPlaybackSourceFailed();                  const mediaError = videoRef.current?.error;
+                  markPlaybackSourceFailed();
+                  const mediaError = videoRef.current?.error;
                   const code = mediaError?.code;
                   const detail =
                     code === MediaError.MEDIA_ERR_ABORTED
