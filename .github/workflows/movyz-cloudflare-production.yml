@@ -1,0 +1,170 @@
+name: Movyz Cloudflare Production Deploy (GitHub Actions)
+
+on:
+  push:
+    branches:
+      - ui/watch-player-responsive-20261005
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-production-github-actions
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configure npm resilience
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set audit false
+          npm config set fund false
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
+
+      - name: Validate TypeScript
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build frontend
+        env:
+          MOVYZ_BUILD_ID: ${{ github.sha }}
+        run: npm run build
+
+      - name: Validate Cloudflare configuration
+        run: npx wrangler deploy --dry-run
+
+      - name: Prepare Movyz runtime secrets
+        run: |
+          {
+            printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"
+            printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_ANON_KEY"
+            printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
+            printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
+          } > .env.production
+
+      - name: Deploy Worker to Cloudflare
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }}
+
+      - name: Live playback smoke - movie and relay
+        run: |
+          python - <<'PY'
+          import json, urllib.error, urllib.request, uuid
+
+          api = "https://movyz-api.sameranede.workers.dev"
+          movie_id = "6591564a-13a9-4892-a166-247d1ff9158b"
+
+          def request_json(url, timeout=90, method="GET", headers=None):
+              req = urllib.request.Request(
+                  url,
+                  method=method,
+                  headers={
+                      "Accept": "application/json",
+                      "User-Agent": "Movyz-GitHub-Actions-Smoke/1.0",
+                      **(headers or {}),
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as response:
+                      body = response.read()
+                      return response.status, response.headers, json.loads(body.decode("utf-8"))
+              except urllib.error.HTTPError as error:
+                  body = error.read().decode("utf-8", "replace")
+                  raise SystemExit(f"{url}: HTTP {error.code}: {body[:900]}")
+
+          status, _, payload = request_json(
+              api + "/api/v1/playback/prepare?type=movie&contentId=" + movie_id
+          )
+          sources = payload.get("data", {}).get("sources", [])
+          if status != 200 or payload.get("success") is not True or not isinstance(sources, list) or not sources:
+              raise SystemExit(f"movie prepare failed: status={status} payload={str(payload)[:900]}")
+
+          relay = next((s.get("url") for s in sources if isinstance(s, dict) and str(s.get("url","")).startswith("https://")), None)
+          if not relay:
+              raise SystemExit("movie prepare returned no relay URL")
+
+          relay_req = urllib.request.Request(
+              relay,
+              method="GET",
+              headers={
+                  "Range": "bytes=0-1023",
+                  "Accept": "*/*",
+                  "User-Agent": "Movyz-GitHub-Actions-Smoke/1.0",
+                  "Referer": api + "/",
+                  "Origin": "https://movyz.example",
+              },
+          )
+          try:
+              with urllib.request.urlopen(relay_req, timeout=90) as response:
+                  chunk = response.read(1024)
+                  content_type = (response.headers.get("content-type") or "").lower()
+                  if response.status not in (200, 206):
+                      raise SystemExit(f"movie relay bad status: {response.status}")
+                  if any(x in content_type for x in ("text/html", "application/json", "text/plain")):
+                      raise SystemExit(f"movie relay returned non-media content-type: {content_type}")
+                  if not chunk:
+                      raise SystemExit("movie relay returned an empty body")
+                  print("MOVIE_PLAYBACK_OK", len(sources), "sources", "relay_status", response.status, "content_type", content_type)
+          except urllib.error.HTTPError as error:
+              body = error.read().decode("utf-8", "replace")
+              raise SystemExit(f"movie relay HTTP {error.code}: {body[:900]}")
+
+          status, _, watch_payload = request_json(
+              api + "/api/v1/series/tmdb/1399/watch/1/1"
+          )
+          current_season = watch_payload.get("data", {}).get("currentSeason", {})
+          episodes = current_season.get("episodes", []) if isinstance(current_season, dict) else []
+          episode_id = episodes[0].get("id") if episodes and isinstance(episodes[0], dict) else None
+          if not episode_id:
+              raise SystemExit("episode smoke could not resolve a real episode id from Breaking Bad S01E01")
+
+          status, _, episode_payload = request_json(
+              api + "/api/v1/playback/prepare?type=episode&contentId=" + str(episode_id) + "&season=1&episode=1"
+          )
+          episode_sources = episode_payload.get("data", {}).get("sources", [])
+          if status != 200 or episode_payload.get("success") is not True or not isinstance(episode_sources, list) or not episode_sources:
+              raise SystemExit(f"episode prepare failed: status={status} payload={str(episode_payload)[:900]}")
+
+          episode_relay = next((s.get("url") for s in episode_sources if isinstance(s, dict) and str(s.get("url","")).startswith("https://")), None)
+          if not episode_relay:
+              raise SystemExit("episode prepare returned no relay URL")
+
+          print("EPISODE_PLAYBACK_OK", len(episode_sources), "sources", "episode_id", episode_id)
+          print("Movyz live playback smoke: ALL OK")
+          PY
+
+      - name: Deployment marker
+        run: echo "DEPLOYED_COMMIT=${{ github.sha }}"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f .env.production
