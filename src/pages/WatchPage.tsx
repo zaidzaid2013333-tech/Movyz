@@ -1674,6 +1674,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 </div>
               ) : null}
 
+            </div>
           </div>
         </div>
       </div>
