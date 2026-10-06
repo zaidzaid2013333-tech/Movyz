@@ -594,7 +594,7 @@ async function findCandidate(
     ? Array.from(new Set([
         ...seeds.flatMap(movieSearchVariants),
         year && seeds[0] ? seeds[0] + " " + year : "",
-      ].filter(Boolean))).slice(0, 4)
+      ].filter(Boolean))).slice(0, 2)
     : Array.from(new Set([
         ...seeds,
         year && seeds[0] ? seeds[0] + " " + year : "",
@@ -633,7 +633,7 @@ async function findCandidate(
       ),
     );
     const sectionWinner = readBest();
-    if (sectionWinner && sectionWinner.score >= 118) return sectionWinner.item;
+    if (sectionWinner && sectionWinner.score >= 100) return sectionWinner.item;
 
     await fetchSearchSet(
       variants.map((title) =>
@@ -641,19 +641,7 @@ async function findCandidate(
       ),
     );
     const genericWinner = readBest();
-    if (genericWinner && genericWinner.score >= 118) return genericWinner.item;
-  }
-
-  if (expected === "movie") {
-    const legacyVariants = variants.slice(0, 1);
-    await fetchSearchSet(
-      legacyVariants.map((title) =>
-        host + "/old/search/" + encodeURIComponent(title) + "/page/1",
-      ),
-      true,
-    );
-    const legacyWinner = readBest();
-    if (legacyWinner && legacyWinner.score >= 100) return legacyWinner.item;
+    if (genericWinner && genericWinner.score >= 100) return genericWinner.item;
   }
 
   const finalWinner = readBest();
@@ -1511,7 +1499,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   // Keep enough ranked targets for Akwam's fallback variants, but do not wait
   // for every target. Return the first playable hand-off and only spend a short
   // grace window collecting additional sources.
-  const rankedTargets = usefulResolutionTargets(targets, isEpisode ? 4 : 3);
+  const rankedTargets = usefulResolutionTargets(targets, isEpisode ? 2 : 1);
   type TargetResult = { index: number; media: Media | null };
   const pendingTargets: Array<{ index: number; promise: Promise<TargetResult> }> = rankedTargets.map((target, index) => ({
     index,
@@ -1520,10 +1508,10 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
       .catch(() => ({ index, media: null })),
   }));
 
-  const firstSourceDeadline = Date.now() + (isEpisode ? 15000 : 12000);
+  const firstSourceDeadline = Date.now() + (isEpisode ? 10000 : 8000);
   let firstSourceFoundAt: number | null = null;
 
-  while (pendingTargets.length && medias.length < 2) {
+  while (pendingTargets.length && medias.length < 1) {
     const deadline = firstSourceFoundAt === null
       ? firstSourceDeadline
       : firstSourceFoundAt + 300;
