@@ -296,6 +296,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const playbackStartedRef = useRef(false);
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
+  const failedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const startupGuardTimerRef = useRef<number | null>(null);
   const startupWarmupTimerRef = useRef<number | null>(null);
   const resumeAfterBufferingRef = useRef(false);
@@ -497,6 +498,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
         const preferred = collapsed[0] || null;
 
+        failedPlaybackUrlsRef.current.clear();
         setRemotePlaybackSources(collapsed);
         setRemotePlaybackSource(preferred);
         setPlayerUnlocked(Boolean(preferred));
@@ -1021,9 +1023,35 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlayerUnlocked(true);
   };
 
-  // Automatic source failover is intentionally disabled.
-  // A failed source remains selected until the user manually chooses another source.
   const markPlaybackSourceFailed = () => {
+    const failedUrl = playbackSource?.url || playbackUrl;
+    if (!failedUrl) return;
+
+    failedPlaybackUrlsRef.current.add(failedUrl);
+    const nextSource = remotePlaybackSources.find((source) =>
+      source.url !== failedUrl &&
+      !failedPlaybackUrlsRef.current.has(source.url),
+    );
+
+    if (nextSource) {
+      qualityResumeTimeRef.current =
+        videoRef.current && Number.isFinite(videoRef.current.currentTime)
+          ? Math.max(0, videoRef.current.currentTime)
+          : 0;
+      resumeAfterQualitySwitchRef.current = false;
+      qualitySwitchPendingRef.current = false;
+      playbackStartedRef.current = false;
+      setPlaybackError(null);
+      setPlayerUnlocked(true);
+      setRemotePlaybackSource(nextSource);
+      return;
+    }
+
+    setPlaybackError(
+      language === 'ar'
+        ? 'تعذر تشغيل المصادر المتاحة حاليًا. جرّب إعادة المحاولة.'
+        : 'The available playback sources could not be started. Please retry.',
+    );
   };
 
   const handleSelectPlaybackSource = (source: PlaybackSource) => {
@@ -1037,6 +1065,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     resumeAfterQualitySwitchRef.current = !!video && !video.paused;
     qualitySwitchPendingRef.current = true;
     startupTriedUrlsRef.current.add(source.url);
+    failedPlaybackUrlsRef.current.delete(source.url);
     playbackStartedRef.current = false;
     setPlaybackError(null);
     setPlayerUnlocked(true);
@@ -1147,6 +1176,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             setPlayerLoadingState(false);
             hls.destroy();
             playbackEngineRef.current = null;
+            markPlaybackSourceFailed();
           });
           hls.attachMedia(video);
           hls.loadSource(playbackUrl);
@@ -1810,6 +1840,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                           ? (language === 'ar' ? 'تعذر فك ترميز الفيديو.' : 'The browser could not decode this video.')
                           : (language === 'ar' ? 'تعذر تشغيل المصدر الحالي.' : 'The current playback source could not start.');
                   setPlaybackError(detail);
+                  markPlaybackSourceFailed();
                 }}
               >
                 {playbackUrl ? null : null}
