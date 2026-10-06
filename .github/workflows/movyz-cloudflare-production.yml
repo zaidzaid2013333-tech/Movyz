@@ -360,7 +360,9 @@ jobs:
           PY
 
       - name: Full curated catalog playback audit
-        if: ${{ success() }}
+        # Never let a broad catalog audit compete with real playback traffic during production deploys.
+        # Run it explicitly with workflow_dispatch so the live resolver stays available to users.
+        if: ${{ success() && github.event_name == 'workflow_dispatch' }}
         timeout-minutes: 18
         run: |
           python - <<'PY'
