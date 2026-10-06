@@ -1241,7 +1241,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     video.preload = 'metadata';
 
     const sourceType = String(playbackSource?.type || '').toLowerCase();
-    const isHls = sourceType === 'hls' || /\\.m3u8(?:[?#]|$)/i.test(playbackUrl);
+    const isHls = sourceType === 'hls' || /\.m3u8(?:[?#]|$)/i.test(playbackUrl);
     let hls: Hls | null = null;
 
     const onMetadata = () => {
