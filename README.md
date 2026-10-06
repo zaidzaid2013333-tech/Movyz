@@ -1,43 +1,20 @@
-# MOVYZ
+# Movyza
 
-Arabic-first movie and series platform.
+Movyza is now a deliberately small, catalog-first application.
 
-## Architecture
+## Runtime architecture
 
-Browser UI -> Movyz API -> Supabase/PostgreSQL
-                     -> TMDB metadata sync
+- TMDB: live catalog, search, movie/series details, seasons and episodes.
+- Cloudflare: static web delivery plus a tiny same-origin TMDB proxy. The TMDB read token lives only as a Cloudflare secret.
+- Supabase: authentication, profiles, watchlist, watch history and reports.
+- GitHub Actions: validates and deploys the Cloudflare Worker.
 
-TMDB is used for catalog metadata only.
+There is no custom Node backend, resolver, provider registry, playback queue, Railway service, catalog sync service, or playback source database.
 
-## Playback
+## Local setup
 
-The production playback path is:
+Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY. For local development, set VITE_TMDB_PROXY_URL to a deployed Movyza Cloudflare URL if /tmdb is not available locally.
 
-1. The on-demand playback endpoint tries the ArProv-inspired provider/extractor layer first (Akwam, Cima4U, CimaClub).
-2. Existing DoodStream and Re3Arabi providers remain as fallbacks.
-3. Providers return normalized HTTPS MP4/HLS/DASH/WebM sources; the player consumes the same `PlaybackSource` contract.
-4. Movyz never proxies video bytes through the user-facing API.
-5. ArProv/CloudStream code is not embedded wholesale; the useful provider/extractor patterns are reimplemented in TypeScript for Workers.
+## Deployment
 
-The retired playback maintenance bot, queue prewarm workflow, and scheduled source cron are disabled.
-
-## Authentication and roles
-
-Supabase Auth handles credentials and sessions. Roles are stored in public.profiles as USER, ADMIN, or OWNER.
-
-## Local development
-
-1. Copy .env.example to .env.
-2. Create the Supabase project and run the database setup.
-3. Fill Supabase and TMDB credentials.
-4. Start the API with npm run server:dev.
-5. Start Vite with npm run dev.
-
-## Production rules
-
-- Never commit .env files or secrets.
-- Never ship mock catalog data.
-- Never trust a client-supplied role.
-- Keep TMDB metadata-only.
-- Keep playback restricted to direct Re3Arabi links.
-- Never proxy or embed a separate playback provider from the WatchPage.
+GitHub Actions deploys worker.ts with Wrangler. Configure CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, SUPABASE_URL, SUPABASE_ANON_KEY, and TMDB_API_READ_ACCESS_TOKEN as repository secrets.

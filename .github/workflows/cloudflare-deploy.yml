@@ -1,36 +1,29 @@
-name: Movyz Cloudflare Deploy (Manual Legacy)
+name: Movyza Cloudflare Deploy
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
-# Deprecated automatic deploy path. Production deploys are owned by deploy-worker.yml.
 permissions:
   contents: read
 
 concurrency:
-  group: movyz-production
+  group: movyza-cloudflare-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   deploy:
-    if: ${{ !contains(github.event.head_commit.message, '[episode-fill-only]') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - name: Configure npm
         run: |
           npm config set fetch-retries 5
@@ -38,85 +31,28 @@ jobs:
           npm config set fetch-retry-maxtimeout 120000
           npm config set audit false
           npm config set fund false
-
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
-
-      - name: Validate code
-        run: |
-          npm run lint
-          npm test
-
-      - name: Build frontend
+      - name: Validate TypeScript
+        run: npm run lint
+      - name: Smoke test
+        run: npm test
+      - name: Build
         env:
           MOVYZ_BUILD_ID: ${{ github.sha }}
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: npm run build
-
-      - name: Validate Cloudflare configuration
+      - name: Validate Cloudflare
         run: npx wrangler deploy --dry-run
-
-      - name: Validate TMDB read token
-        env:
-          TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
-        run: |
-          test -n "${TMDB_API_READ_ACCESS_TOKEN:-}" || (echo "Missing TMDB_API_READ_ACCESS_TOKEN"; exit 1)
-          python - <<'PY'
-          import json, os, urllib.request
-          token = os.environ["TMDB_API_READ_ACCESS_TOKEN"]
-          req = urllib.request.Request(
-              "https://api.themoviedb.org/3/movie/157336",
-              headers={"Authorization": "Bearer " + token, "Accept": "application/json", "User-Agent": "Movyz-CI/1.0"},
-          )
-          with urllib.request.urlopen(req, timeout=30) as response:
-              payload = json.load(response)
-              print("TMDB direct status =", response.status, "title =", payload.get("title"))
-          PY
-
-      - name: Prepare Movyz deployment secrets
-        run: |
-          {
-            printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"
-            printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_ANON_KEY"
-            printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
-            printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
-          } > .env.production
-
-      - name: Deploy Movyz
+      - name: Deploy
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }}
-
-      - name: Live resolver playback smoke
+          command: deploy --var MOVYZ_BUILD_ID:${{ github.sha }}
+        env:
+          TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+      - name: Live health check
         run: |
-          python - <<'PY'
-          import json, urllib.request
-          resolver = "https://btrjguegbmusijsyylwl.supabase.co/functions/v1/movyz-live-resolver"
-          payload = {
-            "contentType": "movie",
-            "contentId": "6591564a-13a9-4892-a166-247d1ff9158b",
-            "titles": ["Interstellar", "بين النجوم"],
-            "year": 2014,
-          }
-          req = urllib.request.Request(
-            resolver + "/resolve",
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type":"application/json","x-movyz-resolver-key":os.environ["SUPABASE_SERVICE_ROLE_KEY"],"Accept":"application/json","User-Agent":"Movyz-Manual-Resolver-Smoke/1.0"},
-            method="POST",
-          )
-          with urllib.request.urlopen(req, timeout=90) as response:
-            body = json.loads(response.read().decode("utf-8","replace"))
-          sources = body.get("sources", []) if isinstance(body, dict) else []
-          if response.status != 200 or body.get("ok") is not True or not sources:
-            raise SystemExit("Live resolver returned no sources: " + str(body)[:1000])
-          print("LIVE_RESOLVER_OK", len(sources), "sources")
-          PY
-
-
-      - name: Deployment marker
-        run: echo "DEPLOY_CURRENT_COMMIT=${{ github.sha }}"
-
-      - name: Remove temporary secrets file
-        if: always()
-        run: rm -f .env.production
+          curl --fail --silent --show-error https://movyza-api.sameranede.workers.dev/ >/dev/null

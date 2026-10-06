@@ -1,12 +1,12 @@
-name: Movyz CI
+name: Movyza CI
 
 on:
   pull_request:
-    branches: ["main"]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: movyz-ci-${{ github.head_ref || github.ref_name }}
+  group: movyza-ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -17,26 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Configure npm resilience
-        run: |
-          npm config set fetch-retries 5
-          npm config set fetch-retry-mintimeout 20000
-          npm config set fetch-retry-maxtimeout 120000
-          npm config set audit false
-          npm config set fund false
-
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund
-      - name: Validate Movyz TypeScript
-        run: npm run lint
-      - name: Run core smoke test
-        run: npm test
-
-      - name: Build frontend
-        run: npm run build
-      - name: Build CinePro Core
-        working-directory: cinepro-core
-        run: |
-          npm ci --no-audit --no-fund --ignore-scripts
-          npm run build
+      - run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build

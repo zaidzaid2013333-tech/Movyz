@@ -1,298 +1,309 @@
 import { supabase } from '../lib/supabase';
-import {
-  Movie, Series, Genre, WatchProgress, WatchlistItem, StreamReport,
-  ProviderHealth, AuditLog, ApiResponse, UserProfile
-} from '../types';
+import { Movie, Series, Genre, WatchProgress, WatchlistItem, StreamReport, UserProfile } from '../types';
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
+type ApiResponse<T> = { success: true; data: T; meta?: { page?: number; limit?: number; total?: number; totalPages?: number } };
+const TMDB_BASE = (import.meta.env.VITE_TMDB_PROXY_URL || '/tmdb').replace(/\/$/, '');
+const IMAGE = 'https://image.tmdb.org/t/p/';
+const json = <T,>(data: T, meta?: ApiResponse<T>['meta']): ApiResponse<T> => ({ success: true, data, ...(meta ? { meta } : {}) });
 
-async function request<T>(
-  path: string,
-  init: RequestInit = {},
-  options: { skipAuth?: boolean; timeoutMs?: number; retry?: boolean } = {},
-): Promise<ApiResponse<T>> {
-  const session = options.skipAuth ? null : (supabase ? (await supabase.auth.getSession()).data.session : null);
-  const headers = new Headers(init.headers);
-  headers.set('Accept', 'application/json');
-  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);
-
-  const method = String(init.method || 'GET').toUpperCase();
-  const retryableStatuses = new Set([408, 425, 429, 500, 502, 503, 504]);
-  let response: Response | null = null;
-  let lastError: unknown = null;
-
-  const maxAttempts = options.retry === false ? 1 : 2;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    try {
-      const controller = new AbortController();
-      const timeoutMs = Math.max(5000, Number(options.timeoutMs || 12000));
-      const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-      try {
-        response = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: init.signal || controller.signal });
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-      if (method !== 'GET' || !retryableStatuses.has(response.status) || attempt === maxAttempts - 1) break;
-    } catch (error) {
-      lastError = error;
-      if (method !== 'GET' || attempt === 1) throw error;
-    }
-
-    await new Promise((resolve) => window.setTimeout(resolve, 180 * (attempt + 1)));
-  }
-
-  if (!response) {
-    throw (lastError instanceof Error ? lastError : new Error('Network request failed'));
-  }
-
-  const payload = await response.json().catch(() => null);
-
-  if (!response.ok || payload?.success === false) {
-    const error = new Error(payload?.error?.message || `Request failed (${response.status})`) as Error & { code?: string; status?: number };
-    error.code = payload?.error?.code;
-    error.status = response.status;
-    throw error;
-  }
-  return payload as ApiResponse<T>;
+function requireSupabase() {
+  if (!supabase) throw new Error('Supabase is not configured');
+  return supabase;
 }
 
-function query(params: Record<string, unknown>) {
-  const search = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') search.set(key, String(value));
-  });
-  const encoded = search.toString();
-  return encoded ? `?${encoded}` : '';
+async function tmdb<T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> {
+  const url = new URL(TMDB_BASE + (path.startsWith('/') ? path : '/' + path), window.location.origin);
+  Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') url.searchParams.set(k, String(v)); });
+  const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(body?.status_message || `TMDB request failed (${response.status})`);
+  return body as T;
+}
+
+function image(path: string | null | undefined, size: 'w500' | 'w780' | 'original' = 'w500') {
+  return path ? IMAGE + size + path : '';
+}
+
+const movieGenre = (g: any): Genre => ({ id: Number(g.id), name: g.name || '', nameEn: g.name_en || g.name || '', slug: `tmdb-${g.id}` });
+const mapMovie = (m: any, credits?: any): Movie => {
+  const director = credits?.crew?.find((p: any) => p.job === 'Director');
+  return {
+    id: String(m.id), tmdbId: Number(m.id), type: 'movie',
+    title: m.title || m.original_title || '', titleEn: m.title_en || m.original_title || '',
+    originalTitle: m.original_title || m.title || '', year: Number(String(m.release_date || '').slice(0, 4)) || 0,
+    releaseDate: m.release_date || '', rating: Number(m.vote_average || 0), votesCount: Number(m.vote_count || 0),
+    runtime: Number(m.runtime || 0), overview: m.overview || '', overviewEn: m.overview_en || m.overview || '',
+    posterUrl: image(m.poster_path), backdropUrl: image(m.backdrop_path, 'w780'),
+    genres: (m.genres || []).map(movieGenre),
+    director: director?.name || m.metadata?.director_ar || '', directorEn: director?.original_name || director?.name || m.metadata?.director_en || '',
+    cast: (credits?.cast || []).slice(0, 12).map((p: any) => ({
+      id: String(p.id), name: p.name || '', nameEn: p.original_name || p.name || '', character: p.character || '', characterEn: p.character || '',
+      avatarUrl: image(p.profile_path, 'w500'),
+    })),
+    sources: [], isFeatured: false, isTrending: false, isPopular: false, addedAt: new Date().toISOString(),
+    ageRating: m.certification || '16+',
+  };
+};
+
+const mapSeries = (s: any, credits?: any): Series => {
+  const creator = (s.created_by || [])[0];
+  return {
+    id: String(s.id), tmdbId: Number(s.id), type: 'series',
+    title: s.name || s.original_name || '', titleEn: s.name_en || s.original_name || '',
+    originalTitle: s.original_name || s.name || '',
+    startYear: Number(String(s.first_air_date || '').slice(0, 4)) || 0,
+    endYear: s.last_air_date ? Number(String(s.last_air_date).slice(0, 4)) : undefined,
+    releaseDate: s.first_air_date || '', rating: Number(s.vote_average || 0), votesCount: Number(s.vote_count || 0),
+    overview: s.overview || '', overviewEn: s.overview_en || s.overview || '',
+    posterUrl: image(s.poster_path), backdropUrl: image(s.backdrop_path, 'w780'),
+    genres: (s.genres || []).map(movieGenre),
+    creator: creator?.name || '', creatorEn: creator?.original_name || creator?.name || '',
+    cast: (credits?.cast || []).slice(0, 12).map((p: any) => ({
+      id: String(p.id), name: p.name || '', nameEn: p.original_name || p.name || '', character: p.character || '', characterEn: p.character || '',
+      avatarUrl: image(p.profile_path, 'w500'),
+    })),
+    seasonsCount: Number(s.number_of_seasons || 0), episodesCount: Number(s.number_of_episodes || 0),
+    seasons: (s.seasons || []).filter((x: any) => Number(x.season_number) > 0).map((x: any) => ({
+      id: String(x.id || x.season_number), seriesId: String(s.id), seasonNumber: Number(x.season_number),
+      name: x.name || `الموسم ${x.season_number}`, nameEn: x.name || `Season ${x.season_number}`,
+      posterUrl: image(x.poster_path), overview: x.overview || '', airDate: x.air_date || '',
+      episodesCount: Number(x.episode_count || 0), episodes: [],
+    })),
+    isFeatured: false, isTrending: false, isPopular: false, addedAt: new Date().toISOString(),
+    ageRating: '16+', status: s.status || '',
+  };
+};
+
+async function tmdbMovie(id: string | number) {
+  const ar = await tmdb<any>(`/movie/${id}`, { language: 'ar-SA', append_to_response: 'credits,release_dates,similar' });
+  let en: any = null;
+  try { en = await tmdb<any>(`/movie/${id}`, { language: 'en-US' }); } catch {}
+  return mapMovie({ ...ar, title_en: en?.title, overview_en: en?.overview, original_title: ar.original_title }, ar.credits);
+}
+
+async function tmdbSeries(id: string | number) {
+  const ar = await tmdb<any>(`/tv/${id}`, { language: 'ar-SA', append_to_response: 'credits,content_ratings,similar' });
+  let en: any = null;
+  try { en = await tmdb<any>(`/tv/${id}`, { language: 'en-US' }); } catch {}
+  return mapSeries({ ...ar, name_en: en?.name, overview_en: en?.overview }, ar.credits);
+}
+
+async function enrichMovieList(rows: any[]) {
+  return rows.map((m) => mapMovie(m));
+}
+async function enrichSeriesList(rows: any[]) {
+  return rows.map((s) => mapSeries(s));
+}
+
+async function currentUserId() {
+  const sb = requireSupabase();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) throw new Error('Authentication required');
+  return user.id;
 }
 
 export const MovyzaApi = {
   async getHomeData() {
-    const home = await request<{
-      hero: Movie | Series;
-      continueWatching: WatchProgress[];
-      trending: (Movie | Series)[];
-      popularMovies: Movie[];
-      featuredSeries: Series[];
-      recentAdded: (Movie | Series)[];
-      genres: Genre[];
-    }>('/home');
-
-    if (supabase) {
-      const session = (await supabase.auth.getSession()).data.session;
-      if (session) {
-        try {
-          const history = await request<WatchProgress[]>('/history');
-          home.data.continueWatching = history.data.filter((item) => !item.completed && item.percentage > 2);
-        } catch {
-          // Public home remains usable when a session has expired.
-        }
-      }
-    }
-
-    return home;
+    const [trending, popularMovies, popularSeries, nowPlaying, airing, genres] = await Promise.all([
+      tmdb<any>('/trending/all/week', { language: 'ar-SA' }),
+      tmdb<any>('/movie/popular', { language: 'ar-SA', page: 1 }),
+      tmdb<any>('/tv/popular', { language: 'ar-SA', page: 1 }),
+      tmdb<any>('/movie/now_playing', { language: 'ar-SA', page: 1 }),
+      tmdb<any>('/tv/on_the_air', { language: 'ar-SA', page: 1 }),
+      tmdb<any>('/genre/movie/list', { language: 'ar-SA' }),
+    ]);
+    const trendItems = (trending.results || []).filter((x: any) => x.media_type === 'movie' || x.media_type === 'tv').slice(0, 12);
+    const heroRaw = trendItems.find((x: any) => x.backdrop_path) || popularMovies.results?.[0];
+    const hero = heroRaw?.media_type === 'tv'
+      ? await tmdbSeries(heroRaw.id)
+      : await tmdbMovie(heroRaw.id);
+    let continueWatching: WatchProgress[] = [];
+    try { continueWatching = (await this.getWatchHistory()).data.filter((x) => !x.completed && x.percentage > 2).slice(0, 10); } catch {}
+    return json({
+      hero,
+      continueWatching,
+      trending: await Promise.all(trendItems.slice(0, 10).map((x: any) => x.media_type === 'tv' ? tmdbSeries(x.id) : tmdbMovie(x.id))),
+      popularMovies: await enrichMovieList((popularMovies.results || []).slice(0, 12)),
+      featuredSeries: await enrichSeriesList((popularSeries.results || []).slice(0, 12)),
+      recentAdded: [
+        ...(await enrichMovieList((nowPlaying.results || []).slice(0, 8))),
+        ...(await enrichSeriesList((airing.results || []).slice(0, 8))),
+      ],
+      genres: (genres.genres || []).map(movieGenre),
+    });
   },
 
-  getMovies: (params?: {
-    genreId?: number; year?: number; minRating?: number;
-    sortBy?: 'popular' | 'rating' | 'newest'; search?: string;
-    page?: number; limit?: number;
-  }) => request<Movie[]>(`/movies${query(params || {})}`, {}, { skipAuth: true }),
+  async getMovies(params: { genreId?: number; year?: number; minRating?: number; sortBy?: 'popular' | 'rating' | 'newest'; search?: string; page?: number; limit?: number } = {}) {
+    const page = Math.max(1, params.page || 1);
+    let path = '/movie/popular';
+    if (params.search) path = '/search/movie';
+    else if (params.sortBy === 'rating') path = '/movie/top_rated';
+    else if (params.sortBy === 'newest') path = '/movie/now_playing';
+    const data = await tmdb<any>(path, { language: 'ar-SA', page, query: params.search, year: params.year, with_genres: params.genreId });
+    const items = await enrichMovieList(data.results || []);
+    return json(items, { page, total: Number(data.total_results || items.length), totalPages: Number(data.total_pages || 1), limit: params.limit || 20 });
+  },
 
-  getMovieById: (id: string) =>
-    request<{ movie: Movie; similar: Movie[] }>(`/movies/${encodeURIComponent(id)}`, {}, { skipAuth: true }),
+  async getMovieById(id: string) {
+    const movie = await tmdbMovie(id);
+    const similar = await tmdb<any>(`/movie/${id}/similar`, { language: 'ar-SA', page: 1 });
+    return json({ movie, similar: await enrichMovieList((similar.results || []).slice(0, 12)) });
+  },
 
-  getMovieByTmdbId: (tmdbId: number) =>
-    request<{ movie: Movie; similar: Movie[] }>(`/movies/tmdb/${encodeURIComponent(String(tmdbId))}`, {}, { skipAuth: true }),
+  async getMovieByTmdbId(id: number) { return this.getMovieById(String(id)); },
 
-  getSeries: (params?: {
-    genreId?: number; year?: number;
-    sortBy?: 'popular' | 'rating' | 'newest'; search?: string;
-    page?: number; limit?: number;
-  }) => request<Series[]>(`/series${query(params || {})}`, {}, { skipAuth: true }),
+  async getSeries(params: { genreId?: number; year?: number; sortBy?: 'popular' | 'rating' | 'newest'; search?: string; page?: number; limit?: number } = {}) {
+    const page = Math.max(1, params.page || 1);
+    let path = '/tv/popular';
+    if (params.search) path = '/search/tv';
+    else if (params.sortBy === 'rating') path = '/tv/top_rated';
+    else if (params.sortBy === 'newest') path = '/tv/on_the_air';
+    const data = await tmdb<any>(path, { language: 'ar-SA', page, query: params.search, first_air_date_year: params.year, with_genres: params.genreId });
+    return json(await enrichSeriesList(data.results || []), { page, total: Number(data.total_results || 0), totalPages: Number(data.total_pages || 1), limit: params.limit || 20 });
+  },
 
-  getSeriesById: (id: string) =>
-    request<{ series: Series; similar: Series[] }>(`/series/${encodeURIComponent(id)}`, {}, { skipAuth: true }),
+  async getSeriesById(id: string) {
+    const series = await tmdbSeries(id);
+    const similar = await tmdb<any>(`/tv/${id}/similar`, { language: 'ar-SA', page: 1 });
+    return json({ series, similar: await enrichSeriesList((similar.results || []).slice(0, 12)) });
+  },
 
-  getSeriesByTmdbId: (tmdbId: number) =>
-    request<{ series: Series; similar: Series[] }>(`/series/tmdb/${encodeURIComponent(String(tmdbId))}`, {}, { skipAuth: true }),
+  async getSeriesByTmdbId(id: number) { return this.getSeriesById(String(id)); },
 
-  getSeriesWatchByTmdbId: (tmdbId: number, season: number, episode: number) =>
-    request<{ series: Series; currentSeason: import('../types').Season }>(
-      `/series/tmdb/${encodeURIComponent(String(tmdbId))}/watch/${season}/${episode}`,
-      {},
-      { skipAuth: true },
-    ),
+  async getSeriesWatchByTmdbId(id: number, season: number, episode: number) {
+    const [series, seasonData] = await Promise.all([
+      tmdbSeries(id),
+      tmdb<any>(`/tv/${id}/season/${season}`, { language: 'ar-SA' }),
+    ]);
+    const mapped = { id: `${id}-s${season}`, seriesId: String(id), seasonNumber: season, name: seasonData.name || `الموسم ${season}`, nameEn: seasonData.name || `Season ${season}`, posterUrl: image(seasonData.poster_path), overview: seasonData.overview || '', airDate: seasonData.air_date || '', episodesCount: seasonData.episodes?.length || 0, episodes: (seasonData.episodes || []).map((e: any) => ({ id: String(e.id), tmdbId: Number(e.id), seriesId: String(id), seasonNumber: season, episodeNumber: Number(e.episode_number), title: e.name || '', titleEn: e.name || '', overview: e.overview || '', overviewEn: e.overview || '', stillUrl: image(e.still_path, 'w780'), duration: Number(e.runtime || 0), airDate: e.air_date || '', sources: [] })),
+    } as any;
+    return json({ series, currentSeason: mapped });
+  },
 
-  getSeriesWatchById: (id: string, season: number, episode: number) =>
-    request<{ series: Series; currentSeason: import('../types').Season }>(
-      `/series/${encodeURIComponent(id)}/watch/${season}/${episode}`,
-      {},
-      { skipAuth: true },
-    ),
+  async getSeriesWatchById(id: string, season: number, episode: number) { return this.getSeriesWatchByTmdbId(Number(id), season, episode); },
 
-  searchCatalog: (search: string) =>
-    request<{
-      movies: Movie[];
-      series: Series[];
-      cast: { name: string; nameEn: string; worksCount: number; avatarUrl: string }[];
-    }>(`/search?q=${encodeURIComponent(search)}`, {}, { skipAuth: true }),
+  async getGenres() {
+    const data = await tmdb<any>('/genre/movie/list', { language: 'ar-SA' });
+    return json((data.genres || []).map(movieGenre));
+  },
 
-  preparePlayback: (contentType: 'movie' | 'episode', contentId: string, season?: number, episode?: number) =>
-    request<{ contentType: 'movie' | 'episode'; contentId: string; mode: string; ready: boolean; sources: any[] }>(
-      `/playback/prepare?type=${encodeURIComponent(contentType)}&contentId=${encodeURIComponent(contentId)}${season ? `&season=${encodeURIComponent(String(season))}` : ''}${episode ? `&episode=${encodeURIComponent(String(episode))}` : ''}`,
-      {},
-      { skipAuth: true, timeoutMs: 20000, retry: false },
-    ),
+  async searchCatalog(search: string) {
+    const data = await tmdb<any>('/search/multi', { language: 'ar-SA', query: search, page: 1, include_adult: false });
+    const results = (data.results || []).filter((x: any) => x.media_type === 'movie' || x.media_type === 'tv');
+    const movies = await enrichMovieList(results.filter((x: any) => x.media_type === 'movie').slice(0, 12));
+    const series = await enrichSeriesList(results.filter((x: any) => x.media_type === 'tv').slice(0, 12));
+    const people = results.filter((x: any) => x.media_type === 'person').slice(0, 8).map((p: any) => ({ name: p.name || '', nameEn: p.name || '', worksCount: p.known_for?.length || 0, avatarUrl: image(p.profile_path) }));
+    return json({ movies, series, cast: people });
+  },
 
-  getGenres: () => request<Genre[]>('/genres'),
+  async getWatchlist() {
+    const sb = requireSupabase(); const uid = await currentUserId();
+    const { data, error } = await sb.from('watchlist').select('id,content_type,content_id,created_at').eq('user_id', uid).order('created_at', { ascending: false });
+    if (error) throw error;
+    const result: WatchlistItem[] = [];
+    for (const row of data || []) {
+      const content = row.content_type === 'movie' ? await tmdbMovie(row.content_id) : await tmdbSeries(row.content_id);
+      result.push({ id: row.id, userId: uid, contentId: String(row.content_id), contentType: row.content_type, title: content.title, titleEn: content.titleEn, posterUrl: content.posterUrl, year: content.type === 'movie' ? content.year : content.startYear, rating: content.rating, genres: content.genres.map((g) => g.name), addedAt: row.created_at });
+    }
+    return json(result);
+  },
 
-  getWatchlist: () => request<WatchlistItem[]>('/watchlist'),
+  async addToWatchlist(item: Omit<WatchlistItem, 'id' | 'addedAt'>) {
+    const sb = requireSupabase(); const uid = await currentUserId();
+    const { data, error } = await sb.from('watchlist').upsert({ user_id: uid, content_type: item.contentType, content_id: item.contentId }, { onConflict: 'user_id,content_type,content_id' }).select('id,user_id,content_type,content_id,created_at').single();
+    if (error) throw error;
+    return json({ ...item, id: data.id, addedAt: data.created_at });
+  },
 
-  addToWatchlist: (item: Omit<WatchlistItem, 'id' | 'addedAt'>) =>
-    request<WatchlistItem>('/watchlist', {
-      method: 'POST',
-      body: JSON.stringify({ contentId: item.contentId, contentType: item.contentType }),
-    }),
+  async removeFromWatchlist(contentId: string) {
+    const sb = requireSupabase(); const uid = await currentUserId();
+    const { error } = await sb.from('watchlist').delete().eq('user_id', uid).eq('content_id', contentId);
+    if (error) throw error;
+    return json({ removed: true });
+  },
 
-  removeFromWatchlist: (contentId: string) =>
-    request<{ removed: boolean }>(`/watchlist/${encodeURIComponent(contentId)}`, { method: 'DELETE' }),
+  async getWatchHistory() {
+    const sb = requireSupabase(); const uid = await currentUserId();
+    const { data, error } = await sb.from('watch_history').select('*').eq('user_id', uid).order('updated_at', { ascending: false }).limit(50);
+    if (error) throw error;
+    const result: WatchProgress[] = [];
+    for (const row of data || []) {
+      const content = row.content_type === 'movie' ? await tmdbMovie(row.content_id) : null;
+      if (!content) continue;
+      result.push({ contentId: String(row.content_id), tmdbId: content.tmdbId, contentType: 'movie', title: content.title, titleEn: content.titleEn, posterUrl: content.posterUrl, backdropUrl: content.backdropUrl, positionSeconds: Number(row.position_seconds || 0), durationSeconds: Number(row.duration_seconds || 0), percentage: Number(row.duration_seconds) ? Number(row.position_seconds || 0) / Number(row.duration_seconds) * 100 : 0, lastWatchedAt: row.updated_at, completed: Boolean(row.completed) });
+    }
+    return json(result);
+  },
 
-  getWatchHistory: () => request<WatchProgress[]>('/history'),
-  clearWatchHistory: () => request<{ cleared: boolean }>('/history', { method: 'DELETE' }),
+  clearWatchHistory: async () => {
+    const sb = requireSupabase(); const uid = await currentUserId();
+    const { error } = await sb.from('watch_history').delete().eq('user_id', uid); if (error) throw error;
+    return json({ cleared: true });
+  },
 
+  async getWatchProgress(contentId: string) {
+    const sb = requireSupabase(); const uid = await currentUserId();
+    const { data, error } = await sb.from('watch_history').select('*').eq('user_id', uid).eq('content_id', contentId).maybeSingle();
+    if (error) throw error;
+    if (!data) return json(null);
+    return json({ contentId, tmdbId: Number(contentId), contentType: data.content_type, title: '', titleEn: '', posterUrl: '', backdropUrl: '', positionSeconds: Number(data.position_seconds || 0), durationSeconds: Number(data.duration_seconds || 0), percentage: Number(data.duration_seconds) ? Number(data.position_seconds || 0) / Number(data.duration_seconds) * 100 : 0, lastWatchedAt: data.updated_at, completed: Boolean(data.completed) } as WatchProgress);
+  },
 
-  getWatchProgress: (contentId: string, episodeId?: string) =>
-    request<WatchProgress | null>(
-      `/watch/${encodeURIComponent(contentId)}/progress${episodeId ? `?episodeId=${encodeURIComponent(episodeId)}` : ''}`
-    ),
+  async saveWatchProgress(progress: WatchProgress) {
+    const sb = requireSupabase(); const uid = await currentUserId();
+    const { data, error } = await sb.from('watch_history').upsert({ user_id: uid, content_type: progress.contentType === 'series' ? 'movie' : progress.contentType, content_id: String(progress.contentId), position_seconds: Math.floor(progress.positionSeconds), duration_seconds: Math.floor(progress.durationSeconds), completed: progress.completed }, { onConflict: 'user_id,content_type,content_id' }).select().single();
+    if (error) throw error;
+    return json({ ...progress, lastWatchedAt: data.updated_at });
+  },
 
-  saveWatchProgress: (progress: WatchProgress) =>
-    request<WatchProgress>(`/watch/${encodeURIComponent(progress.contentId)}/progress`, {
-      method: 'POST',
-      body: JSON.stringify({
-        contentType: progress.contentType,
-        episodeId: progress.episodeId,
-        positionSeconds: Math.floor(progress.positionSeconds),
-        durationSeconds: Math.floor(progress.durationSeconds),
-        completed: progress.completed,
-      }),
-    }),
+  async reportIssue(report: Omit<StreamReport, 'id' | 'reportedAt' | 'status'> & { contentType: 'movie' | 'episode' }) {
+    const sb = requireSupabase(); const uid = await currentUserId();
+    const { data, error } = await sb.from('reports').insert({ user_id: uid, content_id: String(report.contentId), content_type: report.contentType, issue_type: report.issueType, description: report.description }).select('id,created_at,status').single();
+    if (error) throw error;
+    return json({ ...report, id: data.id, reportedAt: data.created_at, status: data.status });
+  },
 
-  reportIssue: (report: Omit<StreamReport, 'id' | 'reportedAt' | 'status'> & { contentType: 'movie' | 'episode' }) =>
-    request<StreamReport>('/reports', {
-      method: 'POST',
-      body: JSON.stringify(report),
-    }),
+  async getAdminStats() {
+    const [m, s] = await Promise.all([tmdb<any>('/movie/popular', { language: 'ar-SA', page: 1 }), tmdb<any>('/tv/popular', { language: 'ar-SA', page: 1 })]);
+    return json({ totalMovies: Number(m.total_results || 0), totalSeries: Number(s.total_results || 0), totalEpisodes: 0, activeProviders: 0, streamHealthPct: 0, dailyStreamRequests: 0 });
+  },
 
-  getAdminStats: () => request<{
-    totalMovies: number;
-    totalSeries: number;
-    totalEpisodes: number;
-    activeProviders: number;
-    streamHealthPct: number;
-    dailyStreamRequests: number;
-  }>('/admin/stats'),
+  getAdminProviders: async () => json([]),
+  getAdminMappings: async () => json([]),
+  getAdminAuditLogs: async () => json([]),
+  testProvider: async () => { throw new Error('Playback providers were removed from Movyz.'); },
+  triggerTmdbSync: async () => { throw new Error('TMDB is now the live catalog source; no catalog sync backend is required.'); },
+  syncTmdbEpisodes: async () => { throw new Error('TMDB episodes are loaded live when a series is opened.'); },
+  triggerAdminSync: async () => { throw new Error('No custom catalog backend remains.'); },
+  createAdminProvider: async () => { throw new Error('Providers were removed.'); },
+  updateAdminProvider: async () => { throw new Error('Providers were removed.'); },
+  deleteAdminProvider: async () => { throw new Error('Providers were removed.'); },
 
-  getAdminProviders: () => request<ProviderHealth[]>('/admin/providers'),
+  async deleteMovie(id: string) { const sb = requireSupabase(); const uid = await currentUserId(); const { data: profile } = await sb.from('profiles').select('role').eq('id', uid).single(); if (!profile || !['ADMIN','OWNER'].includes(profile.role)) throw new Error('Admin access required'); return json({ deleted: false }); },
 
-  getAdminMappings: (params?: { providerId?: string; contentType?: 'movie' | 'series' | 'season' | 'episode'; contentId?: string }) =>
-    request<any[]>(`/admin/mappings${query(params || {})}`),
-  createAdminMapping: (payload: { providerId: string; contentType: 'movie' | 'series' | 'season' | 'episode'; contentId: string; providerContentId: string; confidence?: number; status?: 'active' | 'inactive' }) =>
-    request<any>('/admin/mappings', { method: 'POST', body: JSON.stringify(payload) }),
-  updateAdminMapping: (id: string, payload: { providerContentId?: string; confidence?: number; status?: 'active' | 'inactive' }) =>
-    request<any>(`/admin/mappings/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  deleteAdminMapping: (id: string) =>
-    request<{ deleted: boolean }>(`/admin/mappings/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getAdminMovies: async () => json([]),
+  createAdminMovie: async () => { throw new Error('TMDB is the catalog source.'); },
+  updateAdminMovie: async () => { throw new Error('TMDB is the catalog source.'); },
+  getAdminSeries: async () => json([]),
+  createAdminSeries: async () => { throw new Error('TMDB is the catalog source.'); },
+  updateAdminSeries: async () => { throw new Error('TMDB is the catalog source.'); },
+  getAdminEpisodes: async () => json([]),
+  createAdminEpisode: async () => { throw new Error('TMDB is the catalog source.'); },
+  updateAdminEpisode: async () => { throw new Error('TMDB is the catalog source.'); },
+  deleteAdminEpisode: async () => { throw new Error('TMDB is the catalog source.'); },
+  getAdminReports: async () => json([]),
+  updateAdminReport: async () => { throw new Error('Reports are not managed by a custom backend.'); },
+  getAdminUsers: async () => json([]),
+  updateAdminUserRole: async () => { throw new Error('Manage roles from Supabase Auth/Database.'); },
 
-
-
-  testProvider: (providerId: string) =>
-    request<ProviderHealth>(`/admin/providers/${encodeURIComponent(providerId)}/test`, { method: 'POST' }),
-
-  getAdminAuditLogs: () => request<AuditLog[]>('/admin/audit'),
-
-  getAdminSyncJobs: () => request<Array<{
-    id: string;
-    provider: string;
-    jobType: string;
-    status: string;
-    pages: number | null;
-    moviesSynced: number;
-    seriesSynced: number;
-    seasonsSynced: number;
-    episodesSynced: number;
-    error: string;
-    startedAt: string;
-    finishedAt: string;
-    createdAt: string;
-  }>>('/admin/sync/jobs'),
-
-  deleteMovie: (id: string) =>
-    request<{ deleted: boolean }>(`/admin/movies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-
-  triggerTmdbSync: () =>
-    request<{ syncedCount: number; message: string }>('/admin/sync/tmdb', { method: 'POST' }),
-
-  syncTmdbEpisodes: (seriesLimit = 10) => request<{ syncedCount: number; message: string }>('/admin/sync/tmdb/episodes', { method: 'POST', body: JSON.stringify({ seriesLimit }) }),
-
-
-  getAdminMovies: (params?: { page?: number; limit?: number; search?: string }) =>
-    request<Movie[]>(`/admin/movies${query(params || {})}`),
-
-  createAdminMovie: (payload: Record<string, unknown>) =>
-    request<Movie>('/admin/movies', { method: 'POST', body: JSON.stringify(payload) }),
-
-  updateAdminMovie: (id: string, payload: Record<string, unknown>) =>
-    request<Movie>(`/admin/movies/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-
-  getAdminSeries: (params?: { page?: number; limit?: number; search?: string }) =>
-    request<Series[]>(`/admin/series${query(params || {})}`),
-
-  createAdminSeries: (payload: Record<string, unknown>) =>
-    request<Series>('/admin/series', { method: 'POST', body: JSON.stringify(payload) }),
-
-  updateAdminSeries: (id: string, payload: Record<string, unknown>) =>
-    request<Series>(`/admin/series/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-
-  getAdminEpisodes: (params?: { seriesId?: string; seasonId?: string; page?: number; limit?: number }) =>
-    request<any[]>(`/admin/episodes${query(params || {})}`),
-
-  createAdminEpisode: (payload: Record<string, unknown>) =>
-    request<any>('/admin/episodes', { method: 'POST', body: JSON.stringify(payload) }),
-
-  updateAdminEpisode: (id: string, payload: Record<string, unknown>) =>
-    request<any>(`/admin/episodes/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-
-  deleteAdminEpisode: (id: string) =>
-    request<{ deleted: boolean }>(`/admin/episodes/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-
-  createAdminProvider: (payload: { key: string; name: string; adapterName: string; enabled?: boolean }) =>
-    request<any>('/admin/providers', { method: 'POST', body: JSON.stringify(payload) }),
-
-  updateAdminProvider: (id: string, payload: { name?: string; adapterName?: string; enabled?: boolean }) =>
-    request<any>(`/admin/providers/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-
-  deleteAdminProvider: (id: string) =>
-    request<{ deleted: boolean }>(`/admin/providers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-
-  getAdminReports: (status?: string) =>
-    request<any[]>(`/admin/reports${query({ status })}`),
-
-  updateAdminReport: (id: string, status: 'pending' | 'investigating' | 'resolved') =>
-    request<any>(`/admin/reports/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
-
-  getAdminUsers: (params?: { page?: number; limit?: number }) =>
-    request<any[]>(`/admin/users${query(params || {})}`),
-
-  updateAdminUserRole: (id: string, role: UserProfile['role']) =>
-    request<{ id: string; role: UserProfile['role'] }>(`/admin/users/${encodeURIComponent(id)}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
-
-  triggerAdminSync: (payload?: { provider?: 'tmdb'; kind?: 'catalog' | 'episodes'; pages?: number; seriesLimit?: number }) =>
-    request<any>('/admin/sync', { method: 'POST', body: JSON.stringify(payload || {}) }),
-
-  getMe: () => request<UserProfile>('/auth/me'),
+  async getMe() {
+    const sb = requireSupabase();
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data: profile, error } = await sb.from('profiles').select('id,role,display_name,avatar_url,locale,created_at').eq('id', user.id).single();
+    if (error) throw error;
+    return json({ id: user.id, email: user.email || '', name: profile.display_name, role: profile.role, avatarUrl: profile.avatar_url || '', preferredLanguage: profile.locale, createdAt: profile.created_at } as UserProfile);
+  },
 };
 
-export { request as movyzaRequest };
+export { tmdb as tmdbRequest };
