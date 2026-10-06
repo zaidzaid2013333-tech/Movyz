@@ -1,0 +1,64 @@
+name: Verify Recent 200 Movyz Playback
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "server/index.ts"
+      - "workers/akwam-prefill/src/index.ts"
+      - "scripts/verify-recent-200-playback.mjs"
+      - ".github/workflows/verify-recent-200-playback.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-recent-200-playback
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Resolver shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MOVYZ_API_BASE_URL: "https://movyz-api.sameranede.workers.dev"
+      SHARD_INDEX: ${{ matrix.shard }}
+      SHARD_COUNT: "12"
+      RESOLVER_CONCURRENCY: "4"
+      RESOLVER_RETRIES: "4"
+      RESOLVER_TIMEOUT_MS: "35000"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify production health
+        run: |
+          python - <<'PY'
+          import urllib.request
+          url = "https://movyz-api.sameranede.workers.dev/health"
+          with urllib.request.urlopen(url, timeout=20) as response:
+              body = response.read().decode("utf-8", "replace")
+              print("health status =", response.status)
+              print(body[:1000])
+              if response.status != 200:
+                  raise SystemExit("Production health is not ready")
+          PY
+
+      - name: Resolve recent 200 and all their episodes
+        run: node scripts/verify-recent-200-playback.mjs
