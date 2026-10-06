@@ -23,8 +23,8 @@ export interface LanguageConfig {
 
 export const LANGUAGE_CONFIGS: Record<Language, LanguageConfig> = {
   ar: { code: 'ar', tmdb: 'ar-SA', region: 'DZ', label: 'Arabic', nativeName: 'العربية', countries: ['DZ','MA','TN','LY','EG','SA','AE','QA','KW','BH','OM','JO','LB','IQ','SY','YE','PS','SD'] },
-  en: { code: 'en', tmdb: 'en-US', region: 'US', label: 'English', nativeName: 'English', countries: ['US','GB','CA','AU','NZ','IE','ZA','SG','IN'] },
-  fr: { code: 'fr', tmdb: 'fr-FR', region: 'FR', label: 'French', nativeName: 'Français', countries: ['FR','BE','CH','LU','MC','SN','CI','MA','DZ','TN'] },
+  en: { code: 'en', tmdb: 'en-US', region: 'US', label: 'English', nativeName: 'English', countries: ['US','GB','CA','AU','NZ','IE','ZA','SG'] },
+  fr: { code: 'fr', tmdb: 'fr-FR', region: 'FR', label: 'French', nativeName: 'Français', countries: ['FR','BE','LU','MC','SN','CI'] },
   de: { code: 'de', tmdb: 'de-DE', region: 'DE', label: 'German', nativeName: 'Deutsch', countries: ['DE','AT','CH','LI'] },
   es: { code: 'es', tmdb: 'es-ES', region: 'ES', label: 'Spanish', nativeName: 'Español', countries: ['ES','MX','AR','CL','CO','PE','VE','UY','EC','BO','PY','CR','GT','PA'] },
   it: { code: 'it', tmdb: 'it-IT', region: 'IT', label: 'Italian', nativeName: 'Italiano', countries: ['IT','SM','VA'] },
