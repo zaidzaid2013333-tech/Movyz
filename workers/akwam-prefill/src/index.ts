@@ -1,6 +1,5 @@
-// Akwam prep: staged discovery + exact episode-to-watch resolution.
-// Prefill diagnostic: keep movie search/source resolution bounded and observable.
-// Interstellar regression-proven extraction path is authoritative for movies.
+// Universal Akwam adapter: content identity drives discovery; route shape does not.
+// One bounded pipeline is shared by movies, series, and episodes.
 type ExecutionContextLike = {
   waitUntil(promise: Promise<unknown>): void;
 };
@@ -435,13 +434,22 @@ function candidateKind(pathname: string): Candidate["kind"] {
 
 function inferCandidateKind(pathname: string, anchorText: string): Candidate["kind"] {
   const direct = candidateKind(pathname);
-  if (direct !== "other") return direct;
   const hay = normalize(anchorText + " " + pathname);
+
+  if (direct === "watch") {
+    if (/(?:الحلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay)) return "episode";
+    if (/(?:مسلسل|مسلسلات|series|show|season|موسم)/i.test(hay)) return "series";
+    if (/(?:فيلم|فلم|افلام|أفلام|movie|film)/i.test(hay)) return "movie";
+    return "watch";
+  }
+
+  if (direct !== "other") return direct;
   if (/(?:الحلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay)) return "episode";
   if (/(?:مسلسل|مسلسلات|series|show|season|موسم)/i.test(hay)) return "series";
   if (/(?:فيلم|فلم|افلام|أفلام|movie|film)/i.test(hay)) return "movie";
   return "other";
 }
+
 
 function decodeUrlPath(value: string) {
   try {
@@ -487,9 +495,13 @@ function explicitSeason(value: string): number | undefined {
 
 function score(c: Candidate, titles: string[], year?: number, expected?: "movie" | "series" | "episode", expectedSeason?: number) {
   if (c.kind === "other" || c.kind === "watch") return -1000;
-  if (expected === "movie" && c.kind !== "movie") return -1000;
-  if (expected === "series" && c.kind !== "series") return -1000;
-  if (expected === "episode" && c.kind !== "series" && c.kind !== "episode") return -1000;
+  const compatible =
+    expected === "movie"
+      ? c.kind === "movie" || c.kind === "watch"
+      : expected === "series"
+        ? c.kind === "series" || c.kind === "watch" || c.kind === "episode"
+        : c.kind === "series" || c.kind === "episode" || c.kind === "watch";
+  if (!compatible) return -1000;
 
   if (expected === "series" && expectedSeason) {
     const declared = explicitSeason(c.title + " " + c.url);
@@ -567,7 +579,7 @@ function parseCandidates(html: string, env: Env, allowLegacy = false): Candidate
           ? "series"
           : "other";
     }
-    if (kind === "other" || kind === "watch") continue;
+    if (kind === "other") continue;
 
     const rawText = m[2]
       .replace(/<[^>]+>/g, " ")
@@ -727,12 +739,13 @@ function isLikelyNavigationUrl(url: string) {
     const parsed = new URL(url);
     if (!AKWAM_HOSTS.has(parsed.hostname.toLowerCase())) return false;
     const path = parsed.pathname.toLowerCase();
-    return /^\/(?:download|link|watch|episode|show\/episode|movie|series)\//i.test(path) ||
-      /^\/old\/(?:download|link|watch|episode)\//i.test(path);
+    if (/(?:\.m3u8|\.mp4|\.mpd|\.webm)(?:$|\?)/i.test(path)) return false;
+    return true;
   } catch {
     return false;
   }
 }
+
 
 function addUrlCandidate(
   out: Array<{ url: string; score: number; quality?: string; referer?: string }>,
@@ -1008,16 +1021,19 @@ async function findEpisodeTargetBySearch(
  
 function targetResolutionScore(raw: string) {
   try {
-    const path = new URL(raw).pathname.toLowerCase();
+    const parsed = new URL(raw);
+    const path = parsed.pathname.toLowerCase();
     if (/(?:\.m3u8|\.mp4|\.mpd|\.webm)(?:\?|$)/i.test(path)) return 260;
-    if (/^\/(?:download|link)\//i.test(path) || /^\/old\/(?:download|link)\//i.test(path)) return 220;
-    if (/^\/watch\//i.test(path) || /^\/old\/watch\//i.test(path)) return 170;
-    if (/^\/(?:episode|show\/episode)\//i.test(path) || /^\/old\/episode\//i.test(path)) return 150;
+    if (!isAkwamUrl(parsed.href)) return 10;
+    if (/^\/old\/(?:download|link|watch|episode|player|embed|stream|file|get|source|media|video)\//i.test(path)) return 170;
+    if (/^\/(?:download|link|watch|play|player|embed|stream|file|get|source|media|video|episode|show\/episode)\//i.test(path)) return 175;
+    if (/^\/(?:movie|movies|series|shows?)\//i.test(path)) return 120;
     return 10;
   } catch {
     return 0;
   }
 }
+
 
 function usefulResolutionTargets(targets: string[], limit = 6) {
   return Array.from(new Set(targets))
@@ -1087,9 +1103,14 @@ function extractTargets(html: string, baseUrl: string) {
         return;
       }
 
-      if (/^\/(?:episode|show\/episode)\//i.test(observed.pathname)) {
-        add(observed.href, 50 + q);
-      }
+       if (/^\/(?:episode|show\/episode)\//i.test(observed.pathname)) {
+         add(observed.href, 50 + q);
+         return;
+       }
+
+       if (isAkwamUrl(observed.href) && !/(?:\.m3u8|\.mp4|\.mpd|\.webm)(?:$|\?)/i.test(observed.pathname)) {
+         add(observed.href, 95 + q);
+       }
     } catch {}
   };
 
@@ -1106,6 +1127,21 @@ function extractTargets(html: string, baseUrl: string) {
     }
   }
 
+  const interactive = /<(?:a|button|form|div|span)[^>]*(?:href|action|data-href|data-url|data-link|data-file|data-video|data-src|data-stream)=["']([^"']+)["'][^>]*>/gi;
+  while ((m = interactive.exec(html))) {
+    const raw = decodeHtml(m[1]);
+    try {
+      const url = new URL(raw, baseUrl).href;
+      const nearby = cleanHtmlText(html.slice(Math.max(0, m.index - 400), m.index + m[0].length + 400));
+      if (isAkwamUrl(url)) {
+        addLinkTarget(url, nearby);
+      } else if (/(?:\.m3u8|\.mp4|\.mpd|\.webm)(?:$|\?)/i.test(new URL(url).pathname)) {
+        add(url, 220 + qualityScore(nearby + " " + url));
+      }
+    } catch {}
+  }
+
+
   const mediaTags = /<(?:iframe|video|source)\b[^>]*(?:src|data-src|data-url)=["']([^"']+)["'][^>]*>/gi;
   while ((m = mediaTags.exec(html))) add(m[1], 140);
 
@@ -1121,28 +1157,41 @@ function extractTargets(html: string, baseUrl: string) {
 }
 
 function extractDownloadButtonMedia(html: string, baseUrl: string): Media | null {
-  const patterns = [
-    /<div\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["']/gi,
-    /<a\b[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*href=["']([^"']+)["']/gi,
-  ];
-
-  for (const re of patterns) {
-    const match = re.exec(html);
-    if (!match?.[1]) continue;
+  const build = (raw: string, context: string) => {
     try {
-      const url = new URL(decodeHtml(match[1]), baseUrl).href;
+      const url = new URL(decodeHtml(raw), baseUrl).href;
       return {
         url,
         type: mediaTypeFromUrl(url),
-        quality: inferQuality(match[0] + " " + html.slice(Math.max(0, match.index - 900), match.index + 900)),
+        quality: inferQuality(context),
         referer: isAkwamUrl(baseUrl) ? baseUrl : undefined,
         trustedExternal: isAkwamUrl(baseUrl) && !isAkwamUrl(url),
-      };
-    } catch {}
+      } as Media;
+    } catch {
+      return null;
+    }
+  };
+
+  const tagRe = /<(?:a|button|div|span)[^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html))) {
+    const target = match[0].match(
+      /(?:href|data-url|data-href|data-link|data-file|data-video|data-src)=["']([^"']+)["']/i,
+    )?.[1];
+    if (!target) continue;
+    const media = build(target, match[0] + " " + html.slice(Math.max(0, match.index - 900), match.index + 1200));
+    if (media) return media;
+  }
+
+  const attrFirst = /<(?:a|button|div|span)[^>]*(?:href|data-url|data-href|data-link|data-file|data-video|data-src)=["']([^"']+)["'][^>]*class=["'][^"']*btn-loader[^"']*["'][^>]*>/gi;
+  while ((match = attrFirst.exec(html))) {
+    const media = build(match[1], match[0]);
+    if (media) return media;
   }
 
   return null;
 }
+
 
 
 async function readPrefix(response: Response, maxBytes = 8192) {
@@ -1465,24 +1514,26 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   let targets: string[] = [];
 
   if (isEpisode) {
-    // Reuse the matched Akwam series page for every episode in the same season.
-    // This avoids repeating the expensive series search for hundreds of episodes.
     candidate = await findSeriesCandidateCached(env, ctx.titles, season, budget, session);
 
     if (candidate) {
-      const detail = await fetchSeriesDetailCached(env, candidate, budget, session);
-      if (detail) {
-        const exactEpisode = extractEpisodeTarget(detail, candidate.url, season, episode);
-        if (exactEpisode) {
-          episodeTarget = exactEpisode;
-          const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget, session);
-          if (episodeHtml) targets = extractTargets(episodeHtml, exactEpisode);
+      if (candidate.kind === "episode" || candidate.kind === "watch") {
+        episodeTarget = candidate.url;
+        const episodeHtml = await fetchText(env, episodeTarget, undefined, base(env), budget, session);
+        if (episodeHtml) targets = extractTargets(episodeHtml, episodeTarget);
+      } else {
+        const detail = await fetchSeriesDetailCached(env, candidate, budget, session);
+        if (detail) {
+          const exactEpisode = extractEpisodeTarget(detail, candidate.url, season, episode);
+          if (exactEpisode) {
+            episodeTarget = exactEpisode;
+            const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget, session);
+            if (episodeHtml) targets = extractTargets(episodeHtml, exactEpisode);
+          }
         }
       }
     }
 
-    // Direct episode search remains the fallback for large/paginated series pages
-    // where the season page does not expose the requested episode.
     if (!targets.length) {
       episodeTarget = await findEpisodeTargetBySearch(env, ctx.titles, season, episode, budget, session);
       if (episodeTarget) {
@@ -1491,17 +1542,6 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
       }
     }
 
-    if (!targets.length) {
-      if (!candidate) throw new Error("AKWAM_NOT_FOUND");
-      throw new Error(
-        "AKWAM_EPISODE_NOT_INDEXED candidate=" +
-        candidate.url +
-        " season=" +
-        season +
-        " episode=" +
-        episode,
-      );
-    }
   } else {
     candidate = await findMovieCandidateCached(env, ctx.titles, ctx.year, budget, session);
     if (!candidate) throw new Error("AKWAM_NOT_FOUND");
