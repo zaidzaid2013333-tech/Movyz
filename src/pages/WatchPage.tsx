@@ -862,7 +862,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     try {
       if (navigator.share) {
         await navigator.share({
-          title: content?.title || content?.titleEn || 'Movyz',
+          title: content?.titleEn || content?.title || 'Movyz',
           url: window.location.href,
         });
         return;
@@ -1191,8 +1191,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const isMovie = content.type === 'movie';
   const resolvedTmdbId = content.tmdbId;
-  const displayTitle = language === 'ar' ? content.title : content.titleEn;
-  const originalTitle = language === 'ar' ? content.titleEn : content.originalTitle;
+  const displayTitle = content.titleEn || content.title;
+  const originalTitle = content.originalTitle;
   const overview = isMovie
     ? language === 'ar'
       ? (content as Movie).overview
@@ -1661,9 +1661,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
             {currentEpisode && (
               <p className="text-sm font-semibold text-amber-400">
-                {t('season')} {activeSeason} · {t('episode')} {activeEpisode}: {language === 'ar'
-                  ? currentEpisode.title
-                  : currentEpisode.titleEn}
+                {t('season')} {activeSeason} · {t('episode')} {activeEpisode}: {currentEpisode.titleEn || currentEpisode.title}
               </p>
             )}
 
@@ -1749,7 +1747,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       >
                         <span className="truncate pr-2">
                           <span className="font-mono opacity-60 ml-1">#{ep.episodeNumber}</span>{' '}
-                          {language === 'ar' ? ep.title : ep.titleEn}
+                          {ep.titleEn || ep.title}
                         </span>
                         <span className="text-[10px] opacity-75 shrink-0 font-mono">
                           {ep.duration ? `${ep.duration} ${t('minutes')}` : ''}
