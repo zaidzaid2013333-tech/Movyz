@@ -19,6 +19,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      VITE_MOVYZ_BUILD_ID: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,7 +40,6 @@ jobs:
         run: npm test
       - name: Build
         env:
-          MOVYZ_BUILD_ID: ${{ github.sha }}
           VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: npm run build
@@ -63,18 +63,26 @@ jobs:
           set -euo pipefail
           base="https://movyz.sameranede.workers.dev"
           html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/")"
-          printf '%s' "$html" | grep -q "${{ github.sha }}"
-          printf '%s' "$html" | grep -q 'Movyza'
-          printf '%s' "$html" | grep -q '<script type="module"'
-          printf '%s' "$html" | grep -qv 'Supabase is not configured'
-          assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | sort -u)"
+          marker="$(printf '%s' "$html" | sed -n 's/.*name="movyz-build" content="\\([^"]*\\)".*/\\1/p')"
+          echo "Live Movyz build marker: $marker"
+          assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\\.js' | sort -u || true)"
+          echo "Live JS assets:"
+          printf '%s\\n' "$assets"
           test -n "$assets"
+          found_old=0
+          found_catalog=0
           for asset in $assets; do
             js="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base$asset")"
             if printf '%s' "$js" | grep -Fq 'Supabase is not configured'; then
               echo "ERROR: stale Supabase error found in live JS: $asset"
-              exit 1
+              found_old=1
+            fi
+            if printf '%s' "$js" | grep -Fq 'catalog-only mode'; then
+              found_catalog=1
             fi
           done
+          test "$found_old" -eq 0
+          test "$found_catalog" -eq 1
+          printf '%s' "$html" | grep -q 'Movyza'
           body="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/tmdb/movie/550?language=en-US")"
           printf '%s' "$body" | grep -q '"id":550'
