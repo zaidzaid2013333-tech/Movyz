@@ -657,24 +657,32 @@ async function findCandidate(
   const readBest = (): { item: Candidate; score: number } | null => best;
 
   if (expected === "movie" || expected === "series") {
-    // Fast path: one section-aware search round. The generic route is only a
-    // fallback, so the common case does not double the Akwam request volume.
-    await fetchSearchSet(
+    // Run section-aware and generic search in the same request wave. Different
+    // Akwam catalog generations expose one or the other, and there is no reason
+    // to pay the full latency of two sequential rounds.
+    const searchSets = [
       variants.map((title) =>
         host + "/search?q=" + encodeURIComponent(title) +
         "&section=" + encodeURIComponent(expected) + "&page=1",
       ),
-    );
-    const sectionWinner = readBest();
-    if (sectionWinner && sectionWinner.score >= 100) return sectionWinner.item;
-
-    await fetchSearchSet(
       variants.map((title) =>
         host + "/search?q=" + encodeURIComponent(title) + "&page=1",
       ),
+    ];
+
+    const responses = await Promise.all(
+      searchSets.flat().map(async (url) => {
+        const html = await fetchText(env, url, diagnostics, undefined, budget, session);
+        return html ? { url, html } : null;
+      }),
     );
-    const genericWinner = readBest();
-    if (genericWinner && genericWinner.score >= 100) return genericWinner.item;
+
+    for (const response of responses) {
+      if (response) scoreHtml(response.html, false);
+    }
+
+    const fastWinner = readBest();
+    if (fastWinner && fastWinner.score >= 100) return fastWinner.item;
   }
 
   const finalWinner = readBest();
