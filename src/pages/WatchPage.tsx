@@ -98,17 +98,6 @@ const isPlayableHttpSource = (source: PlaybackSource) => {
   return normalized.isWorking !== false;
 };
 
-const pickPlaybackSources = (content: Movie | Series, episode?: Episode) => {
-  const candidates = episode?.sources ?? (content.type === 'movie' ? content.sources : []);
-  const normalized = candidates
-    .map(normalizePlaybackSource)
-    .filter((source): source is PlaybackSource => Boolean(source))
-    .filter((source) => source.isWorking !== false)
-    .filter(isPlayableHttpSource);
-
-  return collapseProviderQualityDuplicates(normalized).slice(0, 20);
-};
-
 const playbackQualityRank = (source: PlaybackSource) => {
   const match = normalizePlaybackQuality(source.quality).match(/(\d{3,4})p/i);
   const quality = match ? Number(match[1]) : 0;
@@ -197,50 +186,6 @@ const preferredPlaybackSource = (sources: PlaybackSource[]) => {
     const bt = typePriority[String(b.type || '').toLowerCase()] || 0;
     return bt - at;
   })[0] || null;
-};
-
-const providerDisplayName = (key: string, fallback: string, language: 'ar' | 'en') => {
-  const normalized = key.trim().toLowerCase();
-  const names: Record<string, [string, string]> = {
-    aflaam: ['أفلام', 'Aflam'],
-    anime4up: ['أنمي فور أب', 'Anime4Up'],
-    cimaclub: ['سيما كلوب', 'CimaClub'],
-    doodstream: ['DoodStream', 'DoodStream'],
-    akwam: ['أكوام', 'Akwam'],
-  };
-  return names[normalized]?.[language === 'ar' ? 0 : 1] || fallback;
-};
-
-const playbackHostLabel = (url?: string) => {
-  if (!url) return 'server';
-  try {
-    return new URL(url).hostname.replace(/^www\\./i, '');
-  } catch {
-    return 'server';
-  }
-};
-
-const groupPlaybackSources = (sources: PlaybackSource[], language: 'ar' | 'en') => {
-  const groups = new Map<string, { key: string; label: string; sources: PlaybackSource[] }>();
-
-  for (const source of sortPlaybackSources(sources)) {
-    const key = String(source.providerKey || source.providerReference || source.provider || 'selected-site')
-      .trim()
-      .toLowerCase();
-    const existing = groups.get(key);
-    if (existing) {
-      existing.sources.push(source);
-      continue;
-    }
-
-    groups.set(key, {
-      key,
-      label: providerDisplayName(key, source.provider || source.labelEn || 'Source', language),
-      sources: [source],
-    });
-  }
-
-  return [...groups.values()];
 };
 
 export const WatchPage: React.FC<WatchPageProps> = ({
@@ -962,11 +907,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     [remotePlaybackSources],
   );
 
-  const availableSourceGroups = useMemo(
-    () => groupPlaybackSources(availableSources, language),
-    [availableSources, language],
-  );
-
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -1567,13 +1507,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </button>
 
           <div className="flex items-center gap-2 text-slate-500">
-            <span className="text-amber-400/90 font-bold">{playbackSource?.provider || 'MOVYZ SOURCE'}</span>
+            <span className="text-amber-400/90 font-bold">MOVYZ PLAYBACK</span>
             <span>·</span>
-            <span>{
-              isEmbedPlayback
-                ? (language === 'ar' ? 'مصدر محفوظ' : 'Persisted source')
-                : (language === 'ar' ? 'مصدر محفوظ' : 'Persisted source')
-            }</span>
+            <span>{language === 'ar' ? 'مصدر حي عبر الوسيط' : 'Live broker source'}</span>
           </div>
         </div>
       </div>
@@ -1583,51 +1519,32 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           <div className="absolute -inset-1 bg-gradient-to-r from-amber-600/15 via-orange-500/10 to-amber-700/15 blur-2xl -z-10 rounded-3xl opacity-75" />
         )}
 
-        {availableSourceGroups.length > 0 && (
+        {availableSources.length > 0 && (
           <div dir={direction} className="movyza-source-panel rounded-2xl p-3 sm:p-4 mb-3 space-y-3">
-            <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono">
-              <span>{language === 'ar' ? 'مصادر التشغيل:' : 'Playback sources:'}</span>
-              <span className="text-amber-400/70">{availableSourceGroups.length}</span>
+            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 font-mono">
+              <span>{language === 'ar' ? 'الجودة المتاحة من الوسيط:' : 'Available broker qualities:'}</span>
+              <span className="text-amber-400/70">{availableSources.length}</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {availableSourceGroups.map((group) => (
-                <div
-                  key={group.key}
-                  className="movyza-source-group rounded-2xl p-3"
-                >
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="text-[11px] font-bold text-white">{group.label}</span>
-                    <span className="text-[9px] text-slate-500 font-mono">
-                      {group.sources.length} {language === 'ar' ? 'جودة' : 'qualities'}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap gap-1.5">
-                    {group.sources.map((source) => {
-                      const active = source.url === playbackSource?.url;
-                      return (
-                        <button
-                          key={source.id || source.url}
-                          type="button"
-                          onClick={() => handleSelectPlaybackSource(source)}
-                          className={
-                            'movyza-source-chip px-3 py-2 rounded-xl border text-[11px] font-semibold transition-all ' +
-                            (active
-                              ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm shadow-amber-500/20'
-                              : 'bg-[#11151d] text-slate-300 border-white/5 hover:border-amber-500/30 hover:text-white')
-                          }
-                        >
-                          <span>{source.quality || source.labelEn || 'Auto'}</span>
-                          <span className="text-[9px] opacity-60 truncate max-w-[140px]">
-                            · {playbackHostLabel(source.url)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+            <div className="flex flex-wrap gap-1.5">
+              {availableSources.map((source) => {
+                const active = source.url === playbackSource?.url;
+                return (
+                  <button
+                    key={source.id || source.url}
+                    type="button"
+                    onClick={() => handleSelectPlaybackSource(source)}
+                    className={
+                      'movyza-source-chip px-3 py-2 rounded-xl border text-[11px] font-semibold transition-all ' +
+                      (active
+                        ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm shadow-amber-500/20'
+                        : 'bg-[#11151d] text-slate-300 border-white/5 hover:border-amber-500/30 hover:text-white')
+                    }
+                  >
+                    <span>{source.quality || source.labelEn || 'Auto'}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -2090,8 +2007,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 <p className="text-[11px] leading-relaxed">
                   {playbackSource
                     ? (language === 'ar'
-                      ? `المصدر الحالي: ${playbackSource.provider || playbackSource.providerKey || 'MOVYZ'} — ${playbackSource.quality || playbackSource.label}.`
-                      : `Current source: ${playbackSource.provider || playbackSource.providerKey || 'MOVYZ'} — ${playbackSource.quality || playbackSource.labelEn}.`)
+                      ? `المصدر الحالي عبر الوسيط: ${playbackSource.quality || playbackSource.label || 'Auto'}.`
+                      : `Current broker source: ${playbackSource.quality || playbackSource.labelEn || 'Auto'}.`)
                     : (language === 'ar'
                       ? 'لا يوجد مصدر تشغيل متاح لهذا العمل حاليًا.'
                       : 'No playback source is currently available for this title.')}
