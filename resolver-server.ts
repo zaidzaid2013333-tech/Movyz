@@ -9,7 +9,9 @@ function positiveEnv(name: string, fallback: number, minimum: number) {
   return Number.isFinite(parsed) ? Math.max(minimum, parsed) : fallback;
 }
 
-const maxConcurrent = positiveEnv("PLAYBACK_RESOLVER_MAX_CONCURRENCY", 4, 1);
+const maxConcurrent = positiveEnv("PLAYBACK_RESOLVER_MAX_CONCURRENCY", 8, 1);
+const maxQueued = positiveEnv("PLAYBACK_RESOLVER_MAX_QUEUE", 32, 1);
+const queueWaitMs = positiveEnv("PLAYBACK_RESOLVER_QUEUE_WAIT_MS", 15000, 1000);
 const cacheTtlMs = positiveEnv("PLAYBACK_RESOLVER_CACHE_TTL_MS", 45_000, 5_000);
 const cacheMaxKeys = positiveEnv("PLAYBACK_RESOLVER_CACHE_MAX_KEYS", 256, 32);
 
