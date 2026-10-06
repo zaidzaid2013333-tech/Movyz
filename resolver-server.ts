@@ -243,6 +243,61 @@ async function handle(request: Request): Promise<Response> {
     });
   }
 
+  if (request.method === "GET" && url.pathname.startsWith("/debug/vidlink/")) {
+    const parts = url.pathname.split("/").filter(Boolean);
+    try {
+      if (parts[2] === "movie" && /^\\d+$/.test(parts[3] || "")) {
+        const tmdbId = Number(parts[3]);
+        const sources = await resolveVidLink({ contentType: "movie", contentId: String(tmdbId) });
+        return json(200, {
+          ok: true,
+          test: "vidlink-direct",
+          contentType: "movie",
+          tmdbId,
+          provider: "vidlink",
+          sourceCount: sources.length,
+          sources,
+        });
+      }
+
+      if (
+        parts[2] === "tv" &&
+        /^\\d+$/.test(parts[3] || "") &&
+        /^\\d+$/.test(parts[4] || "") &&
+        /^\\d+$/.test(parts[5] || "")
+      ) {
+        const tmdbId = Number(parts[3]);
+        const seasonNumber = Number(parts[4]);
+        const episodeNumber = Number(parts[5]);
+        const sources = await resolveVidLink({
+          contentType: "episode",
+          contentId: String(tmdbId),
+          seasonNumber,
+          episodeNumber,
+        });
+        return json(200, {
+          ok: true,
+          test: "vidlink-direct",
+          contentType: "episode",
+          tmdbId,
+          seasonNumber,
+          episodeNumber,
+          provider: "vidlink",
+          sourceCount: sources.length,
+          sources,
+        });
+      }
+    } catch (error) {
+      return json(502, {
+        ok: false,
+        test: "vidlink-direct",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    return json(400, { ok: false, error: "INVALID_VIDLINK_DEBUG_PATH" });
+  }
+
   if (url.pathname !== "/resolve" || request.method !== "POST") {
     return json(404, { ok: false, error: "NOT_FOUND" });
   }
