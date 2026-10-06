@@ -3,7 +3,7 @@ name: Movyz Cloudflare Production Deploy (GitHub Actions)
 on:
   push:
     branches:
-      - ui/watch-player-responsive-20261005
+      - main
   workflow_dispatch:
 
 permissions:
