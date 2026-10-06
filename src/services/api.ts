@@ -100,7 +100,6 @@ const seriesMap = (s: any, seasons: Season[] = []): Series => ({
   seasons,
   seasonsCount: seasons.length || Number(s.number_of_seasons || 0),
   episodesCount: Number(s.number_of_episodes || seasons.reduce((n, x) => n + x.episodesCount, 0)),
-  sources: undefined as never,
   isFeatured: false,
   isTrending: false,
   isPopular: false,
@@ -214,13 +213,13 @@ export const MovyzaApi = {
 
   getSeriesByTmdbId: async (tmdbId: number) => MovyzaApi.getSeriesById(String(tmdbId)),
 
-  getSeriesWatchByTmdbId: async (tmdbId: number, season: number) => {
+  getSeriesWatchByTmdbId: async (tmdbId: number, season: number, _episode?: number) => {
     const base = await MovyzaApi.getSeriesByTmdbId(tmdbId);
     const currentSeason = base.data.series.seasons.find((s) => s.seasonNumber === season) || await loadSeriesSeason(String(tmdbId), season);
     return ok({ series: base.data.series, currentSeason });
   },
 
-  getSeriesWatchById: async (id: string, season: number) => {
+  getSeriesWatchById: async (id: string, season: number, _episode?: number) => {
     const base = await MovyzaApi.getSeriesById(id);
     const currentSeason = base.data.series.seasons.find((s) => s.seasonNumber === season) || await loadSeriesSeason(id, season);
     return ok({ series: base.data.series, currentSeason });
@@ -328,7 +327,7 @@ export const MovyzaApi = {
     return ok({ cleared: true });
   },
 
-  getWatchProgress: async (contentId: string) => {
+  getWatchProgress: async (contentId: string, _episodeId?: string) => {
     const db = requireSupabase();
     const user = (await db.auth.getUser()).data.user;
     if (!user) return ok<WatchProgress | null>(null);
@@ -396,3 +395,7 @@ const requireSupabase = () => {
   if (!supabase) throw new Error('Supabase is not configured');
   return supabase;
 };
+
+export async function movyzaRequest<T>(_path: string): Promise<ApiResponse<T>> {
+  throw new Error('Direct catalog mode: use MovyzaApi or Supabase directly.');
+}
