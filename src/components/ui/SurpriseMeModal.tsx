@@ -127,7 +127,7 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
             <div className="relative aspect-video w-full overflow-hidden">
               <img
                 src={pickedItem.backdropUrl || pickedItem.posterUrl}
-                alt={pickedItem.title}
+                alt={pickedItem.titleEn || pickedItem.title}
                 referrerPolicy="no-referrer"
                 className={`w-full h-full object-cover transition-opacity duration-300 ${
                   isSpinning ? 'opacity-30' : 'opacity-100'
@@ -153,7 +153,7 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
                   </span>
                 </div>
                 <h4 className="text-base sm:text-lg font-bold font-cinema-title text-white">
-                  {language === 'ar' ? pickedItem.title : pickedItem.titleEn}
+                  {pickedItem.titleEn || pickedItem.title}
                 </h4>
               </div>
             </div>
