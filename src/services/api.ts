@@ -224,24 +224,51 @@ export const MovyzaApi = {
   getSeriesById: async (id: string) => {
     const data = await detailSeries(id);
     const baseSeasons = (data.seasons || []).filter((s: any) => Number(s.season_number) > 0);
-    const firstSeasons = await Promise.all(baseSeasons.map((s: any) => loadSeriesSeason(String(data.id), Number(s.season_number))));
-    const series = seriesMap(data, firstSeasons);
+    // Keep catalog/detail requests lightweight: season episodes are loaded lazily.
+    const seasonSummaries = baseSeasons.map((s: any) => makeSeason({ ...s, tv_id: String(data.id) }));
+    const series = seriesMap(data, seasonSummaries);
     const similar = (data.similar?.results || []).slice(0, 12).map((item: any) => seriesMap(item));
     return ok({ series, similar });
   },
 
   getSeriesByTmdbId: async (tmdbId: number) => MovyzaApi.getSeriesById(String(tmdbId)),
 
+  getSeriesSeasonByTmdbId: async (tmdbId: number, season: number) => {
+    return ok(await loadSeriesSeason(String(tmdbId), Math.max(1, Number(season || 1))));
+  },
+
+  getSeriesSeasonById: async (id: string, season: number) => {
+    return ok(await loadSeriesSeason(id, Math.max(1, Number(season || 1))));
+  },
+
   getSeriesWatchByTmdbId: async (tmdbId: number, season: number, _episode?: number) => {
-    const base = await MovyzaApi.getSeriesByTmdbId(tmdbId);
-    const currentSeason = base.data.series.seasons.find((s) => s.seasonNumber === season) || await loadSeriesSeason(String(tmdbId), season);
-    return ok({ series: base.data.series, currentSeason });
+    const data = await detailSeries(String(tmdbId));
+    const baseSeasons = (data.seasons || []).filter((s: any) => Number(s.season_number) > 0);
+    const currentSeasonNumber = Math.max(1, Number(season || 1));
+    const currentSeason = await loadSeriesSeason(String(data.id), currentSeasonNumber);
+    const seasonSummaries = baseSeasons.map((s: any) =>
+      Number(s.season_number) === currentSeasonNumber
+        ? currentSeason
+        : makeSeason({ ...s, tv_id: String(data.id) }),
+    );
+    const series = seriesMap(data, seasonSummaries);
+    const similar = (data.similar?.results || []).slice(0, 12).map((item: any) => seriesMap(item));
+    return ok({ series, currentSeason, similar });
   },
 
   getSeriesWatchById: async (id: string, season: number, _episode?: number) => {
-    const base = await MovyzaApi.getSeriesById(id);
-    const currentSeason = base.data.series.seasons.find((s) => s.seasonNumber === season) || await loadSeriesSeason(id, season);
-    return ok({ series: base.data.series, currentSeason });
+    const data = await detailSeries(id);
+    const baseSeasons = (data.seasons || []).filter((s: any) => Number(s.season_number) > 0);
+    const currentSeasonNumber = Math.max(1, Number(season || 1));
+    const currentSeason = await loadSeriesSeason(id, currentSeasonNumber);
+    const seasonSummaries = baseSeasons.map((s: any) =>
+      Number(s.season_number) === currentSeasonNumber
+        ? currentSeason
+        : makeSeason({ ...s, tv_id: String(data.id) }),
+    );
+    const series = seriesMap(data, seasonSummaries);
+    const similar = (data.similar?.results || []).slice(0, 12).map((item: any) => seriesMap(item));
+    return ok({ series, currentSeason, similar });
   },
 
   searchCatalog: async (search: string) => {
