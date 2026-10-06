@@ -90,8 +90,8 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({
   }
 
   const isSaved = watchlist.includes(movie.id);
-  const titlePrimary = language === 'ar' ? movie.title : movie.titleEn;
-  const titleSecondary = language === 'ar' ? movie.titleEn : movie.originalTitle;
+  const titlePrimary = movie.titleEn || movie.title;
+  const titleSecondary = movie.originalTitle;
   const overview = language === 'ar' ? movie.overview : movie.overviewEn;
 
   return (
