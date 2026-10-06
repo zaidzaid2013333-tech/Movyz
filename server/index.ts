@@ -542,7 +542,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     const range = req.headers.get('range');
     if (range) upstreamHeaders.set('range', range);
     upstreamHeaders.set('Accept', req.headers.get('accept') || '*/*');
-    const sourceReferer = /^https:\/\//i.test(String(referer || '')) ? String(referer) : 'https://vidlink.pro/';
+    const sourceReferer = /^https:\/\//i.test(String(referer || '')) ? String(referer) : 'https://akwam.ss/';
     upstreamHeaders.set('Referer', sourceReferer);
     try {
       upstreamHeaders.set('Origin', new URL(sourceReferer).origin);
@@ -740,6 +740,18 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     return fail(res, 502, 'PLAYBACK_STREAM_FAILED', 'Unable to stream the selected playback source');
   }
 }));app.get(`${api}/playback/prepare`, asyncRoute(async (req, res) => {
+  // The broad catalog auditor is manual-only. Reject legacy automatic audit
+  // traffic immediately so a queued old workflow cannot starve real playback.
+  const userAgent = String(req.headers.get('user-agent') || '');
+  if (/^Movyz-Catalog-Audit\/1\.0$/i.test(userAgent)) {
+    return fail(
+      res,
+      429,
+      'CATALOG_AUDIT_DISABLED',
+      'Production catalog audits are manual-only',
+    );
+  }
+
   const rawType = typeof req.query.type === 'string' ? req.query.type : '';
   const rawContentId = typeof req.query.contentId === 'string' ? req.query.contentId : '';
   const contentType = rawType === 'movie' || rawType === 'episode' ? rawType : null;
