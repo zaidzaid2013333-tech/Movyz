@@ -1474,8 +1474,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       retriedPlaybackUrlsRef.current.delete(playbackUrl);
                       const video = videoRef.current;
                       if (!video) return;
-                      playbackEngineRef.current?.destroy?.();
-                      playbackEngineRef.current = null;
+                      video.pause();
                       video.pause();
                       video.removeAttribute('src');
                       video.load();
