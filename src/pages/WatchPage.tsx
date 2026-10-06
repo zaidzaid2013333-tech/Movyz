@@ -41,27 +41,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const embedUrl = useMemo(() => {
     if (!contentId) return '';
-
-    const params = new URLSearchParams();
-
-    // Keep the known-good VidSrc embed parameters only.
-    // ds_lang is the supported way to choose the default subtitle language.
-    params.set('fontsize', '20');
-    params.set('fontcolor', 'ffffff');
-    params.set('opacity', '1');
-
-    // English visitors get the provider's native subtitle selection.
-    // Other locales request their own subtitle language as the default when available.
-    if (language !== 'en') {
-      params.set('ds_lang', language);
-    }
-
     if (isSeries) {
-      return 'https://vidsrc.sh/embed/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode + '?' + params.toString();
+      return 'https://vidsrc.sh/embed/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode;
     }
-    return 'https://vidsrc.sh/embed/movie/' + encodeURIComponent(contentId) + '?' + params.toString();
-  }, [contentId, isSeries, safeSeason, safeEpisode, language]);
-
+    return 'https://vidsrc.sh/embed/movie/' + encodeURIComponent(contentId);
+  }, [contentId, isSeries, safeSeason, safeEpisode]);
 
   useEffect(() => {
     let mounted = true;
