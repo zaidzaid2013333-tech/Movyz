@@ -19,6 +19,33 @@ const VIDLINK_API_ORIGIN = "https://enc-dec.app";
 const VIDLINK_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+const VIDLINK_MIN_INTERVAL_MS = 450;
+
+let vidlinkGate = Promise.resolve();
+let nextVidlinkRequestAt = 0;
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+async function runVidLinkSerialized<T>(task: () => Promise<T>): Promise<T> {
+  const previous = vidlinkGate;
+  let release!: () => void;
+  vidlinkGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous;
+  try {
+    const waitMs = Math.max(0, nextVidlinkRequestAt - Date.now());
+    if (waitMs) await sleep(waitMs);
+    const value = await task();
+    nextVidlinkRequestAt = Date.now() + VIDLINK_MIN_INTERVAL_MS;
+    return value;
+  } finally {
+    release();
+  }
+}
 
 function inferType(url: string): VidLinkSource["type"] {
   if (/\.m3u8(?:[?#]|$)/i.test(url)) return "hls";
@@ -50,17 +77,11 @@ function qualityOfUrl(url: string) {
   return match?.[1] ? match[1] + "p" : undefined;
 }
 
-function addCandidate(
-  output: VidLinkSource[],
-  url: unknown,
-  quality?: unknown,
-) {
+function addCandidate(output: VidLinkSource[], url: unknown, quality?: unknown) {
   if (typeof url !== "string" || !/^https:\/\//i.test(url)) return;
   if (/^https:\/\/(?:www\.)?vidlink\.pro\//i.test(url)) return;
-
   const clean = url.trim();
   if (!clean || output.some((source) => source.url === clean)) return;
-
   output.push({
     url: clean,
     type: inferType(clean),
@@ -71,18 +92,12 @@ function addCandidate(
   });
 }
 
-function extractGenericSources(
-  value: unknown,
-  output: VidLinkSource[],
-  depth = 0,
-) {
+function extractGenericSources(value: unknown, output: VidLinkSource[], depth = 0) {
   if (depth > 6 || output.length >= 8 || value == null) return;
-
   if (typeof value === "string") {
     if (/^https:\/\//i.test(value)) addCandidate(output, value);
     return;
   }
-
   if (Array.isArray(value)) {
     for (const item of value) {
       extractGenericSources(item, output, depth + 1);
@@ -90,9 +105,7 @@ function extractGenericSources(
     }
     return;
   }
-
   if (typeof value !== "object") return;
-
   const object = value as Record<string, unknown>;
   for (const key of [
     "url", "src", "stream_url", "streamUrl", "file", "link", "m3u8",
@@ -102,7 +115,6 @@ function extractGenericSources(
       addCandidate(output, object[key], object.quality ?? object.label ?? object.name);
     }
   }
-
   for (const key of [
     "sources", "streams", "links", "data", "result", "results",
     "playlist", "playlists", "videos",
@@ -114,11 +126,7 @@ function extractGenericSources(
   }
 }
 
-async function requestJson(
-  url: string,
-  headers: Record<string, string>,
-  timeoutMs = 12_000,
-) {
+async function requestJson(url: string, headers: Record<string, string>, timeoutMs = 12_000) {
   const response = await fetch(url, {
     headers,
     signal: AbortSignal.timeout(Math.max(3_000, timeoutMs)),
@@ -128,6 +136,29 @@ async function requestJson(
   if (!response.ok) throw new Error("VIDLINK_HTTP_" + response.status);
   try { return JSON.parse(body); }
   catch { throw new Error("VIDLINK_INVALID_JSON"); }
+}
+
+async function requestVidLinkJson(url: string) {
+  return runVidLinkSerialized(async () => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await requestJson(url, {
+          accept: "application/json,text/plain,*/*",
+          origin: VIDLINK_ORIGIN,
+          referer: VIDLINK_ORIGIN + "/",
+          "user-agent": VIDLINK_USER_AGENT,
+          "cache-control": "no-cache",
+        });
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        if (message !== "VIDLINK_HTTP_429" || attempt === 2) throw error;
+        await sleep(700 * 2 ** attempt + Math.floor(Math.random() * 250));
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  });
 }
 
 async function encryptTmdbId(tmdbId: string) {
@@ -169,12 +200,7 @@ export async function resolveVidLink(context: VidLinkContext): Promise<VidLinkSo
     : VIDLINK_ORIGIN + "/api/b/tv/" + encodedTmdb + "/" +
       encodeURIComponent(String(context.seasonNumber ?? 1)) + "/" +
       encodeURIComponent(String(context.episodeNumber ?? 1)) + "?multiLang=0";
-  const payload = await requestJson(endpoint, {
-    accept: "application/json,text/plain,*/*",
-    origin: VIDLINK_ORIGIN,
-    referer: VIDLINK_ORIGIN + "/",
-    "user-agent": VIDLINK_USER_AGENT,
-  });
+  const payload = await requestVidLinkJson(endpoint);
   const sources = extractQualitySources(payload);
   if (sources.length) return sources;
   const generic: VidLinkSource[] = [];
