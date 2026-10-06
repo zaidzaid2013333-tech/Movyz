@@ -654,7 +654,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
       for (const candidateIndex of buildCandidateIndices(sources)) {
         const candidate = sources[candidateIndex];
         const candidateUrl = String(candidate?.directUrl || '').trim();
-        if (!candidate || candidate.providerKey !== 'akwam' || !/^https:\/\//i.test(candidateUrl)) continue;
+        if (!candidate || !/^https:\/\//i.test(candidateUrl)) continue;
 
         try {
           const candidateResponse = await fetchUpstream(candidateUrl, candidate.referer);
@@ -678,9 +678,9 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
 
     let selected = await trySources(result.sources);
 
-    // Akwam URLs can expire or a specific CDN node can stall a ranged read.
-    // Invalidate the short-lived broker cache once and resolve a fresh source set
-    // before giving up so the player can recover without a manual source switch.
+    // Provider URLs can expire or a CDN node can stall a ranged read. Invalidate
+    // the short-lived broker cache once and resolve a fresh source set before
+    // giving up so the player can recover without a manual source switch.
     if (!selected) {
       await edgeBrokerInvalidate(cacheKey);
       result = await resolvePlaybackBroker(
