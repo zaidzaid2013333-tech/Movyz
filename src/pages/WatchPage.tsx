@@ -1234,157 +1234,77 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !playbackUrl) return;
+    if (!video || !playbackUrl || isEmbedPlayback) return;
 
-    let cancelled = false;
-    startupTriedUrlsRef.current.add(playbackUrl);
-    setPlayerLoadingState(true, language === 'ar' ? 'جارٍ فتح مصدر الفيديو…' : 'Opening playback source…');
-    armPlayerLoadTimeout();
+    video.controls = true;
+    video.playsInline = true;
+    video.preload = 'metadata';
 
-    const resetMediaElement = () => {
+    const sourceType = String(playbackSource?.type || '').toLowerCase();
+    const isHls = sourceType === 'hls' || /\\.m3u8(?:[?#]|$)/i.test(playbackUrl);
+    let hls: Hls | null = null;
+
+    const onMetadata = () => {
+      setPlayerReady(true);
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        setPlayerDuration(video.duration);
+      }
+      syncPlayerNaturalResolution();
+    };
+    const onPlaying = () => {
+      playbackStartedRef.current = true;
+      setPlayerPlaying(true);
+      setPlayerReady(true);
+      setPlaybackError(null);
+      syncPlayerNaturalResolution();
+    };
+    const onPause = () => setPlayerPlaying(false);
+    const onTime = () => {
+      setPlayerCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0);
+      if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
+    };
+    const onError = () => {
+      const code = video.error?.code;
+      setPlaybackError(
+        code === MediaError.MEDIA_ERR_DECODE
+          ? (language === 'ar' ? 'تعذر فك ترميز المصدر الحالي.' : 'The current source could not be decoded.')
+          : (language === 'ar' ? 'تعذر تشغيل المصدر الحالي.' : 'The current source could not be started.'),
+      );
+    };
+
+    video.addEventListener('loadedmetadata', onMetadata);
+    video.addEventListener('playing', onPlaying);
+    video.addEventListener('pause', onPause);
+    video.addEventListener('timeupdate', onTime);
+    video.addEventListener('durationchange', onMetadata);
+    video.addEventListener('error', onError);
+
+    if (isHls && Hls.isSupported()) {
+      hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false,
+        startLevel: -1,
+      });
+      hls.attachMedia(video);
+      hls.loadSource(playbackUrl);
+    } else {
+      video.src = playbackUrl;
+      video.load();
+    }
+
+    return () => {
       video.pause();
       video.removeAttribute('src');
       try { video.srcObject = null; } catch {}
-      videoReadyReset();
+      hls?.destroy();
+      video.removeEventListener('loadedmetadata', onMetadata);
+      video.removeEventListener('playing', onPlaying);
+      video.removeEventListener('pause', onPause);
+      video.removeEventListener('timeupdate', onTime);
+      video.removeEventListener('durationchange', onMetadata);
+      video.removeEventListener('error', onError);
     };
-
-    const attachNative = () => {
-      playbackEngineRef.current?.destroy?.();
-      playbackEngineRef.current = null;
-      resetMediaElement();
-      video.preload = 'metadata';
-       setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
-      armPlayerLoadTimeout();
-      video.src = playbackUrl;
-      video.load();
-    };
-
-    const videoReadyReset = () => {
-      setPlayerReady(false);
-      setPlayerCurrentTime(0);
-      setPlayerDuration(0);
-      setPlayerBufferedEnd(0);
-    };
-
-    const attachPlayback = async () => {
-      const engine = playbackEngineFor(playbackSource);
-
-      if (engine === 'embed') {
-        setPlayerReady(true);
-        setPlayerPlaying(false);
-        return;
-      }
-
-      if (engine === 'hls') {
-        if (Hls.isSupported()) {
-          resetMediaElement();
-          const hls = new Hls({
-            enableWorker: true,
-            lowLatencyMode: false,
-            backBufferLength: 90,
-            maxBufferLength: 45,
-            maxMaxBufferLength: 90,
-            startLevel: -1,
-          });
-          playbackEngineRef.current = hls;
-          hls.on(Hls.Events.FRAG_LOADING, () => {
-            if (!cancelled) {
-              if (!playbackStartedRef.current) {
-                setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
-              } else {
-                setPlayerLoadingState(false);
-              }
-              armPlayerLoadTimeout();
-            }
-          });
-          hls.on(Hls.Events.FRAG_BUFFERED, () => {
-            if (!cancelled) {
-              clearPlayerLoadTimeout();
-              setPlayerLoadingState(false);
-              if (resumeAfterBufferingRef.current && video.paused && !video.ended) {
-                resumeAfterBufferingRef.current = false;
-                void video.play().catch(() => undefined);
-              }
-            }
-          });
-          hls.on(Hls.Events.ERROR, (_event, data) => {
-            if (!data.fatal || cancelled) return;
-            clearPlayerLoadTimeout();
-            setPlayerLoadingState(false);
-            hls.destroy();
-            playbackEngineRef.current = null;
-            if (playbackStartedRef.current || video.currentTime > 0.5 || !video.paused) {
-              setPlaybackError(null);
-              return;
-            }
-            setPlaybackError(
-              language === 'ar'
-                ? 'تعذر تهيئة بث HLS من المصدر الحالي. اختر مصدرًا آخر يدويًا أو أعد المحاولة.'
-                : 'The current HLS source could not be initialized. Choose another source manually or retry.',
-            );
-          });
-          hls.attachMedia(video);
-          hls.loadSource(playbackUrl);
-          return;
-        }
-
-        if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          attachNative();
-          return;
-        }
-
-        setPlaybackError(
-          language === 'ar'
-            ? 'هذا المتصفح لا يدعم HLS على هذا الجهاز.'
-            : 'This browser does not support HLS on this device.',
-        );
-        return;
-      }
-
-      if (engine === 'dash') {
-        try {
-          resetMediaElement();
-          const module = await import('dashjs');
-          if (cancelled) return;
-          const dash = (module as any).default ?? module;
-          const player = dash.MediaPlayer().create();
-          playbackEngineRef.current = player;
-          player.initialize(video, playbackUrl, false);
-          setPlayerReady(false);
-        } catch {
-          attachNative();
-        }
-        return;
-      }
-
-      attachNative();
-    };
-
-    void attachPlayback();
-
-    // Source switching is always manual. Runtime failures never change the
-    // selected source behind the user's back.
-
-    return () => {
-      cancelled = true;
-      if (startupGuardTimerRef.current !== null) {
-        window.clearTimeout(startupGuardTimerRef.current);
-        startupGuardTimerRef.current = null;
-      }
-      playbackEngineRef.current?.destroy?.();
-      playbackEngineRef.current = null;
-      video.pause();
-      if (startupRecoveryTimerRef.current !== null) {
-        window.clearTimeout(startupRecoveryTimerRef.current);
-        startupRecoveryTimerRef.current = null;
-      }
-      if (startupWarmupTimerRef.current !== null) {
-        window.clearTimeout(startupWarmupTimerRef.current);
-        startupWarmupTimerRef.current = null;
-      }
-      startupRecoveryStageRef.current = 'idle';
-    };
-  }, [playbackUrl, playbackSource?.type, language, playerReloadKey]);
+  }, [playbackUrl, playbackSource?.type, language, isEmbedPlayback, playerReloadKey]);
 
   useEffect(() => {
     if (isEmbedPlayback) {
@@ -1736,535 +1656,19 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 className="movyza-player-frame relative h-full w-full bg-black"
                               >
 
-              {playbackError ? (
-                <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/75 p-6 text-center">
-                  <ErrorState
-                    message={playbackError}
-                    onRetry={retryPlayback}
-                    onGoHome={() => onNavigate('/')}
-                  />
-                </div>
-              ) : null}
-              {/* Playback starts visibly with the native player; no preparation overlay is rendered. */}
-
-              {isEmbedPlayback ? (
-                <iframe
-                  key={`${playbackUrl}-${playerReloadKey}`}
-                  src={playbackUrl}
-                  title={displayTitle || 'Movyz player'}
-                  className="absolute inset-0 h-full w-full border-0 bg-black"
-                  allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-                  allowFullScreen
-                  referrerPolicy="strict-origin-when-cross-origin"
-                />
-              ) : null}
               <video
                 ref={videoRef}
                 poster={content.backdropUrl || content.posterUrl}
-                className={(isEmbedPlayback ? 'hidden ' : '') + 'block h-full w-full bg-black object-contain'}
+                className="block h-full w-full bg-black object-contain"
                 playsInline
+                controls
                 preload="metadata"
-                disablePictureInPicture={false}
-                onLoadStart={() => {
-                  playbackStartedRef.current = false;
-                  setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
-                  armPlayerLoadTimeout();
-                  startupRecoveryStageRef.current = 'idle';
-                  if (startupRecoveryTimerRef.current !== null) {
-                    window.clearTimeout(startupRecoveryTimerRef.current);
-                    startupRecoveryTimerRef.current = null;
-                  }
-                  setPlaybackError(null);
-                  if (playbackUrl) startupTriedUrlsRef.current.add(playbackUrl);
-                }}
-                onPlay={() => {
-                  userPlayRequestedRef.current = true;
-                  setPlayerPlaying(true);
-                }}
-                onPause={() => {
-                  setPlayerPlaying(false);
-                }}
-                onLoadedMetadata={() => {
-                  const video = videoRef.current;
-                  if (!video) return;
-                  if (startupGuardTimerRef.current !== null) {
-                    window.clearTimeout(startupGuardTimerRef.current);
-                    startupGuardTimerRef.current = null;
-                  }
-                  setPlayerReady(true);
-                  clearPlayerLoadTimeout();
-                  setPlayerLoadingState(false);
-                  syncPlayerNaturalResolution();
-                  if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
-
-                  const reloadRestore = reloadRestoreRef.current;
-                  if (reloadRestore && Number.isFinite(video.duration) && video.duration > 0) {
-                    try {
-                      video.currentTime = Math.min(reloadRestore.time, Math.max(0, video.duration - 0.25));
-                    } catch {}
-                  }
-
-                  const resumeTime = qualityResumeTimeRef.current;
-                  if (resumeTime !== null && Number.isFinite(video.duration) && video.duration > 0) {
-                    qualityResumeTimeRef.current = null;
-                    try {
-                      video.currentTime = Math.min(resumeTime, Math.max(0, video.duration - 0.5));
-                    } catch {
-                      // Ignore sources that reject a resume seek.
-                    }
-                  }
-                }}
-
-                onDurationChange={() => {
-                  const video = videoRef.current;
-                  if (video && Number.isFinite(video.duration) && video.duration > 0) {
-                    setPlayerDuration(video.duration);
-                  }
-                }}
-                onProgress={() => {
-                  const video = videoRef.current;
-                  if (!video || video.buffered.length === 0) return;
-                  try {
-                    setPlayerBufferedEnd(video.buffered.end(video.buffered.length - 1));
-                  } catch {}
-                }}
-                onTimeUpdate={() => {
-                  const video = videoRef.current;
-                  if (!video) return;
-                  setPlayerCurrentTime(
-                    startupRecoveryStageRef.current === 'recovering' ? 0 : (video.currentTime || 0),
-                  );
-                  if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
-                  if (video.buffered.length > 0) {
-                    try {
-                      setPlayerBufferedEnd(video.buffered.end(video.buffered.length - 1));
-                    } catch {}
-                  }
-                }}
-                onLoadedData={() => {
-                  const video = videoRef.current;
-                  if (!video) return;
-                  setPlayerReady(true);
-                  if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
-                  setPlayerCurrentTime(
-                    startupRecoveryStageRef.current === 'recovering' ? 0 : (video.currentTime || 0),
-                  );
-                }}
-                onVolumeChange={() => {
-                  const video = videoRef.current;
-                  if (!video) return;
-                  setPlayerVolume(video.volume);
-                  setPlayerMuted(video.muted);
-                }}
-                onCanPlay={() => {
-                  const video = videoRef.current;
-                  if (!video) return;
-
-                  clearPlayerLoadTimeout();
-                  setPlayerLoadingState(false);
-
-                  if (startupGuardTimerRef.current !== null) {
-                    window.clearTimeout(startupGuardTimerRef.current);
-                    startupGuardTimerRef.current = null;
-                  }
-                  setPlayerReady(true);
-                  if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
-
-                  if (qualitySwitchPendingRef.current) {
-                    qualitySwitchPendingRef.current = false;
-                    if (resumeAfterQualitySwitchRef.current) {
-                      resumeAfterQualitySwitchRef.current = false;
-                      void video.play().catch(() => undefined);
-                    }
-                  }
-
-                }}
-                onWaiting={() => {
-                  const video = videoRef.current;
-                  const wasPlaying = Boolean(video && !video.paused && !video.ended);
-                  const playbackRequested = userPlayRequestedRef.current;
-                  if (wasPlaying || playbackRequested) {
-                    resumeAfterBufferingRef.current = true;
-                  }
-                  if (!playbackRequested && !wasPlaying) {
-                    // Metadata/preload can emit waiting before the user presses play.
-                    // Do not trap the UI behind a permanent loading overlay.
-                    clearPlayerLoadTimeout();
-                    setPlayerLoadingState(false);
-                    return;
-                  }
-                  if (!playbackStartedRef.current) {
-                    setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Loading data…');
-                  } else {
-                    setPlayerLoadingState(false);
-                  }
-                  armPlayerLoadTimeout();
-                  if (!playbackStartedRef.current) {
-                    setPlaybackError(null);
-                  }
-                }}
-                onStalled={() => {
-                  const video = videoRef.current;
-                  const wasPlaying = Boolean(video && !video.paused && !video.ended);
-                  const playbackRequested = userPlayRequestedRef.current;
-                  if (wasPlaying || playbackRequested) {
-                    resumeAfterBufferingRef.current = true;
-                  }
-                  if (!playbackRequested && !wasPlaying) {
-                    clearPlayerLoadTimeout();
-                    setPlayerLoadingState(false);
-                    return;
-                  }
-                  if (!playbackStartedRef.current) {
-                    setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Loading data…');
-                    setPlaybackError(null);
-                  } else {
-                    setPlayerLoadingState(false);
-                  }
-                  armPlayerLoadTimeout();
-                }}
-                onSeeking={() => {
-                  setPlayerLoadingState(true, language === 'ar' ? 'جارٍ الانتقال…' : 'Seeking…');
-                  armPlayerLoadTimeout();
-                }}
-                onSeeked={() => {
-                  clearPlayerLoadTimeout();
-                  setPlayerLoadingState(false);
-                }}
-                onPointerUp={handlePlayerSurfacePointerUp}
-                onDoubleClick={(event) => {
-                  const target = event.target as HTMLElement | null;
-                  if (target?.closest('button,input,select')) return;
-                  const rect = playerShellRef.current?.getBoundingClientRect();
-                  if (!rect) return;
-                  seekPlayerBy(event.clientX - rect.left < rect.width / 2 ? -10 : 10);
-                }}
-                onPlaying={() => {
-                  clearPlayerLoadTimeout();
-                  setPlayerLoadingState(false);
-                  playbackStartedRef.current = true;
-                  setPlaybackError(null);
-                }}
-                onError={() => {
-                  clearPlayerLoadTimeout();
-                  clearPlaybackStallTimer();
-                  setPlayerLoadingState(false);
-
-                  const video = videoRef.current;
-                  if (!video || !playbackUrl) return;
-
-                  const activePlayback =
-                    playbackStartedRef.current ||
-                    video.currentTime > 0.5 ||
-                    !video.paused;
-
-                  // Do not place a fatal overlay over a video that still has
-                  // usable media data/frames.
-                  if (activePlayback) {
-                    setPlaybackError(null);
-                    return;
-                  }
-
-                  const mediaError = video.error;
-                  const code = mediaError?.code;
-                  const detail =
-                    code === MediaError.MEDIA_ERR_DECODE
-                      ? (language === 'ar'
-                        ? 'تعذر فك ترميز المصدر الحالي. اختر مصدرًا آخر يدويًا أو أعد المحاولة.'
-                        : 'The current source could not be decoded. Choose another source manually or retry.')
-                      : (language === 'ar'
-                        ? 'تعذر تشغيل المصدر الحالي. اختر مصدرًا آخر يدويًا أو أعد المحاولة.'
-                        : 'The current source could not start. Choose another source manually or retry.');
-                  setPlaybackError(detail);
-                }}
+                aria-label={displayTitle || 'Movyz video player'}
               >
-                {playbackUrl ? null : null}
                 {language === 'ar'
                   ? 'المتصفح لا يدعم تشغيل هذا المصدر.'
                   : 'Your browser does not support this playback source.'}
-              </video>
- 
-              
-              {!isEmbedPlayback ? (
-                <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-3 sm:p-4">
-                  <div className="movyza-player-top-chip">
-                    <span className="movyza-player-live-dot" />
-                    <span>{language === 'ar' ? 'MOVYZ PLAYBACK' : 'MOVYZ PLAYBACK'}</span>
-                    <span className="movyza-player-top-separator">·</span>
-                    <span className="truncate max-w-[42vw] sm:max-w-[34vw]">
-                      {playerResolutionLabel}
-                    </span>
-                    {playerNaturalWidth > 0 && playerNaturalHeight > 0 ? (
-                      <>
-                        <span className="movyza-player-top-separator">·</span>
-                        <span className="hidden sm:inline tabular-nums">
-                          {playerNaturalWidth}×{playerNaturalHeight}
-                        </span>
-                      </>
-                    ) : null}
-                  </div>
-                  {playerReady ? (
-                    <div className="movyza-player-top-chip hidden xs:flex">
-                      <span>{language === 'ar' ? 'جاهز' : 'Ready'}</span>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {!isEmbedPlayback && !playerPlaying && !playerLoading && !playbackError ? (
-                <button
-                  type="button"
-                  onClick={togglePlayerPlayback}
-                  className="movyza-player-center-play pointer-events-auto absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2"
-                  aria-label={language === 'ar' ? 'تشغيل الفيديو' : 'Play video'}
-                >
-                  <span className="movyza-player-center-play-ring">
-                    <Play className="ms-1 h-7 w-7 fill-current sm:h-8 sm:w-8" />
-                  </span>
-                  <span className="movyza-player-center-play-label">
-                    {language === 'ar' ? 'تشغيل' : 'Play'}
-                  </span>
-                </button>
-              ) : null}
-
-              {!isEmbedPlayback && playerLoading ? (
-                <div className="movyza-player-loading pointer-events-none absolute inset-0 z-25 flex items-center justify-center" aria-live="polite">
-                  <div className="movyza-player-loading-card">
-                    <div className="movyza-player-spinner" />
-                    <span>{playerLoadingMessage}</span>
-                  </div>
-                </div>
-              ) : null}
-
-              {seekFeedback ? (
-                <div className={"movyza-seek-feedback " + (seekFeedback.delta < 0 ? 'is-left' : 'is-right')} key={seekFeedback.id}>
-                  <span>{seekFeedback.delta < 0 ? '−10' : '+10'}</span>
-                </div>
-              ) : null}
-
-              <div
-                className={(isEmbedPlayback ? 'hidden ' : '') + 'pointer-events-none absolute inset-0 z-10'}
-              >
-                {playerSettingsOpen && !isEmbedPlayback ? (
-                  <div className="movyza-player-settings pointer-events-auto absolute bottom-[74px] end-3 z-40 w-[min(340px,calc(100%-24px))] rounded-2xl border border-white/10 bg-[#090b10]/95 p-3 shadow-2xl backdrop-blur-2xl">
-                    <div className="flex items-center justify-between gap-3 px-1 pb-2">
-                      <div>
-                        <div className="text-xs font-bold text-white">{language === 'ar' ? 'إعدادات التشغيل' : 'Playback settings'}</div>
-                        <div className="mt-0.5 text-[10px] text-white/45">{language === 'ar' ? 'تحكم محلي بدون تغيير نظام المصادر' : 'Local controls — source system unchanged'}</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setPlayerSettingsOpen(false)}
-                        className="rounded-lg px-2 py-1 text-xs text-white/55 hover:bg-white/10 hover:text-white"
-                        aria-label={language === 'ar' ? 'إغلاق الإعدادات' : 'Close settings'}
-                      >×</button>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="movyza-player-setting-card">
-                        <span>{language === 'ar' ? 'السرعة' : 'Speed'}</span>
-                        <select
-                          aria-label={language === 'ar' ? 'سرعة التشغيل' : 'Playback speed'}
-                          value={playerSpeed}
-                          onChange={(event) => {
-                            const next = Number(event.target.value);
-                            const video = videoRef.current;
-                            if (video) video.playbackRate = next;
-                            setPlayerSpeed(next);
-                          }}
-                          className="movyza-player-select w-full"
-                        >
-                          {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
-                            <option key={speed} value={speed} className="bg-slate-950">{speed}x</option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setTheaterLighting((value) => !value)}
-                        className="movyza-player-setting-card text-start"
-                      >
-                        <span>{language === 'ar' ? 'الإضاءة السينمائية' : 'Cinema lighting'}</span>
-                        <strong className={theaterLighting ? 'text-amber-300' : 'text-white/50'}>
-                          {theaterLighting ? (language === 'ar' ? 'مفعّلة' : 'On') : (language === 'ar' ? 'متوقفة' : 'Off')}
-                        </strong>
-                      </button>
-                    </div>
-
-                    <div className="mt-3 border-t border-white/8 pt-3">
-                      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-white/40">
-                        {language === 'ar' ? 'الجودة / المصدر' : 'Quality / source'}
-                      </div>
-                      <div className="max-h-44 space-y-1 overflow-y-auto pe-1">
-                        {playerSourceOptions.length === 0 ? (
-                          <div className="rounded-xl bg-white/[0.035] px-3 py-2 text-xs text-white/45">{language === 'ar' ? 'لا توجد مصادر بديلة.' : 'No alternate sources.'}</div>
-                        ) : (
-                          playerSourceOptions.map((source) => {
-                            const active = source.url === playbackSource?.url;
-                            const quality = normalizePlaybackQuality(source.quality);
-                            const type = String(source.type || 'direct').toUpperCase();
-                            const provider = String(source.provider || source.providerKey || 'MOVYZ').trim();
-                            return (
-                              <button
-                                key={source.id || source.url}
-                                type="button"
-                                onClick={() => {
-                                  handleSelectPlaybackSource(source);
-                                  setPlayerSettingsOpen(false);
-                                }}
-                                className={'flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-start transition ' + (active ? 'border-amber-400/30 bg-amber-400/10 text-white' : 'border-white/6 bg-white/[0.025] text-white/75 hover:border-white/12 hover:bg-white/[0.055]')}
-                              >
-                                <span className="min-w-0">
-                                  <span className="block truncate text-xs font-semibold">{quality}</span>
-                                  <span className="mt-0.5 block truncate text-[10px] text-white/40">{provider} · {type}</span>
-                                </span>
-                                {active ? <Check className="h-4 w-4 shrink-0 text-amber-300" /> : null}
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-3 rounded-xl border border-white/6 bg-white/[0.025] px-3 py-2 text-[10px] leading-relaxed text-white/40">
-                      {language === 'ar'
-                        ? 'اختصارات: Space/K تشغيل · ←/→ خمس ثوانٍ · J/L عشر ثوانٍ · ↑/↓ الصوت · M كتم · F ملء الشاشة · 0–9 قفز للنسبة.'
-                        : 'Shortcuts: Space/K play · ←/→ 5s · J/L 10s · ↑/↓ volume · M mute · F fullscreen · 0–9 seek by percent.'}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className={'movyza-player-controls pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent pt-16 pb-3 px-3 sm:px-4 ' + (playerControlsVisible ? 'is-visible' : 'is-hidden')}>
-                  <div className="flex flex-col gap-2">
-                    <div className="movyza-progress-track relative">
-                      <div
-                        className="movyza-progress-buffered"
-                        style={{ width: playerDuration > 0 ? `${Math.min(100, Math.max(0, playerBufferedEnd / playerDuration * 100))}%` : '0%' }}
-                      />
-                      <div
-                        className="movyza-progress-played"
-                        style={{ width: playerDuration > 0 ? `${Math.min(100, Math.max(0, playerCurrentTime / playerDuration * 100))}%` : '0%' }}
-                      />
-                      <input
-                        aria-label={language === 'ar' ? 'موضع الفيديو' : 'Video position'}
-                        type="range"
-                        min={0}
-                        max={Math.max(playerDuration, 0)}
-                        step="0.1"
-                        value={Math.min(playerCurrentTime, Math.max(playerDuration, 0))}
-                        onChange={(event) => setPlayerProgress(Number(event.target.value))}
-                        dir="ltr"
-                        className="movyza-player-seek relative z-10 w-full accent-amber-400 cursor-pointer"
-                      />
-                    </div>
-                    <div className="movyza-player-control-row flex items-center gap-2 text-white flex-wrap">
-                      <button
-                        type="button"
-                        onClick={togglePlayerPlayback}
-                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
-                        aria-label={playerPlaying ? (language === 'ar' ? 'إيقاف' : 'Pause') : (language === 'ar' ? 'تشغيل' : 'Play')}
-                      >
-                        {playerPlaying ? <Pause size={17} /> : <Play size={17} className="translate-x-0.5" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => seekPlayerBy(-10)}
-                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
-                        aria-label={language === 'ar' ? 'رجوع 10 ثواني' : 'Back 10 seconds'}
-                      >
-                        <RotateCcw size={17} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => seekPlayerBy(10)}
-                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
-                        aria-label={language === 'ar' ? 'تقديم 10 ثواني' : 'Forward 10 seconds'}
-                      >
-                        <RotateCw size={17} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={togglePlayerMute}
-                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
-                        aria-label={playerMuted ? (language === 'ar' ? 'إلغاء الكتم' : 'Unmute') : (language === 'ar' ? 'كتم الصوت' : 'Mute')}
-                      >
-                        {playerMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}
-                      </button>
-                      <input
-                        aria-label={language === 'ar' ? 'مستوى الصوت' : 'Volume'}
-                        type="range"
-                        min={0}
-                        max={1}
-                        step="0.01"
-                        value={playerMuted ? 0 : playerVolume}
-                        onChange={(event) => setPlayerVolumeLevel(Number(event.target.value))}
-                        className="movyza-volume-slider hidden sm:block w-20 accent-amber-400 cursor-pointer"
-                      />
-                      <span className="movyza-player-time min-w-20 text-[11px] font-mono text-white/75 tabular-nums">
-                        {formatPlayerTime(playerCurrentTime)} / {formatPlayerTime(playerDuration)}
-                      </span>
-                      <div className="flex-1" />
-                      <label className="movyza-player-speed flex items-center gap-1.5 text-[11px] text-white/80">
-                        <span className="hidden sm:inline">{language === 'ar' ? 'السرعة' : 'Speed'}</span>
-                        <select
-                          aria-label={language === 'ar' ? 'سرعة التشغيل' : 'Playback speed'}
-                          value={playerSpeed}
-                          onChange={(event) => {
-                            const next = Number(event.target.value);
-                            const video = videoRef.current;
-                            if (video) video.playbackRate = next;
-                            setPlayerSpeed(next);
-                          }}
-                          className="movyza-player-select bg-white/10 border border-white/10 rounded-md px-1.5 py-1 outline-none"
-                        >
-                          {[0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
-                            <option key={speed} value={speed} className="bg-slate-950">{speed}x</option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setPlayerSettingsOpen((value) => !value)}
-                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
-                        aria-label={language === 'ar' ? 'إعدادات المشغل' : 'Player settings'}
-                        aria-expanded={playerSettingsOpen}
-                        title={language === 'ar' ? 'إعدادات المشغل' : 'Player settings'}
-                      >
-                        <Settings2 size={17} />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={reloadPlayer}
-                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
-                        aria-label={language === 'ar' ? 'إعادة تحميل الفيديو' : 'Reload video'}
-                        title={language === 'ar' ? 'إعادة تحميل الفيديو' : 'Reload video'}
-                      >
-                        <RefreshCw size={17} className={playerLoading ? 'animate-spin' : ''} />
-                      </button>
-
-                      {document.pictureInPictureEnabled && typeof videoRef.current?.requestPictureInPicture === 'function' ? (
-                        <button
-                          type="button"
-                          onClick={() => void togglePlayerPictureInPicture()}
-                          className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition text-[10px] font-bold"
-                          aria-label={playerPictureInPicture ? (language === 'ar' ? 'الخروج من صورة داخل صورة' : 'Exit picture in picture') : (language === 'ar' ? 'صورة داخل صورة' : 'Picture in picture')}
-                        >
-                          PiP
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => void togglePlayerFullscreen()}
-                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
-                        aria-label={playerFullscreen ? (language === 'ar' ? 'الخروج من ملء الشاشة' : 'Exit fullscreen') : (language === 'ar' ? 'ملء الشاشة' : 'Fullscreen')}
-                      >
-                        {playerFullscreen ? <Minimize size={17} /> : <Maximize size={17} />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>           </div>
+              </video>              </div>           </div>
           </div>
         </div>
       </div>
