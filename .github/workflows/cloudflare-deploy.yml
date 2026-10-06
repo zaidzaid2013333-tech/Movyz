@@ -92,7 +92,7 @@ jobs:
         run: |
           python - <<'PY'
           import json, urllib.request
-          resolver = "https://movyz-live-resolver-production.up.railway.app"
+          resolver = "https://btrjguegbmusijsyylwl.supabase.co/functions/v1/movyz-live-resolver"
           payload = {
             "contentType": "movie",
             "contentId": "6591564a-13a9-4892-a166-247d1ff9158b",
@@ -102,7 +102,7 @@ jobs:
           req = urllib.request.Request(
             resolver + "/resolve",
             data=json.dumps(payload).encode(),
-            headers={"Content-Type":"application/json","Accept":"application/json","User-Agent":"Movyz-Manual-Resolver-Smoke/1.0"},
+            headers={"Content-Type":"application/json","x-movyz-resolver-key":os.environ["SUPABASE_SERVICE_ROLE_KEY"],"Accept":"application/json","User-Agent":"Movyz-Manual-Resolver-Smoke/1.0"},
             method="POST",
           )
           with urllib.request.urlopen(req, timeout=90) as response:
