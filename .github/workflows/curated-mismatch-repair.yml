@@ -2,7 +2,7 @@ name: Movyz curated mismatch repair
 
 on:
   push:
-    branches: ["ui/watch-player-responsive-20261005"]
+    branches: ["main"]
     paths:
       - "scripts/repair-curated-mismatches.ts"
       - ".github/workflows/curated-mismatch-repair.yml"
