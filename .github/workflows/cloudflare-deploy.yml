@@ -1,4 +1,5 @@
 name: Movyza Cloudflare Deploy
+# Production locale/SEO verification pipeline
 
 on:
   push:
