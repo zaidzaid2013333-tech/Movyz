@@ -1281,6 +1281,32 @@ function extractTargets(html: string, baseUrl: string) {
   }
 
 
+  // Some Akwam page generations build playback/navigation URLs inside inline JavaScript instead of href/data-* attributes.
+  // Treat them as ordinary route candidates without knowing anything about a specific title.
+  const embeddedRoutes = /(?:["'])(https:\/\/akwam\.ss|\/)(?:old\/)?(?:download|link|watch|play|episode|show\/episode|series|shows?|movie|movies|stream|file|get|source|media|video)\/[^"'<>\\s]+(?:["'])/gi;
+  while ((m = embeddedRoutes.exec(html))) {
+    try {
+      const raw = decodeHtml(m[0].slice(1, -1)).replaceAll("\\/", "/");
+      const url = new URL(raw, baseUrl).href;
+      if (!isAkwamUrl(url)) continue;
+      const nearby = cleanHtmlText(html.slice(Math.max(0, m.index - 600), m.index + m[0].length + 900));
+      addLinkTarget(url, nearby);
+    } catch {}
+  }
+
+  // Also catch escaped absolute media URLs embedded in JSON/config.
+  const escapedAbsoluteUrls = /["'](https:\\/\\/[^"'<>\\s]+)["']/gi;
+  while ((m = escapedAbsoluteUrls.exec(html))) {
+    const raw = decodeHtml(m[1]).replaceAll("\\/", "/");
+    try {
+      const url = new URL(raw, baseUrl).href;
+      const nearby = cleanHtmlText(html.slice(Math.max(0, m.index - 600), m.index + m[0].length + 900));
+      if (isAkwamUrl(url)) addLinkTarget(url, nearby);
+      else if (/(?:\.m3u8|\.mp4|\.mpd|\.webm)(?:$|\?)/i.test(new URL(url).pathname)) {
+        add(url, 250 + qualityScore(nearby + " " + url));
+      }
+    } catch {}
+  }
   const mediaTags = /<(?:video|source)\b[^>]*(?:src|data-src|data-url)=["']([^"']+)["'][^>]*>/gi;
   while ((m = mediaTags.exec(html))) add(m[1], 140);
 
