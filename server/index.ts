@@ -284,7 +284,7 @@ async function loadPlaybackResolverContext(
   // Normalize those requests to the exact episode UUID so every playback route
   // shares one canonical broker contract.
   if (
-    /^\\d+$/.test(contentId) &&
+    /^\d+$/.test(contentId) &&
     Number.isFinite(seasonNumber) &&
     Number.isFinite(episodeNumber)
   ) {
