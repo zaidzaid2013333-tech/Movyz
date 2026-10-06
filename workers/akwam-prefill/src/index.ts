@@ -1784,10 +1784,14 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   const medias: Media[] = [];
   const sourceReferer = episodeTarget || candidate?.url || base(env);
 
-  // Keep enough ranked targets for Akwam's fallback variants, but do not wait
-  // for every target. Return the first playable hand-off and only spend a short
-  // grace window collecting additional sources.
-  const rankedTargets = usefulResolutionTargets(targets, isEpisode ? 2 : 1);
+  // Akwam often publishes several real playback variants for one title
+  // (1080/720/480, different route generations, etc.). The old code only
+  // returned the first working target, which made most of the available
+  // catalog look like it had a single source. Resolve a bounded set in
+  // parallel and keep every validated media URL we can obtain.
+  const maxSources = isEpisode ? 4 : 6;
+  const targetLimit = isEpisode ? 5 : 8;
+  const rankedTargets = usefulResolutionTargets(targets, targetLimit);
   type TargetResult = { index: number; media: Media | null };
   const pendingTargets: Array<{ index: number; promise: Promise<TargetResult> }> = rankedTargets.map((target, index) => ({
     index,
@@ -1796,13 +1800,13 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
       .catch(() => ({ index, media: null })),
   }));
 
-  const firstSourceDeadline = Date.now() + (isEpisode ? 10000 : 8000);
+  const firstSourceDeadline = Date.now() + (isEpisode ? 10000 : 9000);
   let firstSourceFoundAt: number | null = null;
 
-  while (pendingTargets.length && medias.length < 1) {
+  while (pendingTargets.length && medias.length < maxSources) {
     const deadline = firstSourceFoundAt === null
       ? firstSourceDeadline
-      : firstSourceFoundAt + 300;
+      : firstSourceFoundAt + 1800;
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) break;
 
@@ -2006,7 +2010,10 @@ export async function resolveAkwamWithContext(
     attempts: 1,
   };
 
-  const budget: RequestBudget = { used: 0, max: 24 };
+  // Live playback can probe several Akwam quality/route variants in one request.
+  // Keep the budget bounded, but high enough to collect multiple real sources
+  // instead of returning the first working URL and throwing the rest away.
+  const budget: RequestBudget = { used: 0, max: 36 };
   return discover(env, job, ctx, budget);
 }
 
