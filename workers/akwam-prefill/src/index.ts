@@ -1067,11 +1067,14 @@ async function findEpisodeTargetBySearch(
       .filter((url) => {
         try {
           const path = new URL(url).pathname.toLowerCase();
-          return (
-            /(?:season|seasons|episode|episodes|show|series|tv|watch)/i.test(path) &&
-            !/\\/(?:download|link|stream|file|get|source|media|video)\\//i.test(path) &&
-            !/\\.(?:m3u8|mp4|mpd|webm)(?:$|\\?)/i.test(path)
-          );
+          const blocked = [
+            "/download/","/link/","/stream/","/file/","/get/",
+            "/source/","/media/","/video/",
+          ].some((segment) => path.includes(segment));
+          const mediaPath = /\.(?:m3u8|mp4|mpd|webm)(?:$|\?)/i.test(path);
+          return /(?:season|seasons|episode|episodes|show|series|tv|watch)/i.test(path) &&
+            !blocked &&
+            !mediaPath;
         } catch {
           return false;
         }
