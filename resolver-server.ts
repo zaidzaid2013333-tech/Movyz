@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { resolveAkwamWithContext } from "./workers/akwam-prefill/src/index.ts";
 import { resolveVidLink, type VidLinkContext } from "./providers/vidlink.ts";
+import { resolveTmdbEmbed, type TmdbEmbedContext } from "./providers/tmdb-embed.ts";
 
 const port = Number(process.env.PORT || 8787);
 const sharedKey = String(process.env.PLAYBACK_RESOLVER_KEY || "").trim();
@@ -184,35 +185,73 @@ async function resolve(context: Context): Promise<MediaSource[]> {
       };
 
       try {
-        const vidlinkSources = await resolveVidLink(vidlinkContext);
-        const normalized = normalizeSources(vidlinkSources);
-        if (!normalized.length) throw new Error("VIDLINK_NO_PLAYABLE_SOURCES");
+        const tmdbEmbedContext: TmdbEmbedContext = {
+          contentType: context.contentType,
+          tmdbId: context.tmdbId,
+          seasonNumber: context.seasonNumber,
+          episodeNumber: context.episodeNumber,
+        };
+        const tmdbEmbedSources = await resolveTmdbEmbed(tmdbEmbedContext);
+        const normalized = normalizeSources(tmdbEmbedSources as any[]);
+        if (normalized.length) {
+          resolutionCache.set(key, {
+            expiresAt: Date.now() + cacheTtlMs,
+            sources: normalized,
+          });
 
-        resolutionCache.set(key, {
-          expiresAt: Date.now() + cacheTtlMs,
-          sources: normalized,
-        });
+          console.log(
+            JSON.stringify({
+              event: "resolution_success",
+              provider: normalized[0]?.providerKey || "tmdb-embed",
+              fallbackFrom: akwamError || "akwam-empty",
+              contentType: context.contentType,
+              contentId: context.contentId,
+              sourceCount: normalized.length,
+              durationMs: Date.now() - startedAt,
+              cacheTtlMs,
+            }),
+          );
 
-        console.log(
-          JSON.stringify({
-            event: "resolution_success",
-            provider: normalized[0]?.providerKey || "vidlink",
-            fallbackFrom: akwamError || "akwam-empty",
-            contentType: context.contentType,
-            contentId: context.contentId,
-            sourceCount: normalized.length,
-            durationMs: Date.now() - startedAt,
-            cacheTtlMs,
-          }),
-        );
+          return normalized;
+        }
 
-        return normalized;
-      } catch (vidlinkError) {
-        const vidlinkMessage =
-          vidlinkError instanceof Error ? vidlinkError.message : String(vidlinkError);
-        throw new Error(
-          `NO_PLAYABLE_SOURCES akwam=${akwamError || "unknown"} vidlink=${vidlinkMessage}`,
-        );
+        throw new Error("TMDB_EMBED_NO_PLAYABLE_SOURCES");
+      } catch (tmdbEmbedError) {
+        const tmdbEmbedMessage =
+          tmdbEmbedError instanceof Error ? tmdbEmbedError.message : String(tmdbEmbedError);
+
+        try {
+          const vidlinkSources = await resolveVidLink(vidlinkContext);
+          const normalized = normalizeSources(vidlinkSources);
+          if (!normalized.length) throw new Error("VIDLINK_NO_PLAYABLE_SOURCES");
+
+          resolutionCache.set(key, {
+            expiresAt: Date.now() + cacheTtlMs,
+            sources: normalized,
+          });
+
+          console.log(
+            JSON.stringify({
+              event: "resolution_success",
+              provider: normalized[0]?.providerKey || "vidlink",
+              fallbackFrom: akwamError || "akwam-empty",
+              fallbackFrom2: tmdbEmbedMessage,
+              contentType: context.contentType,
+              contentId: context.contentId,
+              sourceCount: normalized.length,
+              durationMs: Date.now() - startedAt,
+              cacheTtlMs,
+            }),
+          );
+
+          return normalized;
+        } catch (vidlinkError) {
+          const vidlinkMessage =
+            vidlinkError instanceof Error ? vidlinkError.message : String(vidlinkError);
+          throw new Error(
+            `NO_PLAYABLE_SOURCES akwam=${akwamError || "unknown"} tmdbEmbed=${tmdbEmbedMessage} vidlink=${vidlinkMessage}`,
+          );
+        }
       }
     } finally {
       activeResolutions -= 1;
@@ -234,8 +273,8 @@ async function handle(request: Request): Promise<Response> {
     return json(200, {
       ok: true,
       service: "movyz-live-resolver",
-      mode: "akwam-primary-vidlink-fallback",
-      providers: ["akwam", "vidlink"],
+      mode: "akwam-primary-tmdb-embed-then-vidlink-fallback",
+      providers: ["akwam", "tmdb-embed", "vidlink"],
       active: activeResolutions,
       queued: queuedResolutions,
       maxConcurrent,
