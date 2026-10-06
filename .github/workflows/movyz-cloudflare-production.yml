@@ -66,11 +66,12 @@ jobs:
             printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_ANON_KEY"
             printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
             printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
+            printf 'PLAYBACK_RESOLVER_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
           } > .env.production
 
       - name: External resolver smoke - Interstellar
         env:
-          PLAYBACK_RESOLVER_URL: https://movyz-live-resolver-production.up.railway.app
+          PLAYBACK_RESOLVER_URL: https://btrjguegbmusijsyylwl.supabase.co/functions/v1/movyz-live-resolver
         run: |
           python - <<'PY'
           import json, os, urllib.error, urllib.request
@@ -86,7 +87,7 @@ jobs:
           req = urllib.request.Request(
               resolver + "/resolve",
               data=json.dumps(payload).encode(),
-              headers={"Content-Type":"application/json","Accept":"application/json","User-Agent":"Movyz-GitHub-Actions-Resolver-Smoke/1.0"},
+              headers={"Content-Type":"application/json","Accept":"application/json","User-Agent":"Movyz-GitHub-Actions-Resolver-Smoke/1.0","x-movyz-resolver-key":os.environ["SUPABASE_SERVICE_ROLE_KEY"]},
               method="POST",
           )
           try:
@@ -100,7 +101,7 @@ jobs:
           sources=body.get("sources",[]) if isinstance(body,dict) else []
           if response.status != 200 or body.get("ok") is not True or not sources:
               raise SystemExit(f"external resolver returned no sources: {str(body)[:1200]}")
-          print("EXTERNAL_RESOLVER_OK", len(sources), "sources", "duration_ms", body.get("durationMs"))
+          print("EXTERNAL_RESOLVER_OK", len(sources), "sources", "duration_ms", body.get("durationMs"), "mode", body.get("mode","edge"))
           PY
 
 
@@ -109,7 +110,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var PLAYBACK_RESOLVER_URL:https://movyz-live-resolver-production.up.railway.app
+          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var PLAYBACK_RESOLVER_URL:https://btrjguegbmusijsyylwl.supabase.co/functions/v1/movyz-live-resolver
 
       - name: Retire legacy Akwam workers
         env:
