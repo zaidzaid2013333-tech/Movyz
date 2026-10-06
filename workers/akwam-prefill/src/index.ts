@@ -622,7 +622,15 @@ async function findCandidate(
   const host = base(env);
   let best: { item: Candidate; score: number } | null = null;
   const diagnostics: string[] = [];
-  const seeds = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
+  // Keep more title aliases in the first discovery wave. The catalog can
+  // contain Arabic, English, original, and alternative titles that point to
+  // the same Akwam page under different search rankings.
+  const seeds = Array.from(new Set(
+    titles
+      .filter(Boolean)
+      .map((x) => x.trim())
+      .filter(Boolean),
+  )).slice(0, 5);
 
   const variants = expected === "movie"
     ? Array.from(new Set([
@@ -633,7 +641,9 @@ async function findCandidate(
         ...seeds,
         year && seeds[0] ? seeds[0] + " " + year : "",
         expectedSeason && seeds[0] ? seeds[0] + " S" + String(expectedSeason).padStart(2, "0") : "",
-      ].filter(Boolean))).slice(0, 3);
+        expectedSeason && seeds[0] ? seeds[0] + " season " + expectedSeason : "",
+        expectedSeason && seeds[0] ? seeds[0] + " الموسم " + expectedSeason : "",
+      ].filter(Boolean))).slice(0, 5);
 
   const scoreHtml = (html: string, allowLegacy: boolean) => {
   const readBest = () => best;
@@ -684,6 +694,25 @@ async function findCandidate(
 
     const fastWinner = readBest();
     if (fastWinner && fastWinner.score >= 100) return fastWinner.item;
+
+    // Akwam search can rank the exact title below the first page for long-tail
+    // or newly-added catalog items. Probe a small second page before giving up.
+    const pageTwoVariants = variants.slice(0, expected === "movie" ? 3 : 4);
+    const pageTwoResponses = await Promise.all(
+      pageTwoVariants.map(async (title) => {
+        const url =
+          host + "/search?q=" + encodeURIComponent(title) +
+          "&section=" + encodeURIComponent(expected) + "&page=2";
+        const html = await fetchText(env, url, diagnostics, undefined, budget, session);
+        return html ? { url, html } : null;
+      }),
+    );
+    for (const response of pageTwoResponses) {
+      if (response) scoreHtml(response.html, false);
+    }
+
+    const pagedWinner = readBest();
+    if (pagedWinner && pagedWinner.score >= 90) return pagedWinner.item;
   }
 
   const finalWinner = readBest();
@@ -693,7 +722,7 @@ async function findCandidate(
   // by Akwam's own search parser. It reuses the same candidate scorer.
   if (expected === "movie" || expected === "series") {
     const external = await Promise.all(
-      variants.slice(0, 2).map((query) =>
+      variants.slice(0, 4).map((query) =>
         discoverAkwamUrlsViaSearch(env, query, expected, expectedSeason).catch(() => []),
       ),
     );
