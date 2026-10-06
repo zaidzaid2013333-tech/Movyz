@@ -11,7 +11,7 @@ function requireSupabase() {
   return supabase;
 }
 
-async function tmdb<T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> {
+async function tmdb<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<T> {
   const url = new URL(TMDB_BASE + (path.startsWith('/') ? path : '/' + path), window.location.origin);
   Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') url.searchParams.set(k, String(v)); });
   const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
