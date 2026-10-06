@@ -437,7 +437,7 @@ async function resolveAkwamThroughExternalResolver(
     method: 'POST',
     headers,
     body,
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(12000),
   });
 
   const resolverStartedAt = Date.now();
