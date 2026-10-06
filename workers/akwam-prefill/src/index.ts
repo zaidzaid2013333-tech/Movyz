@@ -1516,6 +1516,24 @@ export async function resolveAkwamNow(
     };
   }
 
+  return resolveAkwamWithContext(env, input, ctx);
+}
+
+export async function resolveAkwamWithContext(
+  env: Env,
+  input: {
+    content_type: "movie" | "episode";
+    content_id: string;
+    season_number?: number;
+    episode_number?: number;
+  },
+  ctx: {
+    titles: string[];
+    year?: number;
+    episodeNumber?: number;
+    seasonNumber?: number;
+  },
+) {
   const job: Job = {
     id: "on-demand-" + crypto.randomUUID(),
     content_type: input.content_type,
