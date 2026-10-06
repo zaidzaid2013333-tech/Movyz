@@ -21,7 +21,7 @@ export const SeriesCard: React.FC<SeriesCardProps> = ({
   const { language, t } = useLanguage();
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const displayTitle = language === 'ar' ? series.title : series.titleEn || series.title;
+  const displayTitle = series.titleEn || series.title;
   const isStill = layout === 'still';
 
   return (
