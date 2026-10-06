@@ -101,6 +101,7 @@ async function findMovieCandidateCached(
   year?: number,
   budget?: RequestBudget,
   session?: AkwamSession,
+  fastMode = false,
 ) {
   const key = movieCacheKey(titles, year);
   const now = Date.now();
@@ -108,7 +109,7 @@ async function findMovieCandidateCached(
   if (hit && hit.cachedAt + MOVIE_CANDIDATE_TTL_MS > now) return hit.candidate;
   if (hit) movieCandidateMemory.delete(key);
 
-  const candidate = await findCandidate(env, titles, year, "movie", undefined, budget, session);
+  const candidate = await findCandidate(env, titles, year, "movie", undefined, budget, session, fastMode);
   movieCandidateMemory.set(key, { candidate, cachedAt: now });
   trimSeriesCaches();
   return candidate;
@@ -124,6 +125,7 @@ async function findSeriesCandidateCached(
   season: number,
   budget?: RequestBudget,
   session?: AkwamSession,
+  fastMode = false,
 ) {
   const key = seriesCacheKey(titles, season);
   const now = Date.now();
@@ -131,7 +133,7 @@ async function findSeriesCandidateCached(
   if (hit && hit.cachedAt + SERIES_CANDIDATE_TTL_MS > now) return hit.candidate;
   if (hit) seriesCandidateMemory.delete(key);
 
-  const candidate = await findCandidate(env, titles, undefined, "series", season, budget, session);
+  const candidate = await findCandidate(env, titles, undefined, "series", season, budget, session, fastMode);
   seriesCandidateMemory.set(key, { candidate, cachedAt: now });
   trimSeriesCaches();
   return candidate;
@@ -618,6 +620,7 @@ async function findCandidate(
   expectedSeason?: number,
   budget?: RequestBudget,
   session?: AkwamSession,
+  fastMode = false,
 ) {
   const host = base(env);
   let best: { item: Candidate; score: number } | null = null;
@@ -636,14 +639,14 @@ async function findCandidate(
     ? Array.from(new Set([
         ...seeds.flatMap(movieSearchVariants),
         year && seeds[0] ? seeds[0] + " " + year : "",
-      ].filter(Boolean))).slice(0, 5)
+      ].filter(Boolean))).slice(0, fastMode ? 2 : 5)
     : Array.from(new Set([
         ...seeds,
         year && seeds[0] ? seeds[0] + " " + year : "",
         expectedSeason && seeds[0] ? seeds[0] + " S" + String(expectedSeason).padStart(2, "0") : "",
         expectedSeason && seeds[0] ? seeds[0] + " season " + expectedSeason : "",
         expectedSeason && seeds[0] ? seeds[0] + " الموسم " + expectedSeason : "",
-      ].filter(Boolean))).slice(0, 5);
+      ].filter(Boolean))).slice(0, fastMode ? 2 : 5);
 
   const scoreHtml = (html: string, allowLegacy: boolean) => {
   const readBest = () => best;
@@ -693,7 +696,15 @@ async function findCandidate(
     }
 
     const fastWinner = readBest();
-    if (fastWinner && fastWinner.score >= 100) return fastWinner.item;
+    if (fastWinner && (fastWinner.score >= 100 || (fastMode && fastWinner.score >= 80))) {
+      return fastWinner.item;
+    }
+
+    if (fastMode) {
+      const fastExternalWinner = readBest();
+      if (fastExternalWinner && fastExternalWinner.score >= 80) return fastExternalWinner.item;
+      throw new Error("AKWAM_SEARCH_EMPTY_FAST probes=" + diagnostics.slice(0, 12).join(","));
+    }
 
     // Akwam search can rank the exact title below the first page for long-tail
     // or newly-added catalog items. Probe a small second page before giving up.
@@ -1691,18 +1702,32 @@ async function getContext(env: Env, job: Job) {
   };
 }
 
-async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
+async function discover(
+  env: Env,
+  job: Job,
+  ctx: any,
+  budget: RequestBudget,
+  options: {
+    fastFirst?: boolean;
+  } = {},
+) {
   const isEpisode = job.content_type === "episode";
   const season = ctx.seasonNumber || job.season_number || 1;
   const episode = ctx.episodeNumber || job.episode_number || 1;
   const session: AkwamSession = { cookies: new Map() };
 
+  const fastFirst = options.fastFirst === true;
   let candidate: Candidate | null = null;
   let episodeTarget: string | null = null;
   let targets: string[] = [];
 
   if (isEpisode) {
-    candidate = await findSeriesCandidateCached(env, ctx.titles, season, budget, session);
+    try {
+      candidate = await findSeriesCandidateCached(env, ctx.titles, season, budget, session, fastFirst);
+    } catch (error) {
+      if (!fastFirst) throw error;
+      candidate = await findSeriesCandidateCached(env, ctx.titles, season, budget, session, false);
+    }
 
     if (candidate) {
       if (candidate.kind === "episode" || candidate.kind === "watch") {
@@ -1791,7 +1816,12 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
     }
 
   } else {
-    candidate = await findMovieCandidateCached(env, ctx.titles, ctx.year, budget, session);
+    try {
+      candidate = await findMovieCandidateCached(env, ctx.titles, ctx.year, budget, session, fastFirst);
+    } catch (error) {
+      if (!fastFirst) throw error;
+      candidate = await findMovieCandidateCached(env, ctx.titles, ctx.year, budget, session, false);
+    }
     if (!candidate) throw new Error("AKWAM_NOT_FOUND");
 
     const detailKey = candidate.url;
@@ -1819,8 +1849,12 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   // returned the first working target, which made most of the available
   // catalog look like it had a single source. Resolve a bounded set in
   // parallel and keep every validated media URL we can obtain.
-  const maxSources = isEpisode ? 4 : 6;
-  const targetLimit = isEpisode ? 5 : 8;
+  const maxSources = fastFirst
+    ? (isEpisode ? 3 : 4)
+    : (isEpisode ? 4 : 6);
+  const targetLimit = fastFirst
+    ? (isEpisode ? 3 : 4)
+    : (isEpisode ? 5 : 8);
   const rankedTargets = usefulResolutionTargets(targets, targetLimit);
   type TargetResult = { index: number; media: Media | null };
   const pendingTargets: Array<{ index: number; promise: Promise<TargetResult> }> = rankedTargets.map((target, index) => ({
@@ -1830,13 +1864,17 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
       .catch(() => ({ index, media: null })),
   }));
 
-  const firstSourceDeadline = Date.now() + (isEpisode ? 10000 : 9000);
+  const firstSourceDeadline = Date.now() + (
+    fastFirst
+      ? (isEpisode ? 6500 : 5500)
+      : (isEpisode ? 10000 : 9000)
+  );
   let firstSourceFoundAt: number | null = null;
 
   while (pendingTargets.length && medias.length < maxSources) {
     const deadline = firstSourceFoundAt === null
       ? firstSourceDeadline
-      : firstSourceFoundAt + 1800;
+      : firstSourceFoundAt + (fastFirst ? 750 : 1800);
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) break;
 
@@ -2029,6 +2067,9 @@ export async function resolveAkwamWithContext(
     episodeNumber?: number;
     seasonNumber?: number;
   },
+  options: {
+    fastFirst?: boolean;
+  } = {},
 ) {
   const job: Job = {
     id: "on-demand-" + crypto.randomUUID(),
@@ -2043,8 +2084,8 @@ export async function resolveAkwamWithContext(
   // Live playback can probe several Akwam quality/route variants in one request.
   // Keep the budget bounded, but high enough to collect multiple real sources
   // instead of returning the first working URL and throwing the rest away.
-  const budget: RequestBudget = { used: 0, max: 36 };
-  return discover(env, job, ctx, budget);
+  const budget: RequestBudget = { used: 0, max: 30 };
+  return discover(env, job, ctx, budget, options);
 }
 
 async function fail(env: Env, job: Job, error: unknown, workerId: string) {
