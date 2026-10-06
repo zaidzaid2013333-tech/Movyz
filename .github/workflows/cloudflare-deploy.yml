@@ -63,11 +63,15 @@ jobs:
         run: |
           set -euo pipefail
           base="https://movyz-api.sameranede.workers.dev"
-          html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/")"
+          html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/")"
           printf '%s' "$html" | grep -q 'name="movyz-player" content="vidsrc"'
           printf '%s' "$html" | grep -q 'name="movyz-subtitles" content="vidsrc-locale-subtitles-v1"'
-          ar_html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/ar/movies")"
-          en_html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/en/movies")"
+          ar_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies")"
+          en_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/en/movies")"
+          sitemap="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
+          printf '%s' "$sitemap" | grep -q '<urlset'
+          printf '%s' "$sitemap" | grep -q '/ar/movies'
+          printf '%s' "$sitemap" | grep -q '/en/movies'
           printf '%s' "$ar_html" | grep -q '<html lang="ar" dir="rtl"'
           printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'
           printf '%s' "$ar_html" | grep -q 'hreflang="en-us"'
