@@ -261,7 +261,7 @@ async function discoverAkwamUrlsViaSearch(
         const target = parsed.searchParams.get("uddg");
         url = target ? decodeURIComponent(target) : raw;
       } catch {}
-      if (!/^https://akwam\.ss\//i.test(url) || seen.has(url)) continue;
+      if (!/^https:\/\/akwam\.ss\//i.test(url) || seen.has(url)) continue;
       const path = (() => {
         try { return new URL(url).pathname.toLowerCase(); } catch { return ""; }
       })();
