@@ -544,6 +544,43 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }, [brokerRelayUrl, directPlaybackUrl, playbackSource?.url, playbackRetry]);
   const isEmbedPlayback = String(playbackSource?.type || '').toLowerCase() === 'embed';
   const videoJsEngine = playbackEngineFor(playbackSource);
+  const videoJsMimeType = (() => {
+    switch (videoJsEngine) {
+      case 'hls':
+        return 'application/vnd.apple.mpegurl';
+      case 'dash':
+        return 'application/dash+xml';
+      default: {
+        const type = String(playbackSource?.type || '').toLowerCase();
+        if (type === 'mp4') return 'video/mp4';
+        if (type === 'webm') return 'video/webm';
+        return '';
+      }
+    }
+  })();
+
+  const videoJsSource = videoJsMimeType
+    ? {
+        src: playbackUrl,
+        type: videoJsMimeType,
+        ...(videoJsEngine === 'hls'
+          ? {
+              preferPlayback: 'mse',
+              engine: {
+                hlsJs: {
+                  enableWorker: true,
+                  lowLatencyMode: false,
+                  backBufferLength: 90,
+                  maxBufferLength: 45,
+                  maxMaxBufferLength: 90,
+                  startLevel: -1,
+                },
+              },
+            }
+          : {}),
+      }
+    : { src: playbackUrl };
+
   const VideoJsMedia = (videoJsEngine === 'hls'
     ? HlsJsVideo
     : videoJsEngine === 'dash'
@@ -1511,6 +1548,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                         <VideoJsMedia
                           ref={videoRef}
                           src={playbackUrl}
+                          source={videoJsSource}
                           poster={content.backdropUrl || content.posterUrl}
                           className="movyza-videojs-media"
                           playsInline
@@ -1648,6 +1686,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
                             const mediaError = videoRef.current?.error;
                             const code = mediaError?.code;
+                            console.error('[Movyz Video.js] playback error', {
+                              engine: videoJsEngine,
+                              sourceType: videoJsMimeType || 'native',
+                              code,
+                              url: playbackUrl,
+                            });
                             const detail =
                               code === MediaError.MEDIA_ERR_ABORTED
                                 ? (language === 'ar' ? 'تم إيقاف تحميل المصدر.' : 'The source load was aborted.')
