@@ -159,6 +159,46 @@ const collapseProviderQualityDuplicates = (sources: PlaybackSource[]) => {
     .flat();
 };
 
+const preferredPlaybackSource = (sources: PlaybackSource[]) => {
+  if (!sources.length) return null;
+
+  const qualityOf = (source: PlaybackSource) => {
+    const match = normalizePlaybackQuality(source.quality).match(/(\d{3,4})p/i);
+    return match ? Number(match[1]) : 0;
+  };
+
+  const typePriority: Record<string, number> = {
+    mp4: 40,
+    webm: 30,
+    hls: 20,
+    dash: 15,
+    direct: 10,
+  };
+
+  return [...sources].sort((a, b) => {
+    const aq = qualityOf(a);
+    const bq = qualityOf(b);
+
+    const bucket = (q: number) => {
+      if (q === 720) return 0;
+      if (q > 0 && q < 720) return 1;
+      if (q > 720) return 2;
+      return 3;
+    };
+
+    const ab = bucket(aq);
+    const bb = bucket(bq);
+    if (ab !== bb) return ab - bb;
+
+    if (ab === 1 && aq !== bq) return bq - aq;
+    if (ab === 2 && aq !== bq) return aq - bq;
+
+    const at = typePriority[String(a.type || '').toLowerCase()] || 0;
+    const bt = typePriority[String(b.type || '').toLowerCase()] || 0;
+    return bt - at;
+  })[0] || null;
+};
+
 const providerDisplayName = (key: string, fallback: string, language: 'ar' | 'en') => {
   const normalized = key.trim().toLowerCase();
   const names: Record<string, [string, string]> = {
@@ -447,7 +487,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           .filter(isPlayableHttpSource);
 
         const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
-        const preferred = collapsed[0] || null;
+        const preferred = preferredPlaybackSource(collapsed);
 
         setRemotePlaybackSources(collapsed);
         setRemotePlaybackSource(preferred);
