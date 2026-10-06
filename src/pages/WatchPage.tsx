@@ -1150,19 +1150,21 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   };
 
   const markPlaybackSourceFailed = () => {
-    const failedUrl = playbackUrl || playbackSource?.url || '';
-    if (!failedUrl) return false;
+    const source = playbackSource;
+    const failedUrl = playbackUrl || source?.url || '';
+    if (!source || !failedUrl) return false;
 
-    const relayFallback = playbackSource?.fallbackUrl?.trim() || '';
+    const directUrl = source.directUrl?.trim() || '';
+    const relayFallback = source.fallbackUrl?.trim() || '';
     const isDirect = Boolean(
-      directPlaybackUrl &&
-      failedUrl === directPlaybackUrl &&
+      directUrl &&
+      failedUrl === directUrl &&
       relayFallback &&
       relayFallback !== failedUrl,
     );
 
-    if (isDirect && !sameSourceRelayTriedRef.current.has(directPlaybackUrl)) {
-      sameSourceRelayTriedRef.current.add(directPlaybackUrl);
+    if (isDirect && !sameSourceRelayTriedRef.current.has(directUrl)) {
+      sameSourceRelayTriedRef.current.add(directUrl);
       clearPlayerLoadTimeout();
       clearPlaybackStallTimer();
       playbackStartedRef.current = false;
@@ -1174,7 +1176,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           : 'Switching to the technical relay for the same source…',
       );
       setRemotePlaybackSource({
-        ...playbackSource,
+        ...source,
         url: relayFallback,
       });
       return false;
