@@ -650,6 +650,7 @@ const escapeXml = (value: string) =>
     .replace(/'/g, '&apos;');
 
 const SITEMAP_DISCOVERY_PAGES = 500;
+const SITEMAP_EPISODE_PAGES = 200;
 
 const buildSitemapIndex = (origin: string) => {
   const entries: string[] = [];
@@ -659,7 +660,7 @@ const buildSitemapIndex = (origin: string) => {
     entries.push(`<sitemap><loc>${origin}/sitemap/${locale}/static.xml</loc></sitemap>`);
   }
 
-  // Localized movie/series detail pages are generated from TMDB discover.
+  // Localized movie/series detail pages and player pages are generated from TMDB discover.
   for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
     for (const type of ['movies', 'series'] as const) {
       for (let page = 1; page <= SITEMAP_DISCOVERY_PAGES; page += 1) {
@@ -667,6 +668,13 @@ const buildSitemapIndex = (origin: string) => {
           `<sitemap><loc>${origin}/sitemap/${locale}/${type}/${page}.xml</loc></sitemap>`
         );
       }
+    }
+    // Five popular TV series per sitemap segment; each segment expands all known
+    // seasons/episode counts into localized watch URLs for the top 1,000 series.
+    for (let page = 1; page <= SITEMAP_EPISODE_PAGES; page += 1) {
+      entries.push(
+        `<sitemap><loc>${origin}/sitemap/${locale}/episodes/${page}.xml</loc></sitemap>`
+      );
     }
   }
 
@@ -701,36 +709,118 @@ const buildSitemapSegment = async (
   request: Request,
   env: MovyzEnvironment,
   locale: LocaleCode,
-  type: 'movies' | 'series',
+  type: 'movies' | 'series' | 'episodes',
   page: number,
 ) => {
-  if (!env.TMDB_API_READ_ACCESS_TOKEN || page < 1 || page > SITEMAP_DISCOVERY_PAGES) {
+  if (!env.TMDB_API_READ_ACCESS_TOKEN || page < 1) {
     return new Response('Not found', { status: 404 });
   }
 
   const config = LOCALES[locale];
-  const tmdbType = type === 'movies' ? 'movie' : 'tv';
-  const target = new URL(`https://api.themoviedb.org/3/discover/${tmdbType}`);
-  target.searchParams.set('language', config.tmdb);
-  target.searchParams.set('page', String(page));
-  target.searchParams.set('sort_by', 'popularity.desc');
-  target.searchParams.set('include_adult', 'false');
-  if (tmdbType === 'movie') target.searchParams.set('include_video', 'false');
+  const origin = new URL(request.url).origin;
+
+  const fetchJson = async (target: URL) => {
+    const upstream = await fetch(target.toString(), { headers: tmdbHeaders(env) });
+    if (!upstream.ok) throw new Error('TMDB sitemap upstream failed: ' + upstream.status);
+    return await upstream.json().catch(() => null) as any;
+  };
 
   try {
-    const upstream = await fetch(target.toString(), { headers: tmdbHeaders(env) });
-    if (!upstream.ok) return new Response('Upstream error', { status: 502 });
-    const data = await upstream.json().catch(() => null) as { results?: Array<{ id?: number }> } | null;
-    const origin = new URL(request.url).origin;
-    const urls = (data?.results || [])
-      .map((item) => Number(item?.id))
-      .filter((id) => Number.isFinite(id) && id > 0)
-      .map((id) => `<url><loc>${escapeXml(`${origin}/${locale}/${type}/${id}`)}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`)
-      .join('');
+    // Episode sitemap: five popular series per segment, covering all seasons
+    // using TMDB's season metadata without making one request per episode.
+    if (type === 'episodes') {
+      if (page > SITEMAP_EPISODE_PAGES) return new Response('Not found', { status: 404 });
+
+      const discoverPage = Math.floor((page - 1) / 4) + 1;
+      const sliceStart = ((page - 1) % 4) * 5;
+      const discoverTarget = new URL('https://api.themoviedb.org/3/discover/tv');
+      discoverTarget.searchParams.set('language', config.tmdb);
+      discoverTarget.searchParams.set('region', config.region);
+      discoverTarget.searchParams.set('page', String(discoverPage));
+      discoverTarget.searchParams.set('sort_by', 'popularity.desc');
+      discoverTarget.searchParams.set('include_adult', 'false');
+
+      const discoverData = await fetchJson(discoverTarget);
+      const seriesBatch = (discoverData?.results || []).slice(sliceStart, sliceStart + 5);
+
+      const detailData = await Promise.all(
+        seriesBatch.map(async (series: any) => {
+          const id = Number(series?.id || 0);
+          if (!id) return null;
+          try {
+            const target = new URL(`https://api.themoviedb.org/3/tv/${id}`);
+            target.searchParams.set('language', config.tmdb);
+            return { id, data: await fetchJson(target) };
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      const urls: string[] = [];
+      for (const entry of detailData) {
+        if (!entry?.data) continue;
+        for (const season of entry.data.seasons || []) {
+          const seasonNumber = Number(season?.season_number || 0);
+          const episodeCount = Number(season?.episode_count || 0);
+          if (seasonNumber <= 0 || episodeCount <= 0) continue;
+
+          for (let episode = 1; episode <= episodeCount; episode += 1) {
+            urls.push(
+              `<url><loc>${escapeXml(`${origin}/${locale}/watch/tv/${entry.id}/${seasonNumber}/${episode}`)}</loc><changefreq>monthly</changefreq><priority>0.55</priority></url>`
+            );
+          }
+        }
+      }
+
+      const xml =
+        `<?xml version="1.0" encoding="UTF-8"?>` +
+        `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`;
+
+      return new Response(xml, {
+        status: 200,
+        headers: {
+          'content-type': 'application/xml; charset=UTF-8',
+          'cache-control': 'public, max-age=3600, s-maxage=86400',
+          'cdn-cache-control': 'public, max-age=86400',
+        },
+      });
+    }
+
+    if (page > SITEMAP_DISCOVERY_PAGES) {
+      return new Response('Not found', { status: 404 });
+    }
+
+    const tmdbType = type === 'movies' ? 'movie' : 'tv';
+    const target = new URL(`https://api.themoviedb.org/3/discover/${tmdbType}`);
+    target.searchParams.set('language', config.tmdb);
+    target.searchParams.set('region', config.region);
+    target.searchParams.set('page', String(page));
+    target.searchParams.set('sort_by', 'popularity.desc');
+    target.searchParams.set('include_adult', 'false');
+    if (tmdbType === 'movie') target.searchParams.set('include_video', 'false');
+
+    const data = await fetchJson(target);
+    const urls: string[] = [];
+
+    for (const item of data?.results || []) {
+      const id = Number(item?.id || 0);
+      if (!id) continue;
+
+      urls.push(
+        `<url><loc>${escapeXml(`${origin}/${locale}/${type}/${id}`)}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`
+      );
+
+      if (tmdbType === 'movie') {
+        urls.push(
+          `<url><loc>${escapeXml(`${origin}/${locale}/watch/movie/${id}`)}</loc><changefreq>monthly</changefreq><priority>0.65</priority></url>`
+        );
+      }
+    }
 
     const xml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
-      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`;
+      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`;
 
     return new Response(xml, {
       status: 200,
@@ -766,11 +856,11 @@ const handleSitemap = async (request: Request, env: MovyzEnvironment) => {
     return buildStaticSitemapSegment(request, staticMatch[1] as LocaleCode);
   }
 
-  const match = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko)\/(movies|series)\/(\d+)\.xml$/);
+  const match = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko)\/(movies|series|episodes)\/(\d+)\.xml$/);
   if (!match) return null;
 
   const locale = match[1] as LocaleCode;
-  const type = match[2] as 'movies' | 'series';
+  const type = match[2] as 'movies' | 'series' | 'episodes';
   const page = Number(match[3]);
   return buildSitemapSegment(request, env, locale, type, page);
 };
