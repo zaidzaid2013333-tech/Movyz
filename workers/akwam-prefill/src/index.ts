@@ -490,42 +490,41 @@ async function findCandidate(
   const readBest = (): { item: Candidate; score: number } | null => best;
 
   if (expected === "movie" || expected === "series") {
-    // Current section searches run concurrently; fallback requests are only
-    // started when the primary set does not produce a strong match.
-    await fetchSearchSet(
-      variants.map((title) =>
-        host + "/search?q=" + encodeURIComponent(title) +
-        "&section=" + encodeURIComponent(expected) + "&page=1",
+    // Run section and generic search in the same network round. Akwam can be
+    // slow to answer, so a sequential fallback doubled resolver latency.
+    await Promise.all([
+      fetchSearchSet(
+        variants.map((title) =>
+          host + "/search?q=" + encodeURIComponent(title) +
+          "&section=" + encodeURIComponent(expected) + "&page=1",
+        ),
       ),
-    );
-    const sectionWinner = readBest();
-    if (sectionWinner && sectionWinner.score >= 128) return sectionWinner.item;
-
-    await fetchSearchSet(
-      variants.map((title) => host + "/search?q=" + encodeURIComponent(title) + "&page=1"),
-    );
-    const genericWinner = readBest();
-    if (genericWinner && genericWinner.score >= 118) return genericWinner.item;
+      fetchSearchSet(
+        variants.map((title) => host + "/search?q=" + encodeURIComponent(title) + "&page=1"),
+      ),
+    ]);
+    const currentWinner = readBest();
+    if (currentWinner && currentWinner.score >= 118) return currentWinner.item;
   }
 
-  // Legacy archive is a bounded fallback for older movies only.
+  // Legacy archive is a bounded fallback for older movies only. Keep both
+  // legacy URL shapes in the same network round as well.
   if (expected === "movie") {
     const legacyVariants = variants.slice(0, 2);
-    await fetchSearchSet(
-      legacyVariants.map((title) =>
-        host + "/old/search/" + encodeURIComponent(title) + "/page/1",
+    await Promise.all([
+      fetchSearchSet(
+        legacyVariants.map((title) =>
+          host + "/old/search/" + encodeURIComponent(title) + "/page/1",
+        ),
+        true,
       ),
-      true,
-    );
-    const legacyPageWinner = readBest();
-    if (legacyPageWinner && legacyPageWinner.score >= 120) return legacyPageWinner.item;
-
-    await fetchSearchSet(
-      legacyVariants.map((title) =>
-        host + "/old/search/" + encodeURIComponent(title),
+      fetchSearchSet(
+        legacyVariants.map((title) =>
+          host + "/old/search/" + encodeURIComponent(title),
+        ),
+        true,
       ),
-      true,
-    );
+    ]);
     const legacyWinner = readBest();
     if (legacyWinner && legacyWinner.score >= 100) return legacyWinner.item;
   }
