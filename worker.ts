@@ -342,7 +342,7 @@ const handleSitemap = async (request: Request, env: MovyzEnvironment) => {
     });
   }
 
-  const match = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko)\/(movies|series)\/(\\d+)\.xml$/);
+  const match = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko)\/(movies|series)\/(\d+)\.xml$/);
   if (!match) return null;
 
   const locale = match[1] as LocaleCode;
