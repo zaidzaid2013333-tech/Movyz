@@ -75,7 +75,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
   }, [seriesId]);
 
   useEffect(() => {
-    if (!series) return;
+    if (!series || Number(series.tmdbId) !== Number(seriesId)) return;
     let isMounted = true;
     setSeasonLoading(true);
     setSeasonError(null);
@@ -127,8 +127,6 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
   const overview = series.overview || series.overviewEn || '';
   const seoDescription = overview || `${titlePrimary} — Movyza`;
 
-
-  const seasonSummary = series.seasons.find((s) => s.seasonNumber === selectedSeasonNumber) || series.seasons[0];
 
   return (
     <>
