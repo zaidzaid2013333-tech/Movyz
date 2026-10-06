@@ -56,6 +56,7 @@ const PLAYBACK_BROKER_MAX_MEMORY_KEYS = 256;
 const PLAYBACK_CONTEXT_TTL_MS = 5 * 60 * 1000;
 const PLAYBACK_CONTEXT_MAX_KEYS = 512;
 type PlaybackResolverContext = {
+  contentId: string;
   titles: string[];
   year?: number;
   seasonNumber?: number;
@@ -231,6 +232,7 @@ async function loadPlaybackResolverContext(
 
     const row: any = data[0];
     return store({
+      contentId: String(row.id),
       titles: Array.from(new Set([
         row.title_ar,
         row.title_en,
@@ -249,7 +251,7 @@ async function loadPlaybackResolverContext(
   // Older schemas can still fall back to the three-query path below.
   const nested = await adminSupabase
     .from('episodes')
-    .select('episode_number,season_id,seasons!inner(series_id,season_number,series!inner(title_ar,title_en,original_title,alternative_titles))')
+    .select('id,episode_number,season_id,seasons!inner(series_id,season_number,series!inner(title_ar,title_en,original_title,alternative_titles))')
     .eq('id', contentId)
     .limit(1);
 
@@ -259,6 +261,7 @@ async function loadPlaybackResolverContext(
 
   if (!nested.error && nestedRow && nestedSeason && nestedSeries) {
     const value = {
+      contentId: String(nestedRow.id),
       titles: Array.from(new Set([
         nestedSeries.title_ar,
         nestedSeries.title_en,
@@ -277,9 +280,61 @@ async function loadPlaybackResolverContext(
     if (value.titles.length) return store(value);
   }
 
+  // Some legacy/catalog routes pass the series TMDB ID + season/episode.
+  // Normalize those requests to the exact episode UUID so every playback route
+  // shares one canonical broker contract.
+  if (
+    /^\\d+$/.test(contentId) &&
+    Number.isFinite(seasonNumber) &&
+    Number.isFinite(episodeNumber)
+  ) {
+    const { data: seriesByTmdb, error: seriesByTmdbError } = await adminSupabase
+      .from('series')
+      .select('id,title_ar,title_en,original_title,alternative_titles')
+      .eq('tmdb_id', Number(contentId))
+      .limit(1);
+
+    const seriesRow: any = seriesByTmdb?.[0];
+    if (!seriesByTmdbError && seriesRow?.id) {
+      const { data: seasonByNumber, error: seasonByNumberError } = await adminSupabase
+        .from('seasons')
+        .select('id,season_number')
+        .eq('series_id', seriesRow.id)
+        .eq('season_number', Number(seasonNumber))
+        .limit(1);
+
+      const seasonRow: any = seasonByNumber?.[0];
+      if (!seasonByNumberError && seasonRow?.id) {
+        const { data: episodeByNumber, error: episodeByNumberError } = await adminSupabase
+          .from('episodes')
+          .select('id,episode_number')
+          .eq('season_id', seasonRow.id)
+          .eq('episode_number', Number(episodeNumber))
+          .limit(1);
+
+        const episodeRow: any = episodeByNumber?.[0];
+        if (!episodeByNumberError && episodeRow?.id) {
+          return store({
+            contentId: String(episodeRow.id),
+            titles: Array.from(new Set([
+              seriesRow.title_ar,
+              seriesRow.title_en,
+              seriesRow.original_title,
+              ...(Array.isArray(seriesRow.alternative_titles)
+                ? seriesRow.alternative_titles.map((x: any) => x?.title).filter(Boolean)
+                : []),
+            ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0))),
+            seasonNumber: Number(seasonNumber),
+            episodeNumber: Number(episodeNumber),
+          });
+        }
+      }
+    }
+  }
+
   const { data: episodeData, error: episodeError } = await adminSupabase
     .from('episodes')
-    .select('season_id,episode_number')
+    .select('id,season_id,episode_number')
     .eq('id', contentId)
     .limit(1);
   const episode = episodeData?.[0] as any;
@@ -302,6 +357,7 @@ async function loadPlaybackResolverContext(
   if (seriesError || !series) throw new Error('PLAYBACK_SERIES_NOT_FOUND');
 
   return store({
+    contentId: String(episode.id),
     titles: Array.from(new Set([
       series.title_ar,
       series.title_en,
@@ -350,7 +406,7 @@ async function resolveAkwamThroughExternalResolver(
 
   const body = JSON.stringify({
     contentType,
-    contentId,
+    contentId: context.contentId,
     titles: context.titles,
     year: context.year,
     seasonNumber: context.seasonNumber,
