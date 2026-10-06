@@ -514,14 +514,21 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   ]);
 
   const playbackSource = remotePlaybackSource;
-  const brokerRelayUrl =
-    /\/api\/v1\/playback\/stream(?:\?|$)/i.test(String(playbackSource?.url || ''))
-      ? (playbackSource?.url?.trim() || '')
-      : '';
-  const directPlaybackUrl = playbackSource?.directUrl?.trim() || '';
+  const isBrokerRelaySource = /\/api\/v1\/playback\/stream(?:\?|$)/i.test(
+    String(playbackSource?.url || ''),
+  );
+  const brokerRelayUrl = isBrokerRelaySource ? (playbackSource?.url?.trim() || '') : '';
+  // Direct Akwam media is the primary playback path. Relay is only retained
+  // as an explicit technical fallback; it is never selected automatically.
+  const directPlaybackUrl = (
+    playbackSource?.directUrl?.trim() ||
+    (!isBrokerRelaySource ? playbackSource?.url?.trim() : '')
+  );
   const playbackUrl = useMemo(() => {
-    const baseUrl = brokerRelayUrl || directPlaybackUrl || playbackSource?.url?.trim() || '';
-    if (!baseUrl || !brokerRelayUrl || playbackRetry === 0) return baseUrl;
+    const baseUrl = directPlaybackUrl || brokerRelayUrl || playbackSource?.url?.trim() || '';
+    // Retry is meaningful only for the relay endpoint, not for signed/direct
+    // media URLs supplied by the live resolver.
+    if (!baseUrl || !brokerRelayUrl || directPlaybackUrl || playbackRetry === 0) return baseUrl;
     try {
       const url = new URL(baseUrl);
       url.searchParams.set('retry', String(playbackRetry));
