@@ -108,7 +108,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
   return (
     <>
       <SeoHead
-        title={`${titlePrimary} | Movyza`}
+        title={language === 'ar' ? `${series.originalTitle || titlePrimary} مترجم عربي | ${titlePrimary} | موفيزا` : `${series.originalTitle || titlePrimary} | ${titlePrimary} | Movyza`}
         description={seoDescription}
         keywords={[series.originalTitle, series.title, ...series.genres.map((genre) => genre.name).filter(Boolean)]}
         image={series.backdropUrl || series.posterUrl}
