@@ -430,13 +430,15 @@ async function findCandidate(
   // Search the strongest title variants in parallel instead of waiting one
   // network round-trip after another.
   await Promise.all(variants.slice(0, 3).map((variant) => probe(variant, true)));
-  if (best && best.score >= 128) return best.item;
+  const primaryBest = best;
+  if (primaryBest !== null && primaryBest.score >= 128) return primaryBest.item;
 
   // One small unfiltered fallback batch for ambiguous catalog pages.
   await Promise.all(variants.slice(0, 2).map((variant) =>
     probe(variant, false),
   ));
-  if (best && best.score >= 128) return best.item;
+  const fallbackBest = best;
+  if (fallbackBest !== null && fallbackBest.score >= 128) return fallbackBest.item;
 
   // Legacy movie archive stays fallback-only and runs only after current search
   // has failed, preserving the known source ordering.
@@ -794,7 +796,7 @@ async function findEpisodeTargetBySearch(
   for (const results of firstBatch) {
     for (const result of results) if (!best || result.score > best.score) best = result;
   }
-  if (best?.score >= 430) return best.url;
+  if (best !== null && best.score >= 430) return best.url;
 
   // Only fall back to broader title searches when the exact batch did not find
   // a strong match. Keep this fallback small and parallel as well.
