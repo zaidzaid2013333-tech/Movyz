@@ -245,32 +245,43 @@ async function fetchText(
   budget?: RequestBudget,
   session?: AkwamSession,
 ): Promise<string | null> {
-  try {
-    consumeRequest(budget);
-    const cookie = sessionCookieHeader(session);
-    const response = await fetch(url, {
-      headers: {
-        ...headers(env),
-        ...(referer ? { Referer: referer } : {}),
-        ...(cookie ? { Cookie: cookie } : {}),
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(4000),
-    });
-    absorbSetCookie(session, response);
-
-    if (response.ok) {
-      const text = await response.text();
-      if (text.trim()) return text;
-    } else {
-      diagnostics?.push(new URL(url).hostname + ":" + response.status);
-    }
-  } catch {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
-      diagnostics?.push(new URL(url).hostname + ":ERR");
+      consumeRequest(budget);
+      const cookie = sessionCookieHeader(session);
+      const response = await fetch(url, {
+        headers: {
+          ...headers(env),
+          ...(referer ? { Referer: referer } : {}),
+          ...(cookie ? { Cookie: cookie } : {}),
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(4000),
+      });
+      absorbSetCookie(session, response);
+
+      if (response.ok) {
+        const text = await response.text();
+        if (text.trim()) return text;
+      } else {
+        diagnostics?.push(new URL(url).hostname + ":" + response.status);
+        if (attempt < 2 && (response.status === 429 || response.status >= 500)) {
+          await new Promise((resolve) => setTimeout(resolve, 120));
+          continue;
+        }
+      }
     } catch {
-      diagnostics?.push("fetch:ERR");
+      try {
+        diagnostics?.push(new URL(url).hostname + ":ERR");
+      } catch {
+        diagnostics?.push("fetch:ERR");
+      }
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        continue;
+      }
     }
+    break;
   }
 
   return null;
@@ -1293,73 +1304,75 @@ async function resolveLegacyAkwamDownload(
 
 async function resolveTarget(
   env: Env,
-  target: string,
+  initialTarget: string,
   referer?: string,
   budget?: RequestBudget,
   session?: AkwamSession,
 ): Promise<Media | null> {
-  const direct = mediaFromUrl(target, referer);
-  if (!isLikelyNavigationUrl(target) && await validateMedia(env, direct, budget)) return direct;
+  type Node = { url: string; referer?: string; depth: number };
+  const queue: Node[] = [{ url: initialTarget, referer, depth: 0 }];
+  const visited = new Set<string>();
+  const maxNodes = 8;
+  const maxDepth = 3;
 
-  if (/^https:\/\/akwam\.ss\/old\/download\//i.test(target)) {
-    const legacyMedia = await resolveLegacyAkwamDownload(env, target, referer, budget, session);
-    if (legacyMedia) return legacyMedia;
-  }
+  while (queue.length && visited.size < maxNodes) {
+    const node = queue.shift()!;
+    if (!node.url || visited.has(node.url)) continue;
+    visited.add(node.url);
 
-  const html = await fetchText(env, target, undefined, referer, budget, session);
-  if (!html) return null;
-
-  // Interstellar reference path:
-  // target (/download or /link-promoted download) -> btn-loader -> final CDN URL.
-  const buttonMedia = extractDownloadButtonMedia(html, target);
-  if (buttonMedia) {
-    // Akwam's btn-loader is the authoritative hand-off to its video host.
-    // Cloudflare Workers may be unable to probe that external host because of
-    // TLS/range/anti-bot behavior, while the browser can still consume the
-    // short-lived URL. Trust an HTTPS external hand-off from Akwam directly.
-    if (!isAkwamUrl(buttonMedia.url)) return buttonMedia;
-    if (await validateMedia(env, buttonMedia, budget)) return buttonMedia;
-  }
-
-  const media = extractMedia(html, target);
-  if (media) {
-    // The Akwam page is the attestation point for the external CDN handoff.
-    // Avoid a second Worker-side range probe before the browser can start.
-    if (!isAkwamUrl(media.url)) return media;
-    if (await validateMedia(env, media, budget)) return media;
-  }
-
-  // The current player can embed media URLs in data-* attributes or JS objects
-  // rather than a visible <video>/<source> tag. Try those structured candidates
-  // before walking to another Akwam navigation page.
-  for (const candidate of extractMediaCandidates(html, target).slice(0, 8)) {
-    const candidateMedia = mediaFromUrl(candidate.url, target, candidate.quality || html);
-    if (!isAkwamUrl(candidateMedia.url)) return candidateMedia;
-    if (await validateMedia(env, candidateMedia, budget)) return candidateMedia;
-  }
-
-  const nestedTargets = extractTargets(html, target).slice(0, 5);
-  for (const nested of nestedTargets) {
-    const directNested = mediaFromUrl(nested, target);
-    if (!isLikelyNavigationUrl(nested) && await validateMedia(env, directNested, budget)) return directNested;
-
-    const nestedHtml = await fetchText(env, nested, undefined, target, budget, session);
-    if (!nestedHtml) continue;
-
-    const nestedButton = extractDownloadButtonMedia(nestedHtml, nested);
-    if (nestedButton && !isAkwamUrl(nestedButton.url)) return nestedButton;
-    if (nestedButton && await validateMedia(env, nestedButton, budget)) return nestedButton;
-
-    const nestedMedia = extractMedia(nestedHtml, nested);
-    if (nestedMedia) {
-      if (!isAkwamUrl(nestedMedia.url)) return nestedMedia;
-      if (await validateMedia(env, nestedMedia, budget)) return nestedMedia;
+    const direct = mediaFromUrl(node.url, node.referer);
+    if (!isLikelyNavigationUrl(node.url)) {
+      if (await validateMedia(env, direct, budget)) return direct;
+      continue;
     }
 
-    for (const candidate of extractMediaCandidates(nestedHtml, nested).slice(0, 6)) {
-      const candidateMedia = mediaFromUrl(candidate.url, nested, candidate.quality || nestedHtml);
-      if (!isAkwamUrl(candidateMedia.url)) return candidateMedia;
-      if (await validateMedia(env, candidateMedia, budget)) return candidateMedia;
+    if (/^https:\/\/akwam\.ss\/old\/download\//i.test(node.url)) {
+      const legacyMedia = await resolveLegacyAkwamDownload(
+        env,
+        node.url,
+        node.referer,
+        budget,
+        session,
+      );
+      if (legacyMedia) return legacyMedia;
+    }
+
+    const html = await fetchText(env, node.url, undefined, node.referer, budget, session);
+    if (!html) continue;
+
+    // Universal Akwam extraction stages, independent of title or content:
+    // hand-off button -> embedded media -> structured media -> navigation hops.
+    const buttonMedia = extractDownloadButtonMedia(html, node.url);
+    if (buttonMedia) {
+      if (!isAkwamUrl(buttonMedia.url)) return buttonMedia;
+      if (await validateMedia(env, buttonMedia, budget)) return buttonMedia;
+    }
+
+    const embeddedMedia = extractMedia(html, node.url);
+    if (embeddedMedia) {
+      if (!isAkwamUrl(embeddedMedia.url)) return embeddedMedia;
+      if (await validateMedia(env, embeddedMedia, budget)) return embeddedMedia;
+    }
+
+    for (const candidate of extractMediaCandidates(html, node.url).slice(0, 8)) {
+      const media = mediaFromUrl(candidate.url, node.url, candidate.quality || html);
+      if (!isAkwamUrl(media.url)) return media;
+      if (await validateMedia(env, media, budget)) return media;
+    }
+
+    if (node.depth >= maxDepth) continue;
+
+    for (const next of extractTargets(html, node.url).slice(0, 5)) {
+      if (!next || visited.has(next)) continue;
+
+      const nextMedia = mediaFromUrl(next, node.url);
+      if (!isLikelyNavigationUrl(next)) {
+        if (!isAkwamUrl(nextMedia.url)) return nextMedia;
+        if (await validateMedia(env, nextMedia, budget)) return nextMedia;
+        continue;
+      }
+
+      queue.push({ url: next, referer: node.url, depth: node.depth + 1 });
     }
   }
 
