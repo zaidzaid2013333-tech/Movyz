@@ -177,7 +177,6 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     description,
     url: origin + canonicalPath,
   };
-  const extraJsonLd = typeOfDetail => typeOfDetail;
   const injection = `<!-- movyz-seo -->` +
     `<meta name="keywords" content="${keywords.replace(/"/g, '&quot;')}" />` +
     `<meta name="robots" content="${isNoIndex ? 'noindex,follow' : 'index,follow,max-image-preview:large'}" />` +
