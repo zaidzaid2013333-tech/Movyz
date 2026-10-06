@@ -62,7 +62,9 @@ const detectRequestLocale = (request: Request): LocaleCode => {
   for (const [code, config] of Object.entries(LOCALES) as Array<[LocaleCode, typeof LOCALES.en]>) {
     if (config.countries.includes(fromCountry)) return code;
   }
-  return languageFromAcceptLanguage(request.headers.get('Accept-Language')) || 'ar';
+  // Do not let a French/English browser preference override Movyza's
+  // Arabic-first country routing when Cloudflare has no country signal.
+  return 'ar';
 };
 
 const SUBTITLE_COUNTRY_LANGUAGE: Record<string, LocaleCode> = {
@@ -131,11 +133,16 @@ const SUBTITLE_COUNTRY_LANGUAGE: Record<string, LocaleCode> = {
 };
 
 const detectSubtitleLocale = (request: Request): LocaleCode => {
+  // An explicit /ar/... or /fr/... route is the strongest signal because the
+  // visitor intentionally selected that Movyza language.
+  const fromPath = localeFromPath(new URL(request.url).pathname);
+  if (fromPath) return fromPath;
+
   const fromCountry = String(countryFromRequest(request) || '').toUpperCase();
   return SUBTITLE_COUNTRY_LANGUAGE[fromCountry] || 'en';
 };
-const subtitlePriorityForCountry = (country: string | null): string => {
-  const primary = SUBTITLE_COUNTRY_LANGUAGE[String(country || '').toUpperCase()] || 'en';
+
+const subtitlePriorityForLanguage = (primary: LocaleCode): string => {
   const fallbackByPrimary: Record<LocaleCode, string[]> = {
     ar: ['ar', 'en'],
     en: ['en'],
@@ -275,7 +282,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   const injection = `<!-- movyz-seo -->` +
     `<meta name="movyz-country" content="${String(countryFromRequest(request) || 'XX').toUpperCase()}" />` +
     `<meta name="movyz-subtitle-language" content="${subtitleLocale}" />` +
-    `<meta name="movyz-subtitle-priority" content="${subtitlePriorityForCountry(countryFromRequest(request))}" />` +
+    `<meta name="movyz-subtitle-priority" content="${subtitlePriorityForLanguage(subtitleLocale)}" />` +
     `<meta name="keywords" content="${keywords.replace(/"/g, '&quot;')}" />` +
     `<meta name="robots" content="${isNoIndex ? 'noindex,follow' : 'index,follow,max-image-preview:large'}" />` +
     `<meta property="og:title" content="${seoTitle.replace(/"/g, '&quot;')}" />` +
