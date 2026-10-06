@@ -627,11 +627,14 @@ async function batchSeriesGenres(ids: string[]) {
 }
 
 async function movieDto(row: any) {
-
-  const [genres, cast] = await Promise.all([
+  const [genresResult, castResult] = await Promise.all([
     adminSupabase.from('movie_genres').select('genres(id,name_ar,name_en,slug)').eq('movie_id', row.id),
     adminSupabase.from('movie_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('movie_id', row.id).order('cast_order'),
   ]);
+
+  const genres = genresResult.error ? [] : (genresResult.data || []);
+  const cast = castResult.error ? [] : (castResult.data || []);
+
   return {
     id: row.id, tmdbId: Number(row.tmdb_id || 0), type: 'movie',
     title: row.title_ar, titleEn: row.title_en || row.title_ar,
@@ -642,9 +645,9 @@ async function movieDto(row: any) {
     runtime: Number(row.runtime_minutes || 0),
     overview: row.overview_ar || '', overviewEn: row.overview_en || row.overview_ar || '',
     posterUrl: row.poster_url || '', backdropUrl: row.backdrop_url || '',
-    genres: (genres.data || []).map((x: any) => genreDto(x.genres)),
+    genres: genres.map((x: any) => genreDto(x.genres)),
     director: row.metadata?.director_ar || '', directorEn: row.metadata?.director_en || '',
-    cast: (cast.data || []).map((x: any) => ({
+    cast: cast.map((x: any) => ({
       id: x.people.id, name: x.people.name_ar || x.people.name_en,
       nameEn: x.people.name_en || x.people.name_ar,
       character: x.character_ar || '', characterEn: x.character_en || '',
@@ -699,9 +702,9 @@ async function seriesDto(row: any, includePlaybackSources = false, requestUrl?: 
     rating: Number(row.rating || 0), votesCount: Number(row.vote_count || 0),
     overview: row.overview_ar || '', overviewEn: row.overview_en || row.overview_ar || '',
     posterUrl: row.poster_url || '', backdropUrl: row.backdrop_url || '',
-    genres: (genres.data || []).map((x: any) => genreDto(x.genres)),
+    genres: genres.map((x: any) => genreDto(x.genres)),
     creator: row.metadata?.creator_ar || '', creatorEn: row.metadata?.creator_en || '',
-    cast: (cast.data || []).map((x: any) => ({
+    cast: cast.map((x: any) => ({
       id: x.people.id, name: x.people.name_ar || x.people.name_en,
       nameEn: x.people.name_en || x.people.name_ar,
       character: x.character_ar || '', characterEn: x.character_en || '',
@@ -715,7 +718,7 @@ async function seriesDto(row: any, includePlaybackSources = false, requestUrl?: 
 }
 
 async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: number, requestUrl?: string, env?: Record<string, unknown>) {
-  const [genres, cast, seasonResult] = await Promise.all([
+  const [genresResult, castResult, seasonResult] = await Promise.all([
     adminSupabase.from('series_genres').select('genres(id,name_ar,name_en,slug)').eq('series_id', row.id),
     adminSupabase.from('series_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('series_id', row.id).order('cast_order'),
     adminSupabase.from('seasons').select('*').eq('series_id', row.id).eq('season_number', seasonNumber).maybeSingle(),
@@ -723,7 +726,8 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
 
   if (seasonResult.error || !seasonResult.data) return null;
   const season = seasonResult.data;
-  const { data: episodes, error: episodesError } = await adminSupabase
+  const genres = genresResult.error ? [] : (genresResult.data || []);
+  const cast = castResult.error ? [] : (castResult.data || []);  const { data: episodes, error: episodesError } = await adminSupabase
     .from('episodes').select('*').eq('season_id', season.id).order('episode_number');
   if (episodesError) throw new Error('Unable to load season episodes: ' + episodesError.message);
 
