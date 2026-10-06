@@ -1369,25 +1369,46 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   const medias: Media[] = [];
   const sourceReferer = episodeTarget || candidate?.url || base(env);
 
-  // Keep the candidate set intentionally small: Akwam's highest-ranked target is
-  // normally the authoritative download/watch hand-off. Fewer parallel probes reduce
-  // tail latency while the broker still refreshes the source set if playback fails.
-  const rankedTargets = usefulResolutionTargets(targets, isEpisode ? 3 : 2);
+  // Keep enough ranked targets for Akwam's fallback variants, but do not wait
+  // for every target. Return the first playable hand-off and only spend a short
+  // grace window collecting additional sources.
+  const rankedTargets = usefulResolutionTargets(targets, isEpisode ? 6 : 4);
+  type TargetResult = { index: number; media: Media | null };
+  const pendingTargets: Array<{ index: number; promise: Promise<TargetResult> }> = rankedTargets.map((target, index) => ({
+    index,
+    promise: resolveTarget(env, target, sourceReferer, budget, session)
+      .then((media) => ({ index, media }))
+      .catch(() => ({ index, media: null })),
+  }));
 
-  const resolvedTargets = await Promise.all(
-    rankedTargets.map(async (target, index) => {
-      try {
-        return { index, media: await resolveTarget(env, target, sourceReferer, budget, session) };
-      } catch {
-        return { index, media: null };
-      }
-    }),
-  );
+  const firstSourceDeadline = Date.now() + (isEpisode ? 10000 : 8000);
+  let firstSourceFoundAt: number | null = null;
 
-  for (const result of resolvedTargets.sort((a, b) => a.index - b.index)) {
-    if (!result.media) continue;
-    if (!medias.some((x) => x.url === result.media!.url)) medias.push(result.media!);
-    if (medias.length >= 3) break;
+  while (pendingTargets.length && medias.length < 3) {
+    const deadline = firstSourceFoundAt === null
+      ? firstSourceDeadline
+      : firstSourceFoundAt + 600;
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+
+    const timeout = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), remainingMs);
+    });
+
+    const result = await Promise.race<TargetResult | null>([
+      ...pendingTargets.map((entry) => entry.promise),
+      timeout,
+    ]);
+
+    if (result === null) break;
+
+    const position = pendingTargets.findIndex((entry) => entry.index === result.index);
+    if (position >= 0) pendingTargets.splice(position, 1);
+
+    if (result.media && !medias.some((item) => item.url === result.media!.url)) {
+      medias.push(result.media);
+      if (firstSourceFoundAt === null) firstSourceFoundAt = Date.now();
+    }
   }
 
   if (!medias.length) {
