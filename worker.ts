@@ -541,7 +541,7 @@ const catalogTop1000 = async (request: Request, env: MovyzEnvironment) => {
     },
   });
 };
- = (response: Response) => {
+const noCache = (response: Response) => {
   const headers = new Headers(response.headers);
   headers.set('Cache-Control', 'no-store');
   headers.set('CDN-Cache-Control', 'no-store');
