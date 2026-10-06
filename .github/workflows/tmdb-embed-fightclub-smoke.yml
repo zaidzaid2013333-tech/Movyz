@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - test/tmdb-embed-fightclub
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
