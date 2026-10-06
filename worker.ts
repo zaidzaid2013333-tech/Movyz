@@ -357,6 +357,13 @@ const SITEMAP_DISCOVERY_PAGES = 500;
 
 const buildSitemapIndex = (origin: string) => {
   const entries: string[] = [];
+
+  // Static localized surfaces: home + public catalog landing pages.
+  for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
+    entries.push(`<sitemap><loc>${origin}/sitemap/${locale}/static.xml</loc></sitemap>`);
+  }
+
+  // Localized movie/series detail pages are generated from TMDB discover.
   for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
     for (const type of ['movies', 'series'] as const) {
       for (let page = 1; page <= SITEMAP_DISCOVERY_PAGES; page += 1) {
@@ -366,8 +373,32 @@ const buildSitemapIndex = (origin: string) => {
       }
     }
   }
+
   return `<?xml version="1.0" encoding="UTF-8"?>` +
     `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries.join('')}</sitemapindex>`;
+};
+
+const buildStaticSitemapSegment = (request: Request, locale: LocaleCode) => {
+  const origin = new URL(request.url).origin;
+  const routes = ['/', '/movies', '/series', '/discover'];
+  const urls = routes
+    .map((route) =>
+      `<url><loc>${escapeXml(`${origin}/${locale}${route === '/' ? '/' : route}`)}</loc><changefreq>daily</changefreq><priority>${route === '/' ? '1.0' : '0.8'}</priority></url>`
+    )
+    .join('');
+
+  const xml =
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`;
+
+  return new Response(xml, {
+    status: 200,
+    headers: {
+      'content-type': 'application/xml; charset=UTF-8',
+      'cache-control': 'public, max-age=3600, s-maxage=86400',
+      'cdn-cache-control': 'public, max-age=86400',
+    },
+  });
 };
 
 const buildSitemapSegment = async (
@@ -432,6 +463,11 @@ const handleSitemap = async (request: Request, env: MovyzEnvironment) => {
         'cdn-cache-control': 'public, max-age=86400',
       },
     });
+  }
+
+  const staticMatch = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko)\/static\.xml$/);
+  if (staticMatch) {
+    return buildStaticSitemapSegment(request, staticMatch[1] as LocaleCode);
   }
 
   const match = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko)\/(movies|series)\/(\d+)\.xml$/);
