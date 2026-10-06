@@ -1051,7 +1051,99 @@ async function findEpisodeTargetBySearch(
     }
   }
 
-  return best && best.score >= 250 ? best.url : null;
+  if (best && best.score >= 250) return best.url;
+
+  // Generic route-agnostic fallback: some Akwam catalog generations expose
+  // the series page first, then a season/episode navigation page. Follow only
+  // a small bounded set of Akwam navigation candidates before external search.
+  const navigationCandidates = Array.from(new Set(
+    results
+      .filter(Boolean)
+      .flatMap((result) => {
+        if (!result) return [];
+        return extractTargets(result.html, host);
+      })
+      .filter((url) => isAkwamUrl(url))
+      .filter((url) => {
+        try {
+          const path = new URL(url).pathname.toLowerCase();
+          return (
+            /(?:season|seasons|episode|episodes|show|series|tv|watch)/i.test(path) &&
+            !/(?:\\.(?:m3u8|mp4|mpd|webm)|\\/(?:download|link|stream|file|get|source|media|video)\\/)/i.test(path)
+          );
+        } catch {
+          return false;
+        }
+      })
+  )).slice(0, 6);
+
+  const navigationPages = await Promise.all(
+    navigationCandidates.map(async (url) => {
+      const html = await fetchText(env, url, undefined, host, budget, session);
+      return html ? { url, html } : null;
+    }),
+  );
+
+  for (const page of navigationPages) {
+    if (!page) continue;
+    const target = extractEpisodeTarget(page.html, page.url, season, episode);
+    if (target) return target;
+  }
+
+  // Final generic fallback for Akwam layouts that are not exposed by its own
+  // search parser. The same candidate scoring is used; no title-specific code.
+  const external = await Promise.all(
+    variants.slice(0, 2).map((variant) =>
+      discoverAkwamUrlsViaSearch(env, variant, "series", season).catch(() => []),
+    ),
+  );
+
+  let externalBest: { url: string; score: number } | null = null;
+  for (const candidates of external) {
+    for (const candidate of candidates) {
+      if (!candidate || !isAkwamUrl(candidate.url)) continue;
+      const hay = normalize(decodeUrlPath(decodeHtml(candidate.title + " " + candidate.url)));
+      const explicitPair = hay.match(/\\bs0*(\\d{1,3})[^a-z0-9]{0,8}(?:e|ep)0*(\\d{1,3})\\b/i);
+      if (explicitPair && (Number(explicitPair[1]) !== season || Number(explicitPair[2]) !== episode)) continue;
+      const declaredSeason = explicitSeason(hay);
+      if (declaredSeason !== undefined && declaredSeason !== season) continue;
+
+      let scoreValue = 0;
+      if (candidate.kind === "episode") scoreValue += 180;
+      else if (candidate.kind === "watch") scoreValue += 120;
+      else if (candidate.kind === "series") scoreValue += 40;
+
+      const exactPair = new RegExp("s0*" + season + "e0*" + episode + "(?![0-9])", "i").test(hay);
+      const exactEpisode =
+        new RegExp("(?:الحلقة|الحلقه|episode|ep(?:isode)?)[-_\\s]*(?:رقم[-_\\s]*)?0*" + episode + "(?![0-9.])", "i").test(hay) ||
+        new RegExp("(?:^|[^0-9.])0*" + episode + "(?:$|[^0-9.])", "i").test(hay);
+      if (exactPair) scoreValue += 260;
+      else if (declaredSeason === season) scoreValue += 55;
+      if (exactEpisode) scoreValue += 170;
+
+      if (titleRelevanceForEpisode(candidate, titles) >= 20) {
+        scoreValue += Math.round(titleRelevanceForEpisode(candidate, titles));
+      }
+
+      if (!externalBest || scoreValue > externalBest.score) {
+        externalBest = { url: candidate.url, score: scoreValue };
+      }
+    }
+  }
+
+  return externalBest && externalBest.score >= 280 ? externalBest.url : null;
+}
+
+function titleRelevanceForEpisode(candidate: Candidate, titles: string[]) {
+  const hay = normalize(decodeUrlPath(decodeHtml(candidate.title + " " + candidate.url)));
+  let best = 0;
+  for (const title of titles) {
+    const normalizedTitle = normalize(title);
+    if (!normalizedTitle) continue;
+    if (hay.includes(normalizedTitle)) best = Math.max(best, 100);
+    else best = Math.max(best, overlap(hay, normalizedTitle) * 100);
+  }
+  return best;
 }
  
 function targetResolutionScore(raw: string) {
