@@ -480,51 +480,68 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlayerUnlocked(false);
     setPlaybackError(null);
 
-    void MovyzaApi.preparePlayback(
-      mediaType === 'movie' ? 'movie' : 'episode',
-      targetId,
-      mediaType === 'series' ? currentEpisode?.seasonNumber : undefined,
-      mediaType === 'series' ? currentEpisode?.episodeNumber : undefined,
-    )
-      .then((response) => {
-        if (cancelled) return;
-        const sources = Array.isArray(response.data?.sources) ? response.data.sources : [];
-        const playable = sources
-          .map(normalizePlaybackSource)
-          .filter((source): source is PlaybackSource => Boolean(source))
-          .filter((source) => source.isWorking !== false)
-          .filter(isPlayableHttpSource);
-
-        const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
-        const preferred = collapsed[0] || null;
-
-        failedPlaybackUrlsRef.current.clear();
-        setRemotePlaybackSources(collapsed);
-        setRemotePlaybackSource(preferred);
-        setPlayerUnlocked(Boolean(preferred));
-        setPlaybackError(
-          preferred
-            ? null
-            : (language === 'ar'
-              ? 'لا يوجد مصدر تشغيل صالح لهذا العمل حاليًا.'
-              : 'No playable source is currently available for this title.'),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRemotePlaybackSources([]);
-          setRemotePlaybackSource(null);
-          setPlayerUnlocked(false);
-          setPlaybackError(
-            language === 'ar'
-              ? 'تعذر الحصول على مصدر تشغيل مباشر من Akwam حاليًا.'
-              : 'Unable to obtain a live Akwam playback source right now.',
+    const prepare = async () => {
+      const attempts = mediaType === 'series' ? 2 : 1;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+          const response = await MovyzaApi.preparePlayback(
+            mediaType === 'movie' ? 'movie' : 'episode',
+            targetId,
+            mediaType === 'series' ? currentEpisode?.seasonNumber : undefined,
+            mediaType === 'series' ? currentEpisode?.episodeNumber : undefined,
           );
+          if (cancelled) return;
+          const sources = Array.isArray(response.data?.sources) ? response.data.sources : [];
+          const playable = sources
+            .map(normalizePlaybackSource)
+            .filter((source): source is PlaybackSource => Boolean(source))
+            .filter((source) => source.isWorking !== false)
+            .filter(isPlayableHttpSource);
+          if (!playable.length && attempt < attempts) {
+            await new Promise((resolve) => window.setTimeout(resolve, 450));
+            continue;
+          }
+          const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
+          const preferred = collapsed[0] || null;
+          failedPlaybackUrlsRef.current.clear();
+          setRemotePlaybackSources(collapsed);
+          setRemotePlaybackSource(preferred);
+          setPlayerUnlocked(Boolean(preferred));
+          setPlaybackError(
+            preferred
+              ? null
+              : (language === 'ar'
+                ? 'لا يوجد مصدر تشغيل صالح لهذا العمل حاليًا.'
+                : 'No playable source is currently available for this title.'),
+          );
+          return;
+        } catch {
+          if (cancelled) return;
+          if (attempt < attempts) {
+            setPlaybackError(
+              language === 'ar'
+                ? 'تعذر فتح المصدر الآن، جارٍ إعادة المحاولة…'
+                : 'The source did not respond; retrying…',
+            );
+            await new Promise((resolve) => window.setTimeout(resolve, 450));
+            continue;
+          }
         }
-      })
-      .finally(() => {
-        if (!cancelled) setResolverLoading(false);
-      });
+      }
+      if (cancelled) return;
+      setRemotePlaybackSources([]);
+      setRemotePlaybackSource(null);
+      setPlayerUnlocked(false);
+      setPlaybackError(
+        language === 'ar'
+          ? 'تعذر الحصول على مصدر تشغيل مباشر من Akwam حاليًا.'
+          : 'Unable to obtain a live Akwam playback source right now.',
+      );
+    };
+
+    void prepare().finally(() => {
+      if (!cancelled) setResolverLoading(false);
+    });
 
     return () => {
       cancelled = true;
