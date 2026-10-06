@@ -280,7 +280,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
           const data = await upstream.json().catch(() => null) as any;
           contentTitle = data?.title || data?.original_title || `Movyza #${id}`;
           alternateTitle = data?.original_title || '';
-          description = data?.overview || `مشاهدة ${contentTitle} على موفيزا`;
+          description = data?.overview || (locale === 'ar' ? `مشاهدة ${contentTitle} على موفيزا` : `Watch ${contentTitle} on Movyza`);
           imageUrl = data?.backdrop_path
             ? `https://image.tmdb.org/t/p/w1280${data.backdrop_path}`
             : (data?.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : '');
@@ -302,7 +302,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
           const episodeTitle = episodeData?.name || `Episode ${episodeNumber}`;
           contentTitle = `${seriesTitle} — ${episodeTitle} | S${seasonNumber} E${episodeNumber}`;
           alternateTitle = episodeData?.original_name || seriesData?.original_name || '';
-          description = episodeData?.overview || seriesData?.overview || `مشاهدة ${contentTitle} على موفيزا`;
+          description = episodeData?.overview || seriesData?.overview || (locale === 'ar' ? `مشاهدة ${contentTitle} على موفيزا` : `Watch ${contentTitle} on Movyza`);
           imageUrl = episodeData?.still_path
             ? `https://image.tmdb.org/t/p/w780${episodeData.still_path}`
             : (seriesData?.backdrop_path ? `https://image.tmdb.org/t/p/w1280${seriesData.backdrop_path}` : '');
