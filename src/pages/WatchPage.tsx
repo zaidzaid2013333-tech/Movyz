@@ -334,6 +334,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setRemotePlaybackSources([]);
         setRemotePlaybackSource(null);
         setResolverLoading(false);
+        setPlaybackRetry(0);
+        clearPlaybackStallTimer();
         setPlayerUnlocked(false);
         setPlaybackError(null);
         setPlayerReady(false);
@@ -549,26 +551,22 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     clearPlayerLoadTimeout();
 
     const video = videoRef.current;
-    // Once metadata is available, a later waiting/stalled event is buffering—not
-    // a failed source. Only guard the initial source acquisition before metadata.
     if (video && video.readyState >= HTMLMediaElement.HAVE_METADATA) return;
 
     playerLoadTimeoutRef.current = window.setTimeout(() => {
       playerLoadTimeoutRef.current = null;
-
       const currentVideo = videoRef.current;
-      if (currentVideo && currentVideo.readyState >= HTMLMediaElement.HAVE_METADATA) {
-        // Metadata arrived while the timer was pending; keep buffering gracefully.
-        return;
-      }
+      if (currentVideo && currentVideo.readyState >= HTMLMediaElement.HAVE_METADATA) return;
+      if (!playbackUrl || isEmbedPlayback) return;
 
-      setPlayerLoadingState(false);
-      setPlaybackError(
-        language === 'ar'
-          ? 'استغرق تحميل الفيديو وقتًا أطول من المتوقع. أعد المحاولة أو اختر مصدرًا آخر.'
-          : 'The video took too long to load. Retry or choose another source.',
+      setPlaybackError(null);
+      setPlayerLoadingState(
+        true,
+        language === 'ar' ? 'جارٍ إعادة تهيئة الفيديو…' : 'Reinitializing video…',
       );
-    }, 60000);
+      setPlaybackRetry((value) => value + 1);
+      setPlayerReloadKey((value) => value + 1);
+    }, 20000);
   };
 
   const reloadPlayer = () => {
@@ -1603,15 +1601,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     }
                   }
 
-                  // Every video gets a very fast hidden 02:00 warmup, then snaps back to 00:00.
-                  if (
-                    video.currentTime < 1 &&
-                    Number.isFinite(video.duration) &&
-                    video.duration >= 125
-                  ) {
-                    window.setTimeout(() => recoverStartupBuffer(), 40);
-                  }
-                }}
                 onDurationChange={() => {
                   const video = videoRef.current;
                   if (video && Number.isFinite(video.duration) && video.duration > 0) {
@@ -1687,9 +1676,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   armPlayerLoadTimeout();
                   if (!playbackStartedRef.current) {
                     setPlaybackError(null);
-                    if (video && video.currentTime < 20) {
-                      recoverStartupBuffer();
-                    }
                   }
                 }}
                 onStalled={() => {
@@ -1702,9 +1688,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   armPlayerLoadTimeout();
                   if (!playbackStartedRef.current) {
                     setPlaybackError(null);
-                    if (video && video.currentTime < 20) {
-                      recoverStartupBuffer();
-                    }
                   }
                 }}
                 onSeeking={() => {
