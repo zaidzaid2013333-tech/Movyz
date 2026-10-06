@@ -24,7 +24,13 @@ async function request<T>(
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      response = await fetch(`${API_BASE}${path}`, { ...init, headers });
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+      try {
+        response = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: init.signal || controller.signal });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
       if (method !== 'GET' || !retryableStatuses.has(response.status) || attempt === 1) break;
     } catch (error) {
       lastError = error;
