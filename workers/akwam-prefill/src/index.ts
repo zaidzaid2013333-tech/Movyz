@@ -423,11 +423,12 @@ function overlap(a: string, b: string) {
 
 function candidateKind(pathname: string): Candidate["kind"] {
   const path = pathname.toLowerCase();
-  if (/^\/old(?:\/|$)/i.test(path)) return "other";
-  if (/^\/(?:series|shows?|tv|season|seasons)\//i.test(path)) return "series";
-  if (/^\/(?:movie|movies|film|films)\//i.test(path)) return "movie";
-  if (/^\/(?:episode|episodes|show\/episode|tv\/episode)\//i.test(path)) return "episode";
-  if (/^\/(?:watch|play)\//i.test(path)) return "watch";
+  const route = path.replace(/^\/old(?=\/|$)/i, "");
+
+  if (/^\/(?:series|shows?|tv|season|seasons)\//i.test(route)) return "series";
+  if (/^\/(?:movie|movies|film|films)\//i.test(route)) return "movie";
+  if (/^\/(?:episode|episodes|show\/episode|tv\/episode)\//i.test(route)) return "episode";
+  if (/^\/(?:watch|play)\//i.test(route)) return "watch";
   return "other";
 }
 
@@ -627,7 +628,7 @@ async function findCandidate(
     ? Array.from(new Set([
         ...seeds.flatMap(movieSearchVariants),
         year && seeds[0] ? seeds[0] + " " + year : "",
-      ].filter(Boolean))).slice(0, 2)
+      ].filter(Boolean))).slice(0, 5)
     : Array.from(new Set([
         ...seeds,
         year && seeds[0] ? seeds[0] + " " + year : "",
@@ -1105,7 +1106,7 @@ async function findEpisodeTargetBySearch(
   // Final generic fallback for Akwam layouts that are not exposed by its own
   // search parser. The same candidate scoring is used; no title-specific code.
   const external = await Promise.all(
-    variants.slice(0, 2).map((variant) =>
+    variants.slice(0, 4).map((variant) =>
       discoverAkwamUrlsViaSearch(env, variant, "series", season).catch(() => []),
     ),
   );
