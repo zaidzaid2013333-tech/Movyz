@@ -70,7 +70,7 @@ jobs:
 
       - name: External resolver smoke - Interstellar
         env:
-          PLAYBACK_RESOLVER_URL: ${{ vars.PLAYBACK_RESOLVER_URL }}
+          PLAYBACK_RESOLVER_URL: https://movyz-live-resolver-production.up.railway.app
         run: |
           python - <<'PY'
           import json, os, urllib.error, urllib.request
@@ -106,7 +106,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var PLAYBACK_RESOLVER_URL:${{ vars.PLAYBACK_RESOLVER_URL }}
+          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }} --var PLAYBACK_RESOLVER_URL:https://movyz-live-resolver-production.up.railway.app
 
       - name: Retire legacy Akwam workers
         env:
