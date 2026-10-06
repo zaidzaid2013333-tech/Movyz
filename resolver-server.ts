@@ -55,13 +55,13 @@ function json(status: number, body: unknown) {
 }
 
 function requestKey(context: Context) {
+  // Cache by canonical content identity, not by title spelling. UUID/TMDB
+  // entry points and Arabic/English variants therefore share one resolution.
   return JSON.stringify([
     context.contentType,
     context.contentId,
-    context.year ?? null,
     context.seasonNumber ?? null,
     context.episodeNumber ?? null,
-    context.titles.slice(0, 12),
   ]);
 }
 
