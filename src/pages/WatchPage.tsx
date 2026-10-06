@@ -34,30 +34,37 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [iframeFailed, setIframeFailed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [playbackAvailability, setPlaybackAvailability] = useState<'checking' | 'available' | 'unavailable' | 'unknown'>('checking');
 
   const isSeries = mediaType === 'series';
   const safeSeason = Math.max(1, Number(seasonNumber || 1));
   const safeEpisode = Math.max(1, Number(episodeNumber || 1));
 
-  const subtitleLanguage = useMemo(() => {
-    const value = document.querySelector('meta[name="movyz-subtitle-language"]')?.getAttribute('content') || 'ar';
-    return ['ar', 'en', 'fr', 'de', 'es', 'it', 'pt', 'ru', 'tr', 'hi', 'ja', 'ko'].includes(value) ? value : 'ar';
+  const subtitlePriority = useMemo(() => {
+    const metaPriority = document.querySelector('meta[name="movyz-subtitle-priority"]')?.getAttribute('content') || '';
+    const legacy = document.querySelector('meta[name="movyz-subtitle-language"]')?.getAttribute('content') || '';
+    const values = (metaPriority || legacy || 'en')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => /^[a-z]{2,3}$/.test(value))
+      .slice(0, 3);
+    return values.length ? Array.from(new Set(values)) : ['en'];
   }, []);
 
   const embedUrl = useMemo(() => {
     if (!contentId) return '';
 
     const params = new URLSearchParams();
-    // Subtitle language follows the visitor's country, independently from the interface language.
-    if (subtitleLanguage !== 'en') {
-      params.set('ds_lang', subtitleLanguage);
-    }
+    // VidSrc accepts up to three subtitle languages in priority order.
+    params.set('ds_lang', subtitlePriority.join(','));
 
     if (isSeries) {
       return 'https://vidsrc.sh/embed/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode + '?' + params.toString();
     }
     return 'https://vidsrc.sh/embed/movie/' + encodeURIComponent(contentId) + '?' + params.toString();
-  }, [contentId, isSeries, safeSeason, safeEpisode, subtitleLanguage]);
+  }, [contentId, isSeries, safeSeason, safeEpisode, subtitlePriority]);
+
+  const subtitleLabel = subtitlePriority[0] ? subtitlePriority[0].toUpperCase() + ' subtitles' : 'Subtitles';
 
   useEffect(() => {
     let mounted = true;
@@ -75,7 +82,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           setActiveSeason(res.data.currentSeason);
           setMovie(null);
           setSimilarMovies([]);
-          setSimilarSeries(res.data.series.seasons.length ? (await MovyzaApi.getSeriesByTmdbId(Number(contentId))).data.similar : []);
+          setSimilarSeries(res.data.similar || []);
         } else {
           const res = await MovyzaApi.getMovieByTmdbId(Number(contentId));
           if (!mounted) return;
@@ -95,6 +102,40 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     void load();
     return () => { mounted = false; };
   }, [contentId, isSeries, safeSeason, safeEpisode, language]);
+
+
+  useEffect(() => {
+    if (!contentId) {
+      setPlaybackAvailability('unavailable');
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 6000);
+    setPlaybackAvailability('checking');
+
+    const infoUrl = isSeries
+      ? 'https://vidsrc.sh/info/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode + '.json'
+      : 'https://vidsrc.sh/info/movie/' + encodeURIComponent(contentId) + '.json';
+
+    fetch(infoUrl, { signal: controller.signal, cache: 'no-store' })
+      .then((response) => {
+        if (response.status === 404) {
+          setPlaybackAvailability('unavailable');
+          return;
+        }
+        setPlaybackAvailability(response.ok ? 'available' : 'unknown');
+      })
+      .catch(() => {
+        setPlaybackAvailability('unknown');
+      })
+      .finally(() => window.clearTimeout(timeout));
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [contentId, isSeries, safeSeason, safeEpisode]);
 
   const activeEpisode: Episode | null =
     activeSeason?.episodes.find((episode) => episode.episodeNumber === safeEpisode) || null;
@@ -203,7 +244,37 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   </div>
                 )}
 
-                {iframeFailed ? (
+                {playbackAvailability === 'unavailable' ? (
+                  <div className="absolute inset-0 flex items-center justify-center p-6 text-center bg-[#030405]">
+                    <div className="max-w-md space-y-4">
+                      <Film className="mx-auto w-10 h-10 text-rose-300" />
+                      <h2 className="text-lg font-bold">{language === 'ar' ? 'هذه الحلقة غير متاحة حاليًا' : 'This episode is not currently available'}</h2>
+                      <p className="text-xs sm:text-sm text-slate-400 leading-6">
+                        {language === 'ar' ? 'تم فحص توفر المصدر قبل تشغيل المشغل. جرّب حلقة أخرى أو أعد المحاولة لاحقًا.' : 'Availability was checked before opening the player. Try another episode or retry later.'}
+                      </p>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        <button
+                          onClick={() => window.location.reload()}
+                          className="px-4 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs sm:text-sm"
+                        >
+                          {language === 'ar' ? 'إعادة الفحص' : 'Check again'}
+                        </button>
+                        <a href={embedUrl} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 text-slate-200 font-semibold text-xs sm:text-sm">
+                          <ExternalLink className="w-4 h-4" />
+                          {language === 'ar' ? 'فتح مباشرة' : 'Open directly'}
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                ) : playbackAvailability === 'checking' ? (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#030405]">
+                    <div className="flex flex-col items-center gap-3 text-slate-300">
+                      <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
+                      <span className="text-xs sm:text-sm">{language === 'ar' ? 'فحص توفر الحلقة…' : 'Checking episode availability…'}</span>
+                    </div>
+                  </div>
+                ) : iframeFailed ? (
                   <div className="absolute inset-0 flex items-center justify-center p-6 text-center bg-[#030405]">
                     <div className="max-w-md space-y-4">
                       <Film className="mx-auto w-10 h-10 text-rose-300" />
@@ -240,7 +311,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     VidSrc
                   </span>
                   <span className="rounded-full bg-emerald-500/[0.08] border border-emerald-400/15 px-2.5 py-1.5 text-emerald-200">
-                    {language === 'ar' ? 'ترجمة عربية · VidSrc' : `${language.toUpperCase()} subtitles · VidSrc`}
+                    {language === 'ar' ? ('ترجمة ' + subtitlePriority[0].toUpperCase() + ' · VidSrc') : (subtitleLabel + ' · VidSrc')}
                   </span>
                   <span className="rounded-full bg-white/[0.04] border border-white/[0.06] px-2.5 py-1.5">
                     {language === 'ar' ? 'مشغل خارجي' : 'External player'}
