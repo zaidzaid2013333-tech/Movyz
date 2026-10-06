@@ -1,0 +1,81 @@
+name: TMDB Embed Fight Club Smoke
+
+on:
+  push:
+    branches:
+      - test/tmdb-embed-fightclub
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TMDB_EMBED_API_URL: http://127.0.0.1:8787
+      TMDB_EMBED_PROVIDER: vidlink
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Start upstream TMDB Embed API
+        run: |
+          docker pull inside4ndroid/tmdb-embed-api:1.3.0
+          docker run -d --name tmdb-embed-smoke             -p 8787:8787             -e API_PORT=8787             -e BIND_HOST=0.0.0.0             -e DEFAULT_PROVIDERS=vidlink             inside4ndroid/tmdb-embed-api:1.3.0
+
+      - name: Wait for TMDB Embed health
+        run: |
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8787/api/health >/dev/null; then
+              echo "TMDB Embed API is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs tmdb-embed-smoke || true
+          exit 1
+
+      - name: Resolve Fight Club through Movyz TMDB Embed adapter
+        run: |
+          npx tsx <<'EOF'
+          import { resolveTmdbEmbed } from "./providers/tmdb-embed.ts";
+
+          const sources = await resolveTmdbEmbed({
+            contentType: "movie",
+            tmdbId: 550,
+          });
+
+          if (!sources.length) {
+            throw new Error("Fight Club returned no sources");
+          }
+
+          for (const source of sources) {
+            const host = new URL(source.url).hostname;
+            console.log(JSON.stringify({
+              provider: source.provider,
+              providerKey: source.providerKey,
+              type: source.type,
+              quality: source.quality ?? null,
+              host,
+            }));
+          }
+
+          const first = sources[0];
+          if (!/^https:\/\//i.test(first.url)) {
+            throw new Error("Returned source is not HTTPS");
+          }
+
+          console.log("TMDB_EMBED_FIGHT_CLUB_OK", sources.length);
+          EOF
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f tmdb-embed-smoke || true
