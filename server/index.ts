@@ -299,6 +299,72 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
       contentType.includes('text/plain');
   };
 
+  const upstreamLooksPlayable = async (upstream: Response, source: BrokerSource) => {
+    if (isBadUpstream(upstream)) return false;
+
+    const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
+    if (
+      contentType.startsWith('video/') ||
+      contentType.includes('mpegurl') ||
+      contentType.includes('dash+xml') ||
+      contentType.includes('x-mpegurl')
+    ) {
+      return true;
+    }
+
+    try {
+      const clone = upstream.clone();
+      const reader = clone.body?.getReader();
+      if (!reader) return false;
+
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      while (total < 4096) {
+        const next = await reader.read();
+        if (next.done) break;
+        if (!next.value?.length) continue;
+        const remaining = 4096 - total;
+        const chunk = next.value.length > remaining ? next.value.slice(0, remaining) : next.value;
+        chunks.push(chunk);
+        total += chunk.length;
+      }
+      try { await reader.cancel(); } catch {}
+
+      const body = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        body.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      const sample = new TextDecoder().decode(body.slice(0, Math.min(body.length, 4096))).trim();
+      if (!sample) return false;
+      if (/^<!doctype|^<html|captcha|cloudflare|access denied|application\/json/i.test(sample)) return false;
+
+      const sourceType = String(source.type || '').toLowerCase();
+      if (sourceType === 'hls' || /\.m3u8(?:[?#]|$)/i.test(source.directUrl || '')) {
+        return /#EXTM3U|#EXT-X-/i.test(sample) || contentType.includes('mpegurl');
+      }
+      if (sourceType === 'dash' || /\.mpd(?:[?#]|$)/i.test(source.directUrl || '')) {
+        return /<MPD[\s>]|<\?xml[\s\S]*<MPD/i.test(sample) || contentType.includes('dash+xml');
+      }
+      if (sourceType === 'webm') {
+        return body.length >= 4 && body[0] === 0x1a && body[1] === 0x45 && body[2] === 0xdf && body[3] === 0xa3;
+      }
+
+      return (
+        body.length >= 256 &&
+        (
+          contentType.includes('octet-stream') ||
+          upstream.status === 206 ||
+          /\b(?:moov|ftyp)\b/i.test(sample)
+        )
+      );
+    } catch {
+      return false;
+    }
+  };
+
   try {
     let result = await resolvePlaybackBroker(
       req,
@@ -321,7 +387,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
 
         try {
           const candidateResponse = await fetchUpstream(candidateUrl, candidate.referer);
-          if (isBadUpstream(candidateResponse)) continue;
+          if (!(await upstreamLooksPlayable(candidateResponse, candidate))) continue;
 
           return {
             source: candidate,
@@ -833,6 +899,7 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
 
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
   const movie = await movieDto(data);
+  res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=60, stale-while-revalidate=120');
   return ok(res, { movie, similar: [] });
 }));
 
@@ -840,6 +907,7 @@ app.get(`${api}/movies/:id`, asyncRoute(async (req, res) => {
   const { data, error } = await adminSupabase.from('movies').select('*').eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
   const movie = await movieDto(data);
+  res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=60, stale-while-revalidate=120');
   return ok(res, { movie, similar: [] });
 }));
 
