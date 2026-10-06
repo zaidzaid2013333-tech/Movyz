@@ -487,7 +487,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           .filter(isPlayableHttpSource);
 
         const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
-        const preferred = preferredPlaybackSource(collapsed);
+        const preferred = collapsed[0] || null;
 
         setRemotePlaybackSources(collapsed);
         setRemotePlaybackSource(preferred);
@@ -588,25 +588,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   };
 
   const armPlayerLoadTimeout = () => {
+    // Playback timeout is intentionally non-fatal. The media element decides
+    // whether the current source can actually play; buffering stays recoverable.
     clearPlayerLoadTimeout();
-
-    const video = videoRef.current;
-    if (video && video.readyState >= HTMLMediaElement.HAVE_METADATA) return;
-
-    playerLoadTimeoutRef.current = window.setTimeout(() => {
-      playerLoadTimeoutRef.current = null;
-      const currentVideo = videoRef.current;
-      if (currentVideo && currentVideo.readyState >= HTMLMediaElement.HAVE_METADATA) return;
-      if (!playbackUrl || isEmbedPlayback) return;
-
-      setPlaybackError(null);
-      setPlayerLoadingState(
-        true,
-        language === 'ar' ? 'جارٍ إعادة تهيئة الفيديو…' : 'Reinitializing video…',
-      );
-      setPlaybackRetry((value) => value + 1);
-      setPlayerReloadKey((value) => value + 1);
-    }, 20000);
   };
 
   const reloadPlayer = () => {
@@ -1280,15 +1264,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       // candidate instead of leaving the spinner running indefinitely.
       armPlayerLoadTimeout();
       if (playbackStallTimerRef.current !== null) window.clearTimeout(playbackStallTimerRef.current);
-      playbackStallTimerRef.current = window.setTimeout(() => {
-        playbackStallTimerRef.current = null;
-        const current = videoRef.current;
-        if (!current || current.ended || !playbackUrl) return;
-        if (current.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && !current.paused) return;
-        setPlaybackError(null);
-        setPlaybackRetry((value) => value + 1);
-        setPlayerReloadKey((value) => value + 1);
-      }, 12000);
+      playbackStallTimerRef.current = null;
       syncTime();
       syncBuffered();
     };
