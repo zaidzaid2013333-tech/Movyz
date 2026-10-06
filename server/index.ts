@@ -53,6 +53,15 @@ const playbackBrokerMemory = new Map<string, BrokerCacheValue>();
 const playbackBrokerInflight = new Map<string, Promise<BrokerSource[]>>();
 const PLAYBACK_BROKER_TTL_MS = 2 * 60 * 1000;
 const PLAYBACK_BROKER_MAX_MEMORY_KEYS = 256;
+const PLAYBACK_CONTEXT_TTL_MS = 5 * 60 * 1000;
+const PLAYBACK_CONTEXT_MAX_KEYS = 512;
+type PlaybackResolverContext = {
+  titles: string[];
+  year?: number;
+  seasonNumber?: number;
+  episodeNumber?: number;
+};
+const playbackContextMemory = new Map<string, { value: PlaybackResolverContext; cachedAt: number }>();
 
 function brokerCacheKey(
   contentType: 'movie' | 'episode',
@@ -186,7 +195,29 @@ async function loadPlaybackResolverContext(
   contentId: string,
   seasonNumber?: number,
   episodeNumber?: number,
-) {
+): Promise<PlaybackResolverContext> {
+  const cacheKey = [
+    contentType,
+    contentId,
+    Number.isFinite(seasonNumber) ? Number(seasonNumber) : '',
+    Number.isFinite(episodeNumber) ? Number(episodeNumber) : '',
+  ].join(':');
+  const cached = playbackContextMemory.get(cacheKey);
+  if (cached && cached.cachedAt + PLAYBACK_CONTEXT_TTL_MS > Date.now()) {
+    return cached.value;
+  }
+  if (cached) playbackContextMemory.delete(cacheKey);
+
+  const store = (value: PlaybackResolverContext) => {
+    playbackContextMemory.set(cacheKey, { value, cachedAt: Date.now() });
+    while (playbackContextMemory.size > PLAYBACK_CONTEXT_MAX_KEYS) {
+      const first = playbackContextMemory.keys().next().value;
+      if (!first) break;
+      playbackContextMemory.delete(first);
+    }
+    return value;
+  };
+
   if (contentType === 'movie') {
     const isTmdbId = /^\d+$/.test(contentId);
     const query = adminSupabase
@@ -199,21 +230,51 @@ async function loadPlaybackResolverContext(
     if (error || !data?.[0]) throw new Error('PLAYBACK_CONTENT_NOT_FOUND');
 
     const row: any = data[0];
-    const titles = Array.from(new Set([
-      row.title_ar,
-      row.title_en,
-      row.original_title,
-      ...(Array.isArray(row.alternative_titles)
-        ? row.alternative_titles.map((x: any) => x?.title).filter(Boolean)
-        : []),
-    ].filter((value): value is string => typeof value === 'string' && value.trim())));
+    return store({
+      titles: Array.from(new Set([
+        row.title_ar,
+        row.title_en,
+        row.original_title,
+        ...(Array.isArray(row.alternative_titles)
+          ? row.alternative_titles.map((x: any) => x?.title).filter(Boolean)
+          : []),
+      ].filter((value): value is string => typeof value === 'string' && value.trim()))),
+      year: typeof row.release_date === 'string'
+        ? Number(row.release_date.slice(0, 4)) || undefined
+        : undefined,
+    });
+  }
 
-    return {
-      titles,
-      year: typeof row.release_date === 'string' ? Number(row.release_date.slice(0, 4)) || undefined : undefined,
-      seasonNumber: undefined,
-      episodeNumber: undefined,
+  // Prefer one relational Supabase query for episode -> season -> series.
+  // Older schemas can still fall back to the three-query path below.
+  const nested = await adminSupabase
+    .from('episodes')
+    .select('episode_number,season_id,seasons!inner(series_id,season_number,series!inner(title_ar,title_en,original_title,alternative_titles))')
+    .eq('id', contentId)
+    .limit(1);
+
+  const nestedRow: any = nested.data?.[0];
+  const nestedSeason = nestedRow?.seasons;
+  const nestedSeries = nestedSeason?.series;
+
+  if (!nested.error && nestedRow && nestedSeason && nestedSeries) {
+    const value = {
+      titles: Array.from(new Set([
+        nestedSeries.title_ar,
+        nestedSeries.title_en,
+        nestedSeries.original_title,
+        ...(Array.isArray(nestedSeries.alternative_titles)
+          ? nestedSeries.alternative_titles.map((x: any) => x?.title).filter(Boolean)
+          : []),
+      ].filter((value): value is string => typeof value === 'string' && value.trim()))),
+      seasonNumber: Number.isFinite(seasonNumber)
+        ? Number(seasonNumber)
+        : Number(nestedSeason.season_number),
+      episodeNumber: Number.isFinite(episodeNumber)
+        ? Number(episodeNumber)
+        : Number(nestedRow.episode_number),
     };
+    if (value.titles.length) return store(value);
   }
 
   const { data: episodeData, error: episodeError } = await adminSupabase
@@ -240,21 +301,18 @@ async function loadPlaybackResolverContext(
   const series = seriesData?.[0] as any;
   if (seriesError || !series) throw new Error('PLAYBACK_SERIES_NOT_FOUND');
 
-  const titles = Array.from(new Set([
-    series.title_ar,
-    series.title_en,
-    series.original_title,
-    ...(Array.isArray(series.alternative_titles)
-      ? series.alternative_titles.map((x: any) => x?.title).filter(Boolean)
-      : []),
-  ].filter((value): value is string => typeof value === 'string' && value.trim())));
-
-  return {
-    titles,
-    year: undefined,
-    seasonNumber: Number.isFinite(seasonNumber) ? seasonNumber : Number(season.season_number),
-    episodeNumber: Number.isFinite(episodeNumber) ? episodeNumber : Number(episode.episode_number),
-  };
+  return store({
+    titles: Array.from(new Set([
+      series.title_ar,
+      series.title_en,
+      series.original_title,
+      ...(Array.isArray(series.alternative_titles)
+        ? series.alternative_titles.map((x: any) => x?.title).filter(Boolean)
+        : []),
+    ].filter((value): value is string => typeof value === 'string' && value.trim()))),
+    seasonNumber: Number.isFinite(seasonNumber) ? Number(seasonNumber) : Number(season.season_number),
+    episodeNumber: Number.isFinite(episodeNumber) ? Number(episodeNumber) : Number(episode.episode_number),
+  });
 }
 
 async function resolveAkwamThroughExternalResolver(
@@ -405,7 +463,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
       method: req.method === 'HEAD' ? 'HEAD' : 'GET',
       headers: upstreamHeaders,
       redirect: 'follow',
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
     });
   };
  
