@@ -462,9 +462,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   // Playback is live-broker only. The API never returns persisted source rows.
   useEffect(() => {
+    const routeUsesTmdbId = /^\d+$/.test(contentId);
     const targetId = mediaType === 'movie'
-      ? (content?.id || (!/^\d+$/.test(contentId) ? contentId : undefined))
-      : currentEpisode?.id;
+      ? (routeUsesTmdbId ? contentId : content?.id || contentId)
+      : (routeUsesTmdbId ? contentId : currentEpisode?.id);
 
     if (!targetId) {
       setRemotePlaybackSources([]);
