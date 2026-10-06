@@ -67,8 +67,7 @@ const detectRequestLocale = (request: Request): LocaleCode => {
 
 const isAppHtmlPath = (pathname: string) =>
   !pathname.includes('.') &&
-  !pathname.startsWith('/tmdb') &&
-  true;
+  !pathname.startsWith('/tmdb');
 
 const titleKeywords = (locale: LocaleCode, title: string) => {
   const map: Record<LocaleCode, string[]> = {
