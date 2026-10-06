@@ -663,13 +663,13 @@ async function seriesDto(row: any, includePlaybackSources = false, requestUrl?: 
   const [genres, cast, seasons] = await Promise.all([
     adminSupabase.from('series_genres').select('genres(id,name_ar,name_en,slug)').eq('series_id', row.id),
     adminSupabase.from('series_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('series_id', row.id).order('cast_order'),
-    adminSupabase.from('seasons').select('*').eq('series_id', row.id).order('season_number'),
+    adminSupabase.from('seasons').select('id,series_id,season_number,name_ar,name_en,poster_url,overview_ar,air_date').eq('series_id', row.id).order('season_number'),
   ]);
 
   const seasonRows = seasons.data || [];
   const ids = seasonRows.map((x: any) => x.id);
   const episodes = ids.length
-    ? await adminSupabase.from('episodes').select('*').in('season_id', ids).order('episode_number')
+    ? await adminSupabase.from('episodes').select('id,season_id,tmdb_id,episode_number,name_ar,name_en,overview_ar,overview_en,still_url,runtime_minutes,air_date').in('season_id', ids).order('episode_number')
     : { data: [] as any[] };
 
   const episodeRows = episodes.data || [];
@@ -721,7 +721,7 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
   const [genresResult, castResult, seasonResult] = await Promise.all([
     adminSupabase.from('series_genres').select('genres(id,name_ar,name_en,slug)').eq('series_id', row.id),
     adminSupabase.from('series_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('series_id', row.id).order('cast_order'),
-    adminSupabase.from('seasons').select('*').eq('series_id', row.id).eq('season_number', seasonNumber).maybeSingle(),
+    adminSupabase.from('seasons').select('id,series_id,season_number,name_ar,name_en,poster_url,overview_ar,air_date').eq('series_id', row.id).eq('season_number', seasonNumber).maybeSingle(),
   ]);
 
   if (seasonResult.error || !seasonResult.data) return null;
@@ -729,7 +729,7 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
   const genres = genresResult.error ? [] : (genresResult.data || []);
   const cast = castResult.error ? [] : (castResult.data || []);
   const { data: episodes, error: episodesError } = await adminSupabase
-    .from('episodes').select('*').eq('season_id', season.id).order('episode_number');
+    .from('episodes').select('id,season_id,tmdb_id,episode_number,name_ar,name_en,overview_ar,overview_en,still_url,runtime_minutes,air_date').eq('season_id', season.id).order('episode_number');
   if (episodesError) throw new Error('Unable to load season episodes: ' + episodesError.message);
 
   // Playback is resolved exclusively by the live Broker for the selected episode.
@@ -854,7 +854,7 @@ app.get(`${api}/movies`, asyncRoute(async (req, res) => {
   const q = p.data;
   const from = (q.page - 1) * q.limit;
   const to = from + q.limit - 1;
-  let query = adminSupabase.from('movies').select('*', { count: 'exact' }).eq('status', 'published');
+  let query = adminSupabase.from('movies').select('id,tmdb_id,title_ar,title_en,original_title,release_date,rating,vote_count,runtime_minutes,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating', { count: 'exact' }).eq('status', 'published');
   if (q.year) query = query.gte('release_date', `${q.year}-01-01`).lt('release_date', `${q.year + 1}-01-01`);
   if (q.minRating !== undefined) query = query.gte('rating', q.minRating);
   if (q.search) query = query.or(`title_ar.ilike.%${q.search}%,title_en.ilike.%${q.search}%,original_title.ilike.%${q.search}%`);
@@ -879,7 +879,7 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
 
   let { data, error } = await adminSupabase
     .from('movies')
-    .select('*')
+    .select('id,tmdb_id,title_ar,title_en,original_title,release_date,rating,vote_count,runtime_minutes,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating')
     .eq('tmdb_id', tmdbId)
     .eq('status', 'published')
     .maybeSingle();
@@ -904,12 +904,12 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
 
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
   const movie = await movieDto(data);
-  res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=60, stale-while-revalidate=120');
+  res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=300, stale-while-revalidate=600');
   return ok(res, { movie, similar: [] });
 }));
 
 app.get(`${api}/movies/:id`, asyncRoute(async (req, res) => {
-  const { data, error } = await adminSupabase.from('movies').select('*').eq('id', req.params.id).eq('status', 'published').maybeSingle();
+  const { data, error } = await adminSupabase.from('movies').select('id,tmdb_id,title_ar,title_en,original_title,release_date,rating,vote_count,runtime_minutes,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating').eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
   const movie = await movieDto(data);
   res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=60, stale-while-revalidate=120');
@@ -922,7 +922,7 @@ app.get(`${api}/series`, asyncRoute(async (req, res) => {
   const q = p.data;
   const from = (q.page - 1) * q.limit;
   const to = from + q.limit - 1;
-  let query = adminSupabase.from('series').select('*', { count: 'exact' }).eq('status', 'published');
+  let query = adminSupabase.from('series').select('id,tmdb_id,title_ar,title_en,original_title,first_air_date,last_air_date,rating,vote_count,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating', { count: 'exact' }).eq('status', 'published');
   if (q.year) query = query.gte('first_air_date', `${q.year}-01-01`).lt('first_air_date', `${q.year + 1}-01-01`);
   if (q.minRating !== undefined) query = query.gte('rating', q.minRating);
   if (q.search) query = query.or(`title_ar.ilike.%${q.search}%,title_en.ilike.%${q.search}%,original_title.ilike.%${q.search}%`);
@@ -948,7 +948,7 @@ app.get(`${api}/series/tmdb/:tmdbId/watch/:season/:episode`, asyncRoute(async (r
   if (!Number.isInteger(tmdbId) || tmdbId <= 0 || !Number.isInteger(seasonNumber) || seasonNumber < 1 || !Number.isInteger(episodeNumber) || episodeNumber < 1) {
     return fail(res, 400, 'INVALID_WATCH_REQUEST', 'Invalid series watch request');
   }
-  const { data, error } = await adminSupabase.from('series').select('*')
+  const { data, error } = await adminSupabase.from('series').select('id,tmdb_id,title_ar,title_en,original_title,first_air_date,last_air_date,rating,vote_count,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating')
     .eq('tmdb_id', tmdbId).eq('status', 'published').maybeSingle();
   if (error) return fail(res, 500, 'SERIES_QUERY_FAILED', 'Unable to load series');
   if (!data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
@@ -1015,7 +1015,7 @@ app.get(`${api}/series/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
 }));
 
 app.get(`${api}/series/:id`, asyncRoute(async (req, res) => {
-  const { data, error } = await adminSupabase.from('series').select('*').eq('id', req.params.id).eq('status', 'published').maybeSingle();
+  const { data, error } = await adminSupabase.from('series').select('id,tmdb_id,title_ar,title_en,original_title,first_air_date,last_air_date,rating,vote_count,overview_ar,overview_en,poster_url,backdrop_url,metadata,featured,trending,popular,status,created_at,age_rating').eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error || !data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
   const series = await seriesDto(data);
   return ok(res, { series, similar: [] });
