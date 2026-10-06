@@ -49,16 +49,8 @@ jobs:
 
       - name: Verify production health
         run: |
-          python - <<'PY'
-          import urllib.request
-          url = "https://movyz-api.sameranede.workers.dev/health"
-          with urllib.request.urlopen(url, timeout=20) as response:
-              body = response.read().decode("utf-8", "replace")
-              print("health status =", response.status)
-              print(body[:1000])
-              if response.status != 200:
-                  raise SystemExit("Production health is not ready")
-          PY
+          set -euo pipefail
+          curl --fail-with-body --max-time 20 -sS             -A 'Movyz-GitHub-Actions/1.0'             'https://movyz-api.sameranede.workers.dev/health' | tee /tmp/movyz-health.json
 
       - name: Resolve recent 200 and all their episodes
         run: node scripts/verify-recent-200-playback.mjs
