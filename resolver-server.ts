@@ -218,17 +218,17 @@ async function handle(request: Request): Promise<Response> {
 
   try {
     const startedAt = Date.now();
-    const cachedBefore = resolutionCache.get(requestKey(context));
+    const key = requestKey(context);
+    const cachedBefore = resolutionCache.get(key);
+    const hadCached = Boolean(cachedBefore && cachedBefore.expiresAt > Date.now());
+    const hadInflight = inflight.has(key);
     const sources = await resolve(context);
-    const wasCache =
-      Boolean(cachedBefore && cachedBefore.expiresAt > Date.now()) ||
-      Boolean(inflight.has(requestKey(context)));
 
     return json(200, {
       ok: true,
       contentType,
       contentId,
-      mode: wasCache ? "cache-or-inflight" : "live",
+      mode: hadCached ? "cache" : hadInflight ? "inflight" : "live",
       sourceCount: sources.length,
       durationMs: Date.now() - startedAt,
       sources,
