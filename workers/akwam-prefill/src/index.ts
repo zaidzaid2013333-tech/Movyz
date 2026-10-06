@@ -1443,7 +1443,6 @@ export async function resolveAkwamNow(
           : undefined,
     };
   } else {
-    let episode: any = null;
     let season: any = null;
     let series: any = null;
 
@@ -1454,44 +1453,69 @@ export async function resolveAkwamNow(
       );
       series = Array.isArray(seriesRows) ? seriesRows[0] : null;
       if (!series?.id) throw new Error("AKWAM_SERIES_NOT_FOUND");
-
-      const wantedSeason = Number(input.season_number || 1);
-      const seasonRows = await sb(
-        env,
-        `/rest/v1/seasons?select=id,series_id,season_number&series_id=eq.${encodeURIComponent(String(series.id))}&season_number=eq.${wantedSeason}&limit=1`,
-      );
-      season = Array.isArray(seasonRows) ? seasonRows[0] : null;
-      if (!season?.id) throw new Error("AKWAM_SEASON_NOT_FOUND");
-
-      const wantedEpisode = Number(input.episode_number || 1);
-      const episodeRows = await sb(
-        env,
-        `/rest/v1/episodes?select=id,episode_number,season_id&season_id=eq.${encodeURIComponent(String(season.id))}&episode_number=eq.${wantedEpisode}&limit=1`,
-      );
-      episode = Array.isArray(episodeRows) ? episodeRows[0] : null;
-      if (!episode?.id) throw new Error("AKWAM_EPISODE_NOT_FOUND");
     } else {
+      // Episode IDs remain supported, but the same endpoint also accepts a
+      // series UUID. This removes the old "wait for metadata, then discover
+      // episode UUID" architecture from the watch page.
       const episodeRows = await sb(
         env,
-        `/rest/v1/episodes?select=id,episode_number,season_id&id=eq.${encodeURIComponent(rawId)}&limit=1`,
+        `/rest/v1/episodes?select=episode_number,season_id&id=eq.${encodeURIComponent(rawId)}&limit=1`,
       );
-      episode = Array.isArray(episodeRows) ? episodeRows[0] : null;
-      if (!episode?.season_id) throw new Error("AKWAM_EPISODE_NOT_FOUND");
+      const episode = Array.isArray(episodeRows) ? episodeRows[0] : null;
 
-      const seasonRows = await sb(
-        env,
-        `/rest/v1/seasons?select=series_id,season_number&id=eq.${encodeURIComponent(String(episode.season_id))}&limit=1`,
-      );
-      season = Array.isArray(seasonRows) ? seasonRows[0] : null;
-      if (!season?.series_id) throw new Error("AKWAM_SEASON_NOT_FOUND");
+      if (episode?.season_id) {
+        const seasonRows = await sb(
+          env,
+          `/rest/v1/seasons?select=series_id,season_number&id=eq.${encodeURIComponent(String(episode.season_id))}&limit=1`,
+        );
+        season = Array.isArray(seasonRows) ? seasonRows[0] : null;
+        if (!season?.series_id) throw new Error("AKWAM_SEASON_NOT_FOUND");
+
+        const seriesRows = await sb(
+          env,
+          `/rest/v1/series?select=title_ar,title_en,original_title,alternative_titles&id=eq.${encodeURIComponent(String(season.series_id))}&limit=1`,
+        );
+        series = Array.isArray(seriesRows) ? seriesRows[0] : null;
+        if (!series) throw new Error("AKWAM_SERIES_NOT_FOUND");
+
+        ctx = {
+          titles: Array.from(new Set([
+            series.title_ar,
+            series.title_en,
+            series.original_title,
+            ...(Array.isArray(series.alternative_titles)
+              ? series.alternative_titles.map((x: any) => x?.title).filter(Boolean)
+              : []),
+          ].filter(Boolean))),
+          seasonNumber: Number(input.season_number || season.season_number || 1),
+          episodeNumber: Number(input.episode_number || episode.episode_number || 1),
+        };
+        return resolveAkwamWithContext(env, input, ctx);
+      }
 
       const seriesRows = await sb(
         env,
-        `/rest/v1/series?select=title_ar,title_en,original_title,alternative_titles&id=eq.${encodeURIComponent(String(season.series_id))}&limit=1`,
+        `/rest/v1/series?select=id,title_ar,title_en,original_title,alternative_titles&id=eq.${encodeURIComponent(rawId)}&limit=1`,
       );
       series = Array.isArray(seriesRows) ? seriesRows[0] : null;
-      if (!series) throw new Error("AKWAM_SERIES_NOT_FOUND");
+      if (!series?.id) throw new Error("AKWAM_CONTENT_NOT_FOUND");
     }
+
+    const wantedSeason = Number(input.season_number || 1);
+    const wantedEpisode = Number(input.episode_number || 1);
+    const seasonRows = await sb(
+      env,
+      `/rest/v1/seasons?select=id,series_id,season_number&series_id=eq.${encodeURIComponent(String(series.id))}&season_number=eq.${wantedSeason}&limit=1`,
+    );
+    season = Array.isArray(seasonRows) ? seasonRows[0] : null;
+    if (!season?.id) throw new Error("AKWAM_SEASON_NOT_FOUND");
+
+    const episodeRows = await sb(
+      env,
+      `/rest/v1/episodes?select=id,episode_number,season_id&season_id=eq.${encodeURIComponent(String(season.id))}&episode_number=eq.${wantedEpisode}&limit=1`,
+    );
+    const episode = Array.isArray(episodeRows) ? episodeRows[0] : null;
+    if (!episode?.id) throw new Error("AKWAM_EPISODE_NOT_FOUND");
 
     ctx = {
       titles: Array.from(new Set([
