@@ -3,7 +3,7 @@
   "name": "movyz",
   "main": "worker.ts",
   "compatibility_date": "2026-09-26",
-  "build": { "command": "npm run build" },
+  "cache": { "enabled": false },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
