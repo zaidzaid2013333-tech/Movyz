@@ -1295,7 +1295,7 @@ function extractTargets(html: string, baseUrl: string) {
   }
 
   // Also catch escaped absolute media URLs embedded in JSON/config.
-  const escapedAbsoluteUrls = /["'](https:\\/\\/[^"'<>\\s]+)["']/gi;
+  const escapedAbsoluteUrls = new RegExp(String.raw`["'](https:\\/\\/[^"'<>\\s]+)["']`, "gi");
   while ((m = escapedAbsoluteUrls.exec(html))) {
     const raw = decodeHtml(m[1]).replaceAll("\\/", "/");
     try {
