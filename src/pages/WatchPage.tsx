@@ -1038,11 +1038,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current?.destroy?.();
       playbackEngineRef.current = null;
       resetMediaElement();
-      // Keep the active stream primed from the first render. Akwam relay playback
-      // relies on early range requests; metadata-only preload leaves the browser with
-      // too little media buffered and produces the 00:00 -> seek -> recovery pattern.
-      video.preload = 'auto';
-      setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
+      video.preload = 'metadata';
+       setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
       armPlayerLoadTimeout();
       video.src = playbackUrl;
       video.load();
@@ -1593,7 +1590,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 poster={content.backdropUrl || content.posterUrl}
                 className={(isEmbedPlayback ? 'hidden ' : '') + 'block h-full w-full bg-black object-contain'}
                 playsInline
-                preload="auto"
+                preload="metadata"
                 disablePictureInPicture={false}
                 onLoadStart={() => {
                   playbackStartedRef.current = false;
