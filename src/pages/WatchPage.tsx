@@ -1671,7 +1671,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               </video>              </div>           </div>
           </div>
         </div>
-      </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-7 sm:pt-9 space-y-7">
         <div className="movyza-watch-meta movyza-watch-meta-modern flex flex-col md:flex-row md:items-start justify-between gap-5 p-5 sm:p-7">
@@ -1790,7 +1789,5 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           )}
         </div>
       </div>
-    </div>
-  </div>
   );
 };
