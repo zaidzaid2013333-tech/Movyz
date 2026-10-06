@@ -175,6 +175,31 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.sha }}
 
+
+      - name: Cloudflare resolver diagnostic
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+
+          api = 'https://movyz-api.sameranede.workers.dev'
+          req = urllib.request.Request(
+              api + '/api/v1/internal/diagnostics/akwam',
+              headers={
+                  'Accept': 'application/json',
+                  'User-Agent': 'Movyz-GitHub-Actions-Diagnostic/1.0',
+                  'x-movyz-internal-key': '${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}',
+              },
+          )
+          with urllib.request.urlopen(req, timeout=60) as response:
+              body = json.loads(response.read().decode('utf-8', 'replace'))
+              print(json.dumps(body, ensure_ascii=False, indent=2))
+              if response.status != 200 or body.get('success') is not True:
+                  raise SystemExit('Cloudflare resolver diagnostic request failed')
+              resolver = body.get('data', {}).get('resolver', {})
+              if resolver.get('ok') is not True:
+                  raise SystemExit('Cloudflare resolver diagnostic reported failure')
+          PY
       - name: Live playback smoke - movie and relay
         run: |
           python - <<'PY'
