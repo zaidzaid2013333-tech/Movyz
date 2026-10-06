@@ -702,7 +702,7 @@ async function seriesDto(row: any, includePlaybackSources = false, requestUrl?: 
     rating: Number(row.rating || 0), votesCount: Number(row.vote_count || 0),
     overview: row.overview_ar || '', overviewEn: row.overview_en || row.overview_ar || '',
     posterUrl: row.poster_url || '', backdropUrl: row.backdrop_url || '',
-    genres: genres.map((x: any) => genreDto(x.genres)),
+    genres: (genres.data || []).map((x: any) => genreDto(x.genres)),
     creator: row.metadata?.creator_ar || '', creatorEn: row.metadata?.creator_en || '',
     cast: (cast.data || []).map((x: any) => ({
       id: x.people.id, name: x.people.name_ar || x.people.name_en,
@@ -762,9 +762,9 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
     votesCount: Number(row.vote_count || 0), overview: row.overview_ar || '',
     overviewEn: row.overview_en || row.overview_ar || '',
     posterUrl: row.poster_url || '', backdropUrl: row.backdrop_url || '',
-    genres: (genres.data || []).map((x: any) => genreDto(x.genres)),
+    genres: genres.map((x: any) => genreDto(x.genres)),
     creator: row.metadata?.creator_ar || '', creatorEn: row.metadata?.creator_en || '',
-    cast: (cast.data || []).map((x: any) => ({
+    cast: cast.map((x: any) => ({
       id: x.people.id, name: x.people.name_ar || x.people.name_en,
       nameEn: x.people.name_en || x.people.name_ar, character: x.character_ar || '',
       characterEn: x.character_en || '', avatarUrl: x.people.avatar_url || '',
