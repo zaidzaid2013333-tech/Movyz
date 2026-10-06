@@ -32,6 +32,7 @@ jobs:
         run: npm run lint
       - name: Run core smoke test
         run: npm test
+
       - name: Build frontend
         run: npm run build
       - name: Build CinePro Core
