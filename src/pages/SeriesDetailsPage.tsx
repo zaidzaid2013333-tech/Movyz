@@ -41,23 +41,27 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
   const { language, t, direction } = useLanguage();
   const [series, setSeries] = useState<Series | null>(null);
   const [similar, setSimilar] = useState<Series[]>([]);
+  const [activeSeason, setActiveSeason] = useState<Season | null>(null);
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [seasonLoading, setSeasonLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [seasonError, setSeasonError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
     setError(null);
+    setActiveSeason(null);
     MovyzaApi.getSeriesById(seriesId)
       .then((res) => {
-        if (isMounted) {
-          setSeries(res.data.series);
-          setSimilar(res.data.similar);
-          setSelectedSeasonNumber(res.data.series.seasons[0]?.seasonNumber || 1);
-          setLoading(false);
-        }
+        if (!isMounted) return;
+        const firstSeason = res.data.series.seasons[0]?.seasonNumber || 1;
+        setSeries(res.data.series);
+        setSimilar(res.data.similar);
+        setSelectedSeasonNumber(firstSeason);
+        setLoading(false);
       })
       .catch((err) => {
         if (isMounted) {
@@ -69,6 +73,29 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
       isMounted = false;
     };
   }, [seriesId]);
+
+  useEffect(() => {
+    if (!series) return;
+    let isMounted = true;
+    setSeasonLoading(true);
+    setSeasonError(null);
+    setActiveSeason(null);
+
+    MovyzaApi.getSeriesSeasonByTmdbId(Number(seriesId), selectedSeasonNumber)
+      .then((res) => {
+        if (isMounted) setActiveSeason(res.data);
+      })
+      .catch((err) => {
+        if (isMounted) setSeasonError(err?.message || 'Unable to load this season');
+      })
+      .finally(() => {
+        if (isMounted) setSeasonLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [seriesId, selectedSeasonNumber, series]);
 
   const handleShare = () => {
     if (navigator.clipboard) {
@@ -101,9 +128,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
   const seoDescription = overview || `${titlePrimary} — Movyza`;
 
 
-  const activeSeason =
-    series.seasons.find((s) => s.seasonNumber === selectedSeasonNumber) ||
-    series.seasons[0];
+  const seasonSummary = series.seasons.find((s) => s.seasonNumber === selectedSeasonNumber) || series.seasons[0];
 
   return (
     <>
@@ -230,7 +255,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
                   >
                     <Play className="w-4 h-4 fill-slate-950" />
                     <span>
-                      {t('watchNow')} ({language === 'ar' ? 'الموسم 1 · الحلقة 1' : 'S1 · Ep1'})
+                      {t('watchNow')} ({language === 'ar' ? 'الموسم ' + selectedSeasonNumber + ' · الحلقة 1' : 'S' + selectedSeasonNumber + ' · Ep1'})
                     </span>
                   </button>
 
@@ -305,7 +330,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                     isSelected ? 'bg-slate-950/20 text-slate-950' : 'bg-white/10 text-slate-400'
                   }`}>
-                    {season.episodes.length}
+                    {season.episodesCount}
                   </span>
                 </button>
               );
@@ -314,7 +339,19 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
         </div>
 
         {/* Selected Season Header Info */}
-        {activeSeason && (
+        {seasonError && (
+          <div className="p-4 rounded-2xl bg-rose-500/[0.06] border border-rose-400/15 text-xs text-rose-200">
+            {seasonError}
+          </div>
+        )}
+
+        {seasonLoading && (
+          <div className="p-4 rounded-2xl bg-[#090b10] border border-white/[0.07] text-xs text-slate-400">
+            {language === 'ar' ? 'جاري تحميل حلقات الموسم…' : 'Loading season episodes…'}
+          </div>
+        )}
+
+        {activeSeason && !seasonLoading && !seasonError && (
           <div className="p-4 rounded-2xl bg-[#090b10] border border-amber-500/15 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
             <div>
               <span className="font-bold text-white text-sm">
@@ -396,7 +433,9 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
         </div>
       </div>
 
-      {/* Cast & Crew Section */}
+        )}
+
+      {/* Cast & Crew Section */
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
         <h2 className="text-lg sm:text-xl font-cinema-title font-bold text-white flex items-center gap-2">
           <Clapperboard className="w-5 h-5 text-amber-400" />
