@@ -238,7 +238,7 @@ async function loadPlaybackResolverContext(
         ...(Array.isArray(row.alternative_titles)
           ? row.alternative_titles.map((x: any) => x?.title).filter(Boolean)
           : []),
-      ].filter((value): value is string => typeof value === 'string' && value.trim()))),
+      ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0))),
       year: typeof row.release_date === 'string'
         ? Number(row.release_date.slice(0, 4)) || undefined
         : undefined,
@@ -266,7 +266,7 @@ async function loadPlaybackResolverContext(
         ...(Array.isArray(nestedSeries.alternative_titles)
           ? nestedSeries.alternative_titles.map((x: any) => x?.title).filter(Boolean)
           : []),
-      ].filter((value): value is string => typeof value === 'string' && value.trim()))),
+      ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0))),
       seasonNumber: Number.isFinite(seasonNumber)
         ? Number(seasonNumber)
         : Number(nestedSeason.season_number),
@@ -309,7 +309,7 @@ async function loadPlaybackResolverContext(
       ...(Array.isArray(series.alternative_titles)
         ? series.alternative_titles.map((x: any) => x?.title).filter(Boolean)
         : []),
-    ].filter((value): value is string => typeof value === 'string' && value.trim()))),
+    ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0))),
     seasonNumber: Number.isFinite(seasonNumber) ? Number(seasonNumber) : Number(season.season_number),
     episodeNumber: Number.isFinite(episodeNumber) ? Number(episodeNumber) : Number(episode.episode_number),
   });
