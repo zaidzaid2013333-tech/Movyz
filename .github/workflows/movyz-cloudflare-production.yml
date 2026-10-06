@@ -279,7 +279,7 @@ jobs:
           episode_payload = None
           episode_sources = []
           last_error = None
-          for attempt in range(1, 3):
+          for attempt in range(1, 4):
               try:
                   status, _, payload = request_json(
                       api + "/api/v1/playback/prepare?type=episode&contentId=" + str(episode_id) + "&season=1&episode=1"
@@ -292,12 +292,12 @@ jobs:
                   last_error = f"status={status} sources={len(sources) if isinstance(sources, list) else 0} payload={str(payload)[:700]}"
               except Exception as error:
                   last_error = str(error)
-              if attempt < 2:
+              if attempt < 3:
                   import time
-                  time.sleep(1.0)
+                  time.sleep(0.75)
 
           if not episode_sources:
-              raise SystemExit(f"episode prepare failed after 2 attempts: {last_error}")
+              raise SystemExit(f"episode prepare failed after 3 attempts: {last_error}")
 
           episode_relay = next((s.get("url") for s in episode_sources if isinstance(s, dict) and str(s.get("url","")).startswith("https://")), None)
           if not episode_relay:
@@ -327,9 +327,9 @@ jobs:
                       last_error = f"status={status} sources={len(srcs) if isinstance(srcs,list) else 0}"
                   except Exception as error:
                       last_error = str(error)
-                  if attempt < 2:
+                  if attempt < 3:
                       import time
-                      time.sleep(1.0)
+                      time.sleep(0.75)
               if not srcs:
                   raise SystemExit(f"{title} S01E01 playback failed after 2 attempts: {last_error}")
               print(title.upper().replace(" ", "_"), "S01E01_PLAYBACK_OK", len(srcs), "sources", "episode_id", eid)
