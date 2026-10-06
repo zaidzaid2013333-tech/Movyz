@@ -1,13 +1,9 @@
 name: Verify Movyz Catalog Playback
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - "server/index.ts"
-      - "workers/akwam-prefill/src/index.ts"
-      - "scripts/verify-recent-200-playback.mjs"
-      - ".github/workflows/verify-recent-200-playback.yml"
+  # This is an intentionally manual coverage audit. Running it on every
+  # production push can create thousands of live Akwam resolutions and
+  # starve real users of resolver capacity.
   workflow_dispatch:
 
 permissions:
