@@ -487,6 +487,8 @@ async function findCandidate(
     }
   };
 
+  const readBest = (): { item: Candidate; score: number } | null => best;
+
   if (expected === "movie" || expected === "series") {
     // Current section searches run concurrently; fallback requests are only
     // started when the primary set does not produce a strong match.
@@ -496,14 +498,14 @@ async function findCandidate(
         "&section=" + encodeURIComponent(expected) + "&page=1",
       ),
     );
-    const winner = readBest();
-    if (winner && winner.score >= 128) return winner.item;
+    const sectionWinner = readBest();
+    if (sectionWinner && sectionWinner.score >= 128) return sectionWinner.item;
 
     await fetchSearchSet(
       variants.map((title) => host + "/search?q=" + encodeURIComponent(title) + "&page=1"),
     );
-    const winner = readBest();
-    if (winner && winner.score >= 118) return winner.item;
+    const genericWinner = readBest();
+    if (genericWinner && genericWinner.score >= 118) return genericWinner.item;
   }
 
   // Legacy archive is a bounded fallback for older movies only.
@@ -515,8 +517,8 @@ async function findCandidate(
       ),
       true,
     );
-    const winner = readBest();
-    if (winner && winner.score >= 120) return winner.item;
+    const legacyPageWinner = readBest();
+    if (legacyPageWinner && legacyPageWinner.score >= 120) return legacyPageWinner.item;
 
     await fetchSearchSet(
       legacyVariants.map((title) =>
@@ -524,12 +526,12 @@ async function findCandidate(
       ),
       true,
     );
-    const winner = readBest();
-    if (winner && winner.score >= 100) return winner.item;
+    const legacyWinner = readBest();
+    if (legacyWinner && legacyWinner.score >= 100) return legacyWinner.item;
   }
 
-  const winner = readBest();
-  if (winner && winner.score >= 80) return winner.item;
+  const finalWinner = readBest();
+  if (finalWinner && finalWinner.score >= 80) return finalWinner.item;
   throw new Error("AKWAM_SEARCH_EMPTY probes=" + diagnostics.slice(0, 12).join(","));
 }
 
