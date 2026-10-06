@@ -9,9 +9,8 @@
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "test": "node -e \"console.log('Movyza catalog-only smoke: Cloudflare + TMDB + Supabase')\"",
-    "cf:deploy": "wrangler deploy",
-    "cf:dev": "wrangler dev"
+    "test": "node -e \"console.log('Movyz catalog smoke: Supabase-backed catalog')\"",
+    "cf:deploy": "wrangler deploy"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
