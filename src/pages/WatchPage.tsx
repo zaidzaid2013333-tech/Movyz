@@ -43,13 +43,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const subtitlePriority = useMemo(() => {
     const metaPriority = document.querySelector('meta[name="movyz-subtitle-priority"]')?.getAttribute('content') || '';
     const legacy = document.querySelector('meta[name="movyz-subtitle-language"]')?.getAttribute('content') || '';
-    const values = (metaPriority || legacy || 'en')
+    const values = (metaPriority || legacy || language || 'en')
       .split(',')
       .map((value) => value.trim().toLowerCase())
       .filter((value) => /^[a-z]{2,3}$/.test(value))
       .slice(0, 3);
     return values.length ? Array.from(new Set(values)) : ['en'];
-  }, []);
+  }, [language]);
 
   const embedUrl = useMemo(() => {
     if (!contentId) return '';
@@ -248,7 +248,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   <div className="absolute inset-0 flex items-center justify-center p-6 text-center bg-[#030405]">
                     <div className="max-w-md space-y-4">
                       <Film className="mx-auto w-10 h-10 text-rose-300" />
-                      <h2 className="text-lg font-bold">{language === 'ar' ? 'هذه الحلقة غير متاحة حاليًا' : 'This episode is not currently available'}</h2>
+                      <h2 className="text-lg font-bold">{language === 'ar' ? 'هذا المحتوى غير متاح حاليًا' : 'This title is not currently available'}</h2>
                       <p className="text-xs sm:text-sm text-slate-400 leading-6">
                         {language === 'ar' ? 'تم فحص توفر المصدر قبل تشغيل المشغل. جرّب حلقة أخرى أو أعد المحاولة لاحقًا.' : 'Availability was checked before opening the player. Try another episode or retry later.'}
                       </p>

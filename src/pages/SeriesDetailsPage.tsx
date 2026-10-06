@@ -431,7 +431,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
         </div>
       </div>
 
-      {/* Cast & Crew Section */
+      {/* Cast & Crew Section */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
         <h2 className="text-lg sm:text-xl font-cinema-title font-bold text-white flex items-center gap-2">
           <Clapperboard className="w-5 h-5 text-amber-400" />

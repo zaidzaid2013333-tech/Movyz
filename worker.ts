@@ -276,7 +276,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     `<meta name="movyz-country" content="${String(countryFromRequest(request) || 'XX').toUpperCase()}" />` +
     `<meta name="movyz-subtitle-language" content="${subtitleLocale}" />` +
     `<meta name="movyz-subtitle-priority" content="${subtitlePriorityForCountry(countryFromRequest(request))}" />` +
-        `<meta name="keywords" content="${keywords.replace(/"/g, '&quot;')}" />` +
+    `<meta name="keywords" content="${keywords.replace(/"/g, '&quot;')}" />` +
     `<meta name="robots" content="${isNoIndex ? 'noindex,follow' : 'index,follow,max-image-preview:large'}" />` +
     `<meta property="og:title" content="${seoTitle.replace(/"/g, '&quot;')}" />` +
     `<meta property="og:description" content="${description.replace(/"/g, '&quot;')}" />` +
