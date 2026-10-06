@@ -6,6 +6,9 @@ on:
       - test/tmdb-embed-fightclub
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -79,3 +82,12 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker rm -f tmdb-embed-smoke || true
+
+      - name: Commit verified result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/TMDB-EMBED-FIGHTCLUB-RESULT.json
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: record TMDB Embed Fight Club smoke result [skip ci]"
+          git push origin HEAD:test/tmdb-embed-fightclub
