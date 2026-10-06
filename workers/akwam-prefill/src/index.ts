@@ -495,12 +495,13 @@ function explicitSeason(value: string): number | undefined {
 
 function score(c: Candidate, titles: string[], year?: number, expected?: "movie" | "series" | "episode", expectedSeason?: number) {
   if (c.kind === "other") return -1000;
+  const kind = String(c.kind);
   const compatible =
     expected === "movie"
-      ? c.kind === "movie" || c.kind === "watch"
+      ? kind === "movie" || kind === "watch"
       : expected === "series"
-        ? c.kind === "series" || c.kind === "watch" || c.kind === "episode"
-        : c.kind === "series" || c.kind === "episode" || c.kind === "watch";
+        ? kind === "series" || kind === "watch" || kind === "episode"
+        : kind === "series" || kind === "episode" || kind === "watch";
   if (!compatible) return -1000;
 
   if (expected === "series" && expectedSeason) {
@@ -570,12 +571,12 @@ function parseCandidates(html: string, env: Env, allowLegacy = false): Candidate
 
     if (!isAkwamUrl(u.href)) continue;
 
-    const rawText = rawTextFromAnchor(m[2]);
-    let kind = inferCandidateKind(u.pathname, rawText);
+    const anchorText = rawTextFromAnchor(m[2]);
+    let kind = inferCandidateKind(u.pathname, anchorText);
     if (allowLegacy && kind === "other" && /^\/old\//i.test(u.pathname)) {
-      kind = /(?:فيلم|فلم|افلام|أفلام|movie|film)/i.test(rawText)
+      kind = /(?:فيلم|فلم|افلام|أفلام|movie|film)/i.test(anchorText)
         ? "movie"
-        : /(?:مسلسل|series|show|موسم|season)/i.test(rawText)
+        : /(?:مسلسل|series|show|موسم|season)/i.test(anchorText)
           ? "series"
           : "other";
     }
