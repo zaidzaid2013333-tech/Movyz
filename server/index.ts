@@ -554,12 +554,25 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     upstreamHeaders.set('User-Agent', req.headers.get('user-agent') || 'Mozilla/5.0');
     upstreamHeaders.set('Accept-Encoding', 'identity');
 
-    return fetch(upstreamUrl, {
-      method: req.method === 'HEAD' ? 'HEAD' : 'GET',
-      headers: upstreamHeaders,
-      redirect: 'follow',
-      signal: AbortSignal.timeout(5000),
-    });
+    // Timeout only the connection/headers phase. Do NOT keep the abort
+    // signal attached for the lifetime of the media body: MP4 playback is a
+    // long-lived ReadableStream and a fixed request timeout cuts it off after
+    // metadata has already loaded, leaving the player stuck on buffering.
+    const controller = new AbortController();
+    const connectTimeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(upstreamUrl, {
+        method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+        headers: upstreamHeaders,
+        redirect: 'follow',
+        signal: controller.signal,
+      });
+      clearTimeout(connectTimeout);
+      return response;
+    } catch (error) {
+      clearTimeout(connectTimeout);
+      throw error;
+    }
   };
  
 
