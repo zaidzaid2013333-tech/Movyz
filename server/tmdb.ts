@@ -97,7 +97,6 @@ async function assertDatabaseReady() {
       'episodes',
       'providers',
       'provider_mappings',
-      'playback_sources',
       'sync_jobs',
     ];
 
@@ -291,11 +290,11 @@ async function syncPeople(
 async function findExisting(table: 'movies' | 'series', tmdbId: number) {
   const { data, error } = await adminSupabase
     .from(table)
-    .select('id,status')
+    .select('id,status,metadata')
     .eq('tmdb_id', tmdbId)
     .maybeSingle();
   if (error) throw new Error(`Failed to inspect existing ${table} row: ${error.message}`);
-  return data as { id: string; status: 'draft' | 'published' | 'archived' } | null;
+  return data as { id: string; status: 'draft' | 'published' | 'archived'; metadata?: Record<string, unknown> | null } | null;
 }
 
 async function syncMovie(arMovie: any, enMovie: any) {
@@ -327,7 +326,7 @@ async function syncMovie(arMovie: any, enMovie: any) {
     status: existing?.status || 'draft',
     popular: true,
     metadata: {
-      ...(existing ? {} : {}),
+      ...(existing?.metadata || {}),
       director_en: (detail.credits?.crew || []).find((x: any) => x.job === 'Director')?.name || '',
       tmdb_popularity: enMovie.popularity || arMovie.popularity || 0,
     },
@@ -434,6 +433,7 @@ async function syncSeries(arSeries: any, enSeries: any) {
     status: existing?.status || 'draft',
     popular: true,
     metadata: {
+      ...(existing?.metadata || {}),
       creator_en: (detailEn.created_by || []).map((x: any) => x.name).join(', '),
       creator_ar: (detailAr.created_by || []).map((x: any) => x.name).join(', '),
       tmdb_popularity: enSeries.popularity || arSeries.popularity || 0,
@@ -604,6 +604,51 @@ export async function syncEpisodesForSeries(seriesLimit?: number) {
   }
 }
 
+
+export async function runFreshTmdbSync(options: { pages?: number } = {}) {
+  const pages = Math.min(Math.max(options.pages || 2, 1), 3);
+  const job = await startJob('fresh-catalog', pages);
+  if (!job) throw new Error('Unable to start fresh TMDB sync');
+  const counts: Counts = { movies: 0, series: 0, seasons: 0, episodes: 0, pages };
+  try {
+    await assertDatabaseReady();
+    await updateJob(job.id, { stage: 'fresh-movies' });
+    await syncGenres();
+    for (let page = 1; page <= pages; page++) {
+      const [ar, en] = await Promise.all([
+        tmdbGet<any>('/movie/now_playing', { language: 'ar-SA', page, region: 'US' }),
+        tmdbGet<any>('/movie/now_playing', { language: 'en-US', page, region: 'US' }),
+      ]);
+      const enById = new Map<number, any>((en.results || []).map((x: any) => [x.id, x]));
+      for (const arMovie of ar.results || []) {
+        await syncMovie(arMovie, enById.get(arMovie.id) || arMovie);
+        counts.movies++;
+        await throttle();
+      }
+    }
+    await updateJob(job.id, { stage: 'fresh-series' });
+    for (let page = 1; page <= pages; page++) {
+      const [ar, en] = await Promise.all([
+        tmdbGet<any>('/tv/on_the_air', { language: 'ar-SA', page }),
+        tmdbGet<any>('/tv/on_the_air', { language: 'en-US', page }),
+      ]);
+      const enById = new Map<number, any>((en.results || []).map((x: any) => [x.id, x]));
+      for (const arSeries of ar.results || []) {
+        const result = await syncSeries(arSeries, enById.get(arSeries.id) || arSeries);
+        counts.series++;
+        counts.seasons += result.seasons;
+        counts.episodes += result.episodes;
+        await throttle();
+      }
+    }
+    await finishJob(job.id, 'succeeded', counts);
+    return { ...counts, total: counts.movies + counts.series };
+  } catch (error) {
+    await finishJob(job.id, 'failed', counts, error);
+    throw error;
+  }
+}
+
 export async function runTmdbSync(options: { pages?: number } = {}) {
   const pages = Math.min(Math.max(options.pages || 6, 1), MAX_PAGES);
   const job = await startJob('catalog', pages);
@@ -640,6 +685,164 @@ export async function runTmdbSync(options: { pages?: number } = {}) {
     await finishJob(job.id, 'failed', counts, error);
     throw error;
   }
+}
+
+
+function normalizeCuratedTitle(value: string) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/[:：\\-–—]\\s*(?:season|series)\\s*\\d+$/i, '')
+    .replace(/\\s+(?:season|series)\\s*\\d+$/i, '')
+    .replace(/[^a-z0-9\\u0600-\\u06ff]+/gi, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function curatedCandidateScore(item: { title: string; year?: number }, candidate: any, mediaType: 'movie' | 'series') {
+  const wanted = normalizeCuratedTitle(item.title);
+  const names = mediaType === 'movie'
+    ? [candidate?.title, candidate?.original_title]
+    : [candidate?.name, candidate?.original_name];
+
+  const normalizedNames = names.filter(Boolean).map(normalizeCuratedTitle);
+  const exact = normalizedNames.includes(wanted);
+  const includes = normalizedNames.some((name) => name === wanted || name.includes(wanted) || wanted.includes(name));
+  const resultDate = String(mediaType === 'movie' ? candidate?.release_date : candidate?.first_air_date || '').slice(0, 4);
+  const resultYear = Number(resultDate) || 0;
+  const yearDistance = item.year && resultYear ? Math.abs(item.year - resultYear) : 0;
+  const yearScore = !item.year || !resultYear ? 0.5 : yearDistance === 0 ? 1 : yearDistance === 1 ? 0.75 : yearDistance <= 3 ? 0.35 : 0;
+  const popularity = Math.min(1, Number(candidate?.popularity || 0) / 80);
+  const votes = Math.min(1, Number(candidate?.vote_count || 0) / 5000);
+  return (exact ? 1 : includes ? 0.65 : 0) * 0.55 + yearScore * 0.25 + popularity * 0.12 + votes * 0.08;
+}
+
+export type CuratedCatalogItem = {
+  rank: number;
+  title: string;
+  year?: number;
+  mediaType: 'movie' | 'series';
+};
+
+export async function importCuratedCatalog(items: CuratedCatalogItem[]) {
+  await assertDatabaseReady();
+  const unique = new Map<string, CuratedCatalogItem>();
+  for (const item of items.slice(0, 200)) {
+    const key = item.mediaType + '|' + normalizeCuratedTitle(item.title);
+    if (!unique.has(key)) unique.set(key, item);
+  }
+
+  const ordered = [...unique.values()].sort((a, b) => a.rank - b.rank);
+  const results: Array<Record<string, unknown>> = [];
+  const concurrency = Math.min(
+    2,
+    Math.max(1, Number(process.env.CURATED_IMPORT_CONCURRENCY || 2)),
+  );
+
+  for (let offset = 0; offset < ordered.length; offset += concurrency) {
+    const chunk = ordered.slice(offset, offset + concurrency);
+
+    await Promise.all(chunk.map(async (item) => {
+      try {
+        const path = item.mediaType === 'movie' ? '/search/movie' : '/search/tv';
+        const yearParam = item.mediaType === 'movie' ? 'primary_release_year' : 'first_air_date_year';
+        let search = await tmdbGet<any>(path, {
+          query: item.title.replace(/[:：\-–—]\s*(?:season|series)\s*\d+$/i, '').trim(),
+          language: 'en-US',
+          include_adult: false,
+          page: 1,
+          ...(item.year ? { [yearParam]: item.year } : {}),
+        });
+
+        let candidates = Array.isArray(search?.results) ? search.results : [];
+        if (!candidates.length && item.year) {
+          search = await tmdbGet<any>(path, {
+            query: item.title.replace(/[:：\-–—]\s*(?:season|series)\s*\d+$/i, '').trim(),
+            language: 'en-US',
+            include_adult: false,
+            page: 1,
+          });
+          candidates = Array.isArray(search?.results) ? search.results : [];
+        }
+
+        const ranked = candidates
+          .map((candidate: any) => ({
+            candidate,
+            score: curatedCandidateScore(item, candidate, item.mediaType),
+          }))
+          .sort((a: any, b: any) => b.score - a.score);
+
+        const best = ranked[0];
+        if (!best || best.score < 0.48 || !Number.isInteger(best.candidate?.id)) {
+          results.push({ rank: item.rank, title: item.title, mediaType: item.mediaType, status: 'not_found' });
+          return;
+        }
+
+        if (item.mediaType === 'movie') {
+          const id = await syncMovieByTmdbId(Number(best.candidate.id));
+          const trending = item.rank <= 50;
+          const featured = item.rank <= 10;
+          const { error } = await adminSupabase.from('movies').update({
+            status: 'published',
+            popular: true,
+            trending,
+            featured,
+            metadata: { curated_rank: item.rank, curated_year: item.year || null },
+          }).eq('id', id);
+          if (error) throw new Error(error.message);
+          results.push({
+            rank: item.rank,
+            title: item.title,
+            tmdbId: best.candidate.id,
+            mediaType: item.mediaType,
+            status: 'imported',
+            score: Number(best.score.toFixed(3)),
+          });
+        } else {
+          const synced = await syncSeriesByTmdbId(Number(best.candidate.id));
+          const trending = item.rank <= 50;
+          const featured = item.rank <= 10;
+          const { error } = await adminSupabase.from('series').update({
+            status: 'published',
+            popular: true,
+            trending,
+            featured,
+            metadata: { curated_rank: item.rank, curated_year: item.year || null },
+          }).eq('id', synced.id);
+          if (error) throw new Error(error.message);
+          results.push({
+            rank: item.rank,
+            title: item.title,
+            tmdbId: best.candidate.id,
+            mediaType: item.mediaType,
+            status: 'imported',
+            score: Number(best.score.toFixed(3)),
+            seasons: synced.seasons,
+            episodes: synced.episodes,
+          });
+        }
+      } catch (error) {
+        results.push({
+          rank: item.rank,
+          title: item.title,
+          mediaType: item.mediaType,
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        await throttle();
+      }
+    }));
+  }
+
+  return {
+    requested: unique.size,
+    imported: results.filter((x) => x.status === 'imported').length,
+    notFound: results.filter((x) => x.status === 'not_found').length,
+    errors: results.filter((x) => x.status === 'error').length,
+    results: results.sort((a, b) => Number(a.rank) - Number(b.rank)),
+  };
 }
 
 export async function syncMovieCandidate(arMovie: any, enMovie: any) {

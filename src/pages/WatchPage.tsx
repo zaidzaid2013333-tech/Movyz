@@ -18,6 +18,8 @@ import {
   Share2,
   ShieldAlert,
   Sparkles,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { MovyzaApi } from '../services/api';
@@ -157,6 +159,46 @@ const collapseProviderQualityDuplicates = (sources: PlaybackSource[]) => {
     .flat();
 };
 
+const preferredPlaybackSource = (sources: PlaybackSource[]) => {
+  if (!sources.length) return null;
+
+  const qualityOf = (source: PlaybackSource) => {
+    const match = normalizePlaybackQuality(source.quality).match(/(\d{3,4})p/i);
+    return match ? Number(match[1]) : 0;
+  };
+
+  const typePriority: Record<string, number> = {
+    mp4: 40,
+    webm: 30,
+    hls: 20,
+    dash: 15,
+    direct: 10,
+  };
+
+  return [...sources].sort((a, b) => {
+    const aq = qualityOf(a);
+    const bq = qualityOf(b);
+
+    const bucket = (q: number) => {
+      if (q === 720) return 0;
+      if (q > 0 && q < 720) return 1;
+      if (q > 720) return 2;
+      return 3;
+    };
+
+    const ab = bucket(aq);
+    const bb = bucket(bq);
+    if (ab !== bb) return ab - bb;
+
+    if (ab === 1 && aq !== bq) return bq - aq;
+    if (ab === 2 && aq !== bq) return aq - bq;
+
+    const at = typePriority[String(a.type || '').toLowerCase()] || 0;
+    const bt = typePriority[String(b.type || '').toLowerCase()] || 0;
+    return bt - at;
+  })[0] || null;
+};
+
 const providerDisplayName = (key: string, fallback: string, language: 'ar' | 'en') => {
   const normalized = key.trim().toLowerCase();
   const names: Record<string, [string, string]> = {
@@ -233,7 +275,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [playerReady, setPlayerReady] = useState(false);
   const [playerControlsVisible, setPlayerControlsVisible] = useState(true);
   const [playerSettingsOpen, setPlayerSettingsOpen] = useState(false);
+  const [playerLoading, setPlayerLoading] = useState(false);
+  const [playerLoadingMessage, setPlayerLoadingMessage] = useState('');
+  const [seekFeedback, setSeekFeedback] = useState<{ delta: number; id: number } | null>(null);
+  const [playerReloadKey, setPlayerReloadKey] = useState(0);
+  const [playbackRetry, setPlaybackRetry] = useState(0);
   const playerControlsHideTimerRef = useRef<number | null>(null);
+  const playerControlsVisibleRef = useRef(true);
+  const touchSingleTapTimerRef = useRef<number | null>(null);
+  const playerLoadTimeoutRef = useRef<number | null>(null);
+  const playbackStallTimerRef = useRef<number | null>(null);
+  const reloadRestoreRef = useRef<{ time: number; wasPlaying: boolean } | null>(null);
+  const lastTouchTapRef = useRef<{ time: number; x: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
   const qualityResumeTimeRef = useRef<number | null>(null);
@@ -243,7 +296,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const playbackStartedRef = useRef(false);
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
+  const failedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const startupGuardTimerRef = useRef<number | null>(null);
+  const startupWarmupTimerRef = useRef<number | null>(null);
+  const resumeAfterBufferingRef = useRef(false);
   const progressSaveTimerRef = useRef<number | null>(null);
   const lastProgressSaveAtRef = useRef(0);
   const playbackEngineRef = useRef<{ destroy?: () => void; reset?: () => void } | null>(null);
@@ -259,86 +315,52 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       !video ||
       startupRecoveryStageRef.current !== 'idle' ||
       !Number.isFinite(video.duration) ||
-      video.duration < 45 ||
+      video.duration < 125 ||
       video.currentTime >= 20
     ) {
       return;
     }
 
     startupRecoveryStageRef.current = 'recovering';
-    const originalTime = Math.max(0, video.currentTime);
-    const targetTime = Math.min(
-      Math.max(originalTime + 120, 120),
-      Math.max(video.duration - 15, 1),
+    setPlayerLoadingState(
+      true,
+      language === 'ar' ? 'جارٍ تهيئة التشغيل…' : 'Preparing playback…',
     );
 
-    const getBufferedAhead = () => {
-      if (!video.buffered.length) return 0;
-      for (let index = 0; index < video.buffered.length; index += 1) {
-        const startTime = video.buffered.start(index);
-        const endTime = video.buffered.end(index);
-        if (video.currentTime >= startTime && video.currentTime <= endTime) {
-          return Math.max(0, endTime - video.currentTime);
-        }
-      }
-      return 0;
-    };
+    const targetTime = Math.min(120, Math.max(1, video.duration - 1));
 
-    const cleanup = () => {
-      video.removeEventListener('canplay', maybeFinish);
-      video.removeEventListener('progress', maybeFinish);
-      video.removeEventListener('loadeddata', maybeFinish);
-    };
-
-    const finish = () => {
-      if (startupRecoveryTimerRef.current !== null) {
-        window.clearTimeout(startupRecoveryTimerRef.current);
-        startupRecoveryTimerRef.current = null;
+    const finishWarmup = () => {
+      if (startupWarmupTimerRef.current !== null) {
+        window.clearTimeout(startupWarmupTimerRef.current);
+        startupWarmupTimerRef.current = null;
       }
       if (startupRecoveryStageRef.current !== 'recovering') return;
 
-      cleanup();
       try {
-        video.currentTime = originalTime;
+        video.currentTime = 0;
       } catch {
-        // Some providers reject an immediate seek while the media element is switching ranges.
+        // Some providers reject a seek while a range is still being opened.
       }
+
       startupRecoveryStageRef.current = 'done';
+      setPlayerCurrentTime(0);
+      setPlayerLoadingState(false);
+      resumeAfterBufferingRef.current = false;
       void video.play().catch(() => undefined);
     };
 
-    const maybeFinish = () => {
-      if (startupRecoveryStageRef.current !== 'recovering') return;
-
-      // Require a materially larger buffer before returning to 00:00 so normal
-      // playback does not immediately enter another short startup stall.
-      const requiredAhead = Math.min(4, Math.max(3, video.duration - targetTime - 1));
-      if (getBufferedAhead() < requiredAhead) return;
-
-      finish();
-    };
-
-    video.addEventListener('canplay', maybeFinish);
-    video.addEventListener('progress', maybeFinish);
-    video.addEventListener('loadeddata', maybeFinish);
-
-    startupRecoveryTimerRef.current = window.setTimeout(() => {
-      cleanup();
-      startupRecoveryTimerRef.current = null;
-      if (startupRecoveryStageRef.current === 'recovering') {
-        startupRecoveryStageRef.current = 'idle';
-      }
-    }, 15000);
+    if (startupWarmupTimerRef.current !== null) {
+      window.clearTimeout(startupWarmupTimerRef.current);
+    }
 
     try {
+      // Force a fast range request around 02:00, then return to 00:00 almost
+      // immediately. The loading overlay hides the transient seek from the UI.
       video.currentTime = targetTime;
+      startupWarmupTimerRef.current = window.setTimeout(finishWarmup, 120);
     } catch {
-      cleanup();
-      if (startupRecoveryTimerRef.current !== null) {
-        window.clearTimeout(startupRecoveryTimerRef.current);
-        startupRecoveryTimerRef.current = null;
-      }
       startupRecoveryStageRef.current = 'idle';
+      setPlayerLoadingState(false);
     }
   };
 
@@ -355,6 +377,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setRemotePlaybackSources([]);
         setRemotePlaybackSource(null);
         setResolverLoading(false);
+        setPlaybackRetry(0);
+        clearPlaybackStallTimer();
         setPlayerUnlocked(false);
         setPlaybackError(null);
         setPlayerReady(false);
@@ -394,12 +418,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             throw new Error('Unexpected series response');
           }
           const series = loaded.series;
-          const season =
-            series.seasons.find((item) => item.seasonNumber === activeSeason) ||
-            series.seasons[0];
-          const episode =
-            season?.episodes.find((item) => item.episodeNumber === activeEpisode) ||
-            season?.episodes[0];
+          const season = series.seasons.find(
+            (item) => item.seasonNumber === activeSeason,
+          );
+          const episode = season?.episodes.find(
+            (item) => item.episodeNumber === activeEpisode,
+          );
+
+          if (!season || !episode) {
+            throw new Error(
+              `Requested episode S${activeSeason}E${activeEpisode} is not present in the catalog response`,
+            );
+          }
 
           setContent(series);
           setCurrentEpisode(episode);
@@ -432,7 +462,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   // Playback is live-broker only. The API never returns persisted source rows.
   useEffect(() => {
-    const targetId = mediaType === 'movie' ? content?.id : currentEpisode?.id;
+    const targetId = mediaType === 'movie'
+      ? (content?.id || (!/^\d+$/.test(contentId) ? contentId : undefined))
+      : currentEpisode?.id;
 
     if (!targetId) {
       setRemotePlaybackSources([]);
@@ -450,50 +482,68 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlayerUnlocked(false);
     setPlaybackError(null);
 
-    void MovyzaApi.preparePlayback(
-      mediaType === 'movie' ? 'movie' : 'episode',
-      targetId,
-      mediaType === 'series' ? currentEpisode?.seasonNumber : undefined,
-      mediaType === 'series' ? currentEpisode?.episodeNumber : undefined,
-    )
-      .then((response) => {
-        if (cancelled) return;
-        const sources = Array.isArray(response.data?.sources) ? response.data.sources : [];
-        const playable = sources
-          .map(normalizePlaybackSource)
-          .filter((source): source is PlaybackSource => Boolean(source))
-          .filter((source) => source.isWorking !== false)
-          .filter(isPlayableHttpSource);
-
-        const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
-        const preferred = collapsed[0] || null;
-
-        setRemotePlaybackSources(collapsed);
-        setRemotePlaybackSource(preferred);
-        setPlayerUnlocked(Boolean(preferred));
-        setPlaybackError(
-          preferred
-            ? null
-            : (language === 'ar'
-              ? 'لا يوجد مصدر تشغيل صالح لهذا العمل حاليًا.'
-              : 'No playable source is currently available for this title.'),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRemotePlaybackSources([]);
-          setRemotePlaybackSource(null);
-          setPlayerUnlocked(false);
-          setPlaybackError(
-            language === 'ar'
-              ? 'تعذر الحصول على مصدر تشغيل مباشر من Akwam حاليًا.'
-              : 'Unable to obtain a live Akwam playback source right now.',
+    const prepare = async () => {
+      const attempts = 2;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+          const response = await MovyzaApi.preparePlayback(
+            mediaType === 'movie' ? 'movie' : 'episode',
+            targetId,
+            mediaType === 'series' ? currentEpisode?.seasonNumber : undefined,
+            mediaType === 'series' ? currentEpisode?.episodeNumber : undefined,
           );
+          if (cancelled) return;
+          const sources = Array.isArray(response.data?.sources) ? response.data.sources : [];
+          const playable = sources
+            .map(normalizePlaybackSource)
+            .filter((source): source is PlaybackSource => Boolean(source))
+            .filter((source) => source.isWorking !== false)
+            .filter(isPlayableHttpSource);
+          if (!playable.length && attempt < attempts) {
+            await new Promise((resolve) => window.setTimeout(resolve, 250));
+            continue;
+          }
+          const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
+          const preferred = collapsed[0] || null;
+          failedPlaybackUrlsRef.current.clear();
+          setRemotePlaybackSources(collapsed);
+          setRemotePlaybackSource(preferred);
+          setPlayerUnlocked(Boolean(preferred));
+          setPlaybackError(
+            preferred
+              ? null
+              : (language === 'ar'
+                ? 'لا يوجد مصدر تشغيل صالح لهذا العمل حاليًا.'
+                : 'No playable source is currently available for this title.'),
+          );
+          return;
+        } catch {
+          if (cancelled) return;
+          if (attempt < attempts) {
+            setPlaybackError(
+              language === 'ar'
+                ? 'تعذر فتح المصدر الآن، جارٍ إعادة المحاولة…'
+                : 'The source did not respond; retrying…',
+            );
+            await new Promise((resolve) => window.setTimeout(resolve, 450));
+            continue;
+          }
         }
-      })
-      .finally(() => {
-        if (!cancelled) setResolverLoading(false);
-      });
+      }
+      if (cancelled) return;
+      setRemotePlaybackSources([]);
+      setRemotePlaybackSource(null);
+      setPlayerUnlocked(false);
+      setPlaybackError(
+        language === 'ar'
+          ? 'تعذر الحصول على مصدر تشغيل مباشر من Akwam حاليًا.'
+          : 'Unable to obtain a live Akwam playback source right now.',
+      );
+    };
+
+    void prepare().finally(() => {
+      if (!cancelled) setResolverLoading(false);
+    });
 
     return () => {
       cancelled = true;
@@ -514,7 +564,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       ? playbackSource.url.trim()
       : '';
   const directPlaybackUrl = playbackSource?.directUrl?.trim() || '';
-  const playbackUrl = brokerRelayUrl || directPlaybackUrl || playbackSource?.url?.trim() || '';
+  const playbackUrl = useMemo(() => {
+    const baseUrl = brokerRelayUrl || directPlaybackUrl || playbackSource?.url?.trim() || '';
+    if (!baseUrl || !brokerRelayUrl || playbackRetry === 0) return baseUrl;
+    try {
+      const url = new URL(baseUrl);
+      url.searchParams.set('retry', String(playbackRetry));
+      return url.toString();
+    } catch {
+      return baseUrl;
+    }
+  }, [brokerRelayUrl, directPlaybackUrl, playbackSource?.url, playbackRetry]);
   const isEmbedPlayback = String(playbackSource?.type || '').toLowerCase() === 'embed';
 
   const formatPlayerTime = (value: number) => {
@@ -527,24 +587,172 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return hours > 0 ? `${String(hours).padStart(2, '0')}:${base}` : base;
   };
 
+  const clearPlayerLoadTimeout = () => {
+    if (playerLoadTimeoutRef.current !== null) {
+      window.clearTimeout(playerLoadTimeoutRef.current);
+      playerLoadTimeoutRef.current = null;
+    }
+  };
+  
+  const clearPlaybackStallTimer = () => {
+    if (playbackStallTimerRef.current !== null) {
+      window.clearTimeout(playbackStallTimerRef.current);
+      playbackStallTimerRef.current = null;
+    }
+  };
+
+  const setPlayerLoadingState = (loading: boolean, message = '') => {
+    if (loading) {
+      setPlayerLoading(true);
+      setPlayerLoadingMessage(
+        message ||
+          (language === 'ar'
+            ? 'جارٍ تحميل الفيديو…'
+            : 'Loading video…'),
+      );
+    } else {
+      setPlayerLoading(false);
+      setPlayerLoadingMessage('');
+    }
+  };
+
+  const armPlayerLoadTimeout = () => {
+    clearPlayerLoadTimeout();
+    if (!playbackUrl) return;
+    playerLoadTimeoutRef.current = window.setTimeout(() => {
+      playerLoadTimeoutRef.current = null;
+      // Do not punish a source just because metadata loading is slow before the
+      // user presses Play. Once playback is requested, a 12s silent stall is a
+      // source failure and can safely move to the next relay candidate.
+      if (!userPlayRequestedRef.current && !playbackStartedRef.current) return;
+      if (playbackStartedRef.current || !videoRef.current) return;
+      markPlaybackSourceFailed();
+    }, 12000);
+  };
+
+  const reloadPlayer = () => {
+    const video = videoRef.current;
+
+    if (!video || !playbackUrl || isEmbedPlayback) {
+      if (isEmbedPlayback) {
+        setPlayerLoadingState(true, language === 'ar' ? 'جارٍ إعادة تحميل المشغل…' : 'Reloading player…');
+        setPlayerReloadKey((value) => value + 1);
+        armPlayerLoadTimeout();
+      }
+      return;
+    }
+
+    reloadRestoreRef.current = {
+      time: Number.isFinite(video.currentTime) ? Math.max(0, video.currentTime) : 0,
+      wasPlaying: !video.paused && !video.ended,
+    };
+    qualityResumeTimeRef.current = null;
+    qualitySwitchPendingRef.current = false;
+    playbackStartedRef.current = false;
+    setPlaybackError(null);
+    setPlayerReady(false);
+    setPlayerLoadingState(true, language === 'ar' ? 'جارٍ إعادة تحميل الفيديو…' : 'Reloading video…');
+    playerControlsVisibleRef.current = true;
+    setPlayerControlsVisible(true);
+    armPlayerLoadTimeout();
+    setPlaybackRetry((value) => value + 1);
+    setPlayerReloadKey((value) => value + 1);
+  };
+
   const togglePlayerPlayback = () => {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
       // Load aggressively only when the user actually asks to play.
       video.preload = 'auto';
+      userPlayRequestedRef.current = true;
+      resumeAfterBufferingRef.current = true;
       void video.play().catch(() => undefined);
-    } else video.pause();
+    } else {
+      resumeAfterBufferingRef.current = false;
+      userPlayRequestedRef.current = false;
+      video.pause();
+    }
   };
 
   const seekPlayerBy = (seconds: number) => {
     const video = videoRef.current;
     if (!video || !Number.isFinite(video.duration)) return;
-    video.currentTime = Math.min(
-      Math.max(0, video.currentTime + seconds),
-      Math.max(0, video.duration),
-    );
+    const nextTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + seconds));
+    video.currentTime = nextTime;
+    setPlayerCurrentTime(nextTime);
+    setSeekFeedback({ delta: seconds, id: Date.now() });
+    window.setTimeout(() => setSeekFeedback(null), 520);
   };
+
+  const revealPlayerControls = () => {
+    playerControlsVisibleRef.current = true;
+    setPlayerControlsVisible(true);
+    if (playerControlsHideTimerRef.current !== null) {
+      window.clearTimeout(playerControlsHideTimerRef.current);
+      playerControlsHideTimerRef.current = null;
+    }
+    if (playerPlaying) {
+      playerControlsHideTimerRef.current = window.setTimeout(() => {
+        playerControlsVisibleRef.current = false;
+        setPlayerControlsVisible(false);
+        playerControlsHideTimerRef.current = null;
+      }, 3000);
+    }
+  };
+
+  const handlePlayerSurfacePointerUp = (event: React.PointerEvent<HTMLVideoElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('button,input,select')) return;
+
+    if (event.pointerType === 'touch') {
+      const now = Date.now();
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const previous = lastTouchTapRef.current;
+
+      if (previous && now - previous.time < 360 && Math.abs(previous.x - x) < 90) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (touchSingleTapTimerRef.current !== null) {
+          window.clearTimeout(touchSingleTapTimerRef.current);
+          touchSingleTapTimerRef.current = null;
+        }
+        seekPlayerBy(x < rect.width / 2 ? -10 : 10);
+        lastTouchTapRef.current = null;
+        revealPlayerControls();
+        return;
+      }
+
+      lastTouchTapRef.current = { time: now, x };
+
+      // A first tap while controls are hidden only reveals them; it must not
+      // pause/play the video. When controls are already visible, defer the
+      // single-tap action briefly so a second tap can still become a seek.
+      if (!playerControlsVisibleRef.current) {
+        revealPlayerControls();
+        return;
+      }
+
+      if (touchSingleTapTimerRef.current !== null) {
+        window.clearTimeout(touchSingleTapTimerRef.current);
+      }
+      touchSingleTapTimerRef.current = window.setTimeout(() => {
+        touchSingleTapTimerRef.current = null;
+        togglePlayerPlayback();
+      }, 360);
+      return;
+    }
+
+    // Mouse/pen: one click reveals hidden controls; the next click toggles
+    // playback. This keeps the first interaction from unexpectedly pausing.
+    if (!playerControlsVisibleRef.current) {
+      revealPlayerControls();
+      return;
+    }
+    togglePlayerPlayback();
+  };
+
 
   const setPlayerProgress = (value: number) => {
     const video = videoRef.current;
@@ -658,18 +866,24 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       if (event.key === ' ' || event.key.toLowerCase() === 'k') {
         event.preventDefault();
         togglePlayerPlayback();
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        seekPlayerBy(-5);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        seekPlayerBy(5);
+      } else if (event.key.toLowerCase() === 'j') {
+        event.preventDefault();
+        seekPlayerBy(-10);
+      } else if (event.key.toLowerCase() === 'l') {
+        event.preventDefault();
+        seekPlayerBy(10);
       } else if (event.key.toLowerCase() === 'm') {
         event.preventDefault();
         togglePlayerMute();
       } else if (event.key.toLowerCase() === 'f') {
         event.preventDefault();
         void togglePlayerFullscreen();
-      } else if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        seekPlayerBy(direction === 'rtl' ? 10 : -10);
-      } else if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        seekPlayerBy(direction === 'rtl' ? -10 : 10);
       } else if (event.key === 'Escape') {
         setPlayerSettingsOpen(false);
       }
@@ -692,28 +906,32 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     if (!shell) return;
 
     const showControlsTemporarily = () => {
+      playerControlsVisibleRef.current = true;
       setPlayerControlsVisible(true);
       if (playerControlsHideTimerRef.current !== null) {
         window.clearTimeout(playerControlsHideTimerRef.current);
       }
       if (playerPlaying) {
         playerControlsHideTimerRef.current = window.setTimeout(() => {
+          playerControlsVisibleRef.current = false;
           setPlayerControlsVisible(false);
           playerControlsHideTimerRef.current = null;
-        }, 2600);
+        }, 3000);
       }
     };
 
     shell.addEventListener('pointermove', showControlsTemporarily);
-    shell.addEventListener('touchstart', showControlsTemporarily, { passive: true });
     showControlsTemporarily();
 
     return () => {
       shell.removeEventListener('pointermove', showControlsTemporarily);
-      shell.removeEventListener('touchstart', showControlsTemporarily);
       if (playerControlsHideTimerRef.current !== null) {
         window.clearTimeout(playerControlsHideTimerRef.current);
         playerControlsHideTimerRef.current = null;
+      }
+      if (touchSingleTapTimerRef.current !== null) {
+        window.clearTimeout(touchSingleTapTimerRef.current);
+        touchSingleTapTimerRef.current = null;
       }
     };
   }, [playerPlaying, playbackUrl]);
@@ -832,9 +1050,35 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlayerUnlocked(true);
   };
 
-  // Automatic source failover is intentionally disabled.
-  // A failed source remains selected until the user manually chooses another source.
   const markPlaybackSourceFailed = () => {
+    const failedUrl = playbackSource?.url || playbackUrl;
+    if (!failedUrl) return false;
+
+    failedPlaybackUrlsRef.current.add(failedUrl);
+    const nextSource = remotePlaybackSources.find((source) =>
+      source.url !== failedUrl &&
+      !failedPlaybackUrlsRef.current.has(source.url),
+    );
+
+    if (nextSource) {
+      qualityResumeTimeRef.current =
+        videoRef.current && Number.isFinite(videoRef.current.currentTime)
+          ? Math.max(0, videoRef.current.currentTime)
+          : 0;
+      resumeAfterQualitySwitchRef.current = false;
+      qualitySwitchPendingRef.current = false;
+      playbackStartedRef.current = false;
+      setPlayerUnlocked(true);
+      setRemotePlaybackSource(nextSource);
+      return true;
+    }
+
+    setPlaybackError(
+      language === 'ar'
+        ? 'تعذر تشغيل المصادر المتاحة حاليًا. جرّب إعادة المحاولة.'
+        : 'The available playback sources could not be started. Please retry.',
+    );
+    return false;
   };
 
   const handleSelectPlaybackSource = (source: PlaybackSource) => {
@@ -848,6 +1092,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     resumeAfterQualitySwitchRef.current = !!video && !video.paused;
     qualitySwitchPendingRef.current = true;
     startupTriedUrlsRef.current.add(source.url);
+    failedPlaybackUrlsRef.current.delete(source.url);
     playbackStartedRef.current = false;
     setPlaybackError(null);
     setPlayerUnlocked(true);
@@ -882,6 +1127,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     let cancelled = false;
     startupTriedUrlsRef.current.add(playbackUrl);
+    setPlayerLoadingState(true, language === 'ar' ? 'جارٍ فتح مصدر الفيديو…' : 'Opening playback source…');
+    armPlayerLoadTimeout();
 
     const resetMediaElement = () => {
       video.pause();
@@ -894,10 +1141,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackEngineRef.current?.destroy?.();
       playbackEngineRef.current = null;
       resetMediaElement();
-      // Keep the active stream primed from the first render. Akwam relay playback
-      // relies on early range requests; metadata-only preload leaves the browser with
-      // too little media buffered and produces the 00:00 -> seek -> recovery pattern.
-      video.preload = 'auto';
+      video.preload = 'metadata';
+       setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
+      armPlayerLoadTimeout();
       video.src = playbackUrl;
       video.load();
     };
@@ -930,15 +1176,36 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             startLevel: -1,
           });
           playbackEngineRef.current = hls;
+          hls.on(Hls.Events.FRAG_LOADING, () => {
+            if (!cancelled) {
+              setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل جزء من الفيديو…' : 'Loading video segment…');
+              armPlayerLoadTimeout();
+            }
+          });
+          hls.on(Hls.Events.FRAG_BUFFERED, () => {
+            if (!cancelled) {
+              clearPlayerLoadTimeout();
+              setPlayerLoadingState(false);
+              if (resumeAfterBufferingRef.current && video.paused && !video.ended) {
+                resumeAfterBufferingRef.current = false;
+                void video.play().catch(() => undefined);
+              }
+            }
+          });
           hls.on(Hls.Events.ERROR, (_event, data) => {
             if (!data.fatal || cancelled) return;
-            setPlaybackError(
-              language === 'ar'
-                ? 'تعذر تهيئة بث HLS من المصدر الحالي.'
-                : 'The current HLS source could not be initialized.',
-            );
+            clearPlayerLoadTimeout();
+            setPlayerLoadingState(false);
             hls.destroy();
             playbackEngineRef.current = null;
+            const switched = markPlaybackSourceFailed();
+            if (!switched) {
+              setPlaybackError(
+                language === 'ar'
+                  ? 'تعذر تهيئة بث HLS من المصدر الحالي.'
+                  : 'The current HLS source could not be initialized.',
+              );
+            }
           });
           hls.attachMedia(video);
           hls.loadSource(playbackUrl);
@@ -979,8 +1246,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     void attachPlayback();
 
-    // Do not automatically switch sources. A failed source stays selected
-    // so the user can retry or choose another quality/provider manually.
+    // A failed source is switched to the next prepared candidate automatically.
+    // Manual source/quality selection remains available from the player controls.
 
     return () => {
       cancelled = true;
@@ -995,9 +1262,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         window.clearTimeout(startupRecoveryTimerRef.current);
         startupRecoveryTimerRef.current = null;
       }
+      if (startupWarmupTimerRef.current !== null) {
+        window.clearTimeout(startupWarmupTimerRef.current);
+        startupWarmupTimerRef.current = null;
+      }
       startupRecoveryStageRef.current = 'idle';
     };
-  }, [playbackUrl, playbackSource?.type, language]);
+  }, [playbackUrl, playbackSource?.type, language, playerReloadKey]);
 
   useEffect(() => {
     if (isEmbedPlayback) {
@@ -1060,6 +1331,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       } catch {}
     };
     const onMetadata = () => {
+      clearPlayerLoadTimeout();
       if (startupGuardTimerRef.current !== null) {
         window.clearTimeout(startupGuardTimerRef.current);
         startupGuardTimerRef.current = null;
@@ -1068,17 +1340,60 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       syncDuration();
       syncTime();
       syncBuffered();
+      const restore = reloadRestoreRef.current;
+      if (restore && Number.isFinite(video.duration) && video.duration > 0) {
+        try {
+          video.currentTime = Math.min(restore.time, Math.max(0, video.duration - 0.25));
+        } catch {
+          // Some providers reject a seek until enough data is available.
+        }
+      }
     };
     const onPlaying = () => {
+      clearPlayerLoadTimeout();
+      clearPlaybackStallTimer();
+      setPlayerLoadingState(false);
       setPlayerPlaying(true);
       setPlayerReady(true);
       setPlaybackError(null);
       syncTime();
       syncBuffered();
+      reloadRestoreRef.current = null;
     };
-    const onPause = () => setPlayerPlaying(false);
+    const onPause = () => { clearPlaybackStallTimer(); setPlayerPlaying(false); };
+    const onLoadStart = () => {
+      setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
+      armPlayerLoadTimeout();
+    };
+    const onSeeking = () => {
+      setPlayerLoadingState(true, language === 'ar' ? 'جارٍ الانتقال إلى الموضع…' : 'Seeking…');
+      armPlayerLoadTimeout();
+      syncTime();
+    };
+    const onSeeked = () => {
+      clearPlayerLoadTimeout();
+      setPlayerLoadingState(false);
+      syncTime();
+    };
     const onWaiting = () => {
+      const wasPlaying = !video.paused && !video.ended;
+      if (wasPlaying || userPlayRequestedRef.current) {
+        resumeAfterBufferingRef.current = true;
+      }
       if (!playbackStartedRef.current) setPlaybackError(null);
+      setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Buffering…');
+      armPlayerLoadTimeout();
+      if (playbackStallTimerRef.current !== null) window.clearTimeout(playbackStallTimerRef.current);
+      playbackStallTimerRef.current = window.setTimeout(() => {
+        playbackStallTimerRef.current = null;
+        if (
+          (userPlayRequestedRef.current || !video.paused) &&
+          !video.ended &&
+          video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
+        ) {
+          markPlaybackSourceFailed();
+        }
+      }, 9000);
       syncTime();
       syncBuffered();
     };
@@ -1087,17 +1402,48 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       setPlayerMuted(video.muted);
     };
     const events: Array<[string, EventListener]> = [
+      ['loadstart', onLoadStart],
       ['loadedmetadata', onMetadata],
       ['durationchange', syncDuration],
       ['loadeddata', () => { setPlayerReady(true); syncTime(); syncBuffered(); }],
-      ['canplay', () => { setPlayerReady(true); syncDuration(); syncBuffered(); }],
-      ['canplaythrough', () => { setPlayerReady(true); syncDuration(); syncBuffered(); }],
+      ['canplay', () => {
+        clearPlayerLoadTimeout();
+        clearPlaybackStallTimer();
+        setPlayerLoadingState(false);
+        setPlayerReady(true);
+        syncDuration();
+        syncBuffered();
+        const restore = reloadRestoreRef.current;
+        if (restore) {
+          const shouldPlay = restore.wasPlaying;
+          reloadRestoreRef.current = null;
+          if (shouldPlay) void video.play().catch(() => undefined);
+        }
+        if (resumeAfterBufferingRef.current && video.paused && !video.ended) {
+          resumeAfterBufferingRef.current = false;
+          void video.play().catch(() => undefined);
+        }
+      }],
+      ['canplaythrough', () => {
+        clearPlayerLoadTimeout();
+        clearPlaybackStallTimer();
+        setPlayerLoadingState(false);
+        setPlayerReady(true);
+        syncDuration();
+        syncBuffered();
+      }],
       ['timeupdate', syncTime],
       ['progress', syncBuffered],
       ['playing', onPlaying],
       ['pause', onPause],
       ['waiting', onWaiting],
       ['stalled', onWaiting],
+      ['seeking', onSeeking],
+      ['seeked', onSeeked],
+      ['error', () => {
+        clearPlayerLoadTimeout();
+        setPlayerLoadingState(false);
+      }],
       ['volumechange', onVolume],
       ['ended', () => setPlayerPlaying(false)],
     ];
@@ -1108,33 +1454,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     };
   }, [playbackUrl, playbackSource?.type, isEmbedPlayback]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!videoRef.current || !playerShellRef.current) return;
-      const target = event.target as HTMLElement | null;
-      if (target && ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(target.tagName)) return;
-
-      if (event.code === 'Space') {
-        event.preventDefault();
-        togglePlayerPlayback();
-      } else if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        seekPlayerBy(-10);
-      } else if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        seekPlayerBy(10);
-      } else if (event.key.toLowerCase() === 'm') {
-        event.preventDefault();
-        togglePlayerMute();
-      } else if (event.key.toLowerCase() === 'f') {
-        event.preventDefault();
-        void togglePlayerFullscreen();
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  });
 
   if (loading) {
     return (
@@ -1315,6 +1634,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </div>
         )}
 
+        {resolverLoading && (
+          <div className="movyza-source-wait" role="status" aria-live="polite">
+            <Loader2 className="h-4 w-4 animate-spin text-amber-300" />
+            <span>
+              {language === 'ar'
+                ? 'انتظر قليلاً، الموقع يحاول جلب مصدر للفيديو لك…'
+                : 'Please wait a moment while the site fetches a video source…'}
+            </span>
+          </div>
+        )}
+
         <div className="movyza-player-shell overflow-hidden shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
             <div
@@ -1351,7 +1681,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
               {isEmbedPlayback ? (
                 <iframe
-                  key={playbackUrl}
+                  key={`${playbackUrl}-${playerReloadKey}`}
                   src={playbackUrl}
                   title={displayTitle || 'Movyz player'}
                   className="absolute inset-0 h-full w-full border-0 bg-black"
@@ -1365,10 +1695,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 poster={content.backdropUrl || content.posterUrl}
                 className={(isEmbedPlayback ? 'hidden ' : '') + 'block h-full w-full bg-black object-contain'}
                 playsInline
-                preload="auto"
+                preload="metadata"
                 disablePictureInPicture={false}
                 onLoadStart={() => {
                   playbackStartedRef.current = false;
+                  setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
+                  armPlayerLoadTimeout();
                   startupRecoveryStageRef.current = 'idle';
                   if (startupRecoveryTimerRef.current !== null) {
                     window.clearTimeout(startupRecoveryTimerRef.current);
@@ -1394,6 +1726,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   setPlayerReady(true);
                   if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
 
+                  const reloadRestore = reloadRestoreRef.current;
+                  if (reloadRestore && Number.isFinite(video.duration) && video.duration > 0) {
+                    try {
+                      video.currentTime = Math.min(reloadRestore.time, Math.max(0, video.duration - 0.25));
+                    } catch {}
+                  }
+
                   const resumeTime = qualityResumeTimeRef.current;
                   if (resumeTime !== null && Number.isFinite(video.duration) && video.duration > 0) {
                     qualityResumeTimeRef.current = null;
@@ -1403,19 +1742,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       // Ignore sources that reject a resume seek.
                     }
                   }
-
-                  // Akwam's MP4/CDN responses can expose metadata while keeping only
-                  // a tiny initial range warm. Jumping forward once forces a second
-                  // usable range to be opened, then we restore the original position.
-                  if (
-                    video.currentTime < 1 &&
-                    Number.isFinite(video.duration) &&
-                    video.duration >= 45 &&
-                    video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
-                  ) {
-                    window.setTimeout(() => recoverStartupBuffer(), 250);
-                  }
                 }}
+
                 onDurationChange={() => {
                   const video = videoRef.current;
                   if (video && Number.isFinite(video.duration) && video.duration > 0) {
@@ -1432,7 +1760,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onTimeUpdate={() => {
                   const video = videoRef.current;
                   if (!video) return;
-                  setPlayerCurrentTime(video.currentTime || 0);
+                  setPlayerCurrentTime(
+                    startupRecoveryStageRef.current === 'recovering' ? 0 : (video.currentTime || 0),
+                  );
                   if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
                   if (video.buffered.length > 0) {
                     try {
@@ -1445,7 +1775,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   if (!video) return;
                   setPlayerReady(true);
                   if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
-                  setPlayerCurrentTime(video.currentTime || 0);
+                  setPlayerCurrentTime(
+                    startupRecoveryStageRef.current === 'recovering' ? 0 : (video.currentTime || 0),
+                  );
                 }}
                 onVolumeChange={() => {
                   const video = videoRef.current;
@@ -1456,6 +1788,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onCanPlay={() => {
                   const video = videoRef.current;
                   if (!video) return;
+
+                  clearPlayerLoadTimeout();
+                  setPlayerLoadingState(false);
 
                   if (startupGuardTimerRef.current !== null) {
                     window.clearTimeout(startupGuardTimerRef.current);
@@ -1474,38 +1809,63 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
                 }}
                 onWaiting={() => {
+                  const video = videoRef.current;
+                  const wasPlaying = Boolean(video && !video.paused && !video.ended);
+                  if (wasPlaying || userPlayRequestedRef.current) {
+                    resumeAfterBufferingRef.current = true;
+                  }
+                  setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Buffering…');
+                  // Metadata-aware armPlayerLoadTimeout() will no-op during normal buffering.
+                  armPlayerLoadTimeout();
                   if (!playbackStartedRef.current) {
                     setPlaybackError(null);
-                    const video = videoRef.current;
-                    if (video && video.currentTime < 20) {
-                      recoverStartupBuffer();
-                    }
                   }
                 }}
                 onStalled={() => {
+                  const video = videoRef.current;
+                  const wasPlaying = Boolean(video && !video.paused && !video.ended);
+                  if (wasPlaying || userPlayRequestedRef.current) {
+                    resumeAfterBufferingRef.current = true;
+                  }
+                  setPlayerLoadingState(true, language === 'ar' ? 'الاتصال بالمصدر بطيء…' : 'The source is responding slowly…');
+                  armPlayerLoadTimeout();
                   if (!playbackStartedRef.current) {
                     setPlaybackError(null);
-                    const video = videoRef.current;
-                    if (video && video.currentTime < 20) {
-                      recoverStartupBuffer();
-                    }
                   }
                 }}
-                onClick={() => {
-                  togglePlayerPlayback();
+                onSeeking={() => {
+                  setPlayerLoadingState(true, language === 'ar' ? 'جارٍ الانتقال…' : 'Seeking…');
+                  armPlayerLoadTimeout();
                 }}
-                onDoubleClick={() => {
-                  void togglePlayerFullscreen();
+                onSeeked={() => {
+                  clearPlayerLoadTimeout();
+                  setPlayerLoadingState(false);
+                }}
+                onPointerUp={handlePlayerSurfacePointerUp}
+                onDoubleClick={(event) => {
+                  const target = event.target as HTMLElement | null;
+                  if (target?.closest('button,input,select')) return;
+                  const rect = playerShellRef.current?.getBoundingClientRect();
+                  if (!rect) return;
+                  seekPlayerBy(event.clientX - rect.left < rect.width / 2 ? -10 : 10);
                 }}
                 onPlaying={() => {
+                  clearPlayerLoadTimeout();
+                  setPlayerLoadingState(false);
                   playbackStartedRef.current = true;
                   setPlaybackError(null);
                 }}
                 onError={() => {
+                  clearPlayerLoadTimeout();
+                  clearPlaybackStallTimer();
+                  setPlayerLoadingState(false);
                   playbackStartedRef.current = false;
                   if (!playbackUrl) return;
 
-                  markPlaybackSourceFailed();                  const mediaError = videoRef.current?.error;
+                  const switched = markPlaybackSourceFailed();
+                  if (switched) return;
+
+                  const mediaError = videoRef.current?.error;
                   const code = mediaError?.code;
                   const detail =
                     code === MediaError.MEDIA_ERR_ABORTED
@@ -1525,9 +1885,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               </video>
  
               
-              {!isEmbedPlayback && !playbackError && !playerReady ? (
-                <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center">
-                  <div className="h-10 w-10 rounded-full border-2 border-white/15 border-t-amber-400 animate-spin" />
+              {!isEmbedPlayback && playerLoading ? (
+                <div className="movyza-player-loading pointer-events-none absolute inset-0 z-25 flex items-center justify-center" aria-live="polite">
+                  <div className="movyza-player-loading-card">
+                    <div className="movyza-player-spinner" />
+                    <span>{playerLoadingMessage}</span>
+                  </div>
+                </div>
+              ) : null}
+
+              {seekFeedback ? (
+                <div className={"movyza-seek-feedback " + (seekFeedback.delta < 0 ? 'is-left' : 'is-right')} key={seekFeedback.id}>
+                  <span>{seekFeedback.delta < 0 ? '−10' : '+10'}</span>
                 </div>
               ) : null}
 
@@ -1536,10 +1905,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               >
                 <div className={'movyza-player-controls pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent pt-16 pb-3 px-3 sm:px-4 ' + (playerControlsVisible ? 'is-visible' : 'is-hidden')}>
                   <div className="flex flex-col gap-2">
-                    <div className="relative">
+                    <div className="movyza-progress-track relative">
                       <div
-                        className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-white/15 pointer-events-none"
+                        className="movyza-progress-buffered"
                         style={{ width: playerDuration > 0 ? `${Math.min(100, Math.max(0, playerBufferedEnd / playerDuration * 100))}%` : '0%' }}
+                      />
+                      <div
+                        className="movyza-progress-played"
+                        style={{ width: playerDuration > 0 ? `${Math.min(100, Math.max(0, playerCurrentTime / playerDuration * 100))}%` : '0%' }}
                       />
                       <input
                         aria-label={language === 'ar' ? 'موضع الفيديو' : 'Video position'}
@@ -1549,10 +1922,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                         step="0.1"
                         value={Math.min(playerCurrentTime, Math.max(playerDuration, 0))}
                         onChange={(event) => setPlayerProgress(Number(event.target.value))}
+                        dir="ltr"
                         className="movyza-player-seek relative z-10 w-full accent-amber-400 cursor-pointer"
                       />
                     </div>
-                    <div className="flex items-center gap-2 text-white">
+                    <div className="movyza-player-control-row flex items-center gap-2 text-white flex-wrap">
                       <button
                         type="button"
                         onClick={togglePlayerPlayback}
@@ -1593,13 +1967,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                         step="0.01"
                         value={playerMuted ? 0 : playerVolume}
                         onChange={(event) => setPlayerVolumeLevel(Number(event.target.value))}
-                        className="hidden sm:block w-20 accent-amber-400 cursor-pointer"
+                        className="movyza-volume-slider hidden sm:block w-20 accent-amber-400 cursor-pointer"
                       />
-                      <span className="min-w-20 text-[11px] font-mono text-white/75 tabular-nums">
+                      <span className="movyza-player-time min-w-20 text-[11px] font-mono text-white/75 tabular-nums">
                         {formatPlayerTime(playerCurrentTime)} / {formatPlayerTime(playerDuration)}
                       </span>
                       <div className="flex-1" />
-                      <label className="flex items-center gap-1.5 text-[11px] text-white/80">
+                      <label className="movyza-player-speed flex items-center gap-1.5 text-[11px] text-white/80">
                         <span className="hidden sm:inline">{language === 'ar' ? 'السرعة' : 'Speed'}</span>
                         <select
                           aria-label={language === 'ar' ? 'سرعة التشغيل' : 'Playback speed'}
@@ -1617,6 +1991,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                           ))}
                         </select>
                       </label>
+                      <button
+                        type="button"
+                        onClick={reloadPlayer}
+                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        aria-label={language === 'ar' ? 'إعادة تحميل الفيديو' : 'Reload video'}
+                        title={language === 'ar' ? 'إعادة تحميل الفيديو' : 'Reload video'}
+                      >
+                        <RefreshCw size={17} className={playerLoading ? 'animate-spin' : ''} />
+                      </button>
+
                       {document.pictureInPictureEnabled && typeof videoRef.current?.requestPictureInPicture === 'function' ? (
                         <button
                           type="button"

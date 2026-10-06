@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { adminSupabase } from './supabase';
 import { asyncRoute, created, fail, ok } from './http';
 import { requireAdmin, requireAuth, requireOwner, type AuthenticatedRequest } from './auth';
-import { runTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId } from './tmdb';
+import { runTmdbSync, runFreshTmdbSync, syncEpisodesForSeries, syncMovieByTmdbId, syncSeriesByTmdbId, importCuratedCatalog } from './tmdb';
 import { resolveAkwamNow } from '../workers/akwam-prefill/src/index';
 
 export const app = new MiniApp();
@@ -41,6 +41,7 @@ type BrokerSource = {
   providerKey: string;
   providerReference: string;
   expiresAt: string | null;
+  referer?: string;
 };
 
 type BrokerCacheValue = {
@@ -53,8 +54,17 @@ const playbackBrokerInflight = new Map<string, Promise<BrokerSource[]>>();
 const PLAYBACK_BROKER_TTL_MS = 2 * 60 * 1000;
 const PLAYBACK_BROKER_MAX_MEMORY_KEYS = 256;
 
-function brokerCacheKey(contentType: 'movie' | 'episode', contentId: string) {
-  return `https://movyz-cache.invalid/playback/${contentType}/${encodeURIComponent(contentId)}`;
+function brokerCacheKey(
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  seasonNumber?: number,
+  episodeNumber?: number,
+) {
+  const query = new URLSearchParams();
+  if (Number.isFinite(seasonNumber)) query.set('season', String(Math.trunc(Number(seasonNumber))));
+  if (Number.isFinite(episodeNumber)) query.set('episode', String(Math.trunc(Number(episodeNumber))));
+  const suffix = query.toString();
+  return `https://movyz-cache.invalid/playback/${contentType}/${encodeURIComponent(contentId)}${suffix ? `?${suffix}` : ''}`;
 }
 
 function trimBrokerMemory() {
@@ -126,17 +136,26 @@ async function edgeBrokerInvalidate(key: string) {
 }
 
 function normalizeBrokerMediaSources(
-  sources: Array<{ url: string; type: string; quality?: string }>,
+  sources: Array<{ url: string; type: string; quality?: string; referer?: string }>,
   contentType: 'movie' | 'episode',
   contentId: string,
   requestUrl: string,
+  seasonNumber?: number,
+  episodeNumber?: number,
 ): BrokerSource[] {
   const relayOrigin = new URL(requestUrl).origin;
   return sources
     .filter((source) => /^https:\/\//i.test(String(source?.url || '')))
     .map((source, index) => {
       const quality = normalizePlaybackQuality(source.quality || 'Auto');
-      const relayUrl = relayOrigin + api + '/playback/stream?type=' + encodeURIComponent(contentType) + '&contentId=' + encodeURIComponent(contentId) + '&source=' + index;
+      const relayParams = new URLSearchParams({
+        type: contentType,
+        contentId,
+        source: String(index),
+      });
+      if (Number.isFinite(seasonNumber)) relayParams.set('season', String(seasonNumber));
+      if (Number.isFinite(episodeNumber)) relayParams.set('episode', String(episodeNumber));
+      const relayUrl = relayOrigin + api + '/playback/stream?' + relayParams.toString();
       return {
         id: `akwam-live:${contentType}:${contentId}:${index}`,
         type: String(source.type || 'direct').toLowerCase(),
@@ -151,6 +170,9 @@ function normalizeBrokerMediaSources(
         providerKey: 'akwam',
         providerReference: 'akwam',
         expiresAt: null,
+        referer: typeof source.referer === 'string' && /^https:\/\//i.test(source.referer)
+          ? source.referer
+          : 'https://akwam.ss/',
       };
     })
     .filter((source) =>
@@ -166,7 +188,7 @@ async function resolvePlaybackBroker(
   seasonNumber?: number,
   episodeNumber?: number,
 ): Promise<{ sources: BrokerSource[]; mode: 'edge-cache' | 'live' }> {
-  const key = brokerCacheKey(contentType, contentId);
+  const key = brokerCacheKey(contentType, contentId, seasonNumber, episodeNumber);
 
   const cached = await edgeBrokerRead(key);
   if (cached?.length) {
@@ -204,7 +226,14 @@ async function resolvePlaybackBroker(
       },
     );
 
-    const sources = normalizeBrokerMediaSources(media, contentType, contentId, req.url);
+    const sources = normalizeBrokerMediaSources(
+      media,
+      contentType,
+      contentId,
+      req.url,
+      seasonNumber,
+      episodeNumber,
+    );
     if (!sources.length) throw new Error('PLAYBACK_BROKER_NO_PLAYABLE_SOURCE');
     await edgeBrokerWrite(key, sources);
     return sources;
@@ -233,9 +262,9 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
 
   const seasonNumber = typeof req.query.season === 'string' ? Number(req.query.season) : undefined;
   const episodeNumber = typeof req.query.episode === 'string' ? Number(req.query.episode) : undefined;
-  const cacheKey = brokerCacheKey(contentType, contentId);
+  const cacheKey = brokerCacheKey(contentType, contentId, seasonNumber, episodeNumber);
 
-  const fetchUpstream = async (upstreamUrl: string) => {
+  const fetchUpstream = async (upstreamUrl: string, referer?: string) => {
     const upstreamHeaders = new Headers();
     // Media startup/seek is driven by byte ranges. Do not forward conditional-cache
     // validators from the browser because a 304 has no media body and can leave a
@@ -243,8 +272,13 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     const range = req.headers.get('range');
     if (range) upstreamHeaders.set('range', range);
     upstreamHeaders.set('Accept', req.headers.get('accept') || '*/*');
-    upstreamHeaders.set('Referer', 'https://akwam.ss/');
-    upstreamHeaders.set('Origin', 'https://akwam.ss');
+    const sourceReferer = /^https:\/\//i.test(String(referer || '')) ? String(referer) : 'https://akwam.ss/';
+    upstreamHeaders.set('Referer', sourceReferer);
+    try {
+      upstreamHeaders.set('Origin', new URL(sourceReferer).origin);
+    } catch {
+      upstreamHeaders.set('Origin', 'https://akwam.ss');
+    }
     upstreamHeaders.set('User-Agent', req.headers.get('user-agent') || 'Mozilla/5.0');
     upstreamHeaders.set('Accept-Encoding', 'identity');
 
@@ -252,9 +286,10 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
       method: req.method === 'HEAD' ? 'HEAD' : 'GET',
       headers: upstreamHeaders,
       redirect: 'follow',
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(8000),
     });
   };
+ 
 
   const isBadUpstream = (upstream: Response) => {
     const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
@@ -262,6 +297,72 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
       contentType.includes('text/html') ||
       contentType.includes('application/json') ||
       contentType.includes('text/plain');
+  };
+
+  const upstreamLooksPlayable = async (upstream: Response, source: BrokerSource) => {
+    if (isBadUpstream(upstream)) return false;
+
+    const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
+    if (
+      contentType.startsWith('video/') ||
+      contentType.includes('mpegurl') ||
+      contentType.includes('dash+xml') ||
+      contentType.includes('x-mpegurl')
+    ) {
+      return true;
+    }
+
+    try {
+      const clone = upstream.clone();
+      const reader = clone.body?.getReader();
+      if (!reader) return false;
+
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      while (total < 4096) {
+        const next = await reader.read();
+        if (next.done) break;
+        if (!next.value?.length) continue;
+        const remaining = 4096 - total;
+        const chunk = next.value.length > remaining ? next.value.slice(0, remaining) : next.value;
+        chunks.push(chunk);
+        total += chunk.length;
+      }
+      try { await reader.cancel(); } catch {}
+
+      const body = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        body.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      const sample = new TextDecoder().decode(body.slice(0, Math.min(body.length, 4096))).trim();
+      if (!sample) return false;
+      if (/^<!doctype|^<html|captcha|cloudflare|access denied|application\/json/i.test(sample)) return false;
+
+      const sourceType = String(source.type || '').toLowerCase();
+      if (sourceType === 'hls' || /\.m3u8(?:[?#]|$)/i.test(source.directUrl || '')) {
+        return /#EXTM3U|#EXT-X-/i.test(sample) || contentType.includes('mpegurl');
+      }
+      if (sourceType === 'dash' || /\.mpd(?:[?#]|$)/i.test(source.directUrl || '')) {
+        return /<MPD[\s>]|<\?xml[\s\S]*<MPD/i.test(sample) || contentType.includes('dash+xml');
+      }
+      if (sourceType === 'webm') {
+        return body.length >= 4 && body[0] === 0x1a && body[1] === 0x45 && body[2] === 0xdf && body[3] === 0xa3;
+      }
+
+      return (
+        body.length >= 256 &&
+        (
+          contentType.includes('octet-stream') ||
+          upstream.status === 206 ||
+          /\b(?:moov|ftyp)\b/i.test(sample)
+        )
+      );
+    } catch {
+      return false;
+    }
   };
 
   try {
@@ -285,13 +386,14 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
         if (!candidate || candidate.providerKey !== 'akwam' || !/^https:\/\//i.test(candidateUrl)) continue;
 
         try {
-          const candidateResponse = await fetchUpstream(candidateUrl);
-          if (isBadUpstream(candidateResponse)) continue;
+          const candidateResponse = await fetchUpstream(candidateUrl, candidate.referer);
+          if (!(await upstreamLooksPlayable(candidateResponse, candidate))) continue;
 
-          // Do not wait for the first media bytes here. Once Akwam accepts the
-          // ranged request and returns a media response, stream that body to the
-          // browser immediately. Waiting here added an artificial startup stall.
-          return { source: candidate, upstream: candidateResponse, body: candidateResponse.body };
+          return {
+            source: candidate,
+            upstream: candidateResponse,
+            body: candidateResponse.body,
+          };
         } catch (error) {
           console.warn(
             '[playback-stream-candidate]',
@@ -525,11 +627,14 @@ async function batchSeriesGenres(ids: string[]) {
 }
 
 async function movieDto(row: any) {
-
-  const [genres, cast] = await Promise.all([
+  const [genresResult, castResult] = await Promise.all([
     adminSupabase.from('movie_genres').select('genres(id,name_ar,name_en,slug)').eq('movie_id', row.id),
     adminSupabase.from('movie_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('movie_id', row.id).order('cast_order'),
   ]);
+
+  const genres = genresResult.error ? [] : (genresResult.data || []);
+  const cast = castResult.error ? [] : (castResult.data || []);
+
   return {
     id: row.id, tmdbId: Number(row.tmdb_id || 0), type: 'movie',
     title: row.title_ar, titleEn: row.title_en || row.title_ar,
@@ -540,9 +645,9 @@ async function movieDto(row: any) {
     runtime: Number(row.runtime_minutes || 0),
     overview: row.overview_ar || '', overviewEn: row.overview_en || row.overview_ar || '',
     posterUrl: row.poster_url || '', backdropUrl: row.backdrop_url || '',
-    genres: (genres.data || []).map((x: any) => genreDto(x.genres)),
+    genres: genres.map((x: any) => genreDto(x.genres)),
     director: row.metadata?.director_ar || '', directorEn: row.metadata?.director_en || '',
-    cast: (cast.data || []).map((x: any) => ({
+    cast: cast.map((x: any) => ({
       id: x.people.id, name: x.people.name_ar || x.people.name_en,
       nameEn: x.people.name_en || x.people.name_ar,
       character: x.character_ar || '', characterEn: x.character_en || '',
@@ -613,7 +718,7 @@ async function seriesDto(row: any, includePlaybackSources = false, requestUrl?: 
 }
 
 async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: number, requestUrl?: string, env?: Record<string, unknown>) {
-  const [genres, cast, seasonResult] = await Promise.all([
+  const [genresResult, castResult, seasonResult] = await Promise.all([
     adminSupabase.from('series_genres').select('genres(id,name_ar,name_en,slug)').eq('series_id', row.id),
     adminSupabase.from('series_cast').select('character_ar,character_en,people(id,name_ar,name_en,avatar_url)').eq('series_id', row.id).order('cast_order'),
     adminSupabase.from('seasons').select('*').eq('series_id', row.id).eq('season_number', seasonNumber).maybeSingle(),
@@ -621,6 +726,8 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
 
   if (seasonResult.error || !seasonResult.data) return null;
   const season = seasonResult.data;
+  const genres = genresResult.error ? [] : (genresResult.data || []);
+  const cast = castResult.error ? [] : (castResult.data || []);
   const { data: episodes, error: episodesError } = await adminSupabase
     .from('episodes').select('*').eq('season_id', season.id).order('episode_number');
   if (episodesError) throw new Error('Unable to load season episodes: ' + episodesError.message);
@@ -655,9 +762,9 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
     votesCount: Number(row.vote_count || 0), overview: row.overview_ar || '',
     overviewEn: row.overview_en || row.overview_ar || '',
     posterUrl: row.poster_url || '', backdropUrl: row.backdrop_url || '',
-    genres: (genres.data || []).map((x: any) => genreDto(x.genres)),
+    genres: genres.map((x: any) => genreDto(x.genres)),
     creator: row.metadata?.creator_ar || '', creatorEn: row.metadata?.creator_en || '',
-    cast: (cast.data || []).map((x: any) => ({
+    cast: cast.map((x: any) => ({
       id: x.people.id, name: x.people.name_ar || x.people.name_en,
       nameEn: x.people.name_en || x.people.name_ar, character: x.character_ar || '',
       characterEn: x.character_en || '', avatarUrl: x.people.avatar_url || '',
@@ -797,11 +904,7 @@ app.get(`${api}/movies/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
 
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
   const movie = await movieDto(data);
-    req.waitUntil?.(
-      resolvePlaybackBroker(req, 'movie', String(data.id)).catch((error) => {
-        console.warn('[playback-broker-prewarm:movie]', error instanceof Error ? error.message : String(error));
-      }),
-    );
+  res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=60, stale-while-revalidate=120');
   return ok(res, { movie, similar: [] });
 }));
 
@@ -809,11 +912,7 @@ app.get(`${api}/movies/:id`, asyncRoute(async (req, res) => {
   const { data, error } = await adminSupabase.from('movies').select('*').eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error || !data) return fail(res, 404, 'MOVIE_NOT_FOUND', 'Movie not found');
   const movie = await movieDto(data);
-    req.waitUntil?.(
-      resolvePlaybackBroker(req, 'movie', String(data.id)).catch((error) => {
-        console.warn('[playback-broker-prewarm:movie]', error instanceof Error ? error.message : String(error));
-      }),
-    );
+  res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=60, stale-while-revalidate=120');
   return ok(res, { movie, similar: [] });
 }));
 
@@ -912,21 +1011,6 @@ app.get(`${api}/series/tmdb/:tmdbId`, asyncRoute(async (req, res) => {
 
   if (error || !data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
   const series = await seriesDto(data, false);
-    const firstSeason = series.seasons?.[0];
-    const firstEpisode = firstSeason?.episodes?.[0];
-    if (firstEpisode?.id) {
-      req.waitUntil?.(
-        resolvePlaybackBroker(
-          req,
-          'episode',
-          String(firstEpisode.id),
-          Number(firstEpisode.seasonNumber || firstSeason.seasonNumber || 1),
-          Number(firstEpisode.episodeNumber || 1),
-        ).catch((error) => {
-          console.warn('[playback-broker-prewarm:episode]', error instanceof Error ? error.message : String(error));
-        }),
-      );
-    }
   return ok(res, { series, similar: [] });
 }));
 
@@ -934,21 +1018,6 @@ app.get(`${api}/series/:id`, asyncRoute(async (req, res) => {
   const { data, error } = await adminSupabase.from('series').select('*').eq('id', req.params.id).eq('status', 'published').maybeSingle();
   if (error || !data) return fail(res, 404, 'SERIES_NOT_FOUND', 'Series not found');
   const series = await seriesDto(data);
-    const firstSeason = series.seasons?.[0];
-    const firstEpisode = firstSeason?.episodes?.[0];
-    if (firstEpisode?.id) {
-      req.waitUntil?.(
-        resolvePlaybackBroker(
-          req,
-          'episode',
-          String(firstEpisode.id),
-          Number(firstEpisode.seasonNumber || firstSeason.seasonNumber || 1),
-          Number(firstEpisode.episodeNumber || 1),
-        ).catch((error) => {
-          console.warn('[playback-broker-prewarm:episode]', error instanceof Error ? error.message : String(error));
-        }),
-      );
-    }
   return ok(res, { series, similar: [] });
 }));
 
@@ -1423,6 +1492,16 @@ app.delete(`${api}` + '/admin/episodes/:id', requireAuth, requireAdmin, asyncRou
   return ok(res, { deleted:true });
 }));
 
+app.post(`${api}/internal/tmdb/sync-fresh`, asyncRoute(async (req, res) => {
+  const expectedKey = String(req.env?.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  const providedKey = String(req.header('x-movyz-internal-key') || '').trim();
+  if (!expectedKey || !providedKey || providedKey !== expectedKey) return fail(res, 401, 'UNAUTHORIZED', 'Unauthorized internal fresh sync request');
+  const body = z.object({ pages: z.number().int().min(1).max(3).default(2) }).safeParse(req.body || {});
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid fresh sync options');
+  try { return ok(res, await runFreshTmdbSync({ pages: body.data.pages })); }
+  catch (error) { return fail(res, 502, 'TMDB_FRESH_SYNC_FAILED', error instanceof Error ? error.message : String(error)); }
+}));
+
 app.post(`${api}/admin/sync/tmdb/episodes`, requireAuth, requireAdmin, asyncRoute(async (req: AuthenticatedRequest, res) => {
   const body = z.object({ seriesLimit: z.number().int().min(1).max(25).default(10) }).safeParse(req.body || {});
   if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid episode sync options');
@@ -1441,6 +1520,32 @@ app.post(`${api}/admin/sync/tmdb/episodes`, requireAuth, requireAdmin, asyncRout
     });
   } catch (error) {
     return fail(res, 502, 'TMDB_EPISODE_SYNC_FAILED', error instanceof Error ? error.message : 'Episode sync failed');
+  }
+}));
+
+app.post(`${api}/internal/tmdb/import-curated`, asyncRoute(async (req, res) => {
+  const expectedKey = String(req.env?.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  const providedKey = String(req.header('x-movyz-internal-key') || '').trim();
+  if (!expectedKey || !providedKey || providedKey !== expectedKey) {
+    return fail(res, 401, 'UNAUTHORIZED', 'Unauthorized internal import request');
+  }
+
+  const body = z.object({
+    items: z.array(z.object({
+      rank: z.number().int().min(1).max(200),
+      title: z.string().trim().min(1).max(300),
+      year: z.number().int().min(1900).max(2100).optional(),
+      mediaType: z.enum(['movie', 'series']),
+    })).min(1).max(200),
+  }).safeParse(req.body || {});
+
+  if (!body.success) return fail(res, 400, 'INVALID_BODY', 'Invalid curated catalog payload');
+
+  try {
+    const result = await importCuratedCatalog(body.data.items);
+    return ok(res, result);
+  } catch (error) {
+    return fail(res, 502, 'CURATED_IMPORT_FAILED', error instanceof Error ? error.message : String(error));
   }
 }));
 

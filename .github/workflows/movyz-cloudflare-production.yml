@@ -1,0 +1,325 @@
+name: Movyz Cloudflare Production Deploy (GitHub Actions)
+
+on:
+  push:
+    branches:
+      - ui/watch-player-responsive-20261005
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movyz-production-github-actions
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
+
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configure npm resilience
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set audit false
+          npm config set fund false
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund --ignore-scripts
+
+      - name: Validate TypeScript
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build frontend
+        env:
+          MOVYZ_BUILD_ID: ${{ github.sha }}
+        run: npm run build
+
+      - name: Validate Cloudflare configuration
+        run: npx wrangler deploy --dry-run
+
+      - name: Prepare Movyz runtime secrets
+        run: |
+          {
+            printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"
+            printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_ANON_KEY"
+            printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
+            printf 'TMDB_API_READ_ACCESS_TOKEN=%s\n' "$TMDB_API_READ_ACCESS_TOKEN"
+          } > .env.production
+
+      - name: Deploy Worker to Cloudflare
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }}
+
+      - name: Live playback smoke - movie and relay
+        run: |
+          python - <<'PY'
+          import json, urllib.error, urllib.request, uuid
+
+          api = "https://movyz-api.sameranede.workers.dev"
+          movie_id = "6591564a-13a9-4892-a166-247d1ff9158b"
+
+          def request_json(url, timeout=90, method="GET", headers=None):
+              req = urllib.request.Request(
+                  url,
+                  method=method,
+                  headers={
+                      "Accept": "application/json",
+                      "User-Agent": "Movyz-GitHub-Actions-Smoke/1.0",
+                      **(headers or {}),
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as response:
+                      body = response.read()
+                      return response.status, response.headers, json.loads(body.decode("utf-8"))
+              except urllib.error.HTTPError as error:
+                  body = error.read().decode("utf-8", "replace")
+                  raise SystemExit(f"{url}: HTTP {error.code}: {body[:900]}")
+
+          status, _, payload = request_json(
+              api + "/api/v1/playback/prepare?type=movie&contentId=" + movie_id
+          )
+          sources = payload.get("data", {}).get("sources", [])
+          if status != 200 or payload.get("success") is not True or not isinstance(sources, list) or not sources:
+              raise SystemExit(f"movie prepare failed: status={status} payload={str(payload)[:900]}")
+
+          relay = next((s.get("url") for s in sources if isinstance(s, dict) and str(s.get("url","")).startswith("https://")), None)
+          if not relay:
+              raise SystemExit("movie prepare returned no relay URL")
+
+          relay_req = urllib.request.Request(
+              relay,
+              method="GET",
+              headers={
+                  "Range": "bytes=0-1023",
+                  "Accept": "*/*",
+                  "User-Agent": "Movyz-GitHub-Actions-Smoke/1.0",
+                  "Referer": api + "/",
+                  "Origin": "https://movyz.example",
+              },
+          )
+          try:
+              with urllib.request.urlopen(relay_req, timeout=90) as response:
+                  chunk = response.read(1024)
+                  content_type = (response.headers.get("content-type") or "").lower()
+                  if response.status not in (200, 206):
+                      raise SystemExit(f"movie relay bad status: {response.status}")
+                  if any(x in content_type for x in ("text/html", "application/json", "text/plain")):
+                      raise SystemExit(f"movie relay returned non-media content-type: {content_type}")
+                  if not chunk:
+                      raise SystemExit("movie relay returned an empty body")
+                  print("MOVIE_PLAYBACK_OK", len(sources), "sources", "relay_status", response.status, "content_type", content_type)
+          except urllib.error.HTTPError as error:
+              body = error.read().decode("utf-8", "replace")
+              raise SystemExit(f"movie relay HTTP {error.code}: {body[:900]}")
+
+          status, _, watch_payload = request_json(
+              api + "/api/v1/series/tmdb/1399/watch/1/1"
+          )
+          current_season = watch_payload.get("data", {}).get("currentSeason", {})
+          episodes = current_season.get("episodes", []) if isinstance(current_season, dict) else []
+          episode_id = episodes[0].get("id") if episodes and isinstance(episodes[0], dict) else None
+          if not episode_id:
+              raise SystemExit("episode smoke could not resolve a real episode id from Breaking Bad S01E01")
+
+          episode_payload = None
+          episode_sources = []
+          last_error = None
+          for attempt in range(1, 3):
+              try:
+                  status, _, payload = request_json(
+                      api + "/api/v1/playback/prepare?type=episode&contentId=" + str(episode_id) + "&season=1&episode=1"
+                  )
+                  sources = payload.get("data", {}).get("sources", []) if isinstance(payload, dict) else []
+                  if status == 200 and payload.get("success") is True and isinstance(sources, list) and sources:
+                      episode_payload = payload
+                      episode_sources = sources
+                      break
+                  last_error = f"status={status} sources={len(sources) if isinstance(sources, list) else 0} payload={str(payload)[:700]}"
+              except Exception as error:
+                  last_error = str(error)
+              if attempt < 2:
+                  import time
+                  time.sleep(1.0)
+
+          if not episode_sources:
+              raise SystemExit(f"episode prepare failed after 2 attempts: {last_error}")
+
+          episode_relay = next((s.get("url") for s in episode_sources if isinstance(s, dict) and str(s.get("url","")).startswith("https://")), None)
+          if not episode_relay:
+              raise SystemExit("episode prepare returned no relay URL")
+
+          print("EPISODE_PLAYBACK_OK", len(episode_sources), "sources", "episode_id", episode_id)
+
+          for tmdb_id, title in ((93405, "Squid Game"), (66732, "Stranger Things")):
+              status, _, watch_payload = request_json(
+                  api + f"/api/v1/series/tmdb/{tmdb_id}/watch/1/1"
+              )
+              current_season = watch_payload.get("data", {}).get("currentSeason", {})
+              eps = current_season.get("episodes", []) if isinstance(current_season, dict) else []
+              eid = eps[0].get("id") if eps and isinstance(eps[0], dict) else None
+              if not eid:
+                  raise SystemExit(f"{title} S01E01 watch endpoint returned no episode id")
+              last_error = None
+              srcs = []
+              for attempt in range(1, 3):
+                  try:
+                      status, _, payload = request_json(
+                          api + "/api/v1/playback/prepare?type=episode&contentId=" + str(eid) + "&season=1&episode=1"
+                      )
+                      srcs = payload.get("data", {}).get("sources", []) if isinstance(payload, dict) else []
+                      if status == 200 and payload.get("success") is True and isinstance(srcs, list) and srcs:
+                          break
+                      last_error = f"status={status} sources={len(srcs) if isinstance(srcs,list) else 0}"
+                  except Exception as error:
+                      last_error = str(error)
+                  if attempt < 2:
+                      import time
+                      time.sleep(1.0)
+              if not srcs:
+                  raise SystemExit(f"{title} S01E01 playback failed after 2 attempts: {last_error}")
+              print(title.upper().replace(" ", "_"), "S01E01_PLAYBACK_OK", len(srcs), "sources", "episode_id", eid)
+
+          print("Movyz live playback smoke: ALL OK")
+          PY
+
+      - name: Full curated catalog playback audit
+        if: always()
+        timeout-minutes: 18
+        run: |
+          python - <<'PY'
+          import concurrent.futures, json, os, urllib.parse, urllib.request
+
+          api = "https://movyz-api.sameranede.workers.dev"
+          supabase = os.environ["SUPABASE_URL"].rstrip('/')
+          service = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          headers = {"apikey": service, "Authorization": "Bearer " + service, "Accept": "application/json"}
+
+          def sb(path):
+              req = urllib.request.Request(supabase + path, headers=headers)
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.loads(r.read().decode())
+
+          movies = sb("/rest/v1/movies?select=id,tmdb_id,title_en,metadata&limit=2000")
+          series = sb("/rest/v1/series?select=id,tmdb_id,title_en,metadata&limit=2000")
+          movies = [x for x in movies if isinstance(x.get('metadata'), dict) and str(x['metadata'].get('curated_rank','')).isdigit()]
+          series = [x for x in series if isinstance(x.get('metadata'), dict) and str(x['metadata'].get('curated_rank','')).isdigit()]
+
+          series_ids = [x['id'] for x in series]
+          seasons = []
+          for i in range(0, len(series_ids), 40):
+              ids = ','.join(str(x) for x in series_ids[i:i+40])
+              seasons.extend(sb('/rest/v1/seasons?select=id,series_id,season_number&series_id=in.(' + ids + ')&order=season_number.asc'))
+          season_ids = [x['id'] for x in seasons]
+          episodes = []
+          for i in range(0, len(season_ids), 80):
+              ids = ','.join(str(x) for x in season_ids[i:i+80])
+              episodes.extend(sb('/rest/v1/episodes?select=id,season_id,episode_number&season_id=in.(' + ids + ')&order=episode_number.asc'))
+
+          first_episode_by_season = {}
+          for e in episodes:
+              key = e['season_id']
+              if key not in first_episode_by_season or int(e.get('episode_number') or 999999) < int(first_episode_by_season[key].get('episode_number') or 999999):
+                  first_episode_by_season[key] = e
+          season_by_id = {x['id']: x for x in seasons}
+          series_by_id = {x['id']: x for x in series}
+
+          checks = []
+          for movie in movies:
+              checks.append(('movie', movie['id'], movie['title_en'], None, None, movie['tmdb_id']))
+          for season_id, ep in first_episode_by_season.items():
+              season = season_by_id[season_id]
+              s = series_by_id.get(season['series_id'])
+              if not s:
+                  continue
+              checks.append(('episode', ep['id'], s['title_en'], int(season['season_number']), int(ep['episode_number']), s['tmdb_id']))
+
+          def http(url, extra=None, timeout=90):
+              h = {'Accept':'application/json','User-Agent':'Movyz-Catalog-Audit/1.0'}
+              if extra:
+                  h.update(extra)
+              req = urllib.request.Request(url, headers=h, method='GET')
+              with urllib.request.urlopen(req, timeout=timeout) as r:
+                  return r.status, dict(r.headers), r.read()
+
+          def check(item):
+              typ, cid, title, season, episode, tmdb = item
+              last_detail = "unknown"
+              for attempt in range(1, 3):
+                  q = {'type': typ, 'contentId': cid}
+                  if season is not None:
+                      q['season'] = str(season)
+                      q['episode'] = str(episode)
+                  url = api + '/api/v1/playback/prepare?' + urllib.parse.urlencode(q)
+                  try:
+                      status, _, body = http(url)
+                      payload = json.loads(body.decode())
+                      sources = payload.get('data',{}).get('sources',[]) if isinstance(payload,dict) else []
+                      if status != 200 or payload.get('success') is not True or not sources:
+                          last_detail = f'prepare status={status} sources={len(sources) if isinstance(sources,list) else 0} body={body[:500]!r}'
+                      else:
+                          relay = next((s.get('url') for s in sources if isinstance(s,dict) and str(s.get('url','')).startswith('https://')), None)
+                          if not relay:
+                              last_detail = 'prepare returned no relay URL'
+                          else:
+                              rstatus, rh, chunk = http(relay, extra={'Range':'bytes=0-1023','Accept':'*/*'}, timeout=90)
+                              ct = str(rh.get('content-type','')).lower()
+                              if rstatus in (200,206) and chunk and not any(x in ct for x in ('text/html','application/json','text/plain')):
+                                  return (True, item, f'{len(sources)} sources relay={rstatus} ct={ct} attempt={attempt}')
+                              last_detail = f'relay status={rstatus} ct={ct} bytes={len(chunk)}'
+                  except Exception as e:
+                      last_detail = f'{type(e).__name__}: {e}'
+                  if attempt < 2:
+                      import time
+                      time.sleep(0.75)
+              return (False, item, last_detail)
+
+          failures=[]
+          ok=0
+          with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+              futures=[pool.submit(check,x) for x in checks]
+              for future in concurrent.futures.as_completed(futures):
+                  good,item,detail=future.result()
+                  if good:
+                      ok += 1
+                  else:
+                      failures.append((item,detail))
+
+          print(f'CATALOG_AUDIT checks={len(checks)} ok={ok} failed={len(failures)} movies={len(movies)} series={len(series)} seasons={len(seasons)} episodes_checked={len(first_episode_by_season)}')
+          for item,detail in failures[:100]:
+              print('FAIL', item, detail)
+          if failures:
+              raise SystemExit(f'Catalog playback audit failed: {len(failures)} checks')
+          PY
+
+      - name: Deployment marker
+        run: echo "DEPLOYED_COMMIT=${{ github.sha }}"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f .env.production

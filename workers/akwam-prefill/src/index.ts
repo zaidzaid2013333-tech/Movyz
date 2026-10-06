@@ -845,7 +845,7 @@ async function findEpisodeTargetBySearch(
       seeds[0] + " الموسم " + season + " الحلقة " + episode,
       seeds[0] + " الحلقة " + episode,
     ] : []),
-  ].filter(Boolean))).slice(0, 7);
+  ].filter((value): value is string => Boolean(value)))).slice(0, 7);
 
   let best: { url: string; score: number } | null = null;
 
@@ -1414,8 +1414,12 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   const medias: Media[] = [];
   const sourceReferer = episodeTarget || candidate?.url || base(env);
 
-  // Same bounded resolution order that produced the working Interstellar sources.
-  for (const target of targets.slice(0, 6)) {
+  // Use the same ranked target selection for both movies and episodes.
+  // Episode pages often expose several navigation/download hops before the
+  // final media hand-off; keeping only the first six can discard the usable
+  // link for otherwise valid series.
+  const rankedTargets = usefulResolutionTargets(targets, 10);
+  for (const target of rankedTargets) {
     const media = await resolveTarget(env, target, sourceReferer, budget, session);
     if (!media) continue;
     if (!medias.some((x) => x.url === media.url)) medias.push(media);

@@ -17,7 +17,33 @@ async function request<T>(
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);
 
-  const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const method = String(init.method || 'GET').toUpperCase();
+  const retryableStatuses = new Set([408, 425, 429, 500, 502, 503, 504]);
+  let response: Response | null = null;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+      try {
+        response = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: init.signal || controller.signal });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+      if (method !== 'GET' || !retryableStatuses.has(response.status) || attempt === 1) break;
+    } catch (error) {
+      lastError = error;
+      if (method !== 'GET' || attempt === 1) throw error;
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 180 * (attempt + 1)));
+  }
+
+  if (!response) {
+    throw (lastError instanceof Error ? lastError : new Error('Network request failed'));
+  }
+
   const payload = await response.json().catch(() => null);
 
   if (!response.ok || payload?.success === false) {
