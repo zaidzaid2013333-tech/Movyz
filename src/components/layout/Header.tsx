@@ -3,6 +3,7 @@ import { Search, Bookmark, User, Globe, Shield, LogOut, Menu, X, Play, Film, Dic
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { LANGUAGE_LIST } from '../../lib/i18n';
 
 interface HeaderProps {
   currentPath: string;
@@ -11,11 +12,12 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchlistCount = 0 }) => {
-  const { t, language, toggleLanguage } = useLanguage();
+  const { t, language, setLanguage } = useLanguage();
   const { user, isAdmin, logout } = useAuth();
   const { openSurprise } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
 
   const navLinks = [
     { label: t('home'), path: '/' },
@@ -107,14 +109,39 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
             )}
           </button>
 
-          <button
-            onClick={toggleLanguage}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/[0.05] transition-all cursor-pointer"
-            title={language === 'ar' ? 'Switch to English' : 'التحويل للعربية'}
-          >
-            <Globe className="w-3.5 h-3.5 text-amber-300" />
-            <span className="font-mono text-[11px] font-bold">{language === 'ar' ? 'EN' : 'عربي'}</span>
-          </button>
+          <div className="relative hidden sm:block">
+            <button
+              onClick={() => setLanguageMenuOpen((open) => !open)}
+              className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/[0.05] transition-all cursor-pointer"
+              title="Language"
+              aria-expanded={languageMenuOpen}
+              aria-label="Language"
+            >
+              <Globe className="w-3.5 h-3.5 text-amber-300" />
+              <span className="font-mono text-[11px] font-bold">{LANGUAGE_LIST.find((item) => item.code === language)?.nativeName || language.toUpperCase()}</span>
+            </button>
+            {languageMenuOpen && (
+              <div className="absolute top-full mt-2 right-0 w-56 max-h-80 overflow-y-auto rounded-2xl bg-[#0b0e14]/98 border border-white/10 shadow-2xl p-2 z-50 backdrop-blur-2xl">
+                {LANGUAGE_LIST.map((item) => (
+                  <button
+                    key={item.code}
+                    onClick={() => {
+                      setLanguage(item.code);
+                      setLanguageMenuOpen(false);
+                    }}
+                    className={'w-full px-3 py-2.5 rounded-xl text-left text-xs font-semibold transition-colors ' + (
+                      language === item.code
+                        ? 'bg-amber-400 text-slate-950'
+                        : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
+                    )}
+                  >
+                    {item.nativeName}
+                    <span className="ml-2 text-[10px] opacity-60">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           {user ? (
             <div className="relative shrink-0">
@@ -195,13 +222,28 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
                 {link.label}
               </button>
             ))}
-            <button
-              onClick={() => toggleLanguage()}
-              className="px-3 py-3 rounded-xl text-xs font-semibold text-slate-300 bg-white/[0.03] flex items-center gap-2"
-            >
-              <Globe className="w-4 h-4 text-amber-300" />
-              <span>{language === 'ar' ? 'English' : 'العربية'}</span>
-            </button>
+            <div className="col-span-2 rounded-xl bg-white/[0.03] p-2">
+              <div className="px-1 pb-2 text-[11px] font-bold text-slate-500">Language</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {LANGUAGE_LIST.map((item) => (
+                  <button
+                    key={item.code}
+                    onClick={() => {
+                      setLanguage(item.code);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={'px-3 py-2.5 rounded-xl text-xs font-semibold text-left ' + (
+                      language === item.code
+                        ? 'bg-amber-400 text-slate-950'
+                        : 'text-slate-300 bg-white/[0.02] hover:bg-white/[0.06]'
+                    )}
+                  >
+                    <Globe className="inline-block w-3.5 h-3.5 mr-1.5 text-amber-300" />
+                    {item.nativeName}
+                  </button>
+                ))}
+              </div>
+            </div>
             <button
               onClick={() => handleNav('/watchlist')}
               className="px-3 py-3 rounded-xl text-xs font-semibold text-slate-300 bg-white/[0.03] flex items-center gap-2"
