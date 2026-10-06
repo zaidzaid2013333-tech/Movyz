@@ -83,7 +83,11 @@ const episodeMap = (e: any, seriesId: string, seasonNumber: number): Episode => 
   sources: [],
 });
 
-const seriesMap = (s: any, seasons: Season[] = []): Series => ({
+const seriesMap = (s: any, seasons: Season[] = []): Series => {
+  // Do not trust the second callback argument when this mapper is accidentally
+  // passed directly to Array.map; map supplies the numeric index there.
+  const normalizedSeasons = Array.isArray(seasons) ? seasons : [];
+  return ({
   id: String(s.id),
   tmdbId: Number(s.id),
   type: 'series',
@@ -107,16 +111,17 @@ const seriesMap = (s: any, seasons: Season[] = []): Series => ({
     character: x.character || '', characterEn: x.character || '',
     avatarUrl: x.profile_path ? `https://image.tmdb.org/t/p/w185${x.profile_path}` : '',
   })),
-  seasons,
-  seasonsCount: seasons.length || Number(s.number_of_seasons || 0),
-  episodesCount: Number(s.number_of_episodes || seasons.reduce((n, x) => n + x.episodesCount, 0)),
+  seasons: normalizedSeasons,
+  seasonsCount: normalizedSeasons.length || Number(s.number_of_seasons || 0),
+  episodesCount: Number(s.number_of_episodes || normalizedSeasons.reduce((n, x) => n + x.episodesCount, 0)),
   isFeatured: false,
   isTrending: false,
   isPopular: false,
   status: s.status,
   addedAt: s.first_air_date || new Date().toISOString(),
   ageRating: '',
-});
+  });
+};
 
 const makeSeason = (s: any, episodes: Episode[] = []): Season => ({
   id: String(s.id || `${s.season_number}`),
@@ -212,7 +217,7 @@ export const MovyzaApi = {
       query: params.search,
       sort_by: params.sortBy === 'rating' ? undefined : 'popularity.desc',
     });
-    const items = (data.results || []).map(seriesMap);
+    const items = (data.results || []).map((item: any) => seriesMap(item));
     return ok(items, { page, limit: Number(params.limit || 20), total: Number(data.total_results || items.length), totalPages: Number(data.total_pages || 1) });
   },
 
@@ -221,7 +226,7 @@ export const MovyzaApi = {
     const baseSeasons = (data.seasons || []).filter((s: any) => Number(s.season_number) > 0);
     const firstSeasons = await Promise.all(baseSeasons.map((s: any) => loadSeriesSeason(String(data.id), Number(s.season_number))));
     const series = seriesMap(data, firstSeasons);
-    const similar = (data.similar?.results || []).slice(0, 12).map(seriesMap);
+    const similar = (data.similar?.results || []).slice(0, 12).map((item: any) => seriesMap(item));
     return ok({ series, similar });
   },
 
