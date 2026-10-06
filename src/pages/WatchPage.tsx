@@ -1015,7 +1015,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     const origins = Array.from(new Set(
       availableSources.map((source) => {
         try {
-          return new URL(source.url).origin;
+          const mediaUrl = source.directUrl?.trim() || source.url;
+          if (/\/api\/v1\/playback\/stream(?:\?|$)/i.test(mediaUrl)) return '';
+          return new URL(mediaUrl).origin;
         } catch {
           return '';
         }
