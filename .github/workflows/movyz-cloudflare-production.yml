@@ -208,13 +208,24 @@ jobs:
                       payload = {"error": body[:900]}
                   return error.code, error.headers, payload
 
-          status, _, payload = request_json(
-              api + "/api/v1/playback/prepare?type=movie&contentId=" + movie_id
-          )
-          sources = payload.get("data", {}).get("sources", [])
+          status = 0
+          payload = {}
+          sources = []
+          last_movie_error = "unknown"
+          for attempt in range(1, 4):
+              status, _, payload = request_json(
+                  api + "/api/v1/playback/prepare?type=movie&contentId=" + movie_id
+              )
+              sources = payload.get("data", {}).get("sources", []) if isinstance(payload, dict) else []
+              if status == 200 and payload.get("success") is True and isinstance(sources, list) and sources:
+                  print("MOVIE_PREPARE_OK", len(sources), "sources", "attempt", attempt)
+                  break
+              last_movie_error = f"status={status} payload={str(payload)[:900]}"
+              if attempt < 3:
+                  import time
+                  time.sleep(0.75 * attempt)
           if status != 200 or payload.get("success") is not True or not isinstance(sources, list) or not sources:
-              raise SystemExit(f"movie prepare failed: status={status} payload={str(payload)[:900]}")
-
+              raise SystemExit(f"movie prepare failed after 3 attempts: {last_movie_error}")
           relay = next((s.get("url") for s in sources if isinstance(s, dict) and str(s.get("url","")).startswith("https://")), None)
           if not relay:
               raise SystemExit("movie prepare returned no relay URL")
