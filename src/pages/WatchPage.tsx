@@ -281,6 +281,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [playerReloadKey, setPlayerReloadKey] = useState(0);
   const [playbackRetry, setPlaybackRetry] = useState(0);
   const playerControlsHideTimerRef = useRef<number | null>(null);
+  const playerControlsVisibleRef = useRef(true);
+  const touchSingleTapTimerRef = useRef<number | null>(null);
   const playerLoadTimeoutRef = useRef<number | null>(null);
   const playbackStallTimerRef = useRef<number | null>(null);
   const reloadRestoreRef = useRef<{ time: number; wasPlaying: boolean } | null>(null);
@@ -621,6 +623,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlaybackError(null);
     setPlayerReady(false);
     setPlayerLoadingState(true, language === 'ar' ? 'جارٍ إعادة تحميل الفيديو…' : 'Reloading video…');
+    playerControlsVisibleRef.current = true;
     setPlayerControlsVisible(true);
     armPlayerLoadTimeout();
     setPlaybackRetry((value) => value + 1);
@@ -653,22 +656,72 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     window.setTimeout(() => setSeekFeedback(null), 520);
   };
 
-  const handlePlayerDoubleTap = (event: React.PointerEvent<HTMLVideoElement>) => {
-    if (event.pointerType !== 'touch') return;
-    const now = Date.now();
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const previous = lastTouchTapRef.current;
+  const revealPlayerControls = () => {
+    playerControlsVisibleRef.current = true;
+    setPlayerControlsVisible(true);
+    if (playerControlsHideTimerRef.current !== null) {
+      window.clearTimeout(playerControlsHideTimerRef.current);
+      playerControlsHideTimerRef.current = null;
+    }
+    if (playerPlaying) {
+      playerControlsHideTimerRef.current = window.setTimeout(() => {
+        playerControlsVisibleRef.current = false;
+        setPlayerControlsVisible(false);
+        playerControlsHideTimerRef.current = null;
+      }, 3000);
+    }
+  };
 
-    if (previous && now - previous.time < 360 && Math.abs(previous.x - x) < 90) {
-      event.preventDefault();
-      event.stopPropagation();
-      seekPlayerBy(x < rect.width / 2 ? -10 : 10);
-      lastTouchTapRef.current = null;
+  const handlePlayerSurfacePointerUp = (event: React.PointerEvent<HTMLVideoElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('button,input,select')) return;
+
+    if (event.pointerType === 'touch') {
+      const now = Date.now();
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const previous = lastTouchTapRef.current;
+
+      if (previous && now - previous.time < 360 && Math.abs(previous.x - x) < 90) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (touchSingleTapTimerRef.current !== null) {
+          window.clearTimeout(touchSingleTapTimerRef.current);
+          touchSingleTapTimerRef.current = null;
+        }
+        seekPlayerBy(x < rect.width / 2 ? -10 : 10);
+        lastTouchTapRef.current = null;
+        revealPlayerControls();
+        return;
+      }
+
+      lastTouchTapRef.current = { time: now, x };
+
+      // A first tap while controls are hidden only reveals them; it must not
+      // pause/play the video. When controls are already visible, defer the
+      // single-tap action briefly so a second tap can still become a seek.
+      if (!playerControlsVisibleRef.current) {
+        revealPlayerControls();
+        return;
+      }
+
+      if (touchSingleTapTimerRef.current !== null) {
+        window.clearTimeout(touchSingleTapTimerRef.current);
+      }
+      touchSingleTapTimerRef.current = window.setTimeout(() => {
+        touchSingleTapTimerRef.current = null;
+        togglePlayerPlayback();
+      }, 360);
       return;
     }
 
-    lastTouchTapRef.current = { time: now, x };
+    // Mouse/pen: one click reveals hidden controls; the next click toggles
+    // playback. This keeps the first interaction from unexpectedly pausing.
+    if (!playerControlsVisibleRef.current) {
+      revealPlayerControls();
+      return;
+    }
+    togglePlayerPlayback();
   };
 
 
@@ -824,12 +877,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     if (!shell) return;
 
     const showControlsTemporarily = () => {
+      playerControlsVisibleRef.current = true;
       setPlayerControlsVisible(true);
       if (playerControlsHideTimerRef.current !== null) {
         window.clearTimeout(playerControlsHideTimerRef.current);
       }
       if (playerPlaying) {
         playerControlsHideTimerRef.current = window.setTimeout(() => {
+          playerControlsVisibleRef.current = false;
           setPlayerControlsVisible(false);
           playerControlsHideTimerRef.current = null;
         }, 3000);
