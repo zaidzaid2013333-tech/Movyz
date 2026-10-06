@@ -141,7 +141,7 @@ export const MovyzaApi = {
     request<{ contentType: 'movie' | 'episode'; contentId: string; mode: string; ready: boolean; sources: any[] }>(
       `/playback/prepare?type=${encodeURIComponent(contentType)}&contentId=${encodeURIComponent(contentId)}${season ? `&season=${encodeURIComponent(String(season))}` : ''}${episode ? `&episode=${encodeURIComponent(String(episode))}` : ''}`,
       {},
-      { skipAuth: true, timeoutMs: 15000 },
+      { skipAuth: true, timeoutMs: 50000 },
     ),
 
   getGenres: () => request<Genre[]>('/genres'),
