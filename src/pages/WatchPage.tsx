@@ -43,8 +43,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     if (!contentId) return '';
 
     const params = new URLSearchParams();
-    // English visitors get the provider's native player state without a forced subtitle.
-    // Other locales request their own subtitle language as the default when VidSrc has one.
+
+    // Keep the same caption appearance for every Movyz locale.
+    // VidSrc applies these styling parameters to all subtitle tracks.
+    // 125% is represented by the player-friendly 20px caption size.
+    params.set('fontsize', '20');
+    params.set('fontcolor', 'ffffff');
+    params.set('opacity', '1');
+
+    // English visitors get the provider's native subtitle selection.
+    // Other locales request their own subtitle language as the default when available.
     if (language !== 'en') {
       params.set('ds_lang', language);
     }
