@@ -1387,7 +1387,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       playbackStallTimerRef.current = window.setTimeout(() => {
         playbackStallTimerRef.current = null;
         if (
-          !cancelled &&
           (userPlayRequestedRef.current || !video.paused) &&
           !video.ended &&
           video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
