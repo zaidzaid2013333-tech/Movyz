@@ -252,6 +252,105 @@ const noCache = (response: Response) => {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 };
 
+
+const escapeXml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+
+const SITEMAP_DISCOVERY_PAGES = 500;
+
+const buildSitemapIndex = (origin: string) => {
+  const entries: string[] = [];
+  for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
+    for (const type of ['movies', 'series'] as const) {
+      for (let page = 1; page <= SITEMAP_DISCOVERY_PAGES; page += 1) {
+        entries.push(
+          `<sitemap><loc>${origin}/sitemap/${locale}/${type}/${page}.xml</loc></sitemap>`
+        );
+      }
+    }
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries.join('')}</sitemapindex>`;
+};
+
+const buildSitemapSegment = async (
+  request: Request,
+  env: MovyzEnvironment,
+  locale: LocaleCode,
+  type: 'movies' | 'series',
+  page: number,
+) => {
+  if (!env.TMDB_API_READ_ACCESS_TOKEN || page < 1 || page > SITEMAP_DISCOVERY_PAGES) {
+    return new Response('Not found', { status: 404 });
+  }
+
+  const config = LOCALES[locale];
+  const tmdbType = type === 'movies' ? 'movie' : 'tv';
+  const target = new URL(`https://api.themoviedb.org/3/discover/${tmdbType}`);
+  target.searchParams.set('language', config.tmdb);
+  target.searchParams.set('page', String(page));
+  target.searchParams.set('sort_by', 'popularity.desc');
+  target.searchParams.set('include_adult', 'false');
+  if (tmdbType === 'movie') target.searchParams.set('include_video', 'false');
+
+  try {
+    const upstream = await fetch(target.toString(), { headers: tmdbHeaders(env) });
+    if (!upstream.ok) return new Response('Upstream error', { status: 502 });
+    const data = await upstream.json().catch(() => null) as { results?: Array<{ id?: number }> } | null;
+    const origin = new URL(request.url).origin;
+    const urls = (data?.results || [])
+      .map((item) => Number(item?.id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+      .map((id) => `<url><loc>${escapeXml(`${origin}/${locale}/${type}/${id}`)}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`)
+      .join('');
+
+    const xml =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`;
+
+    return new Response(xml, {
+      status: 200,
+      headers: {
+        'content-type': 'application/xml; charset=UTF-8',
+        'cache-control': 'public, max-age=3600, s-maxage=86400',
+        'cdn-cache-control': 'public, max-age=86400',
+      },
+    });
+  } catch {
+    return new Response('Upstream error', { status: 502 });
+  }
+};
+
+const handleSitemap = async (request: Request, env: MovyzEnvironment) => {
+  const url = new URL(request.url);
+  if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+
+  if (url.pathname === '/sitemap.xml') {
+    const xml = buildSitemapIndex(url.origin);
+    return new Response(xml, {
+      status: 200,
+      headers: {
+        'content-type': 'application/xml; charset=UTF-8',
+        'cache-control': 'public, max-age=3600, s-maxage=86400',
+        'cdn-cache-control': 'public, max-age=86400',
+      },
+    });
+  }
+
+  const match = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko)\/(movies|series)\/(\\d+)\.xml$/);
+  if (!match) return null;
+
+  const locale = match[1] as LocaleCode;
+  const type = match[2] as 'movies' | 'series';
+  const page = Number(match[3]);
+  return buildSitemapSegment(request, env, locale, type, page);
+};
+
 export default {
   async fetch(request: Request, env: MovyzEnvironment, _ctx: ExecutionContextLike): Promise<Response> {
     const url = new URL(request.url);
@@ -261,6 +360,10 @@ export default {
         'Access-Control-Allow-Methods': 'GET,OPTIONS',
         'Access-Control-Allow-Headers': 'Authorization,Content-Type',
       }});
+    }
+    if (request.method === 'GET' && (url.pathname === '/sitemap.xml' || url.pathname.startsWith('/sitemap/'))) {
+      const sitemapResponse = await handleSitemap(request, env);
+      if (sitemapResponse) return sitemapResponse;
     }
     if (url.pathname === '/tmdb' || url.pathname.startsWith('/tmdb/')) {
       return proxyTmdb(request, env);
