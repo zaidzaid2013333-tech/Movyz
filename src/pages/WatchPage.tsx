@@ -807,28 +807,53 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       const video = videoRef.current;
       if (!video) return;
 
-      if (event.key === ' ' || event.key.toLowerCase() === 'k') {
+      const key = event.key;
+      const lower = key.toLowerCase();
+
+      if (key === ' ' || lower === 'k') {
         event.preventDefault();
         togglePlayerPlayback();
-      } else if (event.key === 'ArrowLeft') {
+      } else if (key === 'ArrowLeft') {
         event.preventDefault();
         seekPlayerBy(-5);
-      } else if (event.key === 'ArrowRight') {
+      } else if (key === 'ArrowRight') {
         event.preventDefault();
         seekPlayerBy(5);
-      } else if (event.key.toLowerCase() === 'j') {
+      } else if (key === 'ArrowUp') {
+        event.preventDefault();
+        setPlayerVolumeLevel((video.volume || 0) + 0.05);
+      } else if (key === 'ArrowDown') {
+        event.preventDefault();
+        setPlayerVolumeLevel((video.volume || 0) - 0.05);
+      } else if (lower === 'j') {
         event.preventDefault();
         seekPlayerBy(-10);
-      } else if (event.key.toLowerCase() === 'l') {
+      } else if (lower === 'l') {
         event.preventDefault();
         seekPlayerBy(10);
-      } else if (event.key.toLowerCase() === 'm') {
+      } else if (lower === 'm') {
         event.preventDefault();
         togglePlayerMute();
-      } else if (event.key.toLowerCase() === 'f') {
+      } else if (lower === 'f') {
         event.preventDefault();
         void togglePlayerFullscreen();
-      } else if (event.key === 'Escape') {
+      } else if (lower === 'home') {
+        event.preventDefault();
+        setPlayerProgress(0);
+      } else if (lower === 'end') {
+        event.preventDefault();
+        if (Number.isFinite(video.duration)) setPlayerProgress(video.duration);
+      } else if (key >= '0' && key <= '9') {
+        event.preventDefault();
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          setPlayerProgress(video.duration * (Number(key) / 10));
+        }
+      } else if (key === '[' || key === ']') {
+        event.preventDefault();
+        const next = Math.min(2, Math.max(0.5, (video.playbackRate || 1) + (key === ']' ? 0.25 : -0.25)));
+        video.playbackRate = next;
+        setPlayerSpeed(next);
+      } else if (key === 'Escape') {
         setPlayerSettingsOpen(false);
       }
     };
@@ -983,6 +1008,54 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       video.removeEventListener('leavepictureinpicture', onLeave);
     };
   });
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+
+    const mediaSession = (navigator as Navigator & {
+      mediaSession?: {
+        metadata?: MediaMetadata | null;
+        setActionHandler?: (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => void;
+      };
+    }).mediaSession;
+
+    if (!mediaSession) return;
+
+    try {
+      mediaSession.metadata = new MediaMetadata({
+        title: displayTitle || 'Movyz',
+        artist: currentEpisode
+          ? `S${activeSeason} · E${activeEpisode}`
+          : (isMovie ? 'Movyz Movie' : 'Movyz Series'),
+        album: 'Movyz',
+      });
+
+      const handlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
+        ['play', () => {
+          const video = videoRef.current;
+          if (!video) return;
+          userPlayRequestedRef.current = true;
+          void video.play().catch(() => undefined);
+        }],
+        ['pause', () => videoRef.current?.pause()],
+        ['seekbackward', (details) => seekPlayerBy(-(details.seekOffset || 10))],
+        ['seekforward', (details) => seekPlayerBy(details.seekOffset || 10)],
+      ];
+
+      for (const [action, handler] of handlers) {
+        try { mediaSession.setActionHandler?.(action, handler); } catch {}
+      }
+
+      return () => {
+        for (const [action] of handlers) {
+          try { mediaSession.setActionHandler?.(action, null); } catch {}
+        }
+        try { mediaSession.metadata = null; } catch {}
+      };
+    } catch {
+      return;
+    }
+  }, [displayTitle, currentEpisode, activeSeason, activeEpisode, isMovie]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
