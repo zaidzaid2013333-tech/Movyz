@@ -182,12 +182,12 @@ function normalizeBrokerMediaSources(
         language: 'und',
         label: `${source.provider || 'Akwam'} • ${quality}`,
         labelEn: `${source.provider || 'Akwam'} • ${quality}`,
-        // Serve the resolver's Akwam URL directly to the native player.
-        // Keep the relay as an explicit fallback only; the frontend never
-        // switches to it automatically.
-        url: String(source.url),
+        // Use Movyz relay as the browser-facing URL so Chrome receives
+        // normalized media/CORS/range handling. The exact Akwam URL remains
+        // available as directUrl for diagnostics/manual use.
+        url: relayUrl,
         directUrl: String(source.url),
-        fallbackUrl: relayUrl,
+        fallbackUrl: String(source.url),
         isWorking: true,
         provider: String(source.provider || 'Akwam'),
         providerKey: String(source.providerKey || 'akwam'),
@@ -663,59 +663,30 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
       Number.isFinite(episodeNumber) ? episodeNumber : undefined,
     );
 
-    const buildCandidateIndices = (sources: BrokerSource[]) =>
-      [sourceIndex, ...sources.map((_, index) => index).filter((index) => index !== sourceIndex)];
+    // Probe only the source explicitly selected by the user.
+    // Never fan out to other sources and never re-resolve automatically.
+    const selected = result.sources[sourceIndex];
+    const candidateUrl = String(selected?.directUrl || '').trim();
+    if (!selected || !/^https:\/\//i.test(candidateUrl)) {
+      return fail(res, 502, 'PLAYBACK_STREAM_UPSTREAM_INVALID', 'Selected playback source is unavailable');
+    }
 
-    const trySources = async (
-      sources: BrokerSource[],
-    ): Promise<{ source: BrokerSource; upstream: Response; body: ReadableStream<Uint8Array> | null } | null> => {
-      for (const candidateIndex of buildCandidateIndices(sources)) {
-        const candidate = sources[candidateIndex];
-        const candidateUrl = String(candidate?.directUrl || '').trim();
-        if (!candidate || !/^https:\/\//i.test(candidateUrl)) continue;
-
-        try {
-          const candidateResponse = await fetchUpstream(candidateUrl, candidate.referer);
-          if (!(await upstreamLooksPlayable(candidateResponse, candidate))) continue;
-
-          return {
-            source: candidate,
-            upstream: candidateResponse,
-            body: candidateResponse.body,
-          };
-        } catch (error) {
-          console.warn(
-            '[playback-stream-candidate]',
-            candidateIndex,
-            error instanceof Error ? error.message : String(error),
-          );
-        }
+    let upstream: Response;
+    try {
+      upstream = await fetchUpstream(candidateUrl, selected.referer);
+      if (!(await upstreamLooksPlayable(upstream, selected))) {
+        return fail(res, 502, 'PLAYBACK_STREAM_UPSTREAM_INVALID', 'Selected playback source is not a media stream');
       }
-      return null;
-    };
-
-    let selected = await trySources(result.sources);
-
-    // Provider URLs can expire or a CDN node can stall a ranged read. Invalidate
-    // the short-lived broker cache once and resolve a fresh source set before
-    // giving up so the player can recover without a manual source switch.
-    if (!selected) {
-      await edgeBrokerInvalidate(cacheKey);
-      result = await resolvePlaybackBroker(
-        req,
-        contentType,
-        contentId,
-        Number.isFinite(seasonNumber) ? seasonNumber : undefined,
-        Number.isFinite(episodeNumber) ? episodeNumber : undefined,
+    } catch (error) {
+      console.warn(
+        '[playback-stream-selected]',
+        sourceIndex,
+        error instanceof Error ? error.message : String(error),
       );
-      selected = await trySources(result.sources);
+      return fail(res, 502, 'PLAYBACK_STREAM_UPSTREAM_INVALID', 'Selected playback source is not responding');
     }
 
-    if (!selected) {
-      return fail(res, 502, 'PLAYBACK_STREAM_UPSTREAM_INVALID', 'No responsive media source is available');
-    }
-
-    const { source, upstream } = selected;
+    const source = selected;
     const responseHeaders = new Headers();
     for (const name of ['content-type','content-length','content-range','accept-ranges','etag','last-modified','content-disposition']) {
       const value = upstream.headers.get(name);
