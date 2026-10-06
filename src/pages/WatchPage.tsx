@@ -462,7 +462,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   // Playback is live-broker only. The API never returns persisted source rows.
   useEffect(() => {
-    const targetId = mediaType === 'movie' ? content?.id : currentEpisode?.id;
+    const targetId = mediaType === 'movie'
+      ? (content?.id || (!/^\d+$/.test(contentId) ? contentId : undefined))
+      : currentEpisode?.id;
 
     if (!targetId) {
       setRemotePlaybackSources([]);
@@ -481,7 +483,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlaybackError(null);
 
     const prepare = async () => {
-      const attempts = mediaType === 'series' ? 2 : 1;
+      const attempts = 2;
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
           const response = await MovyzaApi.preparePlayback(
@@ -498,7 +500,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             .filter((source) => source.isWorking !== false)
             .filter(isPlayableHttpSource);
           if (!playable.length && attempt < attempts) {
-            await new Promise((resolve) => window.setTimeout(resolve, 450));
+            await new Promise((resolve) => window.setTimeout(resolve, 250));
             continue;
           }
           const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
@@ -1042,7 +1044,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const markPlaybackSourceFailed = () => {
     const failedUrl = playbackSource?.url || playbackUrl;
-    if (!failedUrl) return;
+    if (!failedUrl) return false;
 
     failedPlaybackUrlsRef.current.add(failedUrl);
     const nextSource = remotePlaybackSources.find((source) =>
@@ -1058,10 +1060,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       resumeAfterQualitySwitchRef.current = false;
       qualitySwitchPendingRef.current = false;
       playbackStartedRef.current = false;
-      setPlaybackError(null);
       setPlayerUnlocked(true);
       setRemotePlaybackSource(nextSource);
-      return;
+      return true;
     }
 
     setPlaybackError(
@@ -1069,6 +1070,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         ? 'تعذر تشغيل المصادر المتاحة حاليًا. جرّب إعادة المحاولة.'
         : 'The available playback sources could not be started. Please retry.',
     );
+    return false;
   };
 
   const handleSelectPlaybackSource = (source: PlaybackSource) => {
@@ -1184,16 +1186,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           });
           hls.on(Hls.Events.ERROR, (_event, data) => {
             if (!data.fatal || cancelled) return;
-            setPlaybackError(
-              language === 'ar'
-                ? 'تعذر تهيئة بث HLS من المصدر الحالي.'
-                : 'The current HLS source could not be initialized.',
-            );
             clearPlayerLoadTimeout();
             setPlayerLoadingState(false);
             hls.destroy();
             playbackEngineRef.current = null;
-            markPlaybackSourceFailed();
+            const switched = markPlaybackSourceFailed();
+            if (!switched) {
+              setPlaybackError(
+                language === 'ar'
+                  ? 'تعذر تهيئة بث HLS من المصدر الحالي.'
+                  : 'The current HLS source could not be initialized.',
+              );
+            }
           });
           hls.attachMedia(video);
           hls.loadSource(playbackUrl);
@@ -1234,8 +1238,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     void attachPlayback();
 
-    // Do not automatically switch sources. A failed source stays selected
-    // so the user can retry or choose another quality/provider manually.
+    // A failed source is switched to the next prepared candidate automatically.
+    // Manual source/quality selection remains available from the player controls.
 
     return () => {
       cancelled = true;
@@ -1842,7 +1846,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   playbackStartedRef.current = false;
                   if (!playbackUrl) return;
 
-                  markPlaybackSourceFailed();
+                  const switched = markPlaybackSourceFailed();
+                  if (switched) return;
+
                   const mediaError = videoRef.current?.error;
                   const code = mediaError?.code;
                   const detail =
@@ -1854,7 +1860,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                           ? (language === 'ar' ? 'تعذر فك ترميز الفيديو.' : 'The browser could not decode this video.')
                           : (language === 'ar' ? 'تعذر تشغيل المصدر الحالي.' : 'The current playback source could not start.');
                   setPlaybackError(detail);
-                  markPlaybackSourceFailed();
                 }}
               >
                 {playbackUrl ? null : null}
