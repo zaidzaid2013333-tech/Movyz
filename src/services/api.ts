@@ -287,6 +287,26 @@ export const MovyzaApi = {
     return ok({ movies, series, cast });
   },
 
+  getTop1000Catalog: async () => {
+    const language = getRequestLanguage();
+    const response = await fetch('/catalog/top1000?locale=' + encodeURIComponent(language));
+    const payload = await response.json().catch(() => null) as any;
+    if (!response.ok) {
+      throw new Error(payload?.message || payload?.status_message || 'Catalog request failed');
+    }
+
+    const items = ((payload?.items || []) as any[]).map((item: any) => {
+      if (item?.media_type === 'movie') return movieMap(item);
+      return seriesMap(item);
+    });
+
+    return ok({
+      items,
+      total: Number(payload?.total || items.length),
+      generatedAt: payload?.generatedAt || null,
+    });
+  },
+
   getGenres: async () => {
     const [movies, series] = await Promise.all([
       tmdb<any>('genre/movie/list'),
