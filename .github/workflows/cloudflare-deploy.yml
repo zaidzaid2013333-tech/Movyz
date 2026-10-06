@@ -64,6 +64,7 @@ jobs:
           base="https://movyz-api.sameranede.workers.dev"
           html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/")"
           printf '%s' "$html" | grep -q 'name="movyz-player" content="vidsrc"'
+          printf '%s' "$html" | grep -q 'name="movyz-subtitles" content="arabic-movyz-v1"'
           assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | sort -u)"
           test -n "$assets"
           printf '%s' "$html" | grep -q 'Movyza'
