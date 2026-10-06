@@ -209,6 +209,7 @@ jobs:
           PY
 
       - name: Full curated catalog playback audit
+        if: always()
         timeout-minutes: 18
         run: |
           python - <<'PY'
