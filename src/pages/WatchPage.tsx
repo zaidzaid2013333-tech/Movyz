@@ -41,10 +41,24 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const embedUrl = useMemo(() => {
     if (!contentId) return '';
+
+    const subtitleUrl = new URL(
+      isSeries
+        ? '/subtitle/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode + '.srt'
+        : '/subtitle/movie/' + encodeURIComponent(contentId) + '.srt',
+      window.location.origin
+    ).toString();
+
+    const params = new URLSearchParams();
+    params.set('ds_lang', 'ar');
+    params.set('sub_url', subtitleUrl);
+    params.set('sub_label', 'العربية · Movyz');
+    params.set('sub_lang', 'ar');
+
     if (isSeries) {
-      return 'https://vidsrc.sh/embed/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode;
+      return 'https://vidsrc.sh/embed/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode + '?' + params.toString();
     }
-    return 'https://vidsrc.sh/embed/movie/' + encodeURIComponent(contentId);
+    return 'https://vidsrc.sh/embed/movie/' + encodeURIComponent(contentId) + '?' + params.toString();
   }, [contentId, isSeries, safeSeason, safeEpisode]);
 
   useEffect(() => {
@@ -202,6 +216,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.04] border border-white/[0.06] px-2.5 py-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                     VidSrc
+                  </span>
+                  <span className="rounded-full bg-emerald-500/[0.08] border border-emerald-400/15 px-2.5 py-1.5 text-emerald-200">
+                    {language === 'ar' ? 'ترجمة عربية · Movyz' : 'Arabic subtitles · Movyz'}
                   </span>
                   <span className="rounded-full bg-white/[0.04] border border-white/[0.06] px-2.5 py-1.5">
                     {language === 'ar' ? 'مشغل خارجي' : 'External player'}
