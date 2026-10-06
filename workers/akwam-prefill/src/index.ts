@@ -781,27 +781,41 @@ function extractMediaCandidates(text: string, baseUrl: string) {
   while ((match = attrs.exec(decoded))) {
     const raw = match[1];
     const url = absoluteUrl(raw, baseUrl);
-    if (!url || isLikelyNavigationUrl(url)) continue;
+    if (!url) continue;
     const nearby = decoded.slice(Math.max(0, match.index - 1200), match.index + 1800);
+    const navigation = isLikelyNavigationUrl(url);
     const score = /(?:m3u8|mp4|mpd|webm|stream|playlist|manifest|videoUrl|video_url|data-file|data-video|data-stream)/i.test(
       nearby + " " + raw,
-    ) ? 160 : 110;
+    ) ? 160 : navigation ? 80 : 110;
     addUrlCandidate(out, seen, url, baseUrl, score, nearby + " " + raw);
   }
 
   const keyValue = /(?:file|source|src|videoUrl|video_url|stream|streamUrl|playlist|manifest|hls|dash|mediaUrl|media_url|playbackUrl|playback_url|url)\s*[:=]\s*["']([^"']+)["']/gi;
   while ((match = keyValue.exec(decoded))) {
     const url = absoluteUrl(match[1], baseUrl);
-    if (!url || isLikelyNavigationUrl(url)) continue;
+    if (!url) continue;
     const nearby = decoded.slice(Math.max(0, match.index - 900), match.index + 1400);
-    addUrlCandidate(out, seen, url, baseUrl, 150, nearby);
+    addUrlCandidate(
+      out,
+      seen,
+      url,
+      baseUrl,
+      isLikelyNavigationUrl(url) ? 85 : 150,
+      nearby,
+    );
   }
 
   const quotedAbsolute = /["'](https?:\/\/[^"'<>]+)["']/gi;
   while ((match = quotedAbsolute.exec(decoded))) {
     const raw = match[1];
-    if (isLikelyNavigationUrl(raw)) continue;
-    addUrlCandidate(out, seen, raw, baseUrl, 90, decoded.slice(Math.max(0, match.index - 700), match.index + 1100));
+    addUrlCandidate(
+      out,
+      seen,
+      raw,
+      baseUrl,
+      isLikelyNavigationUrl(raw) ? 70 : 90,
+      decoded.slice(Math.max(0, match.index - 700), match.index + 1100),
+    );
   }
 
   return out.sort((a, b) => b.score - a.score).slice(0, 16);
