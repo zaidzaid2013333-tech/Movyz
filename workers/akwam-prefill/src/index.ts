@@ -774,79 +774,81 @@ async function findEpisodeTargetBySearch(
 ) {
   const host = base(env);
   const seeds = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
+  const primary = seeds.find((x) => /[A-Za-z]/.test(x)) || seeds[0] || "";
   const variants = Array.from(new Set([
+    primary ? primary + " S" + String(season).padStart(2, "0") + "E" + String(episode).padStart(2, "0") : "",
+    primary ? primary + " S" + season + "E" + episode : "",
+    primary ? primary + " season " + season + " episode " + episode : "",
+    primary ? primary + " الحلقة " + episode : "",
     ...seeds.map((title) => searchQueryVariant(title)).filter(Boolean),
-    ...(seeds[0] ? [
-      seeds[0] + " S" + String(season).padStart(2, "0") + "E" + String(episode).padStart(2, "0"),
-      seeds[0] + " season " + season + " episode " + episode,
-      seeds[0] + " الموسم " + season + " الحلقة " + episode,
-      seeds[0] + " الحلقة " + episode,
-    ] : []),
   ].filter(Boolean))).slice(0, 7);
 
   let best: { url: string; score: number } | null = null;
 
   for (const variant of variants) {
-    const url = host + "/search?q=" + encodeURIComponent(variant) + "&page=1";
-    const html = await fetchText(env, url, undefined, undefined, budget, session);
-    if (!html) continue;
+    const encoded = encodeURIComponent(variant);
+    const searchUrls = [
+      host + "/search?q=" + encoded + "&section=series&page=1",
+      host + "/search?q=" + encoded + "&page=1",
+    ];
 
-    for (const link of extractPageLinks(html, host)) {
-      let rawPath = "";
-      try { rawPath = decodeURIComponent(new URL(link.url).pathname); } catch { rawPath = link.url; }
+    for (const url of searchUrls) {
+      const html = await fetchText(env, url, undefined, undefined, budget, session);
+      if (!html) continue;
 
-      const hay = decodeUrlPath(decodeHtml(link.text + " " + rawPath));
-      const normalizedHay = normalize(hay);
-      if (!normalizedHay) continue;
+      for (const link of extractPageLinks(html, host)) {
+        let rawPath = "";
+        try { rawPath = decodeURIComponent(new URL(link.url).pathname); } catch { rawPath = link.url; }
 
-      const explicitPair = hay.match(/\bs0*(\d{1,3})[^a-z0-9]{0,8}(?:e|ep)0*(\d{1,3})\b/i);
-      if (explicitPair) {
-        if (Number(explicitPair[1]) !== season || Number(explicitPair[2]) !== episode) continue;
-      }
+        const hay = decodeUrlPath(decodeHtml(link.text + " " + rawPath));
+        const normalizedHay = normalize(hay);
+        if (!normalizedHay) continue;
 
-      const declaredSeason = explicitSeason(hay);
-      if (declaredSeason !== undefined && declaredSeason !== season) continue;
+        const explicitPair = hay.match(/\bs0*(\d{1,3})[^a-z0-9]{0,8}(?:e|ep)0*(\d{1,3})\b/i);
+        if (explicitPair && (Number(explicitPair[1]) !== season || Number(explicitPair[2]) !== episode)) continue;
 
-      const looksLikeEpisode =
-        /(?:حلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay) ||
-        /\/(?:episode|show\/episode|watch)\//i.test(rawPath);
-      if (!looksLikeEpisode) continue;
+        const declaredSeason = explicitSeason(hay);
+        if (declaredSeason !== undefined && declaredSeason !== season) continue;
 
-      let titleRelevance = 0;
-      for (const title of titles) {
-        const normalizedTitle = normalize(title);
-        if (!normalizedTitle) continue;
-        if (normalizedHay.includes(normalizedTitle)) {
-          titleRelevance = Math.max(titleRelevance, 100);
-        } else {
-          titleRelevance = Math.max(titleRelevance, overlap(normalizedHay, normalizedTitle) * 100);
+        const looksLikeEpisode =
+          /(?:حلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay) ||
+          /\/(?:episode|show\/episode|watch)\//i.test(rawPath);
+        if (!looksLikeEpisode) continue;
+
+        let titleRelevance = 0;
+        for (const title of titles) {
+          const normalizedTitle = normalize(title);
+          if (!normalizedTitle) continue;
+          if (normalizedHay.includes(normalizedTitle)) titleRelevance = Math.max(titleRelevance, 100);
+          else titleRelevance = Math.max(titleRelevance, overlap(normalizedHay, normalizedTitle) * 100);
         }
+
+        const exactPair = new RegExp("s0*" + season + "e0*" + episode + "(?![0-9])", "i").test(hay + " " + rawPath);
+        const exactEpisode =
+          new RegExp("(?:الحلقة|الحلقه|episode|ep(?:isode)?)[-_\\s]*(?:رقم[-_\\s]*)?0*" + episode + "(?![0-9.])", "i").test(hay) ||
+          new RegExp("(?:^|[^0-9.])0*" + episode + "(?:$|[^0-9.])", "i").test(rawPath);
+
+        const relaxedTitleMatch = titleRelevance >= 12 || (exactPair && variant !== primary);
+        if (!relaxedTitleMatch) continue;
+
+        let scoreValue = titleRelevance;
+        if (exactPair) scoreValue += 320;
+        else if (declaredSeason === season) scoreValue += 70;
+        if (exactEpisode) scoreValue += 180;
+        if (/\/episode\//i.test(rawPath)) scoreValue += 80;
+        if (/\/show\/episode\//i.test(rawPath)) scoreValue += 60;
+        if (/\/watch\//i.test(rawPath)) scoreValue += 55;
+
+        if (!best || scoreValue > best.score) best = { url: link.url, score: scoreValue };
       }
-      if (titleRelevance < 28) continue;
 
-      const exactPair = new RegExp("s0*" + season + "e0*" + episode + "(?![0-9])", "i").test(hay + " " + rawPath);
-      const exactEpisode =
-        new RegExp("(?:الحلقة|الحلقه|episode|ep(?:isode)?)[-_\\s]*(?:رقم[-_\\s]*)?0*" + episode + "(?![0-9.])", "i").test(hay) ||
-        new RegExp("(?:^|[^0-9.])0*" + episode + "(?:$|[^0-9.])", "i").test(rawPath);
-
-      let scoreValue = titleRelevance;
-      if (exactPair) scoreValue += 320;
-      else if (declaredSeason === season) scoreValue += 70;
-      if (exactEpisode) scoreValue += 180;
-      if (/\/episode\//i.test(rawPath)) scoreValue += 80;
-      if (/\/show\/episode\//i.test(rawPath)) scoreValue += 60;
-
-      if (!best || scoreValue > best.score) best = { url: link.url, score: scoreValue };
+      if (best && best.score >= 430) return best.url;
     }
-
-    if (best && best.score >= 430) return best.url;
   }
 
-  const finalBest = best as { url: string; score: number } | null;
-  if (finalBest === null) return null;
-  return finalBest.score >= 250 ? finalBest.url : null;
+  return best && best.score >= 250 ? best.url : null;
 }
- 
+
 function targetResolutionScore(raw: string) {
   try {
     const path = new URL(raw).pathname.toLowerCase();
