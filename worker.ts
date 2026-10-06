@@ -35,7 +35,9 @@ const proxyTmdb = async (request: Request, env: MovyzEnvironment) => {
 
 const noCache = (response: Response) => {
   const headers = new Headers(response.headers);
-  headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  headers.set('Cache-Control', 'no-store');
+  headers.set('CDN-Cache-Control', 'no-store');
+  headers.set('Cloudflare-CDN-Cache-Control', 'no-store');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 };
 
@@ -52,8 +54,13 @@ export default {
     if (url.pathname === '/tmdb' || url.pathname.startsWith('/tmdb/')) {
       return proxyTmdb(request, env);
     }
-    const response = await env.ASSETS.fetch(request);
     const html = request.method === 'GET' && (url.pathname === '/' || !url.pathname.includes('.'));
-    return html ? noCache(response) : response;
+    if (html) {
+      const freshUrl = new URL(request.url);
+      freshUrl.searchParams.set('__movyz_asset_version', env.MOVYZ_BUILD_ID || 'dev');
+      const freshRequest = new Request(freshUrl.toString(), request);
+      return noCache(await env.ASSETS.fetch(freshRequest));
+    }
+    return await env.ASSETS.fetch(request);
   },
 };
