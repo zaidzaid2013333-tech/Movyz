@@ -377,6 +377,7 @@ async function resolveAkwamThroughExternalResolver(
   contentId: string,
   seasonNumber?: number,
   episodeNumber?: number,
+  preloadedContext?: PlaybackResolverContext,
 ) {
   const resolverBase = String(
     (req.env as any)?.PLAYBACK_RESOLVER_URL ||
@@ -385,7 +386,7 @@ async function resolveAkwamThroughExternalResolver(
   ).trim().replace(/\/+$/, '');
   if (!resolverBase) throw new Error('PLAYBACK_RESOLVER_CONFIG_MISSING');
 
-  const context = await loadPlaybackResolverContext(
+  const context = preloadedContext ?? await loadPlaybackResolverContext(
     contentType,
     contentId,
     seasonNumber,
@@ -423,8 +424,11 @@ async function resolveAkwamThroughExternalResolver(
 
   const resolverStartedAt = Date.now();
   let response = await requestResolver();
-  if (response.status === 429) {
-    await new Promise((resolve) => setTimeout(resolve, 250));
+  if ([429, 502, 503, 504].includes(response.status)) {
+    // Akwam/CDN resolution is occasionally transient. One bounded retry here
+    // recovers those failures without introducing provider-specific playback
+    // branches or long duplicate resolver loops.
+    await new Promise((resolve) => setTimeout(resolve, response.status === 429 ? 350 : 450));
     response = await requestResolver();
   }
 
@@ -476,6 +480,7 @@ async function resolvePlaybackBroker(
       canonicalContentId,
       context.seasonNumber,
       context.episodeNumber,
+      context,
     );
 
     const sources = normalizeBrokerMediaSources(
