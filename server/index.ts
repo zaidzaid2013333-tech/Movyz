@@ -357,7 +357,8 @@ async function resolveAkwamThroughExternalResolver(
     episodeNumber: context.episodeNumber,
   });
 
-  const requestResolver = () => fetch(resolverBase + '/resolve', {
+  const resolverUrl = resolverBase.includes('/functions/v1/') ? resolverBase : resolverBase + '/resolve';
+  const requestResolver = () => fetch(resolverUrl, {
     method: 'POST',
     headers,
     body,
