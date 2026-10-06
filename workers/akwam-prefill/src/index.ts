@@ -1646,6 +1646,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
         const episodeHtml = await fetchText(env, episodeTarget, undefined, base(env), budget, session);
         if (episodeHtml) targets = extractTargets(episodeHtml, episodeTarget);
       } else {
+        const seriesUrl = candidate.url;
         const detail = await fetchSeriesDetailCached(env, candidate, budget, session);
         if (detail) {
           const exactEpisode = extractEpisodeTarget(detail, candidate.url, season, episode);
@@ -1660,7 +1661,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
             // Follow only a bounded set of Akwam navigation targets, then reuse
             // the exact same episode matcher. No title-specific routes.
             const navigationTargets = Array.from(new Set(
-              extractTargets(detail, candidate.url)
+              extractTargets(detail, seriesUrl)
                 .filter((url) => isAkwamUrl(url))
                 .filter((url) => {
                   try {
@@ -1680,7 +1681,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
 
             const pages = await Promise.all(
               navigationTargets.map(async (url) => {
-                const html = await fetchText(env, url, undefined, candidate.url, budget, session);
+                const html = await fetchText(env, url, undefined, seriesUrl, budget, session);
                 return html ? { url, html } : null;
               }),
             );
