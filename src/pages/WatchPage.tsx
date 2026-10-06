@@ -72,7 +72,7 @@ const normalizePlaybackSource = (source: PlaybackSource): PlaybackSource | null 
 function playbackEngineFor(source: PlaybackSource | null | undefined) {
   const type = String(source?.type || '').toLowerCase();
   const isBrokerRelay = /\/api\/v1\/playback\/stream(?:\?|$)/i.test(String(source?.url || ''));
-  const url = String(isBrokerRelay ? source.url : (source?.directUrl || source?.url || source?.embedUrl || '')).toLowerCase();
+  const url = String(isBrokerRelay ? (source?.url || '') : (source?.directUrl || source?.url || source?.embedUrl || '')).toLowerCase();
   if (type === 'embed') return 'embed' as const;
   if (type === 'hls' || /\.m3u8(?:[?#]|$)/i.test(url)) return 'hls' as const;
   if (type === 'dash' || /\.mpd(?:[?#]|$)/i.test(url)) return 'dash' as const;
@@ -509,7 +509,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const playbackSource = remotePlaybackSource;
   const brokerRelayUrl =
     /\/api\/v1\/playback\/stream(?:\?|$)/i.test(String(playbackSource?.url || ''))
-      ? playbackSource.url.trim()
+      ? (playbackSource?.url?.trim() || '')
       : '';
   const directPlaybackUrl = playbackSource?.directUrl?.trim() || '';
   const playbackUrl = useMemo(() => {
