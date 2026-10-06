@@ -24,6 +24,7 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
     { label: t('movies'), path: '/movies' },
     { label: t('series'), path: '/series' },
     { label: t('discover'), path: '/discover' },
+    { label: language === 'ar' ? 'أفضل 1000' : 'Top 1000', path: '/catalog' },
   ];
 
   const handleNav = (path: string) => {
