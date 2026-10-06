@@ -3,6 +3,7 @@ type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 type MovyzEnvironment = {
   ASSETS: { fetch(request: Request): Promise<Response> };
   TMDB_API_READ_ACCESS_TOKEN?: string;
+  MOVYZ_BUILD_ID?: string;
 };
 
 const tmdbHeaders = (env: MovyzEnvironment) => ({
