@@ -14,7 +14,8 @@
     "clean": "rm -rf dist",
     "test": "node -e \"console.log('Movyz playback broker smoke: no persistent playback URL storage')\"",
     "cf:deploy": "wrangler deploy",
-    "cf:dev": "wrangler dev"
+    "cf:dev": "wrangler dev",
+    "resolver": "tsx resolver-server.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
