@@ -95,7 +95,9 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   const config = LOCALES[locale];
 
   let contentTitle = '';
+  let alternateTitle = '';
   let description = '';
+  let imageUrl = '';
   let schemaType = 'WebSite';
   let ogType = 'website';
   const detailMovie = route.match(/^\/movies\/(\d+)$/);
@@ -141,7 +143,9 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
         });
         const data = await upstream.json().catch(() => null) as any;
         contentTitle = data?.title || data?.name || data?.original_title || data?.original_name || `Movyza #${id}`;
+        alternateTitle = data?.original_title || data?.original_name || '';
         description = data?.overview || `${contentTitle} — Movyza`;
+        imageUrl = data?.backdrop_path ? `https://image.tmdb.org/t/p/w1280${data.backdrop_path}` : (data?.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : '');
         schemaType = type === 'movie' ? 'Movie' : 'TVSeries';
         ogType = type === 'movie' ? 'video.movie' : 'video.tv_show';
       } catch {
@@ -168,13 +172,15 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     .map(([code, item]) => `<link rel="alternate" hreflang="${item.tmdb.toLowerCase()}" href="${origin}/${code}${route === '/' ? '/' : route}" />`)
     .join('');
   const xDefault = `<link rel="alternate" hreflang="x-default" href="${origin}/en${route === '/' ? '/' : route}" />`;
-  const keywords = titleKeywords(locale, contentTitle);
+  const keywords = titleKeywords(locale, contentTitle + (alternateTitle && alternateTitle !== contentTitle ? `, ${alternateTitle}` : ''));
 
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': schemaType,
     name: contentTitle,
     description,
+    alternateName: alternateTitle || undefined,
+    image: imageUrl ? [imageUrl] : undefined,
     url: origin + canonicalPath,
   };
   const injection = `<!-- movyz-seo -->` +
@@ -184,6 +190,10 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     `<meta property="og:description" content="${description.replace(/"/g, '&quot;')}" />` +
     `<meta property="og:type" content="${ogType}" />` +
     `<meta property="og:locale" content="${config.tmdb.replace('-', '_')}" />` +
+    (imageUrl ? `<meta property="og:image" content="${imageUrl}" />` : '') +
+    `<meta property="og:url" content="${origin + canonicalPath}" />` +
+    `<meta name="twitter:card" content="summary_large_image" />` +
+    (imageUrl ? `<meta name="twitter:image" content="${imageUrl}" />` : '') +
     `<link rel="canonical" href="${origin + canonicalPath}" />` +
     hreflangLinks + xDefault +
     `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>`;
