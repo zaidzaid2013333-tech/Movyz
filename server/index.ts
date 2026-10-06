@@ -707,7 +707,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
       return fail(res, 502, 'PLAYBACK_STREAM_UPSTREAM_INVALID', 'Upstream playback response is not a media stream');
     }
 
-    return new Response(req.method === 'HEAD' ? null : selected.body, {
+    return new Response(req.method === 'HEAD' ? null : upstream.body, {
       status: upstream.status,
       headers: responseHeaders,
     });
