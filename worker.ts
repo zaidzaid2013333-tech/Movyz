@@ -65,6 +65,14 @@ const detectRequestLocale = (request: Request): LocaleCode => {
   return languageFromAcceptLanguage(request.headers.get('Accept-Language')) || 'ar';
 };
 
+const detectSubtitleLocale = (request: Request): LocaleCode => {
+  const fromCountry = String(countryFromRequest(request) || '').toUpperCase();
+  for (const [code, config] of Object.entries(LOCALES) as Array<[LocaleCode, typeof LOCALES.en]>) {
+    if (config.countries.includes(fromCountry)) return code;
+  }
+  return 'ar';
+};
+
 const isAppHtmlPath = (pathname: string) =>
   !pathname.includes('.') &&
   !pathname.startsWith('/tmdb');
@@ -183,7 +191,10 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     image: imageUrl ? [imageUrl] : undefined,
     url: origin + canonicalPath,
   };
+  const subtitleLocale = detectSubtitleLocale(request);
   const injection = `<!-- movyz-seo -->` +
+    `<meta name="movyz-country" content="${String(countryFromRequest(request) || 'XX').toUpperCase()}" />` +
+    `<meta name="movyz-subtitle-language" content="${subtitleLocale}" />` +
     `<meta name="keywords" content="${keywords.replace(/"/g, '&quot;')}" />` +
     `<meta name="robots" content="${isNoIndex ? 'noindex,follow' : 'index,follow,max-image-preview:large'}" />` +
     `<meta property="og:title" content="${seoTitle.replace(/"/g, '&quot;')}" />` +
