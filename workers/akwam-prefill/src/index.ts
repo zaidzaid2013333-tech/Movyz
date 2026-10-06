@@ -64,8 +64,10 @@ const SERIES_CACHE_MAX_KEYS = 256;
 const seriesCandidateMemory = new Map<string, { candidate: Candidate; cachedAt: number }>();
 const seriesDetailMemory = new Map<string, { html: string; cachedAt: number }>();
 const movieCandidateMemory = new Map<string, { candidate: Candidate; cachedAt: number }>();
+const movieDetailMemory = new Map<string, { html: string; cachedAt: number }>();
 
 const MOVIE_CANDIDATE_TTL_MS = 10 * 60 * 1000;
+const MOVIE_DETAIL_TTL_MS = 5 * 60 * 1000;
 
 function trimSeriesCaches() {
   while (seriesCandidateMemory.size > SERIES_CACHE_MAX_KEYS) {
@@ -82,6 +84,11 @@ function trimSeriesCaches() {
     const first = movieCandidateMemory.keys().next().value;
     if (!first) break;
     movieCandidateMemory.delete(first);
+  }
+  while (movieDetailMemory.size > SERIES_CACHE_MAX_KEYS) {
+    const first = movieDetailMemory.keys().next().value;
+    if (!first) break;
+    movieDetailMemory.delete(first);
   }
 }
 
@@ -617,41 +624,34 @@ async function findCandidate(
   const readBest = (): { item: Candidate; score: number } | null => best;
 
   if (expected === "movie" || expected === "series") {
-    // Run section and generic search in the same network round. Akwam can be
-    // slow to answer, so a sequential fallback doubled resolver latency.
-    await Promise.all([
-      fetchSearchSet(
-        variants.map((title) =>
-          host + "/search?q=" + encodeURIComponent(title) +
-          "&section=" + encodeURIComponent(expected) + "&page=1",
-        ),
+    // Fast path: one section-aware search round. The generic route is only a
+    // fallback, so the common case does not double the Akwam request volume.
+    await fetchSearchSet(
+      variants.map((title) =>
+        host + "/search?q=" + encodeURIComponent(title) +
+        "&section=" + encodeURIComponent(expected) + "&page=1",
       ),
-      fetchSearchSet(
-        variants.map((title) => host + "/search?q=" + encodeURIComponent(title) + "&page=1"),
+    );
+    const sectionWinner = readBest();
+    if (sectionWinner && sectionWinner.score >= 118) return sectionWinner.item;
+
+    await fetchSearchSet(
+      variants.map((title) =>
+        host + "/search?q=" + encodeURIComponent(title) + "&page=1",
       ),
-    ]);
-    const currentWinner = readBest();
-    if (currentWinner && currentWinner.score >= 118) return currentWinner.item;
+    );
+    const genericWinner = readBest();
+    if (genericWinner && genericWinner.score >= 118) return genericWinner.item;
   }
 
-  // Legacy archive is a bounded fallback for older movies only. Keep both
-  // legacy URL shapes in the same network round as well.
   if (expected === "movie") {
-    const legacyVariants = variants.slice(0, 2);
-    await Promise.all([
-      fetchSearchSet(
-        legacyVariants.map((title) =>
-          host + "/old/search/" + encodeURIComponent(title) + "/page/1",
-        ),
-        true,
+    const legacyVariants = variants.slice(0, 1);
+    await fetchSearchSet(
+      legacyVariants.map((title) =>
+        host + "/old/search/" + encodeURIComponent(title) + "/page/1",
       ),
-      fetchSearchSet(
-        legacyVariants.map((title) =>
-          host + "/old/search/" + encodeURIComponent(title),
-        ),
-        true,
-      ),
-    ]);
+      true,
+    );
     const legacyWinner = readBest();
     if (legacyWinner && legacyWinner.score >= 100) return legacyWinner.item;
   }
@@ -1488,9 +1488,21 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
     candidate = await findMovieCandidateCached(env, ctx.titles, ctx.year, budget, session);
     if (!candidate) throw new Error("AKWAM_NOT_FOUND");
 
-    const detail = await fetchText(env, candidate.url, undefined, undefined, budget, session);
-    if (!detail) throw new Error("AKWAM_DETAIL_FETCH_FAILED");
-    targets = usefulResolutionTargets(extractTargets(detail, candidate.url), 10);
+    const detailKey = candidate.url;
+    const now = Date.now();
+    const cachedDetail = movieDetailMemory.get(detailKey);
+    let detail = cachedDetail && cachedDetail.cachedAt + MOVIE_DETAIL_TTL_MS > now
+      ? cachedDetail.html
+      : null;
+
+    if (!detail) {
+      detail = await fetchText(env, candidate.url, undefined, undefined, budget, session);
+      if (!detail) throw new Error("AKWAM_DETAIL_FETCH_FAILED");
+      movieDetailMemory.set(detailKey, { html: detail, cachedAt: now });
+      trimSeriesCaches();
+    }
+
+    targets = usefulResolutionTargets(extractTargets(detail, candidate.url), 8);
   }
 
   const medias: Media[] = [];
@@ -1499,7 +1511,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   // Keep enough ranked targets for Akwam's fallback variants, but do not wait
   // for every target. Return the first playable hand-off and only spend a short
   // grace window collecting additional sources.
-  const rankedTargets = usefulResolutionTargets(targets, isEpisode ? 5 : 4);
+  const rankedTargets = usefulResolutionTargets(targets, isEpisode ? 4 : 3);
   type TargetResult = { index: number; media: Media | null };
   const pendingTargets: Array<{ index: number; promise: Promise<TargetResult> }> = rankedTargets.map((target, index) => ({
     index,
