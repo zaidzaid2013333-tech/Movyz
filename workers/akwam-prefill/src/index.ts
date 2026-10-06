@@ -776,7 +776,7 @@ function extractMediaCandidates(text: string, baseUrl: string) {
     addUrlCandidate(out, seen, url, baseUrl, nav ? 20 : 180, decoded);
   }
 
-  const attrs = /(?:href|src|data-src|data-url|data-file|data-video|data-href|data-link|data-stream|data-playlist)=["']([^"']+)["']/gi;
+  const attrs = /(?:href|src|data-src|data-url|data-file|data-video|data-href|data-link|data-stream|data-playlist|formaction|data-playlist-url)=["']([^"']+)["']/gi;
   let match: RegExpExecArray | null;
   while ((match = attrs.exec(decoded))) {
     const raw = match[1];
@@ -816,6 +816,27 @@ function extractMediaCandidates(text: string, baseUrl: string) {
       isLikelyNavigationUrl(raw) ? 70 : 90,
       decoded.slice(Math.max(0, match.index - 700), match.index + 1100),
     );
+  }
+
+  // Akwam often stores escaped media URLs inside JSON/inline scripts (https:\/\/...).
+  // Decode those without introducing a title-specific extractor.
+  const escapedAbsolute = /["'](https?:\\\\\/\\\\\/[^"'<>]+)["']/gi;
+  while ((match = escapedAbsolute.exec(decoded))) {
+    const raw = match[1].replaceAll("\\\\/","/");
+    addUrlCandidate(
+      out,
+      seen,
+      raw,
+      baseUrl,
+      isLikelyNavigationUrl(raw) ? 75 : 165,
+      decoded.slice(Math.max(0, match.index - 900), match.index + 1400),
+    );
+  }
+
+  // Common metadata-based player hints.
+  const metaVideo = /<meta[^>]+(?:property|name)=["'](?:og:video|og:video:url|twitter:player:stream)["'][^>]+content=["']([^"']+)["'][^>]*>/gi;
+  while ((match = metaVideo.exec(decoded))) {
+    addUrlCandidate(out, seen, match[1], baseUrl, 175, "meta video");
   }
 
   return out.sort((a, b) => b.score - a.score).slice(0, 16);
@@ -1142,7 +1163,7 @@ function extractTargets(html: string, baseUrl: string) {
     }
   }
 
-  const interactive = /<(?:a|button|form|div|span)[^>]*(?:href|action|data-href|data-url|data-link|data-file|data-video|data-src|data-stream)=["']([^"']+)["'][^>]*>/gi;
+  const interactive = /<(?:a|button|form|div|span)[^>]*(?:href|action|formaction|data-href|data-url|data-link|data-file|data-video|data-src|data-stream|data-playlist-url)=["']([^"']+)["'][^>]*>/gi;
   while ((m = interactive.exec(html))) {
     const raw = decodeHtml(m[1]);
     try {
@@ -1157,7 +1178,7 @@ function extractTargets(html: string, baseUrl: string) {
   }
 
 
-  const mediaTags = /<(?:iframe|video|source)\b[^>]*(?:src|data-src|data-url)=["']([^"']+)["'][^>]*>/gi;
+  const mediaTags = /<(?:video|source)\b[^>]*(?:src|data-src|data-url)=["']([^"']+)["'][^>]*>/gi;
   while ((m = mediaTags.exec(html))) add(m[1], 140);
 
   for (const u of extractMediaLikeUrls(html)) add(u, 260);
@@ -1404,7 +1425,9 @@ async function resolveTarget(
   type Node = { url: string; referer?: string; depth: number };
   const queue: Node[] = [{ url: initialTarget, referer, depth: 0 }];
   const visited = new Set<string>();
-  // Handle extra navigation hops generically instead of title-specific branches.
+  // The graph is content-agnostic: every Akwam page is either a navigation hop
+  // or a playable-media candidate. Navigation pages are fetched once as HTML;
+  // they are never probed as if they were videos first.
   const maxNodes = 12;
   const maxDepth = 4;
 
@@ -1413,51 +1436,44 @@ async function resolveTarget(
     if (!node.url || visited.has(node.url)) continue;
     visited.add(node.url);
 
-    const direct = mediaFromUrl(node.url, node.referer);
-    if (await validateMedia(env, direct, budget)) return direct;
+    const isAkwamNavigation = isAkwamUrl(node.url) && isLikelyNavigationUrl(node.url);
 
-    if (/^https:\/\/akwam\.ss\/old\/download\//i.test(node.url)) {
-      const legacyMedia = await resolveLegacyAkwamDownload(
-        env,
-        node.url,
-        node.referer,
-        budget,
-        session,
-      );
-      if (legacyMedia) return legacyMedia;
+    // Direct/foreign media gets one probe. Akwam navigation targets skip this
+    // probe entirely, avoiding the old double-request pattern.
+    if (!isAkwamNavigation) {
+      const direct = mediaFromUrl(node.url, node.referer);
+      if (await validateMedia(env, direct, budget)) return direct;
     }
 
     const html = await fetchText(env, node.url, undefined, node.referer, budget, session);
     if (!html) continue;
 
-    // Universal Akwam extraction stages, independent of title or content:
-    // hand-off button -> embedded media -> structured media -> navigation hops.
+    // Generic extraction stages shared by every movie, series, and episode:
+    // 1) explicit download/player hand-off
+    // 2) embedded video/source
+    // 3) structured/data/script media hints
+    // 4) additional Akwam navigation hops
     const buttonMedia = extractDownloadButtonMedia(html, node.url);
     if (buttonMedia) {
-      if (!isAkwamUrl(buttonMedia.url)) return buttonMedia;
       if (await validateMedia(env, buttonMedia, budget)) return buttonMedia;
     }
 
     const embeddedMedia = extractMedia(html, node.url);
     if (embeddedMedia) {
-      if (!isAkwamUrl(embeddedMedia.url)) return embeddedMedia;
       if (await validateMedia(env, embeddedMedia, budget)) return embeddedMedia;
     }
 
     for (const candidate of extractMediaCandidates(html, node.url).slice(0, 8)) {
       const media = mediaFromUrl(candidate.url, node.url, candidate.quality || html);
-      if (!isAkwamUrl(media.url)) return media;
       if (await validateMedia(env, media, budget)) return media;
     }
 
     if (node.depth >= maxDepth) continue;
 
+    // Do not probe navigation links here. Queue them for the same generic
+    // resolver graph so each page is fetched exactly once.
     for (const next of extractTargets(html, node.url).slice(0, 5)) {
       if (!next || visited.has(next)) continue;
-
-      const nextMedia = mediaFromUrl(next, node.url);
-      if (await validateMedia(env, nextMedia, budget)) return nextMedia;
-
       queue.push({ url: next, referer: node.url, depth: node.depth + 1 });
     }
   }
