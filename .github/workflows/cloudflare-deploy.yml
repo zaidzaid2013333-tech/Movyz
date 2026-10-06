@@ -69,9 +69,12 @@ jobs:
           ar_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies")"
           en_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/en/movies")"
           sitemap="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
-          printf '%s' "$sitemap" | grep -q '<urlset'
-          printf '%s' "$sitemap" | grep -q '/ar/movies'
-          printf '%s' "$sitemap" | grep -q '/en/movies'
+          printf '%s' "$sitemap" | grep -q '<sitemapindex'
+          printf '%s' "$sitemap" | grep -q '/sitemap/ar/movies/1.xml'
+          printf '%s' "$sitemap" | grep -q '/sitemap/en/series/1.xml'
+          sitemap_segment="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml")"
+          printf '%s' "$sitemap_segment" | grep -q '<urlset'
+          printf '%s' "$sitemap_segment" | grep -q '/ar/movies/'
           printf '%s' "$ar_html" | grep -q '<html lang="ar" dir="rtl"'
           printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'
           printf '%s' "$ar_html" | grep -q 'hreflang="en-us"'
@@ -81,3 +84,8 @@ jobs:
           printf '%s' "$html" | grep -q 'Movyza'
           body="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/tmdb/movie/550?language=en-US")"
           printf '%s' "$body" | grep -q '"id":550'
+          fight_club="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies/550")"
+          printf '%s' "$fight_club" | grep -q 'Fight Club'
+          printf '%s' "$fight_club" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
+          printf '%s' "$fight_club" | grep -q 'rel="canonical" href="https://movyz-api.sameranede.workers.dev/ar/movies/550"'
+          printf '%s' "$fight_club" | grep -q '"@type":"Movie"'
