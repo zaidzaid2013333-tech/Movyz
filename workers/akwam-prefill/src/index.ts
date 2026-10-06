@@ -468,6 +468,7 @@ async function findCandidate(
       ].filter(Boolean))).slice(0, 3);
 
   const scoreHtml = (html: string, allowLegacy: boolean) => {
+  const readBest = () => best;
     for (const item of parseCandidates(html, env, allowLegacy)) {
       const itemScore = score(item, titles, year, expected, expectedSeason);
       if (!best || itemScore > best.score) best = { item, score: itemScore };
@@ -495,12 +496,14 @@ async function findCandidate(
         "&section=" + encodeURIComponent(expected) + "&page=1",
       ),
     );
-    if (best && best.score >= 128) return best.item;
+    const winner = readBest();
+    if (winner && winner.score >= 128) return winner.item;
 
     await fetchSearchSet(
       variants.map((title) => host + "/search?q=" + encodeURIComponent(title) + "&page=1"),
     );
-    if (best && best.score >= 118) return best.item;
+    const winner = readBest();
+    if (winner && winner.score >= 118) return winner.item;
   }
 
   // Legacy archive is a bounded fallback for older movies only.
@@ -512,7 +515,8 @@ async function findCandidate(
       ),
       true,
     );
-    if (best && best.score >= 120) return best.item;
+    const winner = readBest();
+    if (winner && winner.score >= 120) return winner.item;
 
     await fetchSearchSet(
       legacyVariants.map((title) =>
@@ -520,10 +524,11 @@ async function findCandidate(
       ),
       true,
     );
-    if (best && best.score >= 100) return best.item;
+    const winner = readBest();
+    if (winner && winner.score >= 100) return winner.item;
   }
 
-  const winner = best as { item: Candidate; score: number } | null;
+  const winner = readBest();
   if (winner && winner.score >= 80) return winner.item;
   throw new Error("AKWAM_SEARCH_EMPTY probes=" + diagnostics.slice(0, 12).join(","));
 }
