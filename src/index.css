@@ -966,6 +966,80 @@ body,
   background: radial-gradient(circle, rgba(0,0,0,.18), rgba(0,0,0,.42));
 }
 
+.movyza-player-top-chip {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: .5rem;
+  max-width: min(70vw, 420px);
+  padding: .5rem .7rem;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 999px;
+  background: rgba(8,10,14,.58);
+  color: rgba(255,255,255,.78);
+  box-shadow: 0 10px 28px rgba(0,0,0,.22), inset 0 0 0 1px rgba(255,255,255,.018);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.movyza-player-live-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 14px rgba(244,187,79,.55);
+}
+.movyza-player-top-separator { color: rgba(255,255,255,.24); }
+
+.movyza-player-center-play {
+  display: grid;
+  place-items: center;
+  gap: .65rem;
+}
+.movyza-player-center-play-ring {
+  display: grid;
+  width: 84px;
+  height: 84px;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 50%;
+  background: rgba(8,10,14,.56);
+  color: #fff;
+  box-shadow: 0 24px 60px rgba(0,0,0,.42), 0 0 0 10px rgba(255,255,255,.025);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+.movyza-player-center-play:hover .movyza-player-center-play-ring,
+.movyza-player-center-play:focus-visible .movyza-player-center-play-ring {
+  transform: scale(1.06);
+  background: rgba(244,187,79,.15);
+  border-color: rgba(244,187,79,.42);
+  box-shadow: 0 28px 70px rgba(0,0,0,.48), 0 0 0 12px rgba(244,187,79,.05);
+}
+.movyza-player-center-play-label {
+  min-width: 68px;
+  padding: .42rem .7rem;
+  border-radius: 999px;
+  background: rgba(8,10,14,.64);
+  color: rgba(255,255,255,.7);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+@media (max-width: 560px) {
+  .movyza-player-top-chip { min-height: 31px; padding: .42rem .6rem; font-size: 9px; }
+  .movyza-player-center-play-ring { width: 72px; height: 72px; }
+  .movyza-player-center-play-label { display: none; }
+}
+
 .movyza-player-loading-card {
   display: inline-flex;
   flex-direction: column;
