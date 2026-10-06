@@ -60,4 +60,6 @@ jobs:
           command: deploy --var MOVYZ_BUILD_ID:${{ github.sha }}
       - name: Live health check
         run: |
-          curl --fail --silent --show-error https://movyza-api.sameranede.workers.dev/ >/dev/null
+          curl --fail --silent --show-error https://movyz.sameranede.workers.dev/ >/dev/null
+          body="$(curl --fail --silent --show-error "https://movyz.sameranede.workers.dev/tmdb/movie/550?language=en-US")"
+          printf '%s' "$body" | grep -q '"id":550'
