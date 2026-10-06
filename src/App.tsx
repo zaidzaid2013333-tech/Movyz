@@ -24,7 +24,7 @@ import { AdminDashboard } from './pages/AdminDashboard';
 
 import { MovyzaApi } from './services/api';
 import { Movie, Series } from './types';
-import { getLanguageFromPath, stripLanguagePrefix, withLanguagePrefix, Language } from './lib/i18n';
+import { getLanguageFromPath, stripLanguagePrefix, withLanguagePrefix } from './lib/i18n';
 
 
 function MainApp() {
