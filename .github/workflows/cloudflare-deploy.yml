@@ -62,35 +62,19 @@ jobs:
         run: |
           set -euo pipefail
           base="https://movyz-api.sameranede.workers.dev"
-          echo "Live response headers:"
-          curl --fail --silent --show-error -I -H 'Cache-Control: no-cache' "$base/"
           html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/")"
-          echo "Live HTML (first 5000 bytes):"
-          printf '%s' "$html" | head -c 5000
-          printf '\n--- END LIVE HTML ---\n'
-          marker="$(printf '%s' "$html" | sed -n 's/.*name="movyz-build" content="\([^"]*\)".*/\1/p')"
-          echo "Live Movyz build marker: $marker"
-          assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | sort -u || true)"
+          assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | sort -u)"
           echo "Live JS assets:"
           printf '%s\n' "$assets"
-          if [ -z "$assets" ]; then
-            echo "ERROR: live HTML contains no built JS asset."
-            exit 1
-          fi
-          found_old=0
-          found_catalog=0
+          test -n "$assets"
           for asset in $assets; do
             js="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base$asset")"
             if printf '%s' "$js" | grep -Fq 'Supabase is not configured'; then
-              echo "ERROR: stale Supabase error found in live JS: $asset"
-              found_old=1
+              echo "ERROR: legacy Supabase error text is still live: $asset"
+              exit 1
             fi
-            if printf '%s' "$js" | grep -Fq 'catalog-only mode'; then
-              found_catalog=1
-            fi
+            printf '%s' "$js" | grep -Fq 'urplayer.net'
           done
-          test "$found_old" -eq 0
-          test "$found_catalog" -eq 1
           printf '%s' "$html" | grep -q 'Movyza'
           body="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/tmdb/movie/550?language=en-US")"
           printf '%s' "$body" | grep -q '"id":550'
