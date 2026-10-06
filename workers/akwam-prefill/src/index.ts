@@ -250,11 +250,11 @@ async function discoverAkwamUrlsViaSearch(
     );
     if (!response.ok) return [];
     const html = await response.text();
-    const output: Candidate[] = [];
+    const output: Array<Candidate & { rank: number }> = [];
     const seen = new Set<string>();
     for (const match of html.matchAll(/<a[^>]+class=["'][^"']*result__a[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
       const raw = decodeHtml(match[1] || "");
-      const text = cleanText(match[2] || "");
+      const text = rawTextFromAnchor(match[2] || "");
       let url = raw;
       try {
         const parsed = new URL(raw, "https://html.duckduckgo.com");
@@ -267,18 +267,27 @@ async function discoverAkwamUrlsViaSearch(
       })();
       if (expected === "movie" && !/\/movie(?:s)?\//i.test(path)) continue;
       if (expected === "series" && !/\/(?:shows?|series|episodes?)\//i.test(path)) continue;
-      const score = score(
-        { url, title: text },
+      const candidateScore = score(
+        {
+          url,
+          title: text,
+          kind: expected === "movie" ? "movie" : "series",
+        },
         [query],
         undefined,
         expected,
         expectedSeason,
       );
-      if (score < 30) continue;
+      if (candidateScore < 30) continue;
       seen.add(url);
-      output.push({ url, title: text, score: score + 50 });
+      output.push({
+        url,
+        title: text,
+        kind: expected === "movie" ? "movie" : "series",
+        rank: candidateScore + 50,
+      });
     }
-    return output.sort((a, b) => b.score - a.score).slice(0, 5);
+    return output.sort((a, b) => b.rank - a.rank).slice(0, 5).map(({ rank: _rank, ...candidate }) => candidate);
   } catch {
     return [];
   }
