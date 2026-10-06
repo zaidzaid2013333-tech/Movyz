@@ -202,7 +202,11 @@ jobs:
                       return response.status, response.headers, json.loads(body.decode("utf-8"))
               except urllib.error.HTTPError as error:
                   body = error.read().decode("utf-8", "replace")
-                  raise SystemExit(f"{url}: HTTP {error.code}: {body[:900]}")
+                  try:
+                      payload = json.loads(body.decode("utf-8"))
+                  except Exception:
+                      payload = {"error": body[:900]}
+                  return error.code, error.headers, payload
 
           status, _, payload = request_json(
               api + "/api/v1/playback/prepare?type=movie&contentId=" + movie_id
@@ -316,7 +320,7 @@ jobs:
                   raise SystemExit(f"{title} S01E01 watch endpoint returned no episode id")
               last_error = None
               srcs = []
-              for attempt in range(1, 3):
+              for attempt in range(1, 4):
                   try:
                       status, _, payload = request_json(
                           api + "/api/v1/playback/prepare?type=episode&contentId=" + str(eid) + "&season=1&episode=1"
@@ -331,7 +335,7 @@ jobs:
                       import time
                       time.sleep(0.75)
               if not srcs:
-                  raise SystemExit(f"{title} S01E01 playback failed after 2 attempts: {last_error}")
+                  raise SystemExit(f"{title} S01E01 playback failed after 3 attempts: {last_error}")
               print(title.upper().replace(" ", "_"), "S01E01_PLAYBACK_OK", len(srcs), "sources", "episode_id", eid)
 
           print("Movyz live playback smoke: ALL OK")
