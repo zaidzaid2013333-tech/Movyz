@@ -1805,10 +1805,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   clearPlayerLoadTimeout();
                   setPlayerLoadingState(false);
                 }}
-                onClick={() => {
-                  togglePlayerPlayback();
-                }}
-                onPointerUp={handlePlayerDoubleTap}
+                onPointerUp={handlePlayerSurfacePointerUp}
                 onDoubleClick={(event) => {
                   const target = event.target as HTMLElement | null;
                   if (target?.closest('button,input,select')) return;
