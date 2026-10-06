@@ -1,5 +1,5 @@
-import React from 'react';
-import { ArrowLeft, Film } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowLeft, ExternalLink, Loader2 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
 interface WatchPageProps {
@@ -10,37 +10,129 @@ interface WatchPageProps {
   onNavigate: (path: string) => void;
 }
 
-export const WatchPage: React.FC<WatchPageProps> = ({ mediaType, contentId, seasonNumber, episodeNumber, onNavigate }) => {
+export const WatchPage: React.FC<WatchPageProps> = ({
+  mediaType,
+  contentId,
+  seasonNumber,
+  episodeNumber,
+  onNavigate,
+}) => {
   const { language } = useLanguage();
-  const title = mediaType === 'movie'
-    ? (language === 'ar' ? 'صفحة المشاهدة غير مفعّلة حالياً' : 'Playback is currently disabled')
-    : (language === 'ar' ? 'مشاهدة الحلقات غير مفعّلة حالياً' : 'Episode playback is currently disabled');
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const isSeries = mediaType === 'series';
+  const validEpisode = isSeries
+    && Number.isFinite(Number(seasonNumber))
+    && Number(seasonNumber) > 0
+    && Number.isFinite(Number(episodeNumber))
+    && Number(episodeNumber) > 0;
+
+  const embedUrl = isSeries && validEpisode
+    ? `https://urplayer.net/embed/tv/${encodeURIComponent(contentId)}/${Number(seasonNumber)}/${Number(episodeNumber)}`
+    : !isSeries
+      ? `https://urplayer.net/embed/movie/${encodeURIComponent(contentId)}`
+      : '';
+
+  const detailsPath = isSeries ? `/series/${contentId}` : `/movies/${contentId}`;
+
+  if (!contentId || !embedUrl) {
+    return (
+      <div className="min-h-screen bg-[#07090e] text-white flex items-center justify-center p-6">
+        <div className="w-full max-w-lg text-center space-y-5">
+          <h1 className="text-2xl font-bold">
+            {language === 'ar' ? 'تعذّر فتح الحلقة' : 'Unable to open episode'}
+          </h1>
+          <p className="text-sm text-slate-400">
+            {language === 'ar'
+              ? 'رابط المشاهدة غير صالح لهذه الحلقة.'
+              : 'The playback URL for this episode is invalid.'}
+          </p>
+          <button
+            onClick={() => onNavigate(detailsPath)}
+            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-amber-500 text-slate-950 font-bold"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            {language === 'ar' ? 'العودة للتفاصيل' : 'Back to details'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-[#07090e] flex items-center justify-center p-6">
-      <div className="max-w-lg w-full text-center space-y-6">
-        <div className="mx-auto w-20 h-20 rounded-3xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-          <Film className="w-9 h-9 text-amber-400" />
-        </div>
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white">{title}</h1>
-          <p className="mt-3 text-sm leading-7 text-slate-400">
-            {language === 'ar'
-              ? 'تمت إعادة بناء Movyza ليكون كاتالوجاً خفيفاً يعتمد على TMDB مع Supabase للحسابات والبيانات الشخصية. طبقات الـresolver والمصادر والمشغلات القديمة أزيلت بالكامل.'
-              : 'Movyza is now a lightweight TMDB catalog with Supabase for accounts and personal data. The old resolver, provider and playback layers were removed.'}
-          </p>
-          {(seasonNumber || episodeNumber) && (
-            <p className="mt-2 text-xs text-slate-500">S{seasonNumber} · E{episodeNumber} · {contentId}</p>
-          )}
-        </div>
+    <div className="min-h-screen bg-black text-white flex flex-col">
+      <header className="shrink-0 h-14 sm:h-16 px-3 sm:px-5 flex items-center justify-between border-b border-white/10 bg-[#08090d]">
         <button
-          onClick={() => onNavigate(mediaType === 'movie' ? '/movies/' + contentId : '/series/' + contentId)}
-          className="mx-auto inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-amber-500 text-slate-950 font-bold text-sm"
+          onClick={() => onNavigate(detailsPath)}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-slate-200 hover:text-white hover:bg-white/[0.06] transition-colors"
+          aria-label={language === 'ar' ? 'العودة' : 'Back'}
         >
           <ArrowLeft className="w-4 h-4" />
-          {language === 'ar' ? 'العودة للتفاصيل' : 'Back to details'}
+          <span>{language === 'ar' ? 'العودة' : 'Back'}</span>
         </button>
-      </div>
+
+        <a
+          href={embedUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/[0.06]"
+        >
+          <ExternalLink className="w-4 h-4" />
+          <span>{language === 'ar' ? 'فتح المشغل' : 'Open player'}</span>
+        </a>
+      </header>
+
+      <main className="flex-1 flex items-center justify-center bg-black">
+        <div className="relative w-full max-w-[1600px] aspect-video bg-[#050505] overflow-hidden">
+          {!loaded && !failed && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black">
+              <div className="flex flex-col items-center gap-3 text-slate-300">
+                <Loader2 className="w-7 h-7 animate-spin text-amber-400" />
+                <span className="text-sm">{language === 'ar' ? 'جاري تحميل المشغل…' : 'Loading player…'}</span>
+              </div>
+            </div>
+          )}
+
+          {failed ? (
+            <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
+              <div className="max-w-md space-y-4">
+                <h2 className="text-lg font-bold text-white">
+                  {language === 'ar' ? 'تعذّر تحميل المشغل' : 'Player failed to load'}
+                </h2>
+                <p className="text-sm leading-6 text-slate-400">
+                  {language === 'ar'
+                    ? 'قد يكون المشغل الخارجي غير متاح مؤقتاً. جرّب فتحه مباشرة.'
+                    : 'The external player may be temporarily unavailable. Try opening it directly.'}
+                </p>
+                <a
+                  href={embedUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-bold text-sm"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  {language === 'ar' ? 'فتح المشغل مباشرة' : 'Open player directly'}
+                </a>
+              </div>
+            </div>
+          ) : (
+            <iframe
+              key={embedUrl}
+              src={embedUrl}
+              title={isSeries
+                ? `URPlayer TV ${contentId} S${seasonNumber} E${episodeNumber}`
+                : `URPlayer Movie ${contentId}`}
+              className="w-full h-full border-0 bg-black"
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+              allowFullScreen
+              referrerPolicy="no-referrer"
+              onLoad={() => setLoaded(true)}
+              onError={() => setFailed(true)}
+            />
+          )}
+        </div>
+      </main>
     </div>
   );
 };
