@@ -196,6 +196,8 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   let ogType = 'website';
   const detailMovie = route.match(/^\/movies\/(\d+)$/);
   const detailSeries = route.match(/^\/series\/(\d+)$/);
+  const watchMovie = route.match(/^\/watch\/movie\/(\d+)$/);
+  const watchEpisode = route.match(/^\/watch\/tv\/(\d+)\/(\d+)\/(\d+)$/);
 
   const generic = {
     ar: { home: 'موفيزا — منصة الأفلام والمسلسلات', movies: 'الأفلام والمسلسلات المترجمة | موفيزا', series: 'المسلسلات التلفزيونية | موفيزا', discover: 'استكشاف الأفلام والمسلسلات | موفيزا', search: 'البحث في موفيزا' },
@@ -258,6 +260,64 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
         description = contentTitle;
       }
     }
+  } else if (watchMovie || watchEpisode) {
+    if (env.TMDB_API_READ_ACCESS_TOKEN) {
+      try {
+        const isMovieWatch = Boolean(watchMovie);
+        const id = Number((watchMovie || watchEpisode)?.[1] || 0);
+        const seasonNumber = Number(watchEpisode?.[2] || 0);
+        const episodeNumber = Number(watchEpisode?.[3] || 0);
+        const subtitle = subtitlePriorityForLanguage(locale);
+        const embedUrl = isMovieWatch
+          ? `https://vidsrc.sh/embed/movie/${id}?ds_lang=${encodeURIComponent(subtitle)}`
+          : `https://vidsrc.sh/embed/tv/${id}/${seasonNumber}/${episodeNumber}?ds_lang=${encodeURIComponent(subtitle)}`;
+
+        if (isMovieWatch) {
+          const upstream = await fetch(`https://api.themoviedb.org/3/movie/${id}?language=${encodeURIComponent(config.tmdb)}&append_to_response=credits`, {
+            headers: tmdbHeaders(env),
+          });
+          const data = await upstream.json().catch(() => null) as any;
+          contentTitle = data?.title || data?.original_title || `Movyza #${id}`;
+          alternateTitle = data?.original_title || '';
+          description = data?.overview || `مشاهدة ${contentTitle} على موفيزا`;
+          imageUrl = data?.backdrop_path
+            ? `https://image.tmdb.org/t/p/w1280${data.backdrop_path}`
+            : (data?.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : '');
+          schemaType = 'VideoObject';
+          ogType = 'video.movie';
+          (globalThis as any).__movyzVideo = {
+            embedUrl,
+            uploadDate: data?.release_date || '',
+            duration: Number(data?.runtime || 0),
+          };
+        } else {
+          const [seriesResponse, episodeResponse] = await Promise.all([
+            fetch(`https://api.themoviedb.org/3/tv/${id}?language=${encodeURIComponent(config.tmdb)}`, { headers: tmdbHeaders(env) }),
+            fetch(`https://api.themoviedb.org/3/tv/${id}/season/${seasonNumber}/episode/${episodeNumber}?language=${encodeURIComponent(config.tmdb)}`, { headers: tmdbHeaders(env) }),
+          ]);
+          const seriesData = await seriesResponse.json().catch(() => null) as any;
+          const episodeData = await episodeResponse.json().catch(() => null) as any;
+          const seriesTitle = seriesData?.name || seriesData?.original_name || `Series #${id}`;
+          const episodeTitle = episodeData?.name || `Episode ${episodeNumber}`;
+          contentTitle = `${seriesTitle} — ${episodeTitle} | S${seasonNumber} E${episodeNumber}`;
+          alternateTitle = episodeData?.original_name || seriesData?.original_name || '';
+          description = episodeData?.overview || seriesData?.overview || `مشاهدة ${contentTitle} على موفيزا`;
+          imageUrl = episodeData?.still_path
+            ? `https://image.tmdb.org/t/p/w780${episodeData.still_path}`
+            : (seriesData?.backdrop_path ? `https://image.tmdb.org/t/p/w1280${seriesData.backdrop_path}` : '');
+          schemaType = 'VideoObject';
+          ogType = 'video.tv_show';
+          (globalThis as any).__movyzVideo = {
+            embedUrl,
+            uploadDate: episodeData?.air_date || seriesData?.first_air_date || '',
+            duration: Number(episodeData?.runtime || 0),
+          };
+        }
+      } catch {
+        contentTitle = 'Movyza Video';
+        description = contentTitle;
+      }
+    }
   }
 
   if (!contentTitle) {
@@ -265,13 +325,20 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     description = generic.home;
   }
 
-  const isNoIndex = route === '/search' || route.startsWith('/search/') || route.startsWith('/watch/');
+  const watchVideo = (globalThis as any).__movyzVideo;
+  delete (globalThis as any).__movyzVideo;
+  const isWatchPage = Boolean(watchMovie || watchEpisode);
+  const isNoIndex = route === '/search' || route.startsWith('/search/');
   const searchTitle = alternateTitle || contentTitle;
-  const seoTitle = detailMovie || detailSeries
+  const seoTitle = isWatchPage
     ? (locale === 'ar'
-      ? `${searchTitle} مترجم عربي | ${contentTitle} | مشاهدة ${searchTitle} | موفيزا`
-      : `${searchTitle} | ${contentTitle} | Movyza`)
-    : contentTitle;
+      ? `مشاهدة ${searchTitle} مترجم عربي | ${contentTitle} | موفيزا`
+      : `Watch ${searchTitle} | ${contentTitle} | Movyza`)
+    : (detailMovie || detailSeries)
+      ? (locale === 'ar'
+        ? `${searchTitle} مترجم عربي | ${contentTitle} | مشاهدة ${searchTitle} | موفيزا`
+        : `${searchTitle} | ${contentTitle} | Movyza`)
+      : contentTitle;
   const canonicalPath = `/${locale}${route === '/' ? '/' : route}`;
   const origin = url.origin;
   const hreflangLinks = Object.entries(LOCALES)
@@ -280,15 +347,43 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   const xDefault = `<link rel="alternate" hreflang="x-default" href="${origin}/en${route === '/' ? '/' : route}" />`;
   const keywords = titleKeywords(locale, contentTitle + (alternateTitle && alternateTitle !== contentTitle ? `, ${alternateTitle}` : ''));
 
-  const jsonLd = {
-    '@context': 'https://schema.org',
-    '@type': schemaType,
-    name: contentTitle,
-    description,
-    alternateName: alternateTitle || undefined,
-    image: imageUrl ? [imageUrl] : undefined,
-    url: origin + canonicalPath,
+  const toIsoDuration = (minutes: number) => {
+    const totalSeconds = Math.max(0, Math.round(minutes * 60));
+    if (!totalSeconds) return undefined;
+    const hours = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    return `PT${hours ? hours + 'H' : ''}${mins ? mins + 'M' : ''}${secs ? secs + 'S' : ''}`;
   };
+
+  const jsonLd = isWatchPage
+    ? {
+        '@context': 'https://schema.org',
+        '@type': 'VideoObject',
+        name: contentTitle,
+        description,
+        thumbnailUrl: imageUrl ? [imageUrl] : undefined,
+        uploadDate: watchVideo?.uploadDate || undefined,
+        duration: toIsoDuration(Number(watchVideo?.duration || 0)),
+        embedUrl: watchVideo?.embedUrl,
+        url: origin + canonicalPath,
+        inLanguage: locale,
+        isFamilyFriendly: true,
+        creator: {
+          '@type': 'Organization',
+          name: 'Movyz',
+          url: origin,
+        },
+      }
+    : {
+        '@context': 'https://schema.org',
+        '@type': schemaType,
+        name: contentTitle,
+        description,
+        alternateName: alternateTitle || undefined,
+        image: imageUrl ? [imageUrl] : undefined,
+        url: origin + canonicalPath,
+      };
   const subtitleLocale = detectSubtitleLocale(request);
   const injection = `<!-- movyz-seo -->` +
     `<meta name="movyz-country" content="${String(countryFromRequest(request) || 'XX').toUpperCase()}" />` +
