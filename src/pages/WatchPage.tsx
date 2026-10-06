@@ -39,21 +39,25 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const safeSeason = Math.max(1, Number(seasonNumber || 1));
   const safeEpisode = Math.max(1, Number(episodeNumber || 1));
 
+  const subtitleLanguage = useMemo(() => {
+    const value = document.querySelector('meta[name="movyz-subtitle-language"]')?.getAttribute('content') || 'ar';
+    return ['ar', 'en', 'fr', 'de', 'es', 'it', 'pt', 'ru', 'tr', 'hi', 'ja', 'ko'].includes(value) ? value : 'ar';
+  }, []);
+
   const embedUrl = useMemo(() => {
     if (!contentId) return '';
 
     const params = new URLSearchParams();
-    // English visitors get the provider's native player state without a forced subtitle.
-    // Other locales request their own subtitle language as the default when VidSrc has one.
-    if (language !== 'en') {
-      params.set('ds_lang', language);
+    // Subtitle language follows the visitor's country, independently from the interface language.
+    if (subtitleLanguage !== 'en') {
+      params.set('ds_lang', subtitleLanguage);
     }
 
     if (isSeries) {
       return 'https://vidsrc.sh/embed/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode + '?' + params.toString();
     }
     return 'https://vidsrc.sh/embed/movie/' + encodeURIComponent(contentId) + '?' + params.toString();
-  }, [contentId, isSeries, safeSeason, safeEpisode, language]);
+  }, [contentId, isSeries, safeSeason, safeEpisode, subtitleLanguage]);
 
   useEffect(() => {
     let mounted = true;
