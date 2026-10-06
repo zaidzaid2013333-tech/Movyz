@@ -65,12 +65,85 @@ const detectRequestLocale = (request: Request): LocaleCode => {
   return languageFromAcceptLanguage(request.headers.get('Accept-Language')) || 'ar';
 };
 
+const SUBTITLE_COUNTRY_LANGUAGE: Record<string, LocaleCode> = {
+  // Arabic-speaking countries
+  DZ: 'ar', MA: 'ar', TN: 'ar', LY: 'ar', EG: 'ar', SD: 'ar', MR: 'ar',
+  SA: 'ar', AE: 'ar', QA: 'ar', KW: 'ar', BH: 'ar', OM: 'ar', YE: 'ar',
+  JO: 'ar', LB: 'ar', IQ: 'ar', SY: 'ar', PS: 'ar', SO: 'ar', DJ: 'ar',
+  KM: 'ar',
+
+  // English-speaking / English-dominant markets
+  US: 'en', GB: 'en', IE: 'en', CA: 'en', AU: 'en', NZ: 'en', SG: 'en',
+  JM: 'en', BS: 'en', BB: 'en', TT: 'en', GD: 'en', LC: 'en', VC: 'en',
+  AG: 'en', DM: 'en', KN: 'en', BZ: 'en', GY: 'en', FJ: 'en', PG: 'en',
+  SB: 'en', VU: 'en', WS: 'en', TO: 'en', FM: 'en', MH: 'en', PW: 'en',
+  NR: 'en', KI: 'en', GH: 'en', NG: 'en', KE: 'en', UG: 'en', TZ: 'en',
+  ZM: 'en', ZW: 'en', MW: 'en', BW: 'en', NA: 'en', LS: 'en', SZ: 'en',
+  ZA: 'en', SL: 'en', LR: 'en', GM: 'en', SS: 'en', MU: 'en', SC: 'en',
+
+  // French-speaking / French-dominant markets
+  FR: 'fr', BE: 'fr', LU: 'fr', MC: 'fr', SN: 'fr', CI: 'fr', BF: 'fr',
+  BJ: 'fr', TG: 'fr', ML: 'fr', NE: 'fr', GN: 'fr', GW: 'fr', GA: 'fr',
+  CG: 'fr', CD: 'fr', CM: 'fr', CF: 'fr', TD: 'fr', MG: 'fr', KM: 'fr',
+  DJ: 'fr', HT: 'fr', RW: 'fr', BI: 'fr', CH: 'fr', CA: 'fr',
+
+  // German
+  DE: 'de', AT: 'de', LI: 'de',
+
+  // Spanish
+  ES: 'es', MX: 'es', AR: 'es', CL: 'es', CO: 'es', PE: 'es', VE: 'es',
+  UY: 'es', PY: 'es', BO: 'es', EC: 'es', PA: 'es', CR: 'es', GT: 'es',
+  HN: 'es', SV: 'es', NI: 'es', CU: 'es', DO: 'es',
+
+  // Italian
+  IT: 'it', SM: 'it', VA: 'it',
+
+  // Portuguese
+  PT: 'pt', BR: 'pt', AO: 'pt', MZ: 'pt', CV: 'pt', GW: 'pt', ST: 'pt',
+  TL: 'pt',
+
+  // Russian
+  RU: 'ru', BY: 'ru', KZ: 'ru', KG: 'ru',
+
+  // Turkish
+  TR: 'tr', CY: 'tr',
+
+  // Hindi / India
+  IN: 'hi',
+
+  // Japanese
+  JP: 'ja',
+
+  // Korean
+  KR: 'ko',
+
+  // Chinese-speaking markets: use English as the neutral subtitle default
+  CN: 'en', TW: 'en', HK: 'en', MO: 'en',
+
+  // Dutch
+  NL: 'en', // neutral default for a country where local subtitles may vary
+
+  // Nordic countries: English is the broadly useful subtitle default
+  SE: 'en', NO: 'en', DK: 'en', FI: 'en', IS: 'en',
+
+  // Central / Eastern Europe: English neutral default
+  PL: 'en', CZ: 'en', SK: 'en', HU: 'en', RO: 'en', BG: 'en', HR: 'en',
+  SI: 'en', RS: 'en', BA: 'en', ME: 'en', MK: 'en', AL: 'en', EE: 'en',
+  LV: 'en', LT: 'en', MD: 'en', UA: 'en',
+
+  // Greek / Balkan / Mediterranean markets
+  GR: 'en', MT: 'en',
+
+  // Portuguese/Spanish-speaking + African/Lusophone markets not otherwise covered
+  GQ: 'es',
+
+  // Default for countries without a dedicated subtitle-language mapping
+  RU: 'ru'
+};
+
 const detectSubtitleLocale = (request: Request): LocaleCode => {
   const fromCountry = String(countryFromRequest(request) || '').toUpperCase();
-  for (const [code, config] of Object.entries(LOCALES) as Array<[LocaleCode, typeof LOCALES.en]>) {
-    if (config.countries.includes(fromCountry)) return code;
-  }
-  return 'ar';
+  return SUBTITLE_COUNTRY_LANGUAGE[fromCountry] || 'en';
 };
 
 const isAppHtmlPath = (pathname: string) =>
