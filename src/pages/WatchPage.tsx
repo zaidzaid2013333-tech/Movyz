@@ -1897,6 +1897,40 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               </video>
  
               
+              {!isEmbedPlayback ? (
+                <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-3 sm:p-4">
+                  <div className="movyza-player-top-chip">
+                    <span className="movyza-player-live-dot" />
+                    <span>{language === 'ar' ? 'MOVYZ PLAYBACK' : 'MOVYZ PLAYBACK'}</span>
+                    <span className="movyza-player-top-separator">·</span>
+                    <span className="truncate max-w-[42vw] sm:max-w-[34vw]">
+                      {normalizePlaybackQuality(playbackSource?.quality)}
+                    </span>
+                  </div>
+                  {playerReady ? (
+                    <div className="movyza-player-top-chip hidden xs:flex">
+                      <span>{language === 'ar' ? 'جاهز' : 'Ready'}</span>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {!isEmbedPlayback && !playerPlaying && !playerLoading && !playbackError ? (
+                <button
+                  type="button"
+                  onClick={togglePlayerPlayback}
+                  className="movyza-player-center-play pointer-events-auto absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2"
+                  aria-label={language === 'ar' ? 'تشغيل الفيديو' : 'Play video'}
+                >
+                  <span className="movyza-player-center-play-ring">
+                    <Play className="ms-1 h-7 w-7 fill-current sm:h-8 sm:w-8" />
+                  </span>
+                  <span className="movyza-player-center-play-label">
+                    {language === 'ar' ? 'تشغيل' : 'Play'}
+                  </span>
+                </button>
+              ) : null}
+
               {!isEmbedPlayback && playerLoading ? (
                 <div className="movyza-player-loading pointer-events-none absolute inset-0 z-25 flex items-center justify-center" aria-live="polite">
                   <div className="movyza-player-loading-card">
