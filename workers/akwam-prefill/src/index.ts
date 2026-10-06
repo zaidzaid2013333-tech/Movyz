@@ -234,6 +234,14 @@ async function fetchText(
   budget?: RequestBudget,
   session?: AkwamSession,
 ): Promise<string | null> {
+  // Akwam's server-side edge is intermittently unreachable from GitHub Actions
+  // and Cloudflare. Prefer the reader path for Akwam HTML so discovery does not
+  // burn the entire resolver budget on repeated network timeouts.
+  if (isAkwamUrl(url)) {
+    const mirror = await fetchAkwamMirror(url, diagnostics);
+    if (mirror) return mirror;
+  }
+
   try {
     consumeRequest(budget);
     const cookie = sessionCookieHeader(session);
@@ -257,6 +265,7 @@ async function fetchText(
     diagnostics?.push(new URL(url).hostname + ":ERR");
   }
 
+  // Last resort: try the reader again after direct HTTP failed.
   if (isAkwamUrl(url)) {
     return await fetchAkwamMirror(url, diagnostics);
   }
