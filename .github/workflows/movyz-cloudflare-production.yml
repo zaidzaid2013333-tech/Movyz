@@ -139,13 +139,13 @@ jobs:
               raise SystemExit(f"movie relay HTTP {error.code}: {body[:900]}")
 
           status, _, watch_payload = request_json(
-              api + "/api/v1/series/tmdb/1399/watch/1/1"
+              api + "/api/v1/series/tmdb/1396/watch/1/1"
           )
           current_season = watch_payload.get("data", {}).get("currentSeason", {})
           episodes = current_season.get("episodes", []) if isinstance(current_season, dict) else []
           episode_id = episodes[0].get("id") if episodes and isinstance(episodes[0], dict) else None
           if not episode_id:
-              raise SystemExit("episode smoke could not resolve a real episode id from Breaking Bad S01E01")
+              raise SystemExit("episode smoke could not resolve a real episode id from Breaking Bad S01E01 (TMDB 1396)")
 
           episode_payload = None
           episode_sources = []
