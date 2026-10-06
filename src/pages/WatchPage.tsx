@@ -1248,7 +1248,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           playbackEngineRef.current = hls;
           hls.on(Hls.Events.FRAG_LOADING, () => {
             if (!cancelled) {
-              setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل جزء من الفيديو…' : 'Loading video segment…');
+              if (!playbackStartedRef.current) {
+                setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل الفيديو…' : 'Loading video…');
+              } else {
+                setPlayerLoadingState(false);
+              }
               armPlayerLoadTimeout();
             }
           });
@@ -1268,7 +1272,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             setPlayerLoadingState(false);
             hls.destroy();
             playbackEngineRef.current = null;
-            if (playbackStartedRef.current || video.currentTime > 0.5 || video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            if (playbackStartedRef.current || video.currentTime > 0.5 || !video.paused) {
               setPlaybackError(null);
               return;
             }
@@ -1855,11 +1859,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   if (wasPlaying || userPlayRequestedRef.current) {
                     resumeAfterBufferingRef.current = true;
                   }
-                  setPlayerLoadingState(true, language === 'ar' ? 'الاتصال بالمصدر بطيء…' : 'The source is responding slowly…');
-                  armPlayerLoadTimeout();
                   if (!playbackStartedRef.current) {
+                    setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Loading data…');
                     setPlaybackError(null);
+                  } else {
+                    setPlayerLoadingState(false);
                   }
+                  armPlayerLoadTimeout();
                 }}
                 onSeeking={() => {
                   setPlayerLoadingState(true, language === 'ar' ? 'جارٍ الانتقال…' : 'Seeking…');
@@ -1894,8 +1900,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   const activePlayback =
                     playbackStartedRef.current ||
                     video.currentTime > 0.5 ||
-                    !video.paused ||
-                    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+                    !video.paused;
 
                   // Do not place a fatal overlay over a video that still has
                   // usable media data/frames.
