@@ -494,7 +494,7 @@ function explicitSeason(value: string): number | undefined {
 }
 
 function score(c: Candidate, titles: string[], year?: number, expected?: "movie" | "series" | "episode", expectedSeason?: number) {
-  if (c.kind === "other" || c.kind === "watch") return -1000;
+  if (c.kind === "other") return -1000;
   const compatible =
     expected === "movie"
       ? c.kind === "movie" || c.kind === "watch"
@@ -1028,7 +1028,8 @@ function targetResolutionScore(raw: string) {
     if (/^\/old\/(?:download|link|watch|episode|player|embed|stream|file|get|source|media|video)\//i.test(path)) return 170;
     if (/^\/(?:download|link|watch|play|player|embed|stream|file|get|source|media|video|episode|show\/episode)\//i.test(path)) return 175;
     if (/^\/(?:movie|movies|series|shows?)\//i.test(path)) return 120;
-    return 10;
+    if (/^\/(?:search|category|categories|genre|genres|login|register|home|contact|privacy|terms|tag|tags)(?:\/|$)/i.test(path)) return 10;
+    return 90;
   } catch {
     return 0;
   }
@@ -1540,6 +1541,18 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
         const episodeHtml = await fetchText(env, episodeTarget, undefined, base(env), budget, session);
         if (episodeHtml) targets = extractTargets(episodeHtml, episodeTarget);
       }
+    }
+
+    if (!targets.length) {
+      if (!candidate) throw new Error("AKWAM_NOT_FOUND");
+      throw new Error(
+        "AKWAM_EPISODE_NOT_INDEXED candidate=" +
+        candidate.url +
+        " season=" +
+        season +
+        " episode=" +
+        episode,
+      );
     }
 
   } else {
