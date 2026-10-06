@@ -3,9 +3,14 @@ import { resolveAkwamWithContext } from "./workers/akwam-prefill/src/index.ts";
 
 const port = Number(process.env.PORT || 8787);
 const sharedKey = String(process.env.PLAYBACK_RESOLVER_KEY || "").trim();
-const maxConcurrent = Math.max(1, Number(process.env.PLAYBACK_RESOLVER_MAX_CONCURRENCY || 4));
-const cacheTtlMs = Math.max(5_000, Number(process.env.PLAYBACK_RESOLVER_CACHE_TTL_MS || 45_000));
-const cacheMaxKeys = Math.max(32, Number(process.env.PLAYBACK_RESOLVER_CACHE_MAX_KEYS || 256));
+function positiveEnv(name: string, fallback: number, minimum: number) {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) ? Math.max(minimum, parsed) : fallback;
+}
+
+const maxConcurrent = positiveEnv("PLAYBACK_RESOLVER_MAX_CONCURRENCY", 4, 1);
+const cacheTtlMs = positiveEnv("PLAYBACK_RESOLVER_CACHE_TTL_MS", 45_000, 5_000);
+const cacheMaxKeys = positiveEnv("PLAYBACK_RESOLVER_CACHE_MAX_KEYS", 256, 32);
 
 type MediaSource = {
   url: string;
