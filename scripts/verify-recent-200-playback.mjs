@@ -167,8 +167,11 @@ const seasons = await fetchChunked("/rest/v1/seasons", "series_id", seriesIds, {
 });
 
 const seasonIds = seasons.map((row) => row.id);
+// Only fetch episode 1 rows. The audit validates the shared episode architecture
+// across the catalog without downloading all ~140k episode records into every shard.
 const episodeRows = await fetchChunked("/rest/v1/episodes", "season_id", seasonIds, {
   select: "id,season_id,episode_number",
+  episode_number: "eq.1",
   order: "episode_number.asc",
 }, 60);
 
@@ -199,23 +202,28 @@ for (const movie of movies) {
   });
 }
 
-// Every published series gets a representative first episode from its first available season.
-// This validates the shared series/episode architecture for every show without hammering Akwam
-// with all 140k episode rows. Individual episodes still resolve dynamically through the same path.
+// Every published series gets representative episode checks from its first and last
+// available seasons. This catches both young and long-running series while keeping load bounded.
 for (const show of series) {
-  const list = [...(seasonsBySeries.get(String(show.id)) || [])].sort(
-    (a, b) => Number(a.season_number || 0) - Number(b.season_number || 0),
-  );
-  const season = list.find((candidate) => firstEpisodeBySeason.has(String(candidate.id)));
-  if (!season) continue;
-  const episode = firstEpisodeBySeason.get(String(season.id));
-  checks.push({
-    kind: "episode",
-    id: String(episode.id),
-    title: show.title_en || show.title_ar || String(show.tmdb_id || ""),
-    season: Number(season.season_number || 0),
-    episode: Number(episode.episode_number || 0),
-  });
+  const list = [...(seasonsBySeries.get(String(show.id)) || [])]
+    .sort((a, b) => Number(a.season_number || 0) - Number(b.season_number || 0))
+    .filter((season) => firstEpisodeBySeason.has(String(season.id)));
+
+  const selected = [];
+  if (list[0]) selected.push(list[0]);
+  if (list.length > 1) selected.push(list[list.length - 1]);
+
+  for (const season of selected) {
+    const episode = firstEpisodeBySeason.get(String(season.id));
+    if (!episode) continue;
+    checks.push({
+      kind: "episode",
+      id: String(episode.id),
+      title: show.title_en || show.title_ar || String(show.tmdb_id || ""),
+      season: Number(season.season_number || 0),
+      episode: Number(episode.episode_number || 0),
+    });
+  }
 }
 
 const tasks = checks.filter((_, index) => shardFor(index) === SHARD_INDEX);
