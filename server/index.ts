@@ -130,13 +130,22 @@ function normalizeBrokerMediaSources(
   contentType: 'movie' | 'episode',
   contentId: string,
   requestUrl: string,
+  seasonNumber?: number,
+  episodeNumber?: number,
 ): BrokerSource[] {
   const relayOrigin = new URL(requestUrl).origin;
   return sources
     .filter((source) => /^https:\/\//i.test(String(source?.url || '')))
     .map((source, index) => {
       const quality = normalizePlaybackQuality(source.quality || 'Auto');
-      const relayUrl = relayOrigin + api + '/playback/stream?type=' + encodeURIComponent(contentType) + '&contentId=' + encodeURIComponent(contentId) + '&source=' + index;
+      const relayParams = new URLSearchParams({
+        type: contentType,
+        contentId,
+        source: String(index),
+      });
+      if (Number.isFinite(seasonNumber)) relayParams.set('season', String(seasonNumber));
+      if (Number.isFinite(episodeNumber)) relayParams.set('episode', String(episodeNumber));
+      const relayUrl = relayOrigin + api + '/playback/stream?' + relayParams.toString();
       return {
         id: `akwam-live:${contentType}:${contentId}:${index}`,
         type: String(source.type || 'direct').toLowerCase(),
@@ -204,7 +213,14 @@ async function resolvePlaybackBroker(
       },
     );
 
-    const sources = normalizeBrokerMediaSources(media, contentType, contentId, req.url);
+    const sources = normalizeBrokerMediaSources(
+      media,
+      contentType,
+      contentId,
+      req.url,
+      seasonNumber,
+      episodeNumber,
+    );
     if (!sources.length) throw new Error('PLAYBACK_BROKER_NO_PLAYABLE_SOURCE');
     await edgeBrokerWrite(key, sources);
     return sources;
@@ -256,47 +272,6 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     });
   };
  
-  const readFirstMediaChunk = async (response: Response, timeoutMs = 6500): Promise<ReadableStream<Uint8Array> | null> => {
-    if (!response.body) return null;
-    const reader = response.body.getReader();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const first = await Promise.race([
-        reader.read(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('UPSTREAM_FIRST_BYTE_TIMEOUT')), timeoutMs);
-        }),
-      ]);
-      if (first.done || !first.value?.byteLength) {
-        await reader.cancel();
-        return null;
-      }
-      const firstChunk = first.value;
-      return new ReadableStream<Uint8Array>({
-        async start(controller) {
-          controller.enqueue(firstChunk);
-          try {
-            while (true) {
-              const next = await reader.read();
-              if (next.done) break;
-              if (next.value) controller.enqueue(next.value);
-            }
-            controller.close();
-          } catch (error) {
-            controller.error(error);
-          } finally {
-            reader.releaseLock();
-          }
-        },
-        cancel(reason) { void reader.cancel(reason).catch(() => undefined); },
-      });
-    } catch (error) {
-      await reader.cancel().catch(() => undefined);
-      throw error;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  };
 
   const isBadUpstream = (upstream: Response) => {
     const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
@@ -330,9 +305,11 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
           const candidateResponse = await fetchUpstream(candidateUrl);
           if (isBadUpstream(candidateResponse)) continue;
 
-          const body = await readFirstMediaChunk(candidateResponse);
-          if (!body) continue;
-          return { source: candidate, upstream: candidateResponse, body };
+          return {
+            source: candidate,
+            upstream: candidateResponse,
+            body: candidateResponse.body,
+          };
         } catch (error) {
           console.warn(
             '[playback-stream-candidate]',
