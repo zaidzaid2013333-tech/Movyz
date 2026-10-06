@@ -53,4 +53,4 @@ jobs:
           curl --fail-with-body --max-time 20 -sS             -A 'Movyz-GitHub-Actions/1.0'             'https://movyz-api.sameranede.workers.dev/health' | tee /tmp/movyz-health.json
 
       - name: Resolve recent 200 and all their episodes
-        run: node scripts/verify-recent-200-playback.mjs
+        run: npx --yes tsx@4.21.0 scripts/verify-recent-200-playback.mjs
