@@ -233,6 +233,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [seekFeedback, setSeekFeedback] = useState<{ delta: number; id: number } | null>(null);
   const [playerReloadKey, setPlayerReloadKey] = useState(0);
   const [playbackRetry, setPlaybackRetry] = useState(0);
+  const [resolverRetry, setResolverRetry] = useState(0);
   const playerControlsHideTimerRef = useRef<number | null>(null);
   const playerControlsVisibleRef = useRef(true);
   const touchSingleTapTimerRef = useRef<number | null>(null);
@@ -331,6 +332,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setRemotePlaybackSource(null);
         setResolverLoading(false);
         setPlaybackRetry(0);
+        setResolverRetry(0);
         clearPlaybackStallTimer();
         setPlayerUnlocked(false);
         setPlaybackError(null);
@@ -508,6 +510,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     activeSeason,
     activeEpisode,
     language,
+    resolverRetry,
   ]);
 
   const playbackSource = remotePlaybackSource;
@@ -603,10 +606,31 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     }, 20000);
   };
 
+  const retryPlayback = () => {
+    clearPlayerLoadTimeout();
+    clearPlaybackStallTimer();
+    setPlaybackError(null);
+    failedPlaybackUrlsRef.current.clear();
+    retriedPlaybackUrlsRef.current.clear();
+
+    if (!playbackUrl) {
+      setResolverLoading(true);
+      setResolverRetry((value) => value + 1);
+      return;
+    }
+
+    reloadPlayer();
+  };
+
   const reloadPlayer = () => {
     const video = videoRef.current;
 
     if (!video || !playbackUrl || isEmbedPlayback) {
+      if (!playbackUrl) {
+        setResolverLoading(true);
+        setResolverRetry((value) => value + 1);
+        return;
+      }
       if (isEmbedPlayback) {
         setPlayerLoadingState(true, language === 'ar' ? 'جارٍ إعادة تحميل المشغل…' : 'Reloading player…');
         setPlayerReloadKey((value) => value + 1);
@@ -1119,28 +1143,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     if (!failedUrl) return false;
 
     failedPlaybackUrlsRef.current.add(failedUrl);
-    const nextSource = remotePlaybackSources.find((source) =>
-      source.url !== failedUrl &&
-      !failedPlaybackUrlsRef.current.has(source.url),
-    );
-
-    if (nextSource) {
-      qualityResumeTimeRef.current =
-        videoRef.current && Number.isFinite(videoRef.current.currentTime)
-          ? Math.max(0, videoRef.current.currentTime)
-          : 0;
-      resumeAfterQualitySwitchRef.current = false;
-      qualitySwitchPendingRef.current = false;
-      playbackStartedRef.current = false;
-      setPlayerUnlocked(true);
-      setRemotePlaybackSource(nextSource);
-      return true;
-    }
-
     setPlaybackError(
       language === 'ar'
-        ? 'تعذر تشغيل المصادر المتاحة حاليًا. جرّب إعادة المحاولة.'
-        : 'The available playback sources could not be started. Please retry.',
+        ? 'تعذر تشغيل المصدر الحالي. يمكنك اختيار مصدر/جودة أخرى يدويًا أو الضغط على إعادة المحاولة.'
+        : 'The current source could not be started. Choose another source manually or press retry.',
     );
     return false;
   };
@@ -1262,14 +1268,15 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             setPlayerLoadingState(false);
             hls.destroy();
             playbackEngineRef.current = null;
-            const switched = markPlaybackSourceFailed();
-            if (!switched) {
-              setPlaybackError(
-                language === 'ar'
-                  ? 'تعذر تهيئة بث HLS من المصدر الحالي.'
-                  : 'The current HLS source could not be initialized.',
-              );
+            if (playbackStartedRef.current || video.currentTime > 0.5 || video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+              setPlaybackError(null);
+              return;
             }
+            setPlaybackError(
+              language === 'ar'
+                ? 'تعذر تهيئة بث HLS من المصدر الحالي. اختر مصدرًا آخر يدويًا أو أعد المحاولة.'
+                : 'The current HLS source could not be initialized. Choose another source manually or retry.',
+            );
           });
           hls.attachMedia(video);
           hls.loadSource(playbackUrl);
@@ -1310,8 +1317,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     void attachPlayback();
 
-    // A failed source is switched to the next prepared candidate automatically.
-    // Manual source/quality selection remains available from the player controls.
+    // Source switching is always manual. Runtime failures never change the
+    // selected source behind the user's back.
 
     return () => {
       cancelled = true;
@@ -1447,17 +1454,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         resumeAfterBufferingRef.current = true;
       }
       if (!playbackStartedRef.current) setPlaybackError(null);
-      setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Buffering…');
+      if (!playbackStartedRef.current) {
+        setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Loading data…');
+      } else {
+        setPlayerLoadingState(false);
+      }
       armPlayerLoadTimeout();
       if (playbackStallTimerRef.current !== null) window.clearTimeout(playbackStallTimerRef.current);
       playbackStallTimerRef.current = window.setTimeout(() => {
         playbackStallTimerRef.current = null;
-        if (
-          (userPlayRequestedRef.current || !video.paused) &&
-          !video.ended &&
-          video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
-        ) {
-          markPlaybackSourceFailed();
+        if (!video.ended && video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+          setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تخزين البيانات…' : 'Buffering data…');
         }
       }, 12000);
       syncTime();
@@ -1563,7 +1570,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
               <ErrorState
                 message={playbackError}
-                onRetry={() => window.location.reload()}
+                onRetry={retryPlayback}
                 onGoHome={() => onNavigate('/')}
               />
             </div>
@@ -1675,17 +1682,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </div>
         )}
 
-        {resolverLoading && (
-          <div className="movyza-source-wait" role="status" aria-live="polite">
-            <Loader2 className="h-4 w-4 animate-spin text-amber-300" />
-            <span>
-              {language === 'ar'
-                ? 'انتظر قليلاً، الموقع يحاول جلب مصدر للفيديو لك…'
-                : 'Please wait a moment while the site fetches a video source…'}
-            </span>
-          </div>
-        )}
-
         <div className="movyza-player-shell overflow-hidden shadow-2xl shadow-black bg-black">
           <div className="aspect-video w-full bg-black">
             <div
@@ -1699,21 +1695,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/75 p-6 text-center">
                   <ErrorState
                     message={playbackError}
-                    onRetry={() => {
-                      setPlaybackError(null);
-                      startupTriedUrlsRef.current.delete(playbackUrl);
-                      retriedPlaybackUrlsRef.current.delete(playbackUrl);
-                      const video = videoRef.current;
-                      if (!video) return;
-                      playbackEngineRef.current?.destroy?.();
-                      playbackEngineRef.current = null;
-                      video.pause();
-                      video.removeAttribute('src');
-                      video.load();
-                      video.src = playbackUrl;
-                      video.preload = 'auto';
-                      video.load();
-                    }}
+                    onRetry={retryPlayback}
                     onGoHome={() => onNavigate('/')}
                   />
                 </div>
@@ -1856,7 +1838,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   if (wasPlaying || userPlayRequestedRef.current) {
                     resumeAfterBufferingRef.current = true;
                   }
-                  setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Buffering…');
+                  if (!playbackStartedRef.current) {
+                    setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Loading data…');
+                  } else {
+                    setPlayerLoadingState(false);
+                  }
                   // Metadata-aware armPlayerLoadTimeout() will no-op during normal buffering.
                   armPlayerLoadTimeout();
                   if (!playbackStartedRef.current) {
@@ -1901,22 +1887,33 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   clearPlayerLoadTimeout();
                   clearPlaybackStallTimer();
                   setPlayerLoadingState(false);
-                  playbackStartedRef.current = false;
-                  if (!playbackUrl) return;
 
-                  const switched = markPlaybackSourceFailed();
-                  if (switched) return;
+                  const video = videoRef.current;
+                  if (!video || !playbackUrl) return;
 
-                  const mediaError = videoRef.current?.error;
+                  const activePlayback =
+                    playbackStartedRef.current ||
+                    video.currentTime > 0.5 ||
+                    !video.paused ||
+                    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+
+                  // Do not place a fatal overlay over a video that still has
+                  // usable media data/frames.
+                  if (activePlayback) {
+                    setPlaybackError(null);
+                    return;
+                  }
+
+                  const mediaError = video.error;
                   const code = mediaError?.code;
                   const detail =
-                    code === MediaError.MEDIA_ERR_ABORTED
-                      ? (language === 'ar' ? 'تم إيقاف تحميل المصدر.' : 'The source load was aborted.')
-                      : code === MediaError.MEDIA_ERR_NETWORK
-                        ? (language === 'ar' ? 'انقطع تحميل المصدر.' : 'The source network request failed.')
-                        : code === MediaError.MEDIA_ERR_DECODE
-                          ? (language === 'ar' ? 'تعذر فك ترميز الفيديو.' : 'The browser could not decode this video.')
-                          : (language === 'ar' ? 'تعذر تشغيل المصدر الحالي.' : 'The current playback source could not start.');
+                    code === MediaError.MEDIA_ERR_DECODE
+                      ? (language === 'ar'
+                        ? 'تعذر فك ترميز المصدر الحالي. اختر مصدرًا آخر يدويًا أو أعد المحاولة.'
+                        : 'The current source could not be decoded. Choose another source manually or retry.')
+                      : (language === 'ar'
+                        ? 'تعذر تشغيل المصدر الحالي. اختر مصدرًا آخر يدويًا أو أعد المحاولة.'
+                        : 'The current source could not start. Choose another source manually or retry.');
                   setPlaybackError(detail);
                 }}
               >
