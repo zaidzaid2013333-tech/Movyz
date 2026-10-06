@@ -2,7 +2,7 @@ name: Movyz curated launch catalog import
 
 on:
   push:
-    branches: ["ui/watch-player-responsive-20261005"]
+    branches: ["main"]
     paths:
       - "server/curatedCatalog.ts"
       - "scripts/import-curated-catalog.ts"
