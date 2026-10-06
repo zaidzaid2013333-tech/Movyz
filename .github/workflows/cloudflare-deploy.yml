@@ -52,15 +52,6 @@ jobs:
           test -n "$TMDB_API_READ_ACCESS_TOKEN"
           printf '%s' "$TMDB_API_READ_ACCESS_TOKEN" | npx wrangler secret put TMDB_API_READ_ACCESS_TOKEN
 
-      - name: Configure optional Arabic subtitle provider
-        if: ${{ secrets.OPENSUBTITLES_API_KEY != '' && secrets.OPENSUBTITLES_TOKEN != '' }}
-        env:
-          OPENSUBTITLES_API_KEY: ${{ secrets.OPENSUBTITLES_API_KEY }}
-          OPENSUBTITLES_TOKEN: ${{ secrets.OPENSUBTITLES_TOKEN }}
-        run: |
-          printf '%s' "$OPENSUBTITLES_API_KEY" | npx wrangler secret put OPENSUBTITLES_API_KEY
-          printf '%s' "$OPENSUBTITLES_TOKEN" | npx wrangler secret put OPENSUBTITLES_TOKEN
-
       - name: Deploy
         uses: cloudflare/wrangler-action@v4
         with:
@@ -73,7 +64,7 @@ jobs:
           base="https://movyz-api.sameranede.workers.dev"
           html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/")"
           printf '%s' "$html" | grep -q 'name="movyz-player" content="vidsrc"'
-          printf '%s' "$html" | grep -q 'name="movyz-subtitles" content="arabic-movyz-v1"'
+          printf '%s' "$html" | grep -q 'name="movyz-subtitles" content="vidsrc-locale-subtitles-v1"'
           ar_html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/ar/movies")"
           en_html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/en/movies")"
           printf '%s' "$ar_html" | grep -q '<html lang="ar" dir="rtl"'
