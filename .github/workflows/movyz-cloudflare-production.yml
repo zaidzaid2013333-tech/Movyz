@@ -175,6 +175,36 @@ jobs:
               raise SystemExit("episode prepare returned no relay URL")
 
           print("EPISODE_PLAYBACK_OK", len(episode_sources), "sources", "episode_id", episode_id)
+
+          for tmdb_id, title in ((93405, "Squid Game"), (66732, "Stranger Things")):
+              status, _, watch_payload = request_json(
+                  api + f"/api/v1/series/tmdb/{tmdb_id}/watch/1/1"
+              )
+              current_season = watch_payload.get("data", {}).get("currentSeason", {})
+              eps = current_season.get("episodes", []) if isinstance(current_season, dict) else []
+              eid = eps[0].get("id") if eps and isinstance(eps[0], dict) else None
+              if not eid:
+                  raise SystemExit(f"{title} S01E01 watch endpoint returned no episode id")
+              last_error = None
+              srcs = []
+              for attempt in range(1, 3):
+                  try:
+                      status, _, payload = request_json(
+                          api + "/api/v1/playback/prepare?type=episode&contentId=" + str(eid) + "&season=1&episode=1"
+                      )
+                      srcs = payload.get("data", {}).get("sources", []) if isinstance(payload, dict) else []
+                      if status == 200 and payload.get("success") is True and isinstance(srcs, list) and srcs:
+                          break
+                      last_error = f"status={status} sources={len(srcs) if isinstance(srcs,list) else 0}"
+                  except Exception as error:
+                      last_error = str(error)
+                  if attempt < 2:
+                      import time
+                      time.sleep(1.0)
+              if not srcs:
+                  raise SystemExit(f"{title} S01E01 playback failed after 2 attempts: {last_error}")
+              print(title.upper().replace(" ", "_"), "S01E01_PLAYBACK_OK", len(srcs), "sources", "episode_id", eid)
+
           print("Movyz live playback smoke: ALL OK")
           PY
 
