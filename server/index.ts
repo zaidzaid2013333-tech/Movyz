@@ -11,6 +11,76 @@ const api = '/api/v1';
 
 app.disable('x-powered-by');
 
+app.get(api + '/internal/diagnostics/akwam', asyncRoute(async (req, res) => {
+  const expectedKey = String(
+    req.env?.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  ).trim();
+  const providedKey = String(req.header('x-movyz-internal-key') || '').trim();
+
+  if (!expectedKey || !providedKey || providedKey !== expectedKey) {
+    return fail(res, 401, 'UNAUTHORIZED', 'Unauthorized internal diagnostic request');
+  }
+
+  const movieId = '6591564a-13a9-4892-a166-247d1ff9158b';
+  const akwamUrl = 'https://akwam.ss/movie/248/interstellar-2';
+  const readerUrl = 'https://r.jina.ai/' + akwamUrl;
+  const reader: Record<string, unknown> = { url: readerUrl };
+
+  try {
+    const readerResponse = await fetch(readerUrl, {
+      headers: {
+        Accept: 'text/plain,text/markdown;q=0.9,*/*;q=0.5',
+        'User-Agent': 'Movyz/1.0 CloudflareDiagnostic',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(12000),
+    });
+    const readerBody = await readerResponse.text();
+    reader.status = readerResponse.status;
+    reader.bytes = readerBody.length;
+    reader.sample = readerBody.slice(0, 1200);
+  } catch (error) {
+    reader.error = error instanceof Error ? error.message : String(error);
+  }
+
+  try {
+    const media = await resolveAkwamNow(
+      {
+        SUPABASE_URL: String(req.env?.SUPABASE_URL || process.env.SUPABASE_URL || ''),
+        SUPABASE_SERVICE_ROLE_KEY: expectedKey,
+        AKWAM_BASE_URL: 'https://akwam.ss',
+        MAX_JOBS_PER_RUN: '1',
+        PREFILL_CONCURRENCY: '1',
+      },
+      { content_type: 'movie', content_id: movieId },
+    );
+
+    return ok(res, {
+      reader,
+      resolver: {
+        ok: true,
+        sourceCount: media.length,
+        sources: media.map((item) => ({
+          type: item.type,
+          quality: item.quality,
+          host: (() => {
+            try { return new URL(item.url).hostname; } catch { return ''; }
+          })(),
+          referer: item.referer || null,
+        })),
+      },
+    });
+  } catch (error) {
+    return ok(res, {
+      reader,
+      resolver: {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
+  }
+}));
+
 // Playback backend: cache-first, live Akwam resolution. No playback URLs are
 // persisted in Supabase; only short-lived edge/memory cache entries are used.
 const MOVYZ_BUILD_ID = process.env.MOVYZ_BUILD_ID || 'unknown';
