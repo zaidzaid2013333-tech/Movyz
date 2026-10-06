@@ -348,19 +348,27 @@ async function resolveAkwamThroughExternalResolver(
   ).trim();
   if (resolverKey) headers.set('x-movyz-resolver-key', resolverKey);
 
-  const response = await fetch(resolverBase + '/resolve', {
+  const body = JSON.stringify({
+    contentType,
+    contentId,
+    titles: context.titles,
+    year: context.year,
+    seasonNumber: context.seasonNumber,
+    episodeNumber: context.episodeNumber,
+  });
+
+  const requestResolver = () => fetch(resolverBase + '/resolve', {
     method: 'POST',
     headers,
-    body: JSON.stringify({
-      contentType,
-      contentId,
-      titles: context.titles,
-      year: context.year,
-      seasonNumber: context.seasonNumber,
-      episodeNumber: context.episodeNumber,
-    }),
-    signal: AbortSignal.timeout(35000),
+    body,
+    signal: AbortSignal.timeout(18000),
   });
+
+  let response = await requestResolver();
+  if (response.status === 429) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    response = await requestResolver();
+  }
 
   const raw = await response.text();
   let payload: any = null;
