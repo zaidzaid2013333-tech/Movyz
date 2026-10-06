@@ -224,6 +224,17 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   } else if (route === '/discover') {
     contentTitle = generic.discover;
     description = generic.discover;
+  } else if (route === '/catalog') {
+    const catalogNames: Record<LocaleCode, string> = {
+      ar: 'أفضل 1000 فيلم ومسلسل | موفيزا', en: 'Movyza Top 1000 Movies & TV Shows', fr: 'Top 1000 Films et séries | Movyza',
+      de: 'Movyza Top 1000 Filme & Serien', es: 'Top 1000 Películas y series | Movyza', it: 'Top 1000 Film e serie TV | Movyza',
+      pt: 'Top 1000 Filmes e séries | Movyza', ru: 'Топ-1000 фильмов и сериалов | Movyza', tr: 'Movyza En İyi 1000 Film ve Dizi',
+      hi: 'Movyza Top 1000 फ़िल्में और सीरीज़', ja: 'Movyza トップ1000 映画・ドラマ', ko: 'Movyza 인기 영화·드라마 Top 1000',
+    };
+    contentTitle = catalogNames[locale];
+    description = locale === 'ar'
+      ? 'أفضل 1000 فيلم ومسلسل مرتبة حسب الشعبية الحالية والتقييم وحداثة الاهتمام على موفيزا.'
+      : catalogNames[locale];
   } else if (route === '/search' || route.startsWith('/search/')) {
     contentTitle = generic.search;
     description = generic.search;
@@ -343,7 +354,194 @@ const proxyTmdb = async (request: Request, env: MovyzEnvironment) => {
 };
 
 
-const noCache = (response: Response) => {
+const MOVYZ_EDITORIAL_BOOST: Record<string, number> = {
+  // Movies
+  'movie:157336': 60, // Interstellar
+  'movie:27205': 58, // Inception
+  'movie:155': 56, // The Dark Knight
+  'movie:122': 54, // The Lord of the Rings: The Return of the King
+  'movie:693134': 52, // Dune: Part Two
+  'movie:872585': 50, // Oppenheimer
+  'movie:533535': 48, // Deadpool & Wolverine
+  'movie:634649': 46, // Spider-Man: No Way Home
+  'movie:299534': 44, // Avengers: Endgame
+  'movie:299536': 42, // Avengers: Infinity War
+  'movie:603692': 40, // John Wick: Chapter 4
+  'movie:361743': 38, // Top Gun: Maverick
+  'movie:414906': 36, // The Batman
+  'movie:475557': 34, // Joker
+  'movie:496243': 32, // Parasite
+  'movie:396535': 30, // Train to Busan
+  'movie:579974': 28, // RRR
+  'movie:663712': 26, // Kantara
+  'movie:803796': 24, // Kalki 2898 AD
+  'movie:569094': 22, // Spider-Man: Across the Spider-Verse
+
+  // Series
+  'tv:66732': 60, // Stranger Things
+  'tv:93405': 58, // Squid Game
+  'tv:100088': 56, // The Last of Us
+  'tv:95396': 54, // Severance
+  'tv:1396': 52, // Breaking Bad
+  'tv:1399': 50, // Game of Thrones
+  'tv:60059': 48, // Better Call Saul
+  'tv:76479': 46, // The Boys
+  'tv:119051': 44, // Wednesday
+  'tv:94997': 42, // House of the Dragon
+  'tv:60574': 40, // Peaky Blinders
+  'tv:70523': 38, // Dark
+  'tv:136315': 36, // The Bear
+  'tv:126308': 34, // Shōgun
+  'tv:42009': 32, // Black Mirror
+  'tv:37854': 30, // One Piece
+  'tv:1429': 28, // Attack on Titan
+  'tv:85937': 26, // Demon Slayer
+  'tv:95479': 24, // Jujutsu Kaisen
+  'tv:127532': 22, // Solo Leveling
+};
+
+const catalogScore = (item: any, type: 'movie' | 'tv') => {
+  const popularity = Math.log1p(Number(item?.popularity || 0));
+  const votes = Math.log1p(Number(item?.vote_count || 0));
+  const rating = Number(item?.vote_average || 0) / 10;
+  const rawDate = String(item?.release_date || item?.first_air_date || '');
+  const year = Number(rawDate.slice(0, 4) || 0);
+  const currentYear = new Date().getUTCFullYear();
+  const age = year > 0 ? Math.max(0, currentYear - year) : 20;
+  const freshness = age <= 2 ? 1.24 : age <= 4 ? 1.17 : age <= 7 ? 1.10 : age <= 12 ? 1.04 : 1;
+  const boost = MOVYZ_EDITORIAL_BOOST[(type === 'movie' ? 'movie:' : 'tv:') + String(item?.id || '')] || 0;
+  return ((popularity * 0.58) + (votes * 0.25) + (rating * 1.7)) * freshness + boost;
+};
+
+const fetchCatalogPage = async (
+  env: MovyzEnvironment,
+  locale: LocaleCode,
+  type: 'movie' | 'tv',
+  page: number,
+) => {
+  const config = LOCALES[locale];
+  const target = new URL('https://api.themoviedb.org/3/discover/' + type);
+  target.searchParams.set('language', config.tmdb);
+  target.searchParams.set('region', config.region);
+  target.searchParams.set('page', String(page));
+  target.searchParams.set('sort_by', 'popularity.desc');
+  target.searchParams.set('include_adult', 'false');
+  if (type === 'movie') target.searchParams.set('include_video', 'false');
+
+  const upstream = await fetch(target.toString(), { headers: tmdbHeaders(env) });
+  if (!upstream.ok) throw new Error('TMDB catalog upstream failed: ' + upstream.status);
+  const data = await upstream.json().catch(() => null) as any;
+  return Array.isArray(data?.results) ? data.results : [];
+};
+
+const collectCatalogType = async (
+  env: MovyzEnvironment,
+  locale: LocaleCode,
+  type: 'movie' | 'tv',
+) => {
+  const output: any[] = [];
+  const pages = Array.from({ length: 25 }, (_, index) => index + 1);
+
+  // Stay inside the six simultaneous outbound-connection limit.
+  for (let offset = 0; offset < pages.length; offset += 6) {
+    const batch = pages.slice(offset, offset + 6);
+    const responses = await Promise.all(
+      batch.map((page) => fetchCatalogPage(env, locale, type, page).catch(() => [])),
+    );
+    responses.forEach((items) => output.push(...items));
+  }
+
+  const byId = new Map<string, any>();
+  for (const item of output) {
+    const id = Number(item?.id || 0);
+    if (!id) continue;
+    const key = type + ':' + id;
+    if (!byId.has(key)) byId.set(key, { ...item, media_type: type });
+  }
+
+  return Array.from(byId.values())
+    .sort((a, b) => catalogScore(b, type) - catalogScore(a, type))
+    .slice(0, 500);
+};
+
+const catalogTop1000 = async (request: Request, env: MovyzEnvironment) => {
+  if (!env.TMDB_API_READ_ACCESS_TOKEN) {
+    return new Response(JSON.stringify({ status_message: 'TMDB token is not configured' }), {
+      status: 503,
+      headers: { 'content-type': 'application/json; charset=UTF-8' },
+    });
+  }
+
+  const url = new URL(request.url);
+  const requested = url.searchParams.get('locale');
+  const locale = isLocale(requested) ? requested : detectRequestLocale(request);
+  const page = Math.max(1, Number(url.searchParams.get('page') || 1));
+  const limit = Math.min(48, Math.max(6, Number(url.searchParams.get('limit') || 24)));
+  const cache = caches.default;
+
+  const cacheUrl = new URL(url.toString());
+  cacheUrl.pathname = '/catalog/top1000';
+  cacheUrl.search = '?locale=' + encodeURIComponent(locale);
+  const cacheKey = new Request(cacheUrl.toString(), { method: 'GET' });
+
+  let payload: { items: any[]; total: number; generatedAt: string };
+  const cached = await cache.match(cacheKey);
+
+  if (cached) {
+    payload = await cached.json() as { items: any[]; total: number; generatedAt: string };
+  } else {
+    const [movies, series] = await Promise.all([
+      collectCatalogType(env, locale, 'movie'),
+      collectCatalogType(env, locale, 'tv'),
+    ]);
+
+    const combined = [...movies, ...series]
+      .sort((a, b) => {
+        const aType = a.media_type === 'movie' ? 'movie' : 'tv';
+        const bType = b.media_type === 'movie' ? 'movie' : 'tv';
+        return catalogScore(b, bType) - catalogScore(a, aType);
+      })
+      .slice(0, 1000)
+      .map((item, index) => ({ ...item, movyz_rank: index + 1 }));
+
+    payload = {
+      items: combined,
+      total: combined.length,
+      generatedAt: new Date().toISOString(),
+    };
+
+    const cachedResponse = new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: {
+        'content-type': 'application/json; charset=UTF-8',
+        'cache-control': 'public, max-age=21600, s-maxage=21600',
+        'cdn-cache-control': 'public, max-age=21600',
+        'access-control-allow-origin': '*',
+      },
+    });
+    await cache.put(cacheKey, cachedResponse.clone());
+  }
+
+  const start = (page - 1) * limit;
+  const body = {
+    total: payload.total,
+    page,
+    limit,
+    generatedAt: payload.generatedAt,
+    items: payload.items.slice(start, start + limit),
+  };
+
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: {
+      'content-type': 'application/json; charset=UTF-8',
+      'cache-control': 'public, max-age=300, s-maxage=21600',
+      'cdn-cache-control': 'public, max-age=300',
+      'access-control-allow-origin': '*',
+    },
+  });
+};
+ = (response: Response) => {
   const headers = new Headers(response.headers);
   headers.set('Cache-Control', 'no-store');
   headers.set('CDN-Cache-Control', 'no-store');
@@ -387,7 +585,7 @@ const buildSitemapIndex = (origin: string) => {
 
 const buildStaticSitemapSegment = (request: Request, locale: LocaleCode) => {
   const origin = new URL(request.url).origin;
-  const routes = ['/', '/movies', '/series', '/discover'];
+  const routes = ['/', '/movies', '/series', '/discover', '/catalog'];
   const urls = routes
     .map((route) =>
       `<url><loc>${escapeXml(`${origin}/${locale}${route === '/' ? '/' : route}`)}</loc><changefreq>daily</changefreq><priority>${route === '/' ? '1.0' : '0.8'}</priority></url>`
@@ -499,6 +697,9 @@ export default {
     if (request.method === 'GET' && (url.pathname === '/sitemap.xml' || url.pathname.startsWith('/sitemap/'))) {
       const sitemapResponse = await handleSitemap(request, env);
       if (sitemapResponse) return sitemapResponse;
+    }
+    if (request.method === 'GET' && url.pathname === '/catalog/top1000') {
+      return catalogTop1000(request, env);
     }
     if (url.pathname === '/tmdb' || url.pathname.startsWith('/tmdb/')) {
       return proxyTmdb(request, env);
