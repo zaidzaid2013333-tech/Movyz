@@ -194,6 +194,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   let imageUrl = '';
   let schemaType = 'WebSite';
   let ogType = 'website';
+  let watchVideo: { embedUrl: string; uploadDate?: string; duration?: number } | null = null;
   const detailMovie = route.match(/^\/movies\/(\d+)$/);
   const detailSeries = route.match(/^\/series\/(\d+)$/);
   const watchMovie = route.match(/^\/watch\/movie\/(\d+)$/);
@@ -285,7 +286,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
             : (data?.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : '');
           schemaType = 'VideoObject';
           ogType = 'video.movie';
-          (globalThis as any).__movyzVideo = {
+          watchVideo = {
             embedUrl,
             uploadDate: data?.release_date || '',
             duration: Number(data?.runtime || 0),
@@ -307,7 +308,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
             : (seriesData?.backdrop_path ? `https://image.tmdb.org/t/p/w1280${seriesData.backdrop_path}` : '');
           schemaType = 'VideoObject';
           ogType = 'video.tv_show';
-          (globalThis as any).__movyzVideo = {
+          watchVideo = {
             embedUrl,
             uploadDate: episodeData?.air_date || seriesData?.first_air_date || '',
             duration: Number(episodeData?.runtime || 0),
@@ -325,8 +326,6 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     description = generic.home;
   }
 
-  const watchVideo = (globalThis as any).__movyzVideo;
-  delete (globalThis as any).__movyzVideo;
   const isWatchPage = Boolean(watchMovie || watchEpisode);
   const isNoIndex = route === '/search' || route.startsWith('/search/');
   const searchTitle = alternateTitle || contentTitle;
@@ -368,7 +367,6 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
         embedUrl: watchVideo?.embedUrl,
         url: origin + canonicalPath,
         inLanguage: locale,
-        isFamilyFriendly: true,
         creator: {
           '@type': 'Organization',
           name: 'Movyz',
