@@ -782,7 +782,7 @@ async function findEpisodeTargetBySearch(
       seeds[0] + " الموسم " + season + " الحلقة " + episode,
       seeds[0] + " الحلقة " + episode,
     ] : []),
-  ].filter(Boolean))).slice(0, 7);
+  ].filter((value): value is string => Boolean(value)))).slice(0, 7);
 
   let best: { url: string; score: number } | null = null;
 
