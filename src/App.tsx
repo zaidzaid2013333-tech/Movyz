@@ -16,6 +16,7 @@ import { SeriesDetailsPage } from './pages/SeriesDetailsPage';
 import { WatchPage } from './pages/WatchPage';
 import { SearchPage } from './pages/SearchPage';
 import { DiscoverPage } from './pages/DiscoverPage';
+import { CatalogPage } from './pages/CatalogPage';
 import { WatchlistPage } from './pages/WatchlistPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { ProfilePage } from './pages/ProfilePage';
@@ -171,6 +172,17 @@ function MainApp() {
       return (
         <SeriesDetailsPage
           seriesId={seriesId}
+          onNavigate={navigate}
+          watchlist={watchlistIds}
+          onToggleWatchlist={handleToggleWatchlist}
+        />
+      );
+    }
+
+    // Ranked top 1000 catalog
+    if (pathOnly === '/catalog') {
+      return (
+        <CatalogPage
           onNavigate={navigate}
           watchlist={watchlistIds}
           onToggleWatchlist={handleToggleWatchlist}
