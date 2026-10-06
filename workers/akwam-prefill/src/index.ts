@@ -1328,13 +1328,36 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
 
   const medias: Media[] = [];
   const sourceReferer = episodeTarget || candidate?.url || base(env);
+  const rankedTargets = usefulResolutionTargets(targets, 6);
 
-  // Same bounded resolution order that produced the working Interstellar sources.
-  for (const target of targets.slice(0, 6)) {
-    const media = await resolveTarget(env, target, sourceReferer, budget, session);
-    if (!media) continue;
-    if (!medias.some((x) => x.url === media.url)) medias.push(media);
-    if (medias.length >= 3) break;
+  const resolveTargetBatch = async (batch: string[]) => {
+    const results = await Promise.all(
+      batch.map(async (target, index) => {
+        // Keep each target's cookie jar isolated while inheriting the session
+        // established by the episode/download page. This allows safe parallel
+        // resolution without cross-target cookie races.
+        const targetSession: AkwamSession = { cookies: new Map(session.cookies) };
+        try {
+          const media = await resolveTarget(env, target, sourceReferer, budget, targetSession);
+          return { index, media };
+        } catch {
+          return { index, media: null };
+        }
+      }),
+    );
+    return results.sort((a, b) => a.index - b.index);
+  };
+
+  // Resolve the best targets concurrently to remove the old serial media-hop
+  // waterfall. Preserve target order when building the returned source list.
+  for (const batch of [rankedTargets.slice(0, 3), rankedTargets.slice(3, 6)]) {
+    if (!batch.length || medias.length >= 3) break;
+    const results = await resolveTargetBatch(batch);
+    for (const result of results) {
+      if (!result.media) continue;
+      if (!medias.some((x) => x.url === result.media!.url)) medias.push(result.media!);
+      if (medias.length >= 3) break;
+    }
   }
 
   if (!medias.length) {
