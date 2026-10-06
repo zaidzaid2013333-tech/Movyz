@@ -448,7 +448,16 @@ async function resolvePlaybackBroker(
   seasonNumber?: number,
   episodeNumber?: number,
 ): Promise<{ sources: BrokerSource[]; mode: 'edge-cache' | 'live' }> {
-  const key = brokerCacheKey(contentType, contentId, seasonNumber, episodeNumber);
+  // Normalize every incoming route identifier before cache/inflight resolution.
+  // UUID and TMDB-ID entry points must share exactly one broker architecture.
+  const context = await loadPlaybackResolverContext(
+    contentType,
+    contentId,
+    seasonNumber,
+    episodeNumber,
+  );
+  const canonicalContentId = context.contentId;
+  const key = brokerCacheKey(contentType, canonicalContentId, context.seasonNumber, context.episodeNumber);
 
   const cached = await edgeBrokerRead(key);
   if (cached?.length) {
@@ -464,18 +473,18 @@ async function resolvePlaybackBroker(
     const media = await resolveAkwamThroughExternalResolver(
       req,
       contentType,
-      contentId,
-      seasonNumber,
-      episodeNumber,
+      canonicalContentId,
+      context.seasonNumber,
+      context.episodeNumber,
     );
 
     const sources = normalizeBrokerMediaSources(
       media,
       contentType,
-      contentId,
+      canonicalContentId,
       req.url,
-      seasonNumber,
-      episodeNumber,
+      context.seasonNumber,
+      context.episodeNumber,
     );
     if (!sources.length) throw new Error('PLAYBACK_BROKER_NO_PLAYABLE_SOURCE');
     await edgeBrokerWrite(key, sources);
