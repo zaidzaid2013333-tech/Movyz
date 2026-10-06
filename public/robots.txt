@@ -3,4 +3,5 @@ Disallow: /watch/
 Disallow: /*/watch/
 Disallow: /api/v1/playback/resolve
 Disallow: /admin
+Disallow: /*/admin
 Sitemap: https://movyz-api.sameranede.workers.dev/sitemap.xml
