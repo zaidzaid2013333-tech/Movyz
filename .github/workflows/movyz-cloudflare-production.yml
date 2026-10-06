@@ -162,6 +162,106 @@ jobs:
           print("Movyz live playback smoke: ALL OK")
           PY
 
+      - name: Full curated catalog playback audit
+        timeout-minutes: 18
+        run: |
+          python - <<'PY'
+          import concurrent.futures, json, urllib.parse, urllib.request
+
+          api = "https://movyz-api.sameranede.workers.dev"
+          supabase = "\${{ secrets.SUPABASE_URL }}".rstrip('/')
+          service = "\${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+          headers = {"apikey": service, "Authorization": "Bearer " + service, "Accept": "application/json"}
+
+          def sb(path):
+              req = urllib.request.Request(supabase + path, headers=headers)
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.loads(r.read().decode())
+
+          movies = sb("/rest/v1/movies?select=id,tmdb_id,title_en,metadata&limit=2000")
+          series = sb("/rest/v1/series?select=id,tmdb_id,title_en,metadata&limit=2000")
+          movies = [x for x in movies if isinstance(x.get('metadata'), dict) and str(x['metadata'].get('curated_rank','')).isdigit()]
+          series = [x for x in series if isinstance(x.get('metadata'), dict) and str(x['metadata'].get('curated_rank','')).isdigit()]
+
+          series_ids = [x['id'] for x in series]
+          seasons = []
+          for i in range(0, len(series_ids), 40):
+              ids = ','.join(str(x) for x in series_ids[i:i+40])
+              seasons.extend(sb('/rest/v1/seasons?select=id,series_id,season_number&series_id=in.(' + ids + ')&order=season_number.asc'))
+          season_ids = [x['id'] for x in seasons]
+          episodes = []
+          for i in range(0, len(season_ids), 80):
+              ids = ','.join(str(x) for x in season_ids[i:i+80])
+              episodes.extend(sb('/rest/v1/episodes?select=id,season_id,episode_number&season_id=in.(' + ids + ')&order=episode_number.asc'))
+
+          first_episode_by_season = {}
+          for e in episodes:
+              key = e['season_id']
+              if key not in first_episode_by_season or int(e.get('episode_number') or 999999) < int(first_episode_by_season[key].get('episode_number') or 999999):
+                  first_episode_by_season[key] = e
+          season_by_id = {x['id']: x for x in seasons}
+          series_by_id = {x['id']: x for x in series}
+
+          checks = []
+          for movie in movies:
+              checks.append(('movie', movie['id'], movie['title_en'], None, None, movie['tmdb_id']))
+          for season_id, ep in first_episode_by_season.items():
+              season = season_by_id[season_id]
+              s = series_by_id.get(season['series_id'])
+              if not s:
+                  continue
+              checks.append(('episode', ep['id'], s['title_en'], int(season['season_number']), int(ep['episode_number']), s['tmdb_id']))
+
+          def http(url, extra=None, timeout=90):
+              h = {'Accept':'application/json','User-Agent':'Movyz-Catalog-Audit/1.0'}
+              if extra:
+                  h.update(extra)
+              req = urllib.request.Request(url, headers=h, method='GET')
+              with urllib.request.urlopen(req, timeout=timeout) as r:
+                  return r.status, dict(r.headers), r.read()
+
+          def check(item):
+              typ, cid, title, season, episode, tmdb = item
+              q = {'type': typ, 'contentId': cid}
+              if season is not None:
+                  q['season'] = str(season)
+                  q['episode'] = str(episode)
+              url = api + '/api/v1/playback/prepare?' + urllib.parse.urlencode(q)
+              try:
+                  status, _, body = http(url)
+                  payload = json.loads(body.decode())
+                  sources = payload.get('data',{}).get('sources',[]) if isinstance(payload,dict) else []
+                  if status != 200 or payload.get('success') is not True or not sources:
+                      return (False, item, f'prepare status={status} sources={len(sources) if isinstance(sources,list) else 0} body={body[:500]!r}')
+                  relay = next((s.get('url') for s in sources if isinstance(s,dict) and str(s.get('url','')).startswith('https://')), None)
+                  if not relay:
+                      return (False, item, 'prepare returned no relay URL')
+                  rstatus, rh, chunk = http(relay, extra={'Range':'bytes=0-1023','Accept':'*/*'}, timeout=90)
+                  ct = str(rh.get('content-type','')).lower()
+                  if rstatus not in (200,206) or not chunk or any(x in ct for x in ('text/html','application/json','text/plain')):
+                      return (False, item, f'relay status={rstatus} ct={ct} bytes={len(chunk)}')
+                  return (True, item, f'{len(sources)} sources relay={rstatus} ct={ct}')
+              except Exception as e:
+                  return (False, item, f'{type(e).__name__}: {e}')
+
+          failures=[]
+          ok=0
+          with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+              futures=[pool.submit(check,x) for x in checks]
+              for future in concurrent.futures.as_completed(futures):
+                  good,item,detail=future.result()
+                  if good:
+                      ok += 1
+                  else:
+                      failures.append((item,detail))
+
+          print(f'CATALOG_AUDIT checks={len(checks)} ok={ok} failed={len(failures)} movies={len(movies)} series={len(series)} seasons={len(seasons)} episodes_checked={len(first_episode_by_season)}')
+          for item,detail in failures[:100]:
+              print('FAIL', item, detail)
+          if failures:
+              raise SystemExit(f'Catalog playback audit failed: {len(failures)} checks')
+          PY
+
       - name: Deployment marker
         run: echo "DEPLOYED_COMMIT=${{ github.sha }}"
 
