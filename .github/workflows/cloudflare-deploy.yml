@@ -61,7 +61,7 @@ jobs:
       - name: Live health check
         run: |
           set -euo pipefail
-          base="https://movyz.sameranede.workers.dev"
+          base="https://movyz-api.sameranede.workers.dev"
           echo "Live response headers:"
           curl --fail --silent --show-error -I -H 'Cache-Control: no-cache' "$base/"
           html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/")"
