@@ -447,7 +447,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     setPlaybackError(null);
 
     const prepare = async () => {
-      const attempts = 1;
+      const attempts = 2;
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
           const response = await MovyzaApi.preparePlayback(
@@ -464,7 +464,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
             .filter((source) => source.isWorking !== false)
             .filter(isPlayableHttpSource);
           if (!playable.length && attempt < attempts) {
-            await new Promise((resolve) => window.setTimeout(resolve, 250));
+            await new Promise((resolve) => window.setTimeout(resolve, 600));
             continue;
           }
           const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
