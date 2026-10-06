@@ -258,8 +258,8 @@ export const MovyzaApi = {
   },
 
   getWatchlist: async () => {
-    const db = requireSupabase();
-    if (!db) return ok<WatchlistItem[]>([]);
+    if (!supabase) return ok<WatchlistItem[]>([]);
+    const db = supabase;
     const user = (await db.auth.getUser()).data.user;
     if (!user) return ok<WatchlistItem[]>([]);
     const { data, error } = await db.from('watchlist').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
@@ -301,8 +301,8 @@ export const MovyzaApi = {
   },
 
   getWatchHistory: async () => {
-    const db = requireSupabase();
-    if (!db) return ok<WatchProgress[]>([]);
+    if (!supabase) return ok<WatchProgress[]>([]);
+    const db = supabase;
     const user = (await db.auth.getUser()).data.user;
     if (!user) return ok<WatchProgress[]>([]);
     const { data, error } = await db.from('watch_history').select('*').eq('user_id', user.id).order('updated_at', { ascending: false });
@@ -325,8 +325,8 @@ export const MovyzaApi = {
   },
 
   clearWatchHistory: async () => {
-    const db = requireSupabase();
-    if (!db) return ok({ cleared: true });
+    if (!supabase) return ok({ cleared: true });
+    const db = supabase;
     const user = (await db.auth.getUser()).data.user;
     if (!user) return ok({ cleared: true });
     const { error } = await db.from('watch_history').delete().eq('user_id', user.id);
@@ -335,8 +335,8 @@ export const MovyzaApi = {
   },
 
   getWatchProgress: async (contentId: string, _episodeId?: string) => {
-    const db = requireSupabase();
-    if (!db) return ok<WatchProgress | null>(null);
+    if (!supabase) return ok<WatchProgress | null>(null);
+    const db = supabase;
     const user = (await db.auth.getUser()).data.user;
     if (!user) return ok<WatchProgress | null>(null);
     const { data, error } = await db.from('watch_history').select('*').eq('user_id', user.id).eq('content_id', String(contentId)).maybeSingle();
