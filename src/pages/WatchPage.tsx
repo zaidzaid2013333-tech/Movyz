@@ -251,6 +251,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const startupTriedUrlsRef = useRef<Set<string>>(new Set());
   const retriedPlaybackUrlsRef = useRef<Set<string>>(new Set());
   const failedPlaybackUrlsRef = useRef<Set<string>>(new Set());
+  // Technical fallback tracking: direct Akwam -> Movyz relay for the same source.
+  // This never changes provider/source/quality automatically.
+  const sameSourceRelayTriedRef = useRef<Set<string>>(new Set());
   const startupGuardTimerRef = useRef<number | null>(null);
   const startupWarmupTimerRef = useRef<number | null>(null);
   const resumeAfterBufferingRef = useRef(false);
@@ -467,6 +470,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           const collapsed = collapseProviderQualityDuplicates(playable).slice(0, 20);
           const preferred = preferredPlaybackSource(collapsed);
           failedPlaybackUrlsRef.current.clear();
+          sameSourceRelayTriedRef.current.clear();
           setRemotePlaybackSources(collapsed);
           setRemotePlaybackSource(preferred);
           setPlayerUnlocked(Boolean(preferred));
@@ -1146,8 +1150,35 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   };
 
   const markPlaybackSourceFailed = () => {
-    const failedUrl = playbackSource?.url || playbackUrl;
+    const failedUrl = playbackUrl || playbackSource?.url || '';
     if (!failedUrl) return false;
+
+    const relayFallback = playbackSource?.fallbackUrl?.trim() || '';
+    const isDirect = Boolean(
+      directPlaybackUrl &&
+      failedUrl === directPlaybackUrl &&
+      relayFallback &&
+      relayFallback !== failedUrl,
+    );
+
+    if (isDirect && !sameSourceRelayTriedRef.current.has(directPlaybackUrl)) {
+      sameSourceRelayTriedRef.current.add(directPlaybackUrl);
+      clearPlayerLoadTimeout();
+      clearPlaybackStallTimer();
+      playbackStartedRef.current = false;
+      setPlaybackError(null);
+      setPlayerLoadingState(
+        true,
+        language === 'ar'
+          ? 'جارٍ استخدام مسار التشغيل البديل لنفس المصدر…'
+          : 'Switching to the technical relay for the same source…',
+      );
+      setRemotePlaybackSource({
+        ...playbackSource,
+        url: relayFallback,
+      });
+      return false;
+    }
 
     failedPlaybackUrlsRef.current.add(failedUrl);
     setPlaybackError(
@@ -1170,6 +1201,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     qualitySwitchPendingRef.current = true;
     startupTriedUrlsRef.current.add(source.url);
     failedPlaybackUrlsRef.current.delete(source.url);
+    sameSourceRelayTriedRef.current.delete(source.directUrl?.trim() || source.url);
     playbackStartedRef.current = false;
     setPlaybackError(null);
     setPlayerUnlocked(true);
