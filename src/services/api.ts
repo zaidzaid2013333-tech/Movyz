@@ -226,7 +226,7 @@ export const MovyzaApi = {
   },
 
   searchCatalog: async (search: string) => {
-    const data = await tmdb<any>('search/multi', { query: search, page: 1, include_adult: false });
+    const data = await tmdb<any>('search/multi', { query: search, page: 1, include_adult: 'false' });
     const movies: Movie[] = [];
     const series: Series[] = [];
     const cast: { name: string; nameEn: string; worksCount: number; avatarUrl: string }[] = [];
