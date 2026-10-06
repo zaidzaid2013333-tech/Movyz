@@ -42,24 +42,18 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const embedUrl = useMemo(() => {
     if (!contentId) return '';
 
-    const subtitleUrl = new URL(
-      isSeries
-        ? '/subtitle/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode + '.srt'
-        : '/subtitle/movie/' + encodeURIComponent(contentId) + '.srt',
-      window.location.origin
-    ).toString();
-
     const params = new URLSearchParams();
-    params.set('ds_lang', 'ar');
-    params.set('sub_url', subtitleUrl);
-    params.set('sub_label', 'العربية · Movyz');
-    params.set('sub_lang', 'ar');
+    // English visitors get the provider's native player state without a forced subtitle.
+    // Other locales request their own subtitle language as the default when VidSrc has one.
+    if (language !== 'en') {
+      params.set('ds_lang', language);
+    }
 
     if (isSeries) {
       return 'https://vidsrc.sh/embed/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode + '?' + params.toString();
     }
     return 'https://vidsrc.sh/embed/movie/' + encodeURIComponent(contentId) + '?' + params.toString();
-  }, [contentId, isSeries, safeSeason, safeEpisode]);
+  }, [contentId, isSeries, safeSeason, safeEpisode, language]);
 
   useEffect(() => {
     let mounted = true;
@@ -101,7 +95,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const activeEpisode: Episode | null =
     activeSeason?.episodes.find((episode) => episode.episodeNumber === safeEpisode) || null;
 
-  const title = movie ? (movie.titleEn || movie.title) : (series?.titleEn || series?.title || '');
+  const title = movie ? (movie.title || movie.titleEn || movie.originalTitle) : (series?.title || series?.titleEn || series?.originalTitle || '');
   const backdrop = movie?.backdropUrl || series?.backdropUrl || '';
   const poster = movie?.posterUrl || series?.posterUrl || '';
   const overview = movie
@@ -218,7 +212,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     VidSrc
                   </span>
                   <span className="rounded-full bg-emerald-500/[0.08] border border-emerald-400/15 px-2.5 py-1.5 text-emerald-200">
-                    {language === 'ar' ? 'ترجمة عربية · Movyz' : 'Arabic subtitles · Movyz'}
+                    {language === 'ar' ? 'ترجمة عربية · VidSrc' : `${language.toUpperCase()} subtitles · VidSrc`}
                   </span>
                   <span className="rounded-full bg-white/[0.04] border border-white/[0.06] px-2.5 py-1.5">
                     {language === 'ar' ? 'مشغل خارجي' : 'External player'}
@@ -275,7 +269,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               {isSeries && activeEpisode && (
                 <div className="mt-5 rounded-2xl border border-amber-500/15 bg-amber-500/[0.05] p-4">
                   <div className="text-[11px] font-bold text-amber-300">S{safeSeason} · E{safeEpisode}</div>
-                  <h2 className="mt-1 text-sm font-bold text-white">{activeEpisode.titleEn || activeEpisode.title}</h2>
+                  <h2 className="mt-1 text-sm font-bold text-white">{activeEpisode.title || activeEpisode.titleEn}</h2>
                   <p className="mt-2 text-[11px] text-slate-400 leading-5 line-clamp-4">
                     {language === 'ar' ? activeEpisode.overview : activeEpisode.overviewEn}
                   </p>
@@ -341,7 +335,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                       }
                     >
                       <div className="relative aspect-video overflow-hidden bg-black">
-                        <img src={episode.stillUrl || series.backdropUrl} alt={episode.titleEn || episode.title}
+                        <img src={episode.stillUrl || series.backdropUrl} alt={episode.title || episode.titleEn}
                           referrerPolicy="no-referrer" loading="lazy"
                           className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform" />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
