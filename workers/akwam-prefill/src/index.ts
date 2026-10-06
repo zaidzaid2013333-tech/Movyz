@@ -914,45 +914,38 @@ async function findEpisodeTargetBySearch(
       seeds[0] + " الموسم " + season + " الحلقة " + episode,
       seeds[0] + " الحلقة " + episode,
     ] : []),
-  ].filter((value): value is string => Boolean(value)))).slice(0, 7);
+  ].filter((value): value is string => Boolean(value)))).slice(0, 4);
 
-  let best: { url: string; score: number } | null = null;
-
-  for (const variant of variants) {
+  const results = await Promise.all(variants.map(async (variant) => {
     const url = host + "/search?q=" + encodeURIComponent(variant) + "&page=1";
     const html = await fetchText(env, url, undefined, undefined, budget, session);
-    if (!html) continue;
+    return html ? { variant, html } : null;
+  }));
 
-    for (const link of extractPageLinks(html, host)) {
+  let best: { url: string; score: number } | null = null;
+  for (const result of results) {
+    if (!result) continue;
+    for (const link of extractPageLinks(result.html, host)) {
       let rawPath = "";
       try { rawPath = decodeURIComponent(new URL(link.url).pathname); } catch { rawPath = link.url; }
-
       const hay = decodeUrlPath(decodeHtml(link.text + " " + rawPath));
       const normalizedHay = normalize(hay);
       if (!normalizedHay) continue;
 
       const explicitPair = hay.match(/\bs0*(\d{1,3})[^a-z0-9]{0,8}(?:e|ep)0*(\d{1,3})\b/i);
-      if (explicitPair) {
-        if (Number(explicitPair[1]) !== season || Number(explicitPair[2]) !== episode) continue;
-      }
-
+      if (explicitPair && (Number(explicitPair[1]) !== season || Number(explicitPair[2]) !== episode)) continue;
       const declaredSeason = explicitSeason(hay);
       if (declaredSeason !== undefined && declaredSeason !== season) continue;
 
-      const looksLikeEpisode =
-        /(?:حلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay) ||
-        /\/(?:episode|show\/episode|watch)\//i.test(rawPath);
+      const looksLikeEpisode = /(?:حلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay) || /\/(?:episode|show\/episode|watch)\//i.test(rawPath);
       if (!looksLikeEpisode) continue;
 
       let titleRelevance = 0;
       for (const title of titles) {
         const normalizedTitle = normalize(title);
         if (!normalizedTitle) continue;
-        if (normalizedHay.includes(normalizedTitle)) {
-          titleRelevance = Math.max(titleRelevance, 100);
-        } else {
-          titleRelevance = Math.max(titleRelevance, overlap(normalizedHay, normalizedTitle) * 100);
-        }
+        if (normalizedHay.includes(normalizedTitle)) titleRelevance = Math.max(titleRelevance, 100);
+        else titleRelevance = Math.max(titleRelevance, overlap(normalizedHay, normalizedTitle) * 100);
       }
       if (titleRelevance < 28) continue;
 
@@ -960,7 +953,6 @@ async function findEpisodeTargetBySearch(
       const exactEpisode =
         new RegExp("(?:الحلقة|الحلقه|episode|ep(?:isode)?)[-_\\s]*(?:رقم[-_\\s]*)?0*" + episode + "(?![0-9.])", "i").test(hay) ||
         new RegExp("(?:^|[^0-9.])0*" + episode + "(?:$|[^0-9.])", "i").test(rawPath);
-
       let scoreValue = titleRelevance;
       if (exactPair) scoreValue += 320;
       else if (declaredSeason === season) scoreValue += 70;
@@ -970,13 +962,9 @@ async function findEpisodeTargetBySearch(
 
       if (!best || scoreValue > best.score) best = { url: link.url, score: scoreValue };
     }
-
-    if (best && best.score >= 430) return best.url;
   }
 
-  const finalBest = best as { url: string; score: number } | null;
-  if (finalBest === null) return null;
-  return finalBest.score >= 250 ? finalBest.url : null;
+  return best && best.score >= 250 ? best.url : null;
 }
  
 function targetResolutionScore(raw: string) {
