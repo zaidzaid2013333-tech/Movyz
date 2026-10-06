@@ -1381,7 +1381,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
       .catch(() => ({ index, media: null })),
   }));
 
-  const firstSourceDeadline = Date.now() + (isEpisode ? 10000 : 8000);
+  const firstSourceDeadline = Date.now() + (isEpisode ? 25000 : 20000);
   let firstSourceFoundAt: number | null = null;
 
   while (pendingTargets.length && medias.length < 3) {
