@@ -74,6 +74,12 @@ jobs:
           html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/")"
           printf '%s' "$html" | grep -q 'name="movyz-player" content="vidsrc"'
           printf '%s' "$html" | grep -q 'name="movyz-subtitles" content="arabic-movyz-v1"'
+          ar_html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/ar/movies")"
+          en_html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/en/movies")"
+          printf '%s' "$ar_html" | grep -q '<html lang="ar" dir="rtl"'
+          printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'
+          printf '%s' "$ar_html" | grep -q 'hreflang="en-us"'
+          printf '%s' "$en_html" | grep -q 'hreflang="ar-sa"'
           assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | sort -u)"
           test -n "$assets"
           printf '%s' "$html" | grep -q 'Movyza'
