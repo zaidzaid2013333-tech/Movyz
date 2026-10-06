@@ -1,0 +1,122 @@
+name: VidLink Smoke Test
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  vidlink:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-save tweetnacl@1.0.3
+      - name: Resolve VidLink and probe media
+        run: node <<'NODE'
+const nacl = require("tweetnacl");
+
+const KEY = Buffer.from(
+  "c75136c5668bbfe65a7ecad431a745db68b5f381555b38d8f6c699449cf11fcd",
+  "hex",
+);
+const ORIGIN = "https://vidlink.pro";
+
+function token(mediaId) {
+  const nonce = new Uint8Array(24);
+  const timestamp = BigInt(Math.floor(Date.now() / 1000) + 480);
+  const ts = Buffer.alloc(8);
+  ts.writeBigUInt64BE(timestamp, 0);
+  const message = Buffer.concat([Buffer.from(String(mediaId)), ts]);
+  const encrypted = nacl.secretbox(
+    new Uint8Array(message),
+    nonce,
+    new Uint8Array(KEY),
+  );
+  return Buffer.from(Buffer.concat([nonce, Buffer.from(encrypted)]))
+    .toString("base64")
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function walk(value, out = [], depth = 0) {
+  if (depth > 6 || out.length >= 8 || value == null) return out;
+  if (typeof value === "string") {
+    if (/^https:\/\//i.test(value)) out.push(value);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) walk(v, out, depth + 1);
+    return out;
+  }
+  if (typeof value !== "object") return out;
+  for (const k of ["url","src","stream_url","streamUrl","file","link","m3u8","manifest","playUrl","play_url"]) {
+    if (typeof value[k] === "string" && /^https:\/\//i.test(value[k])) out.push(value[k]);
+  }
+  for (const k of ["sources","streams","links","data","result","results","playlist","playlists","videos"]) {
+    if (value[k] !== undefined) walk(value[k], out, depth + 1);
+  }
+  return [...new Set(out)];
+}
+
+async function call(name, url) {
+  const res = await fetch(url, {
+    headers: {
+      accept: "application/json,text/plain,*/*",
+      origin: ORIGIN,
+      referer: ORIGIN + "/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/137 Safari/537.36",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(name + " HTTP " + res.status);
+  let payload;
+  try { payload = JSON.parse(text); } catch { throw new Error(name + " invalid JSON"); }
+  const urls = walk(payload);
+  if (!urls.length) throw new Error(name + " no playable URL");
+  const probes = [];
+  for (const source of urls.slice(0, 4)) {
+    try {
+      const probe = await fetch(source, {
+        headers: {
+          referer: ORIGIN + "/",
+          origin: ORIGIN,
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/137 Safari/537.36",
+          range: "bytes=0-1023",
+        },
+        redirect: "manual",
+        signal: AbortSignal.timeout(12000),
+      });
+      probes.push({
+        status: probe.status,
+        contentType: probe.headers.get("content-type"),
+      });
+      if ([200,206,301,302,303,307,308].includes(probe.status)) break;
+    } catch (e) {
+      probes.push({error: String(e)});
+    }
+  }
+  return {name, endpoint: url.replace(/([a-z]+\/)[^?]+/, "$1<token>"), sourceCount: urls.length, probes};
+}
+
+const tests = [
+  ["fight-club-550", "https://vidlink.pro/api/b/movie/" + token(550) + "?multiLang=1"],
+  ["interstellar-27205", "https://vidlink.pro/api/b/movie/" + token(27205) + "?multiLang=1"],
+  ["breaking-bad-s01e01", "https://vidlink.pro/api/b/tv/" + token(1396) + "/1/1?multiLang=1"],
+];
+
+const results = [];
+for (const [name, url] of tests) {
+  try {
+    results.push(await call(name, url));
+  } catch (e) {
+    results.push({name, error: String(e)});
+  }
+}
+
+console.log(JSON.stringify(results, null, 2));
+if (results.some(x => x.error || !x.sourceCount || !x.probes?.some(p => [200,206,301,302,303,307,308].includes(p.status)))) {
+  process.exit(1);
+}
+NODE
