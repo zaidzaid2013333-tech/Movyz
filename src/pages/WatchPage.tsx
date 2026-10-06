@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, CalendarDays, Clock3, ExternalLink, Film, Loader2, Play, Share2, Star, Tv, Users } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { MovyzaApi } from '../services/api';
@@ -34,7 +34,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [iframeFailed, setIframeFailed] = useState(false);
   const [copied, setCopied] = useState(false);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const isSeries = mediaType === 'series';
   const safeSeason = Math.max(1, Number(seasonNumber || 1));
@@ -45,17 +44,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
     const params = new URLSearchParams();
 
-    // Keep one caption profile across Movyz locales. ds_lang is officially
-    // documented by VidSrc; visual parameters are passed as a compatibility layer
-    // because the player itself exposes these caption controls.
-    params.set('font', 'Default');
+    // Keep the known-good VidSrc embed parameters only.
+    // ds_lang is the supported way to choose the default subtitle language.
     params.set('fontsize', '20');
     params.set('fontcolor', 'ffffff');
     params.set('opacity', '1');
-    params.set('background', '000000');
-    params.set('backgroundopacity', '0');
-    params.set('edge', 'outline');
-    params.set('delay', '0');
 
     // English visitors get the provider's native subtitle selection.
     // Other locales request their own subtitle language as the default when available.
@@ -69,37 +62,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return 'https://vidsrc.sh/embed/movie/' + encodeURIComponent(contentId) + '?' + params.toString();
   }, [contentId, isSeries, safeSeason, safeEpisode, language]);
 
-  const applyVidSrcCaptionProfile = () => {
-    const target = iframeRef.current?.contentWindow;
-    if (!target) return;
-
-    const profile = {
-      font: 'Default',
-      fontsize: 20,
-      fontSize: 20,
-      fontcolor: '#ffffff',
-      textColor: '#ffffff',
-      opacity: 1,
-      textOpacity: 1,
-      background: '#000000',
-      backgroundColor: '#000000',
-      backgroundOpacity: 0,
-      edge: 'outline',
-      edgeStyle: 'outline',
-      delay: 0,
-      subtitleDelay: 0,
-    };
-
-    for (const message of [
-      { type: 'SET_SUBTITLE_STYLE', data: profile },
-      { action: 'SET_SUBTITLE_STYLE', data: profile },
-      { command: 'SET_SUBTITLE_STYLE', data: profile },
-    ]) {
-      try {
-        target.postMessage(message, 'https://vidsrc.sh');
-      } catch {}
-    }
-  };
 
   useEffect(() => {
     let mounted = true;
@@ -239,19 +201,13 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 ) : (
                   <iframe
                     key={embedUrl}
-                    ref={iframeRef}
                     src={embedUrl}
                     title={isSeries ? 'VidSrc TV ' + contentId : 'VidSrc Movie ' + contentId}
                     className="w-full h-full border-0 bg-black"
                     allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
                     allowFullScreen
                     referrerPolicy="no-referrer"
-                    onLoad={() => {
-                      setIframeLoaded(true);
-                      applyVidSrcCaptionProfile();
-                      window.setTimeout(applyVidSrcCaptionProfile, 700);
-                      window.setTimeout(applyVidSrcCaptionProfile, 1800);
-                    }}
+                    onLoad={() => setIframeLoaded(true)}
                     onError={() => setIframeFailed(true)}
                   />
                 )}
