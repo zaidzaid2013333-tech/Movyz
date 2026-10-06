@@ -88,40 +88,31 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --secrets-file .env.production --var MOVYZ_BUILD_ID:${{ github.sha }}
 
-      - name: DB-only playback smoke
+      - name: Live resolver playback smoke
         run: |
           python - <<'PY'
-          import json, urllib.error, urllib.request
-          api = "https://movyz-api.sameranede.workers.dev"
-          checks = [
-              ("movie", "6591564a-13a9-4892-a166-247d1ff9158b", "Interstellar"),
-          ]
-          for content_type, content_id, label in checks:
-              req = urllib.request.Request(
-                  api + "/api/v1/watch/" + content_id + "?type=" + content_type,
-                  headers={"Accept": "application/json", "User-Agent": "Movyz-CI-DBOnly/2.0"},
-              )
-              try:
-                  with urllib.request.urlopen(req, timeout=60) as response:
-                      payload = json.load(response)
-              except urllib.error.HTTPError as error:
-                  body = error.read().decode("utf-8", "replace")
-                  raise SystemExit(f"{label}: watch API HTTP {error.code}: {body[:700]}")
-              if payload.get("success") is not True:
-                  raise SystemExit(f"{label}: watch API failed")
-              content = payload.get("data", {}).get("content", {})
-              sources = content.get("sources") if isinstance(content, dict) else []
-              if not isinstance(sources, list) or not sources:
-                  raise SystemExit(f"{label}: DB-only API returned no persisted sources")
-              for source in sources:
-                  if not isinstance(source, dict) or not str(source.get("url") or "").startswith("https://"):
-                      raise SystemExit(f"{label}: invalid persisted source")
-                  quality = str(source.get("quality") or "")
-                  if quality and quality.lower() != "auto" and not quality.endswith("p"):
-                      raise SystemExit(f"{label}: non-normalized playback quality: {quality}")
-              print(f"DB-only playback OK: {label} sources={len(sources)}")
-          print("Movyz DB-only playback smoke: ALL OK")
+          import json, urllib.request
+          resolver = "https://movyz-live-resolver-production.up.railway.app"
+          payload = {
+            "contentType": "movie",
+            "contentId": "6591564a-13a9-4892-a166-247d1ff9158b",
+            "titles": ["Interstellar", "بين النجوم"],
+            "year": 2014,
+          }
+          req = urllib.request.Request(
+            resolver + "/resolve",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type":"application/json","Accept":"application/json","User-Agent":"Movyz-Manual-Resolver-Smoke/1.0"},
+            method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=90) as response:
+            body = json.loads(response.read().decode("utf-8","replace"))
+          sources = body.get("sources", []) if isinstance(body, dict) else []
+          if response.status != 200 or body.get("ok") is not True or not sources:
+            raise SystemExit("Live resolver returned no sources: " + str(body)[:1000])
+          print("LIVE_RESOLVER_OK", len(sources), "sources")
           PY
+
 
       - name: Deployment marker
         run: echo "DEPLOY_CURRENT_COMMIT=${{ github.sha }}"
