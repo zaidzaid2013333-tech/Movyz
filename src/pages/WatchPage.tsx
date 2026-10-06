@@ -102,6 +102,24 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     ? (language === 'ar' ? movie.overview : movie.overviewEn)
     : (language === 'ar' ? series?.overview || '' : series?.overviewEn || '');
 
+  const subtitleHint = (() => {
+    const hints: Record<string, string> = {
+      ar: 'يمكنك تغيير شكل الترجمة من إعدادات المشغل بما يناسب ذوقك.',
+      en: 'You can customize the subtitle style from the player settings to suit your taste.',
+      fr: 'Vous pouvez personnaliser l’apparence des sous-titres depuis les réglages du lecteur.',
+      de: 'Du kannst das Erscheinungsbild der Untertitel in den Player-Einstellungen anpassen.',
+      es: 'Puedes personalizar el estilo de los subtítulos desde los ajustes del reproductor.',
+      it: 'Puoi personalizzare lo stile dei sottotitoli dalle impostazioni del lettore.',
+      pt: 'Você pode personalizar o estilo das legendas nas configurações do player.',
+      ru: 'Вы можете настроить внешний вид субтитров в настройках плеера.',
+      tr: 'Altyazı görünümünü oynatıcı ayarlarından zevkinize göre değiştirebilirsiniz.',
+      hi: 'आप प्लेयर की सेटिंग्स से सबटाइटल का रूप अपनी पसंद के अनुसार बदल सकते हैं।',
+      ja: 'プレーヤー設定から字幕の見た目を好みに合わせて変更できます。',
+      ko: '플레이어 설정에서 자막 스타일을 원하는 대로 변경할 수 있습니다.',
+    };
+    return hints[language] || hints.en;
+  })();
+
   const copyLink = async () => {
     try {
       await navigator.clipboard?.writeText(window.location.href);
@@ -165,6 +183,12 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
           <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-5 lg:gap-7 items-start">
             <div>
+              <div
+                dir={direction}
+                className="mb-3 rounded-xl border border-amber-400/15 bg-amber-400/[0.05] px-3.5 py-2.5 text-[11px] sm:text-xs leading-5 text-amber-100/80"
+              >
+                {subtitleHint}
+              </div>
               <div className="relative aspect-video w-full overflow-hidden rounded-2xl sm:rounded-3xl bg-black border border-white/[0.09] shadow-2xl">
                 {!iframeLoaded && !iframeFailed && (
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#030405]">
