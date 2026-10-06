@@ -361,9 +361,10 @@ async function resolveAkwamThroughExternalResolver(
     method: 'POST',
     headers,
     body,
-    signal: AbortSignal.timeout(18000),
+    signal: AbortSignal.timeout(30000),
   });
 
+  const resolverStartedAt = Date.now();
   let response = await requestResolver();
   if (response.status === 429) {
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -376,7 +377,7 @@ async function resolveAkwamThroughExternalResolver(
 
   if (!response.ok || payload?.ok !== true) {
     const detail = String(payload?.error || raw || ('HTTP_' + response.status)).slice(0, 900);
-    throw new Error('PLAYBACK_EXTERNAL_RESOLVER_FAILED ' + detail);
+    throw new Error('PLAYBACK_EXTERNAL_RESOLVER_FAILED ' + detail + ' resolverMs=' + (Date.now() - resolverStartedAt));
   }
 
   const media = Array.isArray(payload.sources) ? payload.sources : [];
