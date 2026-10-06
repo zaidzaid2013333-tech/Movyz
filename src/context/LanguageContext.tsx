@@ -158,18 +158,14 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
     const nextPath = withLanguagePrefix(window.location.pathname + window.location.search, lang);
-    if (nextPath !== window.location.pathname + window.location.search) {
-      window.history.pushState({}, '', nextPath);
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    }
+    window.location.assign(nextPath);
   };
 
   const toggleLanguage = () => {
-    setLanguageState((prev) => (prev === 'ar' ? 'en' : 'ar'));
     const next = language === 'ar' ? 'en' : 'ar';
+    setLanguageState(next);
     const nextPath = withLanguagePrefix(window.location.pathname + window.location.search, next);
-    window.history.pushState({}, '', nextPath);
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    window.location.assign(nextPath);
   };
 
   const t = (key: keyof typeof DICTIONARY): string => {
