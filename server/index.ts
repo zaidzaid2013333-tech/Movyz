@@ -190,9 +190,7 @@ function normalizeBrokerMediaSources(
         expiresAt: null,
         referer: typeof source.referer === 'string' && /^https:\/\//i.test(source.referer)
           ? source.referer
-          : (String(source.providerKey || '').startsWith('tmdb-embed:') || String(source.providerKey || '') === 'vidlink'
-            ? 'https://vidlink.pro/'
-            : 'https://akwam.ss/'),
+          : 'https://akwam.ss/',
       };
     })
     .filter((source) =>
