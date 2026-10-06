@@ -485,7 +485,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       setPlayerUnlocked(false);
       setPlaybackError(
         language === 'ar'
-          ? 'تعذر الحصول على مصدر تشغيل مباشر من Akwam حاليًا.'
+          ? 'تعذر الحصول على مصدر تشغيل صالح حاليًا. يتم استخدام مزودي التشغيل المتاحين تلقائيًا.'
           : 'Unable to obtain a live Akwam playback source right now.',
       );
     };
