@@ -18,6 +18,7 @@ import {
   Share2,
   ShieldAlert,
   Sparkles,
+  Settings2,
   RefreshCw,
   Loader2,
 } from 'lucide-react';
@@ -905,6 +906,29 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         ),
     ),
     [remotePlaybackSources],
+  );
+
+  const playerSourceOptions = useMemo(
+    () =>
+      [...availableSources].sort((a, b) => {
+        const aActive = a.url === playbackSource?.url ? -1 : 0;
+        const bActive = b.url === playbackSource?.url ? -1 : 0;
+        if (aActive !== bActive) return aActive - bActive;
+
+        const quality = (source: PlaybackSource) => {
+          const match = normalizePlaybackQuality(source.quality).match(/(\\d{3,4})p/i);
+          return match ? Number(match[1]) : 0;
+        };
+
+        const aq = quality(a);
+        const bq = quality(b);
+        const bucket = (q: number) => (q === 720 ? 0 : q > 0 && q < 720 ? 1 : q > 720 ? 2 : 3);
+        const ab = bucket(aq);
+        const bb = bucket(bq);
+        if (ab !== bb) return ab - bb;
+        return Math.abs(720 - aq) - Math.abs(720 - bq);
+      }),
+    [availableSources, playbackSource?.url],
   );
 
 
@@ -1818,6 +1842,107 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               <div
                 className={(isEmbedPlayback ? 'hidden ' : '') + 'pointer-events-none absolute inset-0 z-10'}
               >
+                {playerSettingsOpen && !isEmbedPlayback ? (
+                  <div className="movyza-player-settings absolute bottom-[74px] end-3 z-40 w-[min(340px,calc(100%-24px))] rounded-2xl border border-white/10 bg-[#090b10]/95 p-3 shadow-2xl backdrop-blur-2xl">
+                    <div className="flex items-center justify-between gap-3 px-1 pb-2">
+                      <div>
+                        <div className="text-xs font-bold text-white">
+                          {language === 'ar' ? 'إعدادات التشغيل' : 'Playback settings'}
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-white/45">
+                          {language === 'ar' ? 'تحكم محلي بدون تغيير نظام المصادر' : 'Local controls — source system unchanged'}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPlayerSettingsOpen(false)}
+                        className="rounded-lg px-2 py-1 text-xs text-white/55 hover:bg-white/10 hover:text-white"
+                        aria-label={language === 'ar' ? 'إغلاق الإعدادات' : 'Close settings'}
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="movyza-player-setting-card">
+                        <span>{language === 'ar' ? 'السرعة' : 'Speed'}</span>
+                        <select
+                          aria-label={language === 'ar' ? 'سرعة التشغيل' : 'Playback speed'}
+                          value={playerSpeed}
+                          onChange={(event) => {
+                            const next = Number(event.target.value);
+                            const video = videoRef.current;
+                            if (video) video.playbackRate = next;
+                            setPlayerSpeed(next);
+                          }}
+                          className="movyza-player-select w-full"
+                        >
+                          {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
+                            <option key={speed} value={speed} className="bg-slate-950">{speed}x</option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setTheaterLighting((value) => !value)}
+                        className="movyza-player-setting-card text-start"
+                      >
+                        <span>{language === 'ar' ? 'الإضاءة السينمائية' : 'Cinema lighting'}</span>
+                        <strong className={theaterLighting ? 'text-amber-300' : 'text-white/50'}>
+                          {theaterLighting ? (language === 'ar' ? 'مفعّلة' : 'On') : (language === 'ar' ? 'متوقفة' : 'Off')}
+                        </strong>
+                      </button>
+                    </div>
+
+                    <div className="mt-3 border-t border-white/8 pt-3">
+                      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-white/40">
+                        {language === 'ar' ? 'الجودة / المصدر' : 'Quality / source'}
+                      </div>
+                      <div className="max-h-44 space-y-1 overflow-y-auto pe-1">
+                        {playerSourceOptions.length === 0 ? (
+                          <div className="rounded-xl bg-white/[0.035] px-3 py-2 text-xs text-white/45">
+                            {language === 'ar' ? 'لا توجد مصادر بديلة.' : 'No alternate sources.'}
+                          </div>
+                        ) : (
+                          playerSourceOptions.map((source) => {
+                            const active = source.url === playbackSource?.url;
+                            const quality = normalizePlaybackQuality(source.quality);
+                            const type = String(source.type || 'direct').toUpperCase();
+                            const provider = String(source.provider || source.providerKey || 'MOVYZ').trim();
+                            return (
+                              <button
+                                key={source.id || source.url}
+                                type="button"
+                                onClick={() => {
+                                  handleSelectPlaybackSource(source);
+                                  setPlayerSettingsOpen(false);
+                                }}
+                                className={'flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-start transition ' + (
+                                  active
+                                    ? 'border-amber-400/30 bg-amber-400/10 text-white'
+                                    : 'border-white/6 bg-white/[0.025] text-white/75 hover:border-white/12 hover:bg-white/[0.055]'
+                                )}
+                              >
+                                <span className="min-w-0">
+                                  <span className="block truncate text-xs font-semibold">{quality}</span>
+                                  <span className="mt-0.5 block truncate text-[10px] text-white/40">{provider} · {type}</span>
+                                </span>
+                                {active ? <Check className="h-4 w-4 shrink-0 text-amber-300" /> : null}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 rounded-xl border border-white/6 bg-white/[0.025] px-3 py-2 text-[10px] leading-relaxed text-white/40">
+                      {language === 'ar'
+                        ? 'اختصارات: Space/K تشغيل · ←/→ خمس ثوانٍ · J/L عشر ثوانٍ · ↑/↓ الصوت · M كتم · F ملء الشاشة · 0–9 قفز للنسبة.'
+                        : 'Shortcuts: Space/K play · ←/→ 5s · J/L 10s · ↑/↓ volume · M mute · F fullscreen · 0–9 seek by percent.'}
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className={'movyza-player-controls pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent pt-16 pb-3 px-3 sm:px-4 ' + (playerControlsVisible ? 'is-visible' : 'is-hidden')}>
                   <div className="flex flex-col gap-2">
                     <div className="movyza-progress-track relative">
@@ -1906,6 +2031,17 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                           ))}
                         </select>
                       </label>
+                      <button
+                        type="button"
+                        onClick={() => setPlayerSettingsOpen((value) => !value)}
+                        className="movyza-player-btn h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        aria-label={language === 'ar' ? 'إعدادات المشغل' : 'Player settings'}
+                        aria-expanded={playerSettingsOpen}
+                        title={language === 'ar' ? 'إعدادات المشغل' : 'Player settings'}
+                      >
+                        <Settings2 size={17} />
+                      </button>
+
                       <button
                         type="button"
                         onClick={reloadPlayer}
