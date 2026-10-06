@@ -396,8 +396,7 @@ async function findCandidate(
   budget?: RequestBudget,
   session?: AkwamSession,
 ) {
-  const hosts = [base(env)];
-
+  const host = base(env);
   let best: { item: Candidate; score: number } | null = null;
   const diagnostics: string[] = [];
   const seeds = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
@@ -406,117 +405,66 @@ async function findCandidate(
         ...seeds.flatMap(movieSearchVariants),
         year && seeds[0] ? seeds[0] + " " + year : "",
         year && seeds[0] ? searchQueryVariant(seeds[0]) + " " + year : "",
-      ].filter(Boolean))).slice(0, 8)
+      ].filter(Boolean))).slice(0, 7)
     : Array.from(new Set([
         ...seeds,
         year && seeds[0] ? seeds[0] + " " + year : "",
         expectedSeason && seeds[0] ? seeds[0] + " season " + expectedSeason : "",
-        expectedSeason && seeds[0] ? seeds[0] + " الموسم " + expectedSeason : "",
         expectedSeason && seeds[0] ? seeds[0] + " S" + String(expectedSeason).padStart(2, "0") : "",
       ].filter(Boolean))).slice(0, 4);
 
-  for (const host of hosts) {
-    // Akwam's live search endpoint is the authoritative current catalog route.
-    // The live site returns exact /movie/... links from /search?q=... and also
-    // accepts the optional section=movie|series filter.
-    if (expected === "movie" || expected === "series") {
-      const section = expected;
-      for (const title of variants) {
-        const encoded = encodeURIComponent(title);
-        const searchUrls = [
-          host + "/search?q=" + encoded + "&section=" + encodeURIComponent(section) + "&page=1",
-          host + "/search?q=" + encoded,
-        ];
-
-        // Prefer the authoritative section-filtered search. Only hit the
-        // unfiltered fallback when the first request did not produce a strong
-        // semantic match; this removes a large amount of serial resolver latency.
-        const primaryHtml = await fetchText(
-          env,
-          searchUrls[0],
-          diagnostics,
-          undefined,
-          budget,
-          session,
-        );
-        if (primaryHtml) {
-          for (const item of parseCandidates(primaryHtml, env, expected === "movie")) {
-            const itemScore = score(item, titles, year, expected, expectedSeason);
-            if (!best || itemScore > best.score) best = { item, score: itemScore };
-          }
-        }
-        if (best && best.score >= 128) return best.item;
-
-        const fallbackHtml = await fetchText(
-          env,
-          searchUrls[1],
-          diagnostics,
-          undefined,
-          budget,
-          session,
-        );
-        if (fallbackHtml) {
-          for (const item of parseCandidates(fallbackHtml, env, expected === "movie")) {
-            const itemScore = score(item, titles, year, expected, expectedSeason);
-            if (!best || itemScore > best.score) best = { item, score: itemScore };
-          }
-        }
-        if (best && best.score >= 128) return best.item;
-      }
+  const probe = async (title: string, filtered: boolean) => {
+    const encoded = encodeURIComponent(title);
+    const section = expected === "movie" || expected === "series"
+      ? "&section=" + encodeURIComponent(expected)
+      : "";
+    const url = host + "/search?q=" + encoded + section + "&page=1";
+    const html = await fetchText(env, url, diagnostics, undefined, budget);
+    if (!html) return;
+    for (const item of parseCandidates(html, env, expected === "movie")) {
+      const itemScore = score(item, titles, year, expected, expectedSeason);
+      if (!best || itemScore > best.score) best = { item, score: itemScore };
     }
+  };
 
-    // Legacy fallback for movies: many older Akwam titles still live under
-    // /old/search while the current /search index only covers the new catalog.
-    // Keep current search authoritative, then use the legacy archive with the
-    // existing semantic/year guards before accepting a result.
-    if (expected === "movie" && host === base(env)) {
-      const legacyVariants = variants.slice(0, 5);
-      for (const title of legacyVariants) {
-        const encoded = encodeURIComponent(title);
-        const legacyUrls = [
-          host + "/old/search/" + encoded + "/page/1",
-          host + "/old/search/" + encoded,
-        ];
+  // Search the strongest title variants in parallel instead of waiting one
+  // network round-trip after another.
+  await Promise.all(variants.slice(0, 3).map((variant) => probe(variant, true)));
+  if (best && best.score >= 128) return best.item;
 
-        const primaryLegacyHtml = await fetchText(
-          env,
-          legacyUrls[0],
-          diagnostics,
-          undefined,
-          budget,
-          session,
-        );
-        if (primaryLegacyHtml) {
-          for (const item of parseCandidates(primaryLegacyHtml, env, true)) {
-            const itemScore = score(item, titles, year, expected, expectedSeason);
-            if (!best || itemScore > best.score) best = { item, score: itemScore };
-          }
+  // One small unfiltered fallback batch for ambiguous catalog pages.
+  await Promise.all(variants.slice(0, 2).map((variant) =>
+    probe(variant, false),
+  ));
+  if (best && best.score >= 128) return best.item;
+
+  // Legacy movie archive stays fallback-only and runs only after current search
+  // has failed, preserving the known source ordering.
+  if (expected === "movie") {
+    const legacyProbe = async (title: string) => {
+      const encoded = encodeURIComponent(title);
+      const urls = [
+        host + "/old/search/" + encoded + "/page/1",
+        host + "/old/search/" + encoded,
+      ];
+      for (const url of urls) {
+        const html = await fetchText(env, url, diagnostics, undefined, budget);
+        if (!html) continue;
+        for (const item of parseCandidates(html, env, true)) {
+          const itemScore = score(item, titles, year, expected, expectedSeason);
+          if (!best || itemScore > best.score) best = { item, score: itemScore };
         }
-        if (best && best.score >= 128) return best.item;
-
-        const fallbackLegacyHtml = await fetchText(
-          env,
-          legacyUrls[1],
-          diagnostics,
-          undefined,
-          budget,
-          session,
-        );
-        if (fallbackLegacyHtml) {
-          for (const item of parseCandidates(fallbackLegacyHtml, env, true)) {
-            const itemScore = score(item, titles, year, expected, expectedSeason);
-            if (!best || itemScore > best.score) best = { item, score: itemScore };
-          }
-        }
-        if (best && best.score >= 128) return best.item;
+        if (best && best.score >= 128) return;
       }
-    }
+    };
+    await Promise.all(variants.slice(0, 3).map(legacyProbe));
   }
 
   const winner = best as { item: Candidate; score: number } | null;
   if (winner && winner.score >= 80) return winner.item;
   throw new Error("AKWAM_SEARCH_EMPTY probes=" + diagnostics.slice(0, 12).join(","));
 }
+
 
 
 
@@ -770,83 +718,114 @@ async function findEpisodeTargetBySearch(
   season: number,
   episode: number,
   budget?: RequestBudget,
-  session?: AkwamSession,
+  _session?: AkwamSession,
 ) {
   const host = base(env);
   const seeds = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
+  const primary = seeds.find((x) => /[A-Za-z]/.test(x)) || seeds[0] || "";
   const variants = Array.from(new Set([
+    primary ? primary + " S" + String(season).padStart(2, "0") + "E" + String(episode).padStart(2, "0") : "",
+    primary ? primary + " season " + season + " episode " + episode : "",
+    primary ? primary + " الحلقة " + episode : "",
     ...seeds.map((title) => searchQueryVariant(title)).filter(Boolean),
-    ...(seeds[0] ? [
-      seeds[0] + " S" + String(season).padStart(2, "0") + "E" + String(episode).padStart(2, "0"),
-      seeds[0] + " season " + season + " episode " + episode,
-      seeds[0] + " الموسم " + season + " الحلقة " + episode,
-      seeds[0] + " الحلقة " + episode,
-    ] : []),
-  ].filter(Boolean))).slice(0, 7);
+  ].filter(Boolean))).slice(0, 6);
 
-  let best: { url: string; score: number } | null = null;
+  const scoreEpisodeLink = (link: { url: string; text: string }) => {
+    let rawPath = "";
+    try { rawPath = decodeURIComponent(new URL(link.url).pathname); } catch { rawPath = link.url; }
+    const hay = decodeUrlPath(decodeHtml(link.text + " " + rawPath));
+    const normalizedHay = normalize(hay);
+    if (!normalizedHay) return null;
 
-  for (const variant of variants) {
-    const url = host + "/search?q=" + encodeURIComponent(variant) + "&page=1";
-    const html = await fetchText(env, url, undefined, undefined, budget, session);
-    if (!html) continue;
+    const explicitPair = hay.match(/\bs0*(\d{1,3})[^a-z0-9]{0,8}(?:e|ep)0*(\d{1,3})\b/i);
+    if (explicitPair && (Number(explicitPair[1]) !== season || Number(explicitPair[2]) !== episode)) return null;
 
-    for (const link of extractPageLinks(html, host)) {
-      let rawPath = "";
-      try { rawPath = decodeURIComponent(new URL(link.url).pathname); } catch { rawPath = link.url; }
+    const declaredSeason = explicitSeason(hay);
+    if (declaredSeason !== undefined && declaredSeason !== season) return null;
 
-      const hay = decodeUrlPath(decodeHtml(link.text + " " + rawPath));
-      const normalizedHay = normalize(hay);
-      if (!normalizedHay) continue;
+    const looksLikeEpisode =
+      /(?:حلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay) ||
+      /\/(?:episode|show\/episode|watch)\//i.test(rawPath);
+    if (!looksLikeEpisode) return null;
 
-      const explicitPair = hay.match(/\bs0*(\d{1,3})[^a-z0-9]{0,8}(?:e|ep)0*(\d{1,3})\b/i);
-      if (explicitPair) {
-        if (Number(explicitPair[1]) !== season || Number(explicitPair[2]) !== episode) continue;
-      }
-
-      const declaredSeason = explicitSeason(hay);
-      if (declaredSeason !== undefined && declaredSeason !== season) continue;
-
-      const looksLikeEpisode =
-        /(?:حلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay) ||
-        /\/(?:episode|show\/episode|watch)\//i.test(rawPath);
-      if (!looksLikeEpisode) continue;
-
-      let titleRelevance = 0;
-      for (const title of titles) {
-        const normalizedTitle = normalize(title);
-        if (!normalizedTitle) continue;
-        if (normalizedHay.includes(normalizedTitle)) {
-          titleRelevance = Math.max(titleRelevance, 100);
-        } else {
-          titleRelevance = Math.max(titleRelevance, overlap(normalizedHay, normalizedTitle) * 100);
-        }
-      }
-      if (titleRelevance < 28) continue;
-
-      const exactPair = new RegExp("s0*" + season + "e0*" + episode + "(?![0-9])", "i").test(hay + " " + rawPath);
-      const exactEpisode =
-        new RegExp("(?:الحلقة|الحلقه|episode|ep(?:isode)?)[-_\\s]*(?:رقم[-_\\s]*)?0*" + episode + "(?![0-9.])", "i").test(hay) ||
-        new RegExp("(?:^|[^0-9.])0*" + episode + "(?:$|[^0-9.])", "i").test(rawPath);
-
-      let scoreValue = titleRelevance;
-      if (exactPair) scoreValue += 320;
-      else if (declaredSeason === season) scoreValue += 70;
-      if (exactEpisode) scoreValue += 180;
-      if (/\/episode\//i.test(rawPath)) scoreValue += 80;
-      if (/\/show\/episode\//i.test(rawPath)) scoreValue += 60;
-
-      if (!best || scoreValue > best.score) best = { url: link.url, score: scoreValue };
+    let titleRelevance = 0;
+    for (const title of titles) {
+      const normalizedTitle = normalize(title);
+      if (!normalizedTitle) continue;
+      if (normalizedHay.includes(normalizedTitle)) titleRelevance = Math.max(titleRelevance, 100);
+      else titleRelevance = Math.max(titleRelevance, overlap(normalizedHay, normalizedTitle) * 100);
     }
 
-    if (best && best.score >= 430) return best.url;
+    const exactPair = new RegExp("s0*" + season + "e0*" + episode + "(?![0-9])", "i").test(hay + " " + rawPath);
+    const exactEpisode =
+      new RegExp("(?:الحلقة|الحلقه|episode|ep(?:isode)?)[-_\\s]*(?:رقم[-_\\s]*)?0*" + episode + "(?![0-9.])", "i").test(hay) ||
+      new RegExp("(?:^|[^0-9.])0*" + episode + "(?:$|[^0-9.])", "i").test(rawPath);
+
+    if (!(titleRelevance >= 20 || exactPair)) return null;
+
+    let scoreValue = titleRelevance;
+    if (exactPair) scoreValue += 320;
+    else if (declaredSeason === season) scoreValue += 70;
+    if (exactEpisode) scoreValue += 180;
+    if (/\/episode\//i.test(rawPath)) scoreValue += 80;
+    if (/\/show\/episode\//i.test(rawPath)) scoreValue += 60;
+    if (/\/watch\//i.test(rawPath)) scoreValue += 55;
+
+    return { url: link.url, score: scoreValue };
+  };
+
+  const probe = async (variant: string) => {
+    const encoded = encodeURIComponent(variant);
+    const url = host + "/search?q=" + encoded + "&section=series&page=1";
+    const html = await fetchText(env, url, undefined, undefined, budget);
+    if (!html) return [] as Array<{ url: string; score: number }>;
+    const out: Array<{ url: string; score: number }> = [];
+    for (const link of extractPageLinks(html, host)) {
+      const scored = scoreEpisodeLink(link);
+      if (scored) out.push(scored);
+    }
+    return out;
+  };
+
+  // Probe the exact SxxEyy/title variants concurrently. This removes the old
+  // 7-request serial waterfall from the critical path.
+  const firstBatch = await Promise.all(variants.slice(0, 4).map(probe));
+  let best: { url: string; score: number } | null = null;
+  for (const results of firstBatch) {
+    for (const result of results) if (!best || result.score > best.score) best = result;
+  }
+  if (best?.score >= 430) return best.url;
+
+  // Only fall back to broader title searches when the exact batch did not find
+  // a strong match. Keep this fallback small and parallel as well.
+  const fallbackVariants = variants.slice(4, 6);
+  if (fallbackVariants.length) {
+    const fallback = await Promise.all(
+      fallbackVariants.map(async (variant) => {
+        const html = await fetchText(
+          env,
+          host + "/search?q=" + encodeURIComponent(variant) + "&page=1",
+          undefined,
+          undefined,
+          budget,
+        );
+        if (!html) return [] as Array<{ url: string; score: number }>;
+        const out: Array<{ url: string; score: number }> = [];
+        for (const link of extractPageLinks(html, host)) {
+          const scored = scoreEpisodeLink(link);
+          if (scored) out.push(scored);
+        }
+        return out;
+      }),
+    );
+    for (const results of fallback) {
+      for (const result of results) if (!best || result.score > best.score) best = result;
+    }
   }
 
-  const finalBest = best as { url: string; score: number } | null;
-  if (finalBest === null) return null;
-  return finalBest.score >= 250 ? finalBest.url : null;
+  return best && best.score >= 250 ? best.url : null;
 }
- 
+
 function targetResolutionScore(raw: string) {
   try {
     const path = new URL(raw).pathname.toLowerCase();
