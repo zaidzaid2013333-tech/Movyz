@@ -570,7 +570,7 @@ const catalogTop1000 = async (request: Request, env: MovyzEnvironment) => {
   const locale = isLocale(requested) ? requested : detectRequestLocale(request);
   const page = Math.max(1, Number(url.searchParams.get('page') || 1));
   const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get('limit') || 1000)));
-  const cache = caches.default;
+  const cache = (caches as unknown as { default: Cache }).default;
 
   const cacheUrl = new URL(url.toString());
   cacheUrl.pathname = '/catalog/top1000';
