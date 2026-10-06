@@ -217,6 +217,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const [playerPlaying, setPlayerPlaying] = useState(false);
   const [playerCurrentTime, setPlayerCurrentTime] = useState(0);
   const [playerDuration, setPlayerDuration] = useState(0);
+  const [playerNaturalWidth, setPlayerNaturalWidth] = useState(0);
+  const [playerNaturalHeight, setPlayerNaturalHeight] = useState(0);
   const [playerVolume, setPlayerVolume] = useState(1);
   const [playerMuted, setPlayerMuted] = useState(false);
   const [playerFullscreen, setPlayerFullscreen] = useState(false);
@@ -335,6 +337,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         setPlayerReady(false);
         setPlayerCurrentTime(0);
         setPlayerDuration(0);
+        setPlayerNaturalWidth(0);
+        setPlayerNaturalHeight(0);
         setPlayerBufferedEnd(0);
         setPlayerPictureInPicture(false);
         userPlayRequestedRef.current = false;
@@ -485,7 +489,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       setPlayerUnlocked(false);
       setPlaybackError(
         language === 'ar'
-          ? 'تعذر الحصول على مصدر تشغيل صالح حاليًا. يتم استخدام مزودي التشغيل المتاحين تلقائيًا.'
+          ? 'تعذر الحصول على مصدر تشغيل من Akwam حاليًا.'
           : 'Unable to obtain a live Akwam playback source right now.',
       );
     };
@@ -524,6 +528,27 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     }
   }, [brokerRelayUrl, directPlaybackUrl, playbackSource?.url, playbackRetry]);
   const isEmbedPlayback = String(playbackSource?.type || '').toLowerCase() === 'embed';
+
+  const syncPlayerNaturalResolution = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.videoWidth > 0) setPlayerNaturalWidth(video.videoWidth);
+    if (video.videoHeight > 0) setPlayerNaturalHeight(video.videoHeight);
+  };
+
+  const playerResolutionLabel = useMemo(() => {
+    if (playerNaturalWidth > 0 && playerNaturalHeight > 0) {
+      const dimension = Math.max(playerNaturalWidth, playerNaturalHeight);
+      if (dimension >= 3800) return '4K';
+      if (dimension >= 1900) return '1080p';
+      if (dimension >= 1200) return '720p';
+      if (dimension >= 900) return '576p';
+      if (dimension >= 700) return '480p';
+      if (dimension >= 500) return '360p';
+      return playerNaturalWidth + '×' + playerNaturalHeight;
+    }
+    return normalizePlaybackQuality(playbackSource?.quality);
+  }, [playerNaturalWidth, playerNaturalHeight, playbackSource?.quality]);
 
   const formatPlayerTime = (value: number) => {
     if (!Number.isFinite(value) || value < 0) return '00:00';
@@ -1327,6 +1352,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       const currentTime = video.currentTime;
       if (Number.isFinite(duration) && duration > 0) setPlayerDuration(duration);
       if (Number.isFinite(currentTime) && currentTime >= 0) setPlayerCurrentTime(currentTime);
+      syncPlayerNaturalResolution();
       if (video.buffered.length) {
         try {
           setPlayerBufferedEnd(video.buffered.end(video.buffered.length - 1));
@@ -1376,6 +1402,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         startupGuardTimerRef.current = null;
       }
       setPlayerReady(true);
+      syncPlayerNaturalResolution();
       syncDuration();
       syncTime();
       syncBuffered();
@@ -1621,7 +1648,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         {availableSources.length > 0 && (
           <div dir={direction} className="movyza-source-panel rounded-2xl p-3 sm:p-4 mb-3 space-y-3">
             <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 font-mono">
-              <span>{language === 'ar' ? 'الجودة المتاحة من الوسيط:' : 'Available broker qualities:'}</span>
+              <span>{language === 'ar' ? 'جودات Akwam المتاحة:' : 'Available Akwam qualities:'}</span>
               <span className="text-amber-400/70">{availableSources.length}</span>
             </div>
 
@@ -1738,6 +1765,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     startupGuardTimerRef.current = null;
                   }
                   setPlayerReady(true);
+                  syncPlayerNaturalResolution();
                   if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
 
                   const reloadRestore = reloadRestoreRef.current;
@@ -1906,8 +1934,16 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     <span>{language === 'ar' ? 'MOVYZ PLAYBACK' : 'MOVYZ PLAYBACK'}</span>
                     <span className="movyza-player-top-separator">·</span>
                     <span className="truncate max-w-[42vw] sm:max-w-[34vw]">
-                      {normalizePlaybackQuality(playbackSource?.quality)}
+                      {playerResolutionLabel}
                     </span>
+                    {playerNaturalWidth > 0 && playerNaturalHeight > 0 ? (
+                      <>
+                        <span className="movyza-player-top-separator">·</span>
+                        <span className="hidden sm:inline tabular-nums">
+                          {playerNaturalWidth}×{playerNaturalHeight}
+                        </span>
+                      </>
+                    ) : null}
                   </div>
                   {playerReady ? (
                     <div className="movyza-player-top-chip hidden xs:flex">
