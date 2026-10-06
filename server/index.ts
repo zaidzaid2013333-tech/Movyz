@@ -190,7 +190,9 @@ function normalizeBrokerMediaSources(
         expiresAt: null,
         referer: typeof source.referer === 'string' && /^https:\/\//i.test(source.referer)
           ? source.referer
-          : 'https://akwam.ss/',
+          : (String(source.providerKey || '').startsWith('tmdb-embed:') || String(source.providerKey || '') === 'vidlink'
+            ? 'https://vidlink.pro/'
+            : 'https://akwam.ss/'),
       };
     })
     .filter((source) =>
@@ -542,7 +544,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     const range = req.headers.get('range');
     if (range) upstreamHeaders.set('range', range);
     upstreamHeaders.set('Accept', req.headers.get('accept') || '*/*');
-    const sourceReferer = /^https:\/\//i.test(String(referer || '')) ? String(referer) : 'https://akwam.ss/';
+    const sourceReferer = /^https:\/\//i.test(String(referer || '')) ? String(referer) : 'https://vidlink.pro/';
     upstreamHeaders.set('Referer', sourceReferer);
     try {
       upstreamHeaders.set('Origin', new URL(sourceReferer).origin);
@@ -694,7 +696,7 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     }
 
     if (!selected) {
-      return fail(res, 502, 'PLAYBACK_STREAM_UPSTREAM_INVALID', 'No responsive Akwam media source is available');
+      return fail(res, 502, 'PLAYBACK_STREAM_UPSTREAM_INVALID', 'No responsive media source is available');
     }
 
     const { source, upstream } = selected;
