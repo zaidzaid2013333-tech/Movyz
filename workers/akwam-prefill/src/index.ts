@@ -179,6 +179,53 @@ async function sb(env: Env, path: string, init: RequestInit = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+function markdownToSyntheticHtml(markdown: string) {
+  let value = String(markdown || "")
+    .replace(/\\([\\[\\]_*])/g, "$1")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+
+  value = value.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/gi,
+    (_match, label, href) => '<a href="' + href + '">' + label + "</a>",
+  );
+
+  value = value.replace(
+    /(^|[\s>])(https?:\/\/akwam\.ss\/[^^\s<)]+)/gi,
+    (_match, prefix, href) => prefix + '<a href="' + href + '">' + href + "</a>",
+  );
+
+  return value.replace(/\n{2,}/g, "\n").replace(/\n/g, "<br>");
+}
+
+async function fetchAkwamMirror(url: string, diagnostics?: string[]) {
+  try {
+    const response = await fetch("https://r.jina.ai/" + url, {
+      headers: {
+        Accept: "text/plain,text/markdown;q=0.9,*/*;q=0.5",
+        "User-Agent": "Movyz/1.0 AkwamReaderFallback",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(9000),
+    });
+    if (!response.ok) {
+      diagnostics?.push("jina:" + response.status);
+      return null;
+    }
+    const markdown = await response.text();
+    if (!markdown.trim()) {
+      diagnostics?.push("jina:empty");
+      return null;
+    }
+    diagnostics?.push("jina:ok");
+    return markdownToSyntheticHtml(markdown);
+  } catch {
+    diagnostics?.push("jina:ERR");
+    return null;
+  }
+}
+
 async function fetchText(
   env: Env,
   url: string,
@@ -200,16 +247,23 @@ async function fetchText(
       signal: AbortSignal.timeout(5000),
     });
     absorbSetCookie(session, response);
-    if (!response.ok) {
+    if (response.ok) {
+      const text = await response.text();
+      if (text.trim()) return text;
+    } else {
       diagnostics?.push(new URL(url).hostname + ":" + response.status);
-      return null;
     }
-    return await response.text();
-  } catch (error) {
+  } catch {
     diagnostics?.push(new URL(url).hostname + ":ERR");
-    return null;
   }
+
+  if (isAkwamUrl(url)) {
+    return await fetchAkwamMirror(url, diagnostics);
+  }
+
+  return null;
 }
+
 
 function decodeHtml(value: string) {
   return value
