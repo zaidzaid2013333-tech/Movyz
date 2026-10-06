@@ -426,10 +426,20 @@ function overlap(a: string, b: string) {
 function candidateKind(pathname: string): Candidate["kind"] {
   const path = pathname.toLowerCase();
   if (/^\/old(?:\/|$)/i.test(path)) return "other";
-  if (/^\/(?:series|shows?)\//i.test(path)) return "series";
-  if (/^\/movie\//i.test(path)) return "movie";
-  if (/^\/(?:episode|show\/episode)\//i.test(path)) return "episode";
-  if (/^\/watch\//i.test(path)) return "watch";
+  if (/^\/(?:series|shows?|tv|season|seasons)\//i.test(path)) return "series";
+  if (/^\/(?:movie|movies|film|films)\//i.test(path)) return "movie";
+  if (/^\/(?:episode|episodes|show\/episode|tv\/episode)\//i.test(path)) return "episode";
+  if (/^\/(?:watch|play)\//i.test(path)) return "watch";
+  return "other";
+}
+
+function inferCandidateKind(pathname: string, anchorText: string): Candidate["kind"] {
+  const direct = candidateKind(pathname);
+  if (direct !== "other") return direct;
+  const hay = normalize(anchorText + " " + pathname);
+  if (/(?:الحلقة|الحلقه|episode|epis(?:ode)?|s\d+e\d+)/i.test(hay)) return "episode";
+  if (/(?:مسلسل|مسلسلات|series|show|season|موسم)/i.test(hay)) return "series";
+  if (/(?:فيلم|فلم|افلام|أفلام|movie|film)/i.test(hay)) return "movie";
   return "other";
 }
 
@@ -548,12 +558,12 @@ function parseCandidates(html: string, env: Env, allowLegacy = false): Candidate
 
     if (!isAkwamUrl(u.href)) continue;
 
-    let kind = candidateKind(u.pathname);
+    const rawText = rawTextFromAnchor(m[2]);
+    let kind = inferCandidateKind(u.pathname, rawText);
     if (allowLegacy && kind === "other" && /^\/old\//i.test(u.pathname)) {
-      const anchorText = rawTextFromAnchor(m[2]);
-      kind = /(?:فيلم|فلم|افلام|أفلام|movie|film)/i.test(anchorText)
+      kind = /(?:فيلم|فلم|افلام|أفلام|movie|film)/i.test(rawText)
         ? "movie"
-        : /(?:مسلسل|series|show)/i.test(anchorText)
+        : /(?:مسلسل|series|show|موسم|season)/i.test(rawText)
           ? "series"
           : "other";
     }
@@ -658,6 +668,24 @@ async function findCandidate(
   const finalWinner = readBest();
   if (finalWinner && finalWinner.score >= 80) return finalWinner.item;
 
+  // Adaptive fallback for catalog generations whose URL shape is not exposed
+  // by Akwam's own search parser. It reuses the same candidate scorer.
+  if (expected === "movie" || expected === "series") {
+    const external = await Promise.all(
+      variants.slice(0, 2).map((query) =>
+        discoverAkwamUrlsViaSearch(env, query, expected, expectedSeason).catch(() => []),
+      ),
+    );
+    for (const candidates of external) {
+      for (const item of candidates) {
+        const itemScore = score(item, titles, year, expected, expectedSeason);
+        if (!best || itemScore > best.score) best = { item, score: itemScore };
+      }
+    }
+  }
+
+  const adaptiveWinner = readBest();
+  if (adaptiveWinner && adaptiveWinner.score >= 80) return adaptiveWinner.item;
   throw new Error("AKWAM_SEARCH_EMPTY probes=" + diagnostics.slice(0, 12).join(","));
 }
 
@@ -1312,8 +1340,9 @@ async function resolveTarget(
   type Node = { url: string; referer?: string; depth: number };
   const queue: Node[] = [{ url: initialTarget, referer, depth: 0 }];
   const visited = new Set<string>();
-  const maxNodes = 8;
-  const maxDepth = 3;
+  // Handle extra navigation hops generically instead of title-specific branches.
+  const maxNodes = 12;
+  const maxDepth = 4;
 
   while (queue.length && visited.size < maxNodes) {
     const node = queue.shift()!;
