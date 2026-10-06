@@ -394,10 +394,9 @@ async function findCandidate(
   expected: "movie" | "series" | "episode" = "movie",
   expectedSeason?: number,
   budget?: RequestBudget,
-  session?: AkwamSession,
+  _session?: AkwamSession,
 ) {
   const host = base(env);
-  let best: { item: Candidate; score: number } | null = null;
   const diagnostics: string[] = [];
   const seeds = titles.filter(Boolean).map((x) => x.trim()).filter(Boolean).slice(0, 3);
   const variants = expected === "movie"
@@ -413,57 +412,64 @@ async function findCandidate(
         expectedSeason && seeds[0] ? seeds[0] + " S" + String(expectedSeason).padStart(2, "0") : "",
       ].filter(Boolean))).slice(0, 4);
 
-  const probe = async (title: string, filtered: boolean) => {
+  type ScoredCandidate = { item: Candidate; score: number };
+
+  const probe = async (title: string, mode: "filtered" | "unfiltered" | "legacy") => {
     const encoded = encodeURIComponent(title);
-    const section = expected === "movie" || expected === "series"
-      ? "&section=" + encodeURIComponent(expected)
-      : "";
-    const url = host + "/search?q=" + encoded + section + "&page=1";
-    const html = await fetchText(env, url, diagnostics, undefined, budget);
-    if (!html) return;
-    for (const item of parseCandidates(html, env, expected === "movie")) {
-      const itemScore = score(item, titles, year, expected, expectedSeason);
-      if (!best || itemScore > best.score) best = { item, score: itemScore };
+    const urls = mode === "legacy"
+      ? [
+          host + "/old/search/" + encoded + "/page/1",
+          host + "/old/search/" + encoded,
+        ]
+      : [
+          host + "/search?q=" + encoded +
+            (mode === "filtered" ? "&section=" + encodeURIComponent(expected) : "") +
+            "&page=1",
+        ];
+
+    const result: ScoredCandidate[] = [];
+    const responses = await Promise.all(
+      urls.map((url) => fetchText(env, url, diagnostics, undefined, budget)),
+    );
+    for (let i = 0; i < responses.length; i++) {
+      const html = responses[i];
+      if (!html) continue;
+      for (const item of parseCandidates(html, env, mode === "legacy" && expected === "movie")) {
+        const itemScore = score(item, titles, year, expected, expectedSeason);
+        if (itemScore > -1000) result.push({ item, score: itemScore });
+      }
     }
+    return result;
   };
 
-  // Search the strongest title variants in parallel instead of waiting one
-  // network round-trip after another.
-  await Promise.all(variants.slice(0, 3).map((variant) => probe(variant, true)));
-  const primaryBest = best;
-  if (primaryBest !== null && primaryBest.score >= 128) return primaryBest.item;
+  const chooseBest = (results: ScoredCandidate[]) => {
+    let best: ScoredCandidate | null = null;
+    for (const result of results) {
+      if (!best || result.score > best.score) best = result;
+    }
+    return best;
+  };
 
-  // One small unfiltered fallback batch for ambiguous catalog pages.
-  await Promise.all(variants.slice(0, 2).map((variant) =>
-    probe(variant, false),
-  ));
-  const fallbackBest = best;
-  if (fallbackBest !== null && fallbackBest.score >= 128) return fallbackBest.item;
+  const primaryResults = (
+    await Promise.all(variants.slice(0, 3).map((variant) => probe(variant, "filtered")))
+  ).flat();
+  let best = chooseBest(primaryResults);
+  if (best && best.score >= 128) return best.item;
 
-  // Legacy movie archive stays fallback-only and runs only after current search
-  // has failed, preserving the known source ordering.
+  const fallbackResults = (
+    await Promise.all(variants.slice(0, 2).map((variant) => probe(variant, "unfiltered")))
+  ).flat();
+  best = chooseBest([...(best ? [best] : []), ...fallbackResults]);
+  if (best && best.score >= 128) return best.item;
+
   if (expected === "movie") {
-    const legacyProbe = async (title: string) => {
-      const encoded = encodeURIComponent(title);
-      const urls = [
-        host + "/old/search/" + encoded + "/page/1",
-        host + "/old/search/" + encoded,
-      ];
-      for (const url of urls) {
-        const html = await fetchText(env, url, diagnostics, undefined, budget);
-        if (!html) continue;
-        for (const item of parseCandidates(html, env, true)) {
-          const itemScore = score(item, titles, year, expected, expectedSeason);
-          if (!best || itemScore > best.score) best = { item, score: itemScore };
-        }
-        if (best && best.score >= 128) return;
-      }
-    };
-    await Promise.all(variants.slice(0, 3).map(legacyProbe));
+    const legacyResults = (
+      await Promise.all(variants.slice(0, 3).map((variant) => probe(variant, "legacy")))
+    ).flat();
+    best = chooseBest([...(best ? [best] : []), ...legacyResults]);
   }
 
-  const winner = best as { item: Candidate; score: number } | null;
-  if (winner && winner.score >= 80) return winner.item;
+  if (best && best.score >= 80) return best.item;
   throw new Error("AKWAM_SEARCH_EMPTY probes=" + diagnostics.slice(0, 12).join(","));
 }
 
