@@ -10,18 +10,18 @@ const LOCALES: Record<LocaleCode, {
   nativeName: string;
   countries: string[];
 }> = {
-  ar: { tmdb: 'ar-SA', region: 'DZ', dir: 'rtl', name: 'Arabic', nativeName: 'العربية', countries: ['DZ','MA','TN','LY','EG','SD','MR','SA','AE','QA','KW','BH','OM','JO','LB','IQ','SY','YE','PS','SO','DJ','KM'] },
-  en: { tmdb: 'en-US', region: 'US', dir: 'ltr', name: 'English', nativeName: 'English', countries: ['US','GB','CA','AU','NZ','IE','ZA','SG','JM','BS','BB','TT','GD','LC','VC','AG','DM','KN','BZ','GY','FJ','PG','SB','VU','WS','TO','FM','MH','PW','NR','KI','GH','NG','KE','UG','TZ','ZM','ZW','MW','BW','NA','LS','SZ','SL','LR','GM','SS','MU','SC','CN','TW','HK','MO','NL','SE','NO','DK','FI','IS','PL','CZ','SK','HU','RO','BG','HR','SI','RS','BA','ME','MK','AL','EE','LV','LT','MD','UA','GR','MT','CY','GE','AM','AZ','UZ','TJ','TM','AF','NP','BD','LK','MV','PK','MY','TH','ID','PH','VN','KH','LA','MN','IL','IR'] },
-  fr: { tmdb: 'fr-FR', region: 'FR', dir: 'ltr', name: 'French', nativeName: 'Français', countries: ['FR','BE','LU','MC','SN','CI','BF','BJ','TG','ML','NE','GN','GA','CG','CD','CM','CF','TD','MG','RW','BI','HT'] },
+  ar: { tmdb: 'ar-SA', region: 'DZ', dir: 'rtl', name: 'Arabic', nativeName: 'العربية', countries: ['AE','BH','DJ','DZ','EG','EH','IQ','JO','KM','KW','LB','LY','MA','MR','OM','PS','QA','SA','SD','SO','SY','TN','YE'] },
+  en: { tmdb: 'en-US', region: 'US', dir: 'ltr', name: 'English', nativeName: 'English', countries: ['US','GB','CA','AU','NZ','IE','ZA','SG','JM','BS','BB','TT','GD','LC','VC','AG','DM','KN','BZ','GY','FJ','PG','SB','VU','WS','TO','FM','MH','PW','NR','KI','GH','NG','KE','UG','TZ','ZM','ZW','MW','BW','NA','LS','SZ','SL','LR','GM','SS','MU','SC','CN','TW','HK','MO','NL','SE','NO','DK','FI','IS','PL','CZ','SK','HU','RO','BG','HR','SI','RS','BA','ME','MK','AL','EE','LV','LT','MD','UA','GR','MT','CY','GE','AM','AZ','UZ','TJ','TM','AF','NP','BD','LK','MV','PK','MY','TH','ID','PH','VN','KH','LA','MN','IL','IR','AD','AI','AQ','AS','AW','AX','BM','BN','BQ','BV','CC','CK','CW','CX','ER','ET','FK','FO','GG','GI','GL','GS','GU','HM','IM','IO','JE','KY','MM','MP','MS','NF','NU','SJ','SR','SX','TC','TF','TK','TV','UM','VG','VI'] },
+  fr: { tmdb: 'fr-FR', region: 'FR', dir: 'ltr', name: 'French', nativeName: 'Français', countries: ['FR','BE','LU','MC','SN','CI','BF','BJ','TG','ML','NE','GN','GA','CG','CD','CM','CF','TD','MG','RW','BI','HT','GP','GF','MQ','NC','PF','PM','RE','BL','MF','YT','WF'] },
   de: { tmdb: 'de-DE', region: 'DE', dir: 'ltr', name: 'German', nativeName: 'Deutsch', countries: ['DE','AT','CH','LI'] },
-  es: { tmdb: 'es-ES', region: 'ES', dir: 'ltr', name: 'Spanish', nativeName: 'Español', countries: ['ES','MX','AR','CL','CO','PE','VE','UY','EC','BO','PY','CR','GT','PA','HN','SV','NI','CU','DO','GQ'] },
+  es: { tmdb: 'es-ES', region: 'ES', dir: 'ltr', name: 'Spanish', nativeName: 'Español', countries: ['ES','MX','AR','CL','CO','PE','VE','UY','EC','BO','PY','CR','GT','PA','HN','SV','NI','CU','DO','GQ','PR'] },
   it: { tmdb: 'it-IT', region: 'IT', dir: 'ltr', name: 'Italian', nativeName: 'Italiano', countries: ['IT','SM','VA'] },
   pt: { tmdb: 'pt-BR', region: 'BR', dir: 'ltr', name: 'Portuguese', nativeName: 'Português', countries: ['PT','BR','AO','MZ','CV','GW','ST','TL'] },
   ru: { tmdb: 'ru-RU', region: 'RU', dir: 'ltr', name: 'Russian', nativeName: 'Русский', countries: ['RU','BY','KZ','KG'] },
   tr: { tmdb: 'tr-TR', region: 'TR', dir: 'ltr', name: 'Turkish', nativeName: 'Türkçe', countries: ['TR'] },
   hi: { tmdb: 'hi-IN', region: 'IN', dir: 'ltr', name: 'Hindi', nativeName: 'हिन्दी', countries: ['IN'] },
   ja: { tmdb: 'ja-JP', region: 'JP', dir: 'ltr', name: 'Japanese', nativeName: '日本語', countries: ['JP'] },
-  ko: { tmdb: 'ko-KR', region: 'KR', dir: 'ltr', name: 'Korean', nativeName: '한국어', countries: ['KR'] },
+  ko: { tmdb: 'ko-KR', region: 'KR', dir: 'ltr', name: 'Korean', nativeName: '한국어', countries: ['KR','KP'] },
 };
 
 const isLocale = (value: string | null | undefined): value is LocaleCode =>
@@ -85,7 +85,7 @@ const SUBTITLE_COUNTRY_LANGUAGE: Record<string, LocaleCode> = {
   FR: 'fr', BE: 'fr', LU: 'fr', MC: 'fr', SN: 'fr', CI: 'fr', BF: 'fr',
   BJ: 'fr', TG: 'fr', ML: 'fr', NE: 'fr', GN: 'fr', GA: 'fr', CG: 'fr',
   CD: 'fr', CM: 'fr', CF: 'fr', TD: 'fr', MG: 'fr', RW: 'fr', BI: 'fr',
-  HT: 'fr', CH: 'de',
+  HT: 'fr', CH: 'de', GP: 'fr', GF: 'fr', MQ: 'fr', NC: 'fr', PF: 'fr', PM: 'fr', RE: 'fr', BL: 'fr', MF: 'fr', YT: 'fr', WF: 'fr',
 
   // German
   DE: 'de', AT: 'de', LI: 'de',
@@ -93,7 +93,7 @@ const SUBTITLE_COUNTRY_LANGUAGE: Record<string, LocaleCode> = {
   // Spanish
   ES: 'es', MX: 'es', AR: 'es', CL: 'es', CO: 'es', PE: 'es', VE: 'es',
   UY: 'es', PY: 'es', BO: 'es', EC: 'es', PA: 'es', CR: 'es', GT: 'es',
-  HN: 'es', SV: 'es', NI: 'es', CU: 'es', DO: 'es', GQ: 'es',
+  HN: 'es', SV: 'es', NI: 'es', CU: 'es', DO: 'es', GQ: 'es', PR: 'es',
 
   // Italian
   IT: 'it', SM: 'it', VA: 'it',
@@ -115,7 +115,7 @@ const SUBTITLE_COUNTRY_LANGUAGE: Record<string, LocaleCode> = {
   JP: 'ja',
 
   // Korean
-  KR: 'ko',
+  KR: 'ko', KP: 'ko',
 
   // Countries where none of the supported subtitle languages is a clear country-wide default:
   // use English rather than browser language or geolocation inference.
