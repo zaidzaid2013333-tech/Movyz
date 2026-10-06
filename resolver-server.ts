@@ -68,7 +68,7 @@ function requestKey(context: Context) {
 function normalizeSources(sources: any[]): MediaSource[] {
   return sources
     .filter((source) => /^https:\/\//i.test(String(source?.url || "")))
-    .slice(0, 2)
+    .slice(0, 1)
     .map((source) => ({
       url: String(source.url),
       type: String(source.type || "direct").toLowerCase(),
