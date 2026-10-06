@@ -244,6 +244,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     title={isSeries ? 'VidSrc TV ' + contentId : 'VidSrc Movie ' + contentId}
                     className="w-full h-full border-0 bg-black"
                     allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
                     allowFullScreen
                     referrerPolicy="no-referrer"
                     onLoad={() => setIframeLoaded(true)}
