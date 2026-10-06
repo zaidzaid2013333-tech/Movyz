@@ -9,7 +9,7 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/,
 async function request<T>(
   path: string,
   init: RequestInit = {},
-  options: { skipAuth?: boolean; timeoutMs?: number } = {},
+  options: { skipAuth?: boolean; timeoutMs?: number; retry?: boolean } = {},
 ): Promise<ApiResponse<T>> {
   const session = options.skipAuth ? null : (supabase ? (await supabase.auth.getSession()).data.session : null);
   const headers = new Headers(init.headers);
@@ -22,7 +22,9 @@ async function request<T>(
   let response: Response | null = null;
   let lastError: unknown = null;
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  const maxAttempts = options.retry === false ? 1 : 2;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       const controller = new AbortController();
       const timeoutMs = Math.max(5000, Number(options.timeoutMs || 12000));
@@ -32,7 +34,7 @@ async function request<T>(
       } finally {
         window.clearTimeout(timeoutId);
       }
-      if (method !== 'GET' || !retryableStatuses.has(response.status) || attempt === 1) break;
+      if (method !== 'GET' || !retryableStatuses.has(response.status) || attempt === maxAttempts - 1) break;
     } catch (error) {
       lastError = error;
       if (method !== 'GET' || attempt === 1) throw error;
@@ -141,7 +143,7 @@ export const MovyzaApi = {
     request<{ contentType: 'movie' | 'episode'; contentId: string; mode: string; ready: boolean; sources: any[] }>(
       `/playback/prepare?type=${encodeURIComponent(contentType)}&contentId=${encodeURIComponent(contentId)}${season ? `&season=${encodeURIComponent(String(season))}` : ''}${episode ? `&episode=${encodeURIComponent(String(episode))}` : ''}`,
       {},
-      { skipAuth: true, timeoutMs: 50000 },
+      { skipAuth: true, timeoutMs: 30000, retry: false },
     ),
 
   getGenres: () => request<Genre[]>('/genres'),
