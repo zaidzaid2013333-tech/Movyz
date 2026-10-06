@@ -224,6 +224,66 @@ function decodeHtml(value: string) {
     .replaceAll("\\/","/");
 }
 
+async function discoverAkwamUrlsViaSearch(
+  env: Env,
+  query: string,
+  expected: "movie" | "series",
+  expectedSeason?: number,
+): Promise<Candidate[]> {
+  const q = [
+    "site:akwam.ss",
+    expected === "movie" ? "inurl:/movie/" : "inurl:/shows/ OR inurl:/series/ OR inurl:/episode/",
+    query,
+    expectedSeason ? "season " + expectedSeason : "",
+  ].filter(Boolean).join(" ");
+  try {
+    const response = await fetch(
+      "https://html.duckduckgo.com/html/?q=" + encodeURIComponent(q),
+      {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
+          "Accept-Language": "ar,en;q=0.8",
+        },
+        signal: AbortSignal.timeout(7000),
+      },
+    );
+    if (!response.ok) return [];
+    const html = await response.text();
+    const output: Candidate[] = [];
+    const seen = new Set<string>();
+    for (const match of html.matchAll(/<a[^>]+class=["'][^"']*result__a[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      const raw = decodeHtml(match[1] || "");
+      const text = cleanText(match[2] || "");
+      let url = raw;
+      try {
+        const parsed = new URL(raw, "https://html.duckduckgo.com");
+        const target = parsed.searchParams.get("uddg");
+        url = target ? decodeURIComponent(target) : raw;
+      } catch {}
+      if (!/^https://akwam\.ss\//i.test(url) || seen.has(url)) continue;
+      const path = (() => {
+        try { return new URL(url).pathname.toLowerCase(); } catch { return ""; }
+      })();
+      if (expected === "movie" && !/\/movie(?:s)?\//i.test(path)) continue;
+      if (expected === "series" && !/\/(?:shows?|series|episodes?)\//i.test(path)) continue;
+      const score = score(
+        { url, title: text },
+        [query],
+        undefined,
+        expected,
+        expectedSeason,
+      );
+      if (score < 30) continue;
+      seen.add(url);
+      output.push({ url, title: text, score: score + 50 });
+    }
+    return output.sort((a, b) => b.score - a.score).slice(0, 5);
+  } catch {
+    return [];
+  }
+}
+
 function searchQueryVariant(value: string) {
   return decodeHtml(value)
     .replace(/[()[\]{}:;!?/\\'"\`]+/g, " ")
@@ -531,6 +591,20 @@ async function findCandidate(
 
   const finalWinner = readBest();
   if (finalWinner && finalWinner.score >= 80) return finalWinner.item;
+
+  // Some Akwam search routes reject server-side traffic while public content
+  // pages remain reachable. Use a search index only for discovery, then fetch
+  // and extract the actual content page from Akwam itself.
+  const discoveryCandidates = await Promise.all(
+    variants.slice(0, 2).map((variant) =>
+      discoverAkwamUrlsViaSearch(env, variant, expected === "episode" ? "series" : expected, expectedSeason),
+    ),
+  );
+  const mergedDiscovery = discoveryCandidates.flat();
+  if (mergedDiscovery.length) {
+    return mergedDiscovery[0];
+  }
+
   throw new Error("AKWAM_SEARCH_EMPTY probes=" + diagnostics.slice(0, 12).join(","));
 }
 
