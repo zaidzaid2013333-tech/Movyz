@@ -54,7 +54,70 @@ function consumeRequest(budget?: RequestBudget) {
   }
 }
 
+
 const AKWAM_HOSTS = new Set(["akwam.ss", "www.akwam.ss"]);
+
+const SERIES_CANDIDATE_TTL_MS = 10 * 60 * 1000;
+const SERIES_DETAIL_TTL_MS = 5 * 60 * 1000;
+const SERIES_CACHE_MAX_KEYS = 256;
+
+const seriesCandidateMemory = new Map<string, { candidate: Candidate; cachedAt: number }>();
+const seriesDetailMemory = new Map<string, { html: string; cachedAt: number }>();
+
+function trimSeriesCaches() {
+  while (seriesCandidateMemory.size > SERIES_CACHE_MAX_KEYS) {
+    const first = seriesCandidateMemory.keys().next().value;
+    if (!first) break;
+    seriesCandidateMemory.delete(first);
+  }
+  while (seriesDetailMemory.size > SERIES_CACHE_MAX_KEYS) {
+    const first = seriesDetailMemory.keys().next().value;
+    if (!first) break;
+    seriesDetailMemory.delete(first);
+  }
+}
+
+function seriesCacheKey(titles: string[], season: number) {
+  return normalize(titles.filter(Boolean).slice(0, 3).join(" | ")) + "|s" + season;
+}
+
+async function findSeriesCandidateCached(
+  env: Env,
+  titles: string[],
+  season: number,
+  budget?: RequestBudget,
+  session?: AkwamSession,
+) {
+  const key = seriesCacheKey(titles, season);
+  const now = Date.now();
+  const hit = seriesCandidateMemory.get(key);
+  if (hit && hit.cachedAt + SERIES_CANDIDATE_TTL_MS > now) return hit.candidate;
+  if (hit) seriesCandidateMemory.delete(key);
+
+  const candidate = await findCandidate(env, titles, undefined, "series", season, budget, session);
+  seriesCandidateMemory.set(key, { candidate, cachedAt: now });
+  trimSeriesCaches();
+  return candidate;
+}
+
+async function fetchSeriesDetailCached(
+  env: Env,
+  candidate: Candidate,
+  budget?: RequestBudget,
+  session?: AkwamSession,
+) {
+  const key = candidate.url;
+  const now = Date.now();
+  const hit = seriesDetailMemory.get(key);
+  if (hit && hit.cachedAt + SERIES_DETAIL_TTL_MS > now) return hit.html;
+  if (hit) seriesDetailMemory.delete(key);
+
+  const html = await fetchText(env, candidate.url, undefined, undefined, budget, session);
+  if (!html) return null;
+  seriesDetailMemory.set(key, { html, cachedAt: now });
+  trimSeriesCaches();
+  return html;
+}
 
 function isAkwamUrl(value: string) {
   try {
@@ -1302,41 +1365,42 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   let targets: string[] = [];
 
   if (isEpisode) {
-    // Prefer an exact episode search so large/paginated series pages do not hide
-    // valid episodes from the resolver.
-    episodeTarget = await findEpisodeTargetBySearch(env, ctx.titles, season, episode, budget, session);
-    if (episodeTarget) {
-      const episodeHtml = await fetchText(env, episodeTarget, undefined, base(env), budget, session);
-      if (episodeHtml) targets = extractTargets(episodeHtml, episodeTarget);
+    // Reuse the matched Akwam series page for every episode in the same season.
+    // This avoids repeating the expensive series search for hundreds of episodes.
+    candidate = await findSeriesCandidateCached(env, ctx.titles, season, budget, session);
+
+    if (candidate) {
+      const detail = await fetchSeriesDetailCached(env, candidate, budget, session);
+      if (detail) {
+        const exactEpisode = extractEpisodeTarget(detail, candidate.url, season, episode);
+        if (exactEpisode) {
+          episodeTarget = exactEpisode;
+          const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget, session);
+          if (episodeHtml) targets = extractTargets(episodeHtml, exactEpisode);
+        }
+      }
     }
 
-    // Fallback to the series page and accept both current and legacy episode links.
+    // Direct episode search remains the fallback for large/paginated series pages
+    // where the season page does not expose the requested episode.
     if (!targets.length) {
-      candidate = await findCandidate(env, ctx.titles, ctx.year, "series", season, budget, session);
+      episodeTarget = await findEpisodeTargetBySearch(env, ctx.titles, season, episode, budget, session);
+      if (episodeTarget) {
+        const episodeHtml = await fetchText(env, episodeTarget, undefined, base(env), budget, session);
+        if (episodeHtml) targets = extractTargets(episodeHtml, episodeTarget);
+      }
+    }
+
+    if (!targets.length) {
       if (!candidate) throw new Error("AKWAM_NOT_FOUND");
-
-      const detail = await fetchText(env, candidate.url, undefined, undefined, budget, session);
-      if (!detail) throw new Error("AKWAM_DETAIL_FETCH_FAILED");
-
-      const exactEpisode = extractEpisodeTarget(detail, candidate.url, season, episode);
-      if (!exactEpisode) {
-        throw new Error(
-          "AKWAM_EPISODE_NOT_INDEXED candidate=" +
-          candidate.url +
-          " season=" +
-          season +
-          " episode=" +
-          episode,
-        );
-      }
-
-      episodeTarget = exactEpisode;
-      const episodeHtml = await fetchText(env, exactEpisode, undefined, candidate.url, budget, session);
-      if (!episodeHtml) throw new Error("AKWAM_EPISODE_FETCH_FAILED");
-      targets = extractTargets(episodeHtml, exactEpisode);
-      if (!targets.length) {
-        throw new Error("AKWAM_EPISODE_LINKS_EMPTY episode=" + new URL(exactEpisode).pathname);
-      }
+      throw new Error(
+        "AKWAM_EPISODE_NOT_INDEXED candidate=" +
+        candidate.url +
+        " season=" +
+        season +
+        " episode=" +
+        episode,
+      );
     }
   } else {
     candidate = await findCandidate(env, ctx.titles, ctx.year, "movie", undefined, budget, session);
