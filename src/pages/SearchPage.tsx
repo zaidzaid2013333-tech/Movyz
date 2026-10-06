@@ -7,6 +7,7 @@ import { SeriesCard } from '../components/ui/SeriesCard';
 import { CardGridSkeleton } from '../components/ui/Skeletons';
 import { EmptyState } from '../components/ui/FeedbackStates';
 import { Search, X, Sparkles, User, Film, Tv, Clapperboard } from 'lucide-react';
+import { SeoHead } from '../components/SEOHead';
 
 interface SearchPageProps {
   onNavigate: (path: string) => void;
@@ -89,7 +90,13 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     results.movies.length > 0 || results.series.length > 0 || results.cast.length > 0;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-in fade-in duration-300">
+    <>
+      <SeoHead
+        title={language === 'ar' ? 'البحث عن الأفلام والمسلسلات | موفيزا' : 'Search Movies & TV | Movyza'}
+        description={language === 'ar' ? 'ابحث عن فيلم أو مسلسل أو ممثل أو مخرج في كتالوج موفيزا.' : 'Search movies, TV series, actors and directors in the Movyza catalog.'}
+        noindex
+      />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-in fade-in duration-300">
       {/* Search Input Marquee Box */}
       <div className="max-w-3xl mx-auto space-y-4">
         <div className="relative rounded-3xl p-1 bg-gradient-to-r from-amber-500/30 via-amber-400/10 to-amber-600/30 shadow-2xl">
@@ -271,6 +278,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           )}
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 };
