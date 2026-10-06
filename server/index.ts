@@ -357,12 +357,12 @@ async function resolveAkwamThroughExternalResolver(
     episodeNumber: context.episodeNumber,
   });
 
-  const resolverUrl = resolverBase.includes('/functions/v1/') ? resolverBase : resolverBase + '/resolve';
+  const resolverUrl = resolverBase.endsWith('/resolve') ? resolverBase : `${resolverBase}/resolve`;
   const requestResolver = () => fetch(resolverUrl, {
     method: 'POST',
     headers,
     body,
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(22000),
   });
 
   const resolverStartedAt = Date.now();
@@ -490,6 +490,8 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
     if (isBadUpstream(upstream)) return false;
 
     const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
+    const sourceType = String(source.type || '').toLowerCase();
+    if ([200, 206].includes(upstream.status) && (sourceType === 'mp4' || /\.mp4(?:[?#]|$)/i.test(source.directUrl || ''))) return true;
     if (
       contentType.startsWith('video/') ||
       contentType.includes('mpegurl') ||
@@ -528,7 +530,6 @@ app.get(`${api}/playback/stream`, asyncRoute(async (req, res) => {
       if (!sample) return false;
       if (/^<!doctype|^<html|captcha|cloudflare|access denied|application\/json/i.test(sample)) return false;
 
-      const sourceType = String(source.type || '').toLowerCase();
       if (sourceType === 'hls' || /\.m3u8(?:[?#]|$)/i.test(source.directUrl || '')) {
         return /#EXTM3U|#EXT-X-/i.test(sample) || contentType.includes('mpegurl');
       }
