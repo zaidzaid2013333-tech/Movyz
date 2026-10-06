@@ -257,7 +257,7 @@ jobs:
           # The movie side must use the same contract as well; numeric TMDB IDs
           # are metadata identifiers and are normalized by the broker.
           status, _, tmdb_movie_payload = request_json(
-              api + "/api/v1/playback/prepare?type=movie&contentId=27205"
+              api + "/api/v1/playback/prepare?type=movie&contentId=157336"
           )
           tmdb_movie_sources = tmdb_movie_payload.get("data", {}).get("sources", [])
           if status != 200 or tmdb_movie_payload.get("success") is not True or not tmdb_movie_sources:
