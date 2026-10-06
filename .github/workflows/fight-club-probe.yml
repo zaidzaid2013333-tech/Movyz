@@ -1,0 +1,75 @@
+name: Fight Club Playback Probe
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/fight-club-probe.yml"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test VidLink resolver with Fight Club
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/walterwhite-69/Vidlink.pro-Decryptor.git /tmp/vidlink
+          python3 -m pip install -r /tmp/vidlink/requirements.txt
+          python3 /tmp/vidlink/main.py >/tmp/vidlink.log 2>&1 &
+          PID=$!
+          trap 'kill $PID 2>/dev/null || true' EXIT
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/ >/dev/null; then break; fi
+            sleep 1
+          done
+
+          curl -fsS --max-time 45 http://127.0.0.1:8000/movie/550 -o /tmp/vidlink.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/vidlink.json'))
+          print("VIDLINK_HTTP_OK=1")
+          if isinstance(p, dict):
+              print("VIDLINK_KEYS=" + ",".join(sorted(p.keys())))
+              sources = p.get("sources") or p.get("data") or []
+          else:
+              sources = []
+          if isinstance(sources, dict):
+              sources = sources.get("sources") or []
+          print("VIDLINK_SOURCE_COUNT=" + str(len(sources) if isinstance(sources, list) else 0))
+          if isinstance(sources, list) and sources:
+              for i, s in enumerate(sources[:5]):
+                  if isinstance(s, dict):
+                      print(f"VIDLINK_SOURCE_{i}_TYPE={s.get('type') or s.get('format') or 'unknown'}")
+                      print(f"VIDLINK_SOURCE_{i}_QUALITY={s.get('quality') or s.get('label') or 'unknown'}")
+          else:
+              raise SystemExit("VIDLINK_NO_SOURCES")
+          PY
+
+      - name: Test Movyz production Fight Club playback prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://movyz-api.sameranede.workers.dev/api/v1/playback/prepare?type=movie&contentId=550'
+          curl -fsS --max-time 60 "$URL" -o /tmp/movyz.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/movyz.json'))
+          print("MOVYZ_HTTP_OK=1")
+          print("MOVYZ_MODE=" + str(p.get("data",{}).get("mode") or p.get("mode") or "unknown"))
+          sources = p.get("data",{}).get("sources") if isinstance(p.get("data"),dict) else p.get("sources")
+          sources = sources if isinstance(sources,list) else []
+          print("MOVYZ_SOURCE_COUNT=" + str(len(sources)))
+          print("MOVYZ_READY=" + str(bool(p.get("data",{}).get("ready") if isinstance(p.get("data"),dict) else p.get("ready"))))
+          for i,s in enumerate(sources[:5]):
+              if isinstance(s,dict):
+                  print(f"MOVYZ_SOURCE_{i}_PROVIDER={s.get('provider')}")
+                  print(f"MOVYZ_SOURCE_{i}_QUALITY={s.get('quality')}")
+                  print(f"MOVYZ_SOURCE_{i}_TYPE={s.get('type')}")
+          if not sources:
+              raise SystemExit("MOVYZ_NO_SOURCES")
+          PY
