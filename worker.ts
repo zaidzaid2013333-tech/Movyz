@@ -137,15 +137,15 @@ const detectSubtitleLocale = (request: Request): LocaleCode => {
 const subtitlePriorityForCountry = (country: string | null): string => {
   const primary = SUBTITLE_COUNTRY_LANGUAGE[String(country || '').toUpperCase()] || 'en';
   const fallbackByPrimary: Record<LocaleCode, string[]> = {
-    ar: ['ar', 'en', 'fr'],
+    ar: ['ar', 'en'],
     en: ['en'],
-    fr: ['fr', 'en', 'ar'],
-    de: ['de', 'en', 'fr'],
-    es: ['es', 'en', 'fr'],
-    it: ['it', 'en', 'fr'],
-    pt: ['pt', 'en', 'es'],
-    ru: ['ru', 'en', 'tr'],
-    tr: ['tr', 'en', 'ar'],
+    fr: ['fr', 'en'],
+    de: ['de', 'en'],
+    es: ['es', 'en'],
+    it: ['it', 'en'],
+    pt: ['pt', 'en'],
+    ru: ['ru', 'en'],
+    tr: ['tr', 'en'],
     hi: ['hi', 'en'],
     ja: ['ja', 'en'],
     ko: ['ko', 'en'],
