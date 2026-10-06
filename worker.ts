@@ -161,10 +161,11 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   }
 
   const isNoIndex = route === '/search' || route.startsWith('/search/') || route.startsWith('/watch/');
+  const searchTitle = alternateTitle || contentTitle;
   const seoTitle = detailMovie || detailSeries
     ? (locale === 'ar'
-      ? `${contentTitle} مترجم عربي | مشاهدة ${contentTitle} | موفيزا`
-      : `${contentTitle} | Movyza`)
+      ? `${searchTitle} مترجم عربي | ${contentTitle} | مشاهدة ${searchTitle} | موفيزا`
+      : `${searchTitle} | ${contentTitle} | Movyza`)
     : contentTitle;
   const canonicalPath = `/${locale}${route === '/' ? '/' : route}`;
   const origin = url.origin;
