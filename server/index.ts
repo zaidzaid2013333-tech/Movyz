@@ -36,6 +36,7 @@ type BrokerSource = {
   labelEn: string;
   url: string;
   directUrl?: string;
+  fallbackUrl?: string;
   isWorking: boolean;
   provider: string;
   providerKey: string;
@@ -181,8 +182,12 @@ function normalizeBrokerMediaSources(
         language: 'und',
         label: `${source.provider || 'Akwam'} • ${quality}`,
         labelEn: `${source.provider || 'Akwam'} • ${quality}`,
-        url: relayUrl,
+        // Serve the resolver's Akwam URL directly to the native player.
+        // Keep the relay as an explicit fallback only; the frontend never
+        // switches to it automatically.
+        url: String(source.url),
         directUrl: String(source.url),
+        fallbackUrl: relayUrl,
         isWorking: true,
         provider: String(source.provider || 'Akwam'),
         providerKey: String(source.providerKey || 'akwam'),
