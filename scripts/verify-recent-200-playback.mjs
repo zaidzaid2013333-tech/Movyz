@@ -1,14 +1,12 @@
 #!/usr/bin/env node
 
-import { resolveAkwamWithContext } from "../workers/akwam-prefill/src/index.ts";
-
 const SUPABASE_URL = String(process.env.SUPABASE_URL || "").replace(/\/+$/, "");
 const SERVICE_ROLE = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-const AKWAM_BASE_URL = "https://akwam.ss";
+const API_BASE = String(process.env.MOVYZ_API_BASE_URL || "https://movyz-api.sameranede.workers.dev").replace(/\/+$/, "");
 const SHARD_INDEX = Number(process.env.SHARD_INDEX || 0);
 const SHARD_COUNT = Number(process.env.SHARD_COUNT || 1);
-const CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.RESOLVER_CONCURRENCY || 4)));
-const RETRIES = Math.max(1, Math.min(6, Number(process.env.RESOLVER_RETRIES || 3)));
+const CONCURRENCY = Math.max(1, Math.min(3, Number(process.env.RESOLVER_CONCURRENCY || 2)));
+const RETRIES = Math.max(1, Math.min(5, Number(process.env.RESOLVER_RETRIES || 4)));
 const TIMEOUT_MS = Math.max(15_000, Number(process.env.RESOLVER_TIMEOUT_MS || 45_000));
 
 if (!SUPABASE_URL || !SERVICE_ROLE) throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
@@ -16,20 +14,11 @@ if (!Number.isInteger(SHARD_INDEX) || SHARD_INDEX < 0 || SHARD_INDEX >= SHARD_CO
   throw new Error("Invalid shard configuration");
 }
 
-const env = {
-  SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE,
-  AKWAM_BASE_URL,
-  MAX_JOBS_PER_RUN: "1",
-  PREFILL_CONCURRENCY: "1",
-};
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function supabaseJson(path, params = {}) {
   const url = new URL(SUPABASE_URL + path);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
   try {
@@ -44,9 +33,7 @@ async function supabaseJson(path, params = {}) {
     const text = await response.text();
     let body = null;
     try { body = text ? JSON.parse(text) : null; } catch {}
-    if (!response.ok) {
-      throw new Error("Supabase " + response.status + ": " + text.slice(0, 700));
-    }
+    if (!response.ok) throw new Error("Supabase " + response.status + ": " + text.slice(0, 700));
     return body;
   } finally {
     clearTimeout(timer);
@@ -61,10 +48,7 @@ async function fetchChunked(path, key, ids, extra = {}, chunkSize = 60) {
   const out = [];
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
-    const rows = await supabaseJson(path, {
-      [key]: inFilter(chunk),
-      ...extra,
-    });
+    const rows = await supabaseJson(path, { [key]: inFilter(chunk), ...extra });
     if (Array.isArray(rows)) out.push(...rows);
   }
   return out;
@@ -81,12 +65,33 @@ function titleList(row) {
   ].filter(Boolean)));
 }
 
-function playableSources(media) {
-  return Array.isArray(media) && media.some((source) =>
+function isPlayableSource(source) {
+  return Boolean(
     source &&
     /^https:\/\//i.test(String(source.url || "")) &&
     ["mp4", "hls", "dash", "webm", "direct"].includes(String(source.type || "").toLowerCase()),
   );
+}
+
+async function requestJson(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Movyz-Catalog-Audit/1.0",
+        "Cache-Control": "no-cache",
+      },
+    });
+    const text = await response.text();
+    let body = null;
+    try { body = text ? JSON.parse(text) : null; } catch {}
+    return { status: response.status, body };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function mapLimit(items, limit, fn) {
@@ -103,54 +108,57 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
-async function resolveTask(task) {
-  let lastError = null;
+function shardFor(index) {
+  return index % SHARD_COUNT;
+}
+
+async function checkTask(task) {
+  let last = "unknown";
   for (let attempt = 1; attempt <= RETRIES; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const params = new URLSearchParams({
+      type: task.kind,
+      contentId: task.id,
+    });
+    if (task.season != null) params.set("season", String(task.season));
+    if (task.episode != null) params.set("episode", String(task.episode));
+
     try {
-      const media = await resolveAkwamWithContext(
-        env,
-        {
-          content_type: task.kind,
-          content_id: task.id,
-          season_number: task.seasonNumber,
-          episode_number: task.episodeNumber,
-        },
-        task.context,
-      );
-      if (!playableSources(media)) throw new Error("Resolver returned no playable source");
-      return { ok: true, attempt, sourceCount: media.length };
+      const { status, body } = await requestJson(API_BASE + "/api/v1/playback/prepare?" + params);
+      const sources = body?.data?.sources;
+      const ok = status === 200 &&
+        body?.success === true &&
+        Array.isArray(sources) &&
+        sources.some(isPlayableSource);
+
+      if (ok) return { ok: true, attempt, sources: sources.length };
+
+      last = "status=" + status + " body=" + JSON.stringify(body).slice(0, 700);
     } catch (error) {
-      lastError = error;
-      if (attempt < RETRIES) await sleep(Math.min(10_000, 1200 * 2 ** (attempt - 1)));
-    } finally {
-      clearTimeout(timer);
+      last = String(error?.message || error);
     }
+
+    if (attempt < RETRIES) await sleep(Math.min(5_000, 700 * 2 ** (attempt - 1)));
   }
-  return { ok: false, error: String(lastError?.message || lastError) };
+
+  return { ok: false, error: last };
 }
 
 const movies = await supabaseJson("/rest/v1/movies", {
-  select: "id,tmdb_id,title_en,title_ar,original_title,alternative_titles,release_date,created_at,status",
+  select: "id,tmdb_id,title_en,title_ar,original_title,alternative_titles,release_date",
   status: "eq.published",
-  order: "created_at.desc",
-  limit: "100",
+  order: "created_at.asc",
+  limit: "2000",
 });
 
 const series = await supabaseJson("/rest/v1/series", {
-  select: "id,tmdb_id,title_en,title_ar,original_title,alternative_titles,created_at,status",
+  select: "id,tmdb_id,title_en,title_ar,original_title,alternative_titles",
   status: "eq.published",
-  order: "created_at.desc",
-  limit: "100",
+  order: "created_at.asc",
+  limit: "2000",
 });
 
-if (!Array.isArray(movies) || movies.length !== 100) {
-  throw new Error("Expected 100 recent movies, got " + (movies?.length || 0));
-}
-if (!Array.isArray(series) || series.length !== 100) {
-  throw new Error("Expected 100 recent series, got " + (series?.length || 0));
-}
+if (!Array.isArray(movies) || !movies.length) throw new Error("No published movies found");
+if (!Array.isArray(series) || !series.length) throw new Error("No published series found");
 
 const seriesIds = series.map((row) => row.id);
 const seasons = await fetchChunked("/rest/v1/seasons", "series_id", seriesIds, {
@@ -159,90 +167,71 @@ const seasons = await fetchChunked("/rest/v1/seasons", "series_id", seriesIds, {
 });
 
 const seasonIds = seasons.map((row) => row.id);
-const episodes = [];
-for (let i = 0; i < seasonIds.length; i += 60) {
-  const rows = await supabaseJson("/rest/v1/episodes", {
-    select: "id,season_id,tmdb_id,episode_number,name_en,name_ar",
-    season_id: inFilter(seasonIds.slice(i, i + 60)),
-    order: "episode_number.asc",
-    limit: "10000",
-  });
-  if (Array.isArray(rows)) episodes.push(...rows);
-}
+const episodeRows = await fetchChunked("/rest/v1/episodes", "season_id", seasonIds, {
+  select: "id,season_id,episode_number",
+  order: "episode_number.asc",
+}, 60);
 
-const seriesMap = new Map(series.map((row) => [row.id, row]));
-const seasonMap = new Map(seasons.map((row) => [row.id, row]));
-
-const episodeTasks = episodes.map((episode) => {
-  const season = seasonMap.get(episode.season_id);
-  const show = season ? seriesMap.get(season.series_id) : null;
-  if (!season || !show) return null;
-  return {
-    kind: "episode",
-    id: episode.id,
-    seriesId: show.id,
-    seriesTitle: show.title_en || show.title_ar || String(show.tmdb_id || ""),
-    seasonNumber: Number(season.season_number || 0),
-    episodeNumber: Number(episode.episode_number || 0),
-    title: episode.name_en || episode.name_ar || ("Episode " + episode.episode_number),
-    context: {
-      titles: titleList(show),
-      seasonNumber: Number(season.season_number || 0),
-      episodeNumber: Number(episode.episode_number || 0),
-    },
-  };
-}).filter(Boolean);
-
-const movieTasks = movies.map((movie) => ({
-  kind: "movie",
-  id: movie.id,
-  title: movie.title_en || movie.title_ar || String(movie.tmdb_id || ""),
-  context: {
-    titles: titleList(movie),
-    year: typeof movie.release_date === "string"
-      ? Number(movie.release_date.slice(0, 4)) || undefined
-      : undefined,
-  },
-}));
-
-if (episodeTasks.length === 0) throw new Error("No episodes found for the recent 100 series");
-
-const seriesTaskCounts = new Map();
-for (const task of episodeTasks) {
-  seriesTaskCounts.set(task.seriesId, (seriesTaskCounts.get(task.seriesId) || 0) + 1);
-}
-
-const shardLoads = Array.from({ length: SHARD_COUNT }, () => 0);
-const seriesShard = new Map();
-const seriesByLoad = [...seriesTaskCounts.entries()].sort((a, b) => b[1] - a[1]);
-for (const [seriesId, count] of seriesByLoad) {
-  let target = 0;
-  for (let i = 1; i < SHARD_COUNT; i++) {
-    if (shardLoads[i] < shardLoads[target]) target = i;
+const firstEpisodeBySeason = new Map();
+for (const row of episodeRows) {
+  const key = String(row.season_id);
+  const current = firstEpisodeBySeason.get(key);
+  if (!current || Number(row.episode_number || 0) < Number(current.episode_number || 0)) {
+    firstEpisodeBySeason.set(key, row);
   }
-  seriesShard.set(seriesId, target);
-  shardLoads[target] += count;
 }
 
-const movieShard = (index) => index % SHARD_COUNT;
-const tasks = [
-  ...movieTasks.filter((_, index) => movieShard(index) === SHARD_INDEX),
-  ...episodeTasks.filter((task) => seriesShard.get(task.seriesId) === SHARD_INDEX),
-];
+const seasonsBySeries = new Map();
+for (const season of seasons) {
+  const list = seasonsBySeries.get(String(season.series_id)) || [];
+  list.push(season);
+  seasonsBySeries.set(String(season.series_id), list);
+}
+
+const checks = [];
+
+// Every published movie is checked through the production Playback Broker.
+for (const movie of movies) {
+  checks.push({
+    kind: "movie",
+    id: String(movie.id),
+    title: movie.title_en || movie.title_ar || String(movie.tmdb_id || ""),
+  });
+}
+
+// Every published series gets a representative first episode from its first available season.
+// This validates the shared series/episode architecture for every show without hammering Akwam
+// with all 140k episode rows. Individual episodes still resolve dynamically through the same path.
+for (const show of series) {
+  const list = [...(seasonsBySeries.get(String(show.id)) || [])].sort(
+    (a, b) => Number(a.season_number || 0) - Number(b.season_number || 0),
+  );
+  const season = list.find((candidate) => firstEpisodeBySeason.has(String(candidate.id)));
+  if (!season) continue;
+  const episode = firstEpisodeBySeason.get(String(season.id));
+  checks.push({
+    kind: "episode",
+    id: String(episode.id),
+    title: show.title_en || show.title_ar || String(show.tmdb_id || ""),
+    season: Number(season.season_number || 0),
+    episode: Number(episode.episode_number || 0),
+  });
+}
+
+const tasks = checks.filter((_, index) => shardFor(index) === SHARD_INDEX);
 
 console.log(JSON.stringify({
   shard: SHARD_INDEX,
   shards: SHARD_COUNT,
-  recent_movies: movies.length,
-  recent_series: series.length,
+  published_movies: movies.length,
+  published_series: series.length,
   seasons: seasons.length,
-  episodes: episodeTasks.length,
-  total_tasks: movieTasks.length + episodeTasks.length,
+  episodes: episodeRows.length,
+  checks_total: checks.length,
   shard_tasks: tasks.length,
   concurrency: CONCURRENCY,
-  execution: "direct-current-resolver-with-preloaded-context",
-  series_grouped: true,
-  planned_shard_loads: shardLoads,
+  execution: "production-playback-broker",
+  architecture: "Cloudflare broker -> Railway resolver -> Akwam.ss -> Cloudflare relay",
 }));
 
 let done = 0;
@@ -250,51 +239,47 @@ const failures = [];
 const startedAt = Date.now();
 
 const results = await mapLimit(tasks, CONCURRENCY, async (task) => {
-  const result = await resolveTask(task);
+  const result = await checkTask(task);
   done += 1;
 
-  if (done % 20 === 0 || !result.ok) {
+  if (done % 10 === 0 || !result.ok) {
     console.log(JSON.stringify({
       progress: done + "/" + tasks.length,
       kind: task.kind,
-      series: task.seriesTitle || null,
       title: task.title,
-      season: task.seasonNumber || null,
-      episode: task.episodeNumber || null,
+      season: task.season ?? null,
+      episode: task.episode ?? null,
       ok: result.ok,
-      sourceCount: result.sourceCount || 0,
+      sources: result.sources || 0,
       attempt: result.attempt || null,
       error: result.error || null,
     }));
   }
 
-  if (!result.ok) failures.push({
-    id: task.id,
-    kind: task.kind,
-    series: task.seriesTitle || null,
-    title: task.title,
-    season: task.seasonNumber || null,
-    episode: task.episodeNumber || null,
-    error: result.error,
-  });
-
+  if (!result.ok) {
+    failures.push({
+      kind: task.kind,
+      id: task.id,
+      title: task.title,
+      season: task.season ?? null,
+      episode: task.episode ?? null,
+      error: result.error,
+    });
+  }
   return result;
 });
 
-const succeeded = results.filter((result) => result?.ok).length;
+const succeeded = results.filter((x) => x?.ok).length;
 const summary = {
   shard: SHARD_INDEX,
   shards: SHARD_COUNT,
-  recent_movies: movies.length,
-  recent_series: series.length,
-  seasons: seasons.length,
-  episodes: episodeTasks.length,
-  total_tasks: tasks.length,
+  checks_total: checks.length,
+  shard_tasks: tasks.length,
   succeeded,
   failed: failures.length,
   elapsed_seconds: Math.round((Date.now() - startedAt) / 1000),
   failures: failures.slice(0, 100),
 };
 
-console.log("VERIFY_SUMMARY=" + JSON.stringify(summary));
+console.log("CATALOG_PLAYBACK_VERIFY_SUMMARY=" + JSON.stringify(summary));
 if (failures.length) process.exitCode = 1;
