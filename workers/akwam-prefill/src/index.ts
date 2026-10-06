@@ -877,7 +877,7 @@ function extractMedia(text: string, baseUrl: string): Media | null {
     };
   }
 
-  const embedded = decoded.match(/<(?:iframe|video|source)\b[^>]+(?:src|data-src)=["']([^"']+)["']/i)?.[1];
+  const embedded = decoded.match(/<(?:video|source)\b[^>]+(?:src|data-src)=["']([^"']+)["']/i)?.[1];
   if (embedded) {
     try {
       const url = new URL(decodeHtml(embedded), baseUrl).href;
@@ -1257,7 +1257,7 @@ async function readPrefix(response: Response, maxBytes = 8192) {
 async function validateMedia(env: Env, media: Media, budget?: RequestBudget) {
   try {
     if (!/^https:\/\//i.test(media.url)) return false;
-    if (media.trustedExternal) return true;
+
 
     consumeRequest(budget);
     const response = await fetch(media.url, {
@@ -1425,9 +1425,8 @@ async function resolveTarget(
   type Node = { url: string; referer?: string; depth: number };
   const queue: Node[] = [{ url: initialTarget, referer, depth: 0 }];
   const visited = new Set<string>();
-  // The graph is content-agnostic: every Akwam page is either a navigation hop
-  // or a playable-media candidate. Navigation pages are fetched once as HTML;
-  // they are never probed as if they were videos first.
+  // One content-agnostic resolution graph. Akwam navigation is fetched as HTML;
+  // actual media is probed once. No title-specific extraction branches exist.
   const maxNodes = 12;
   const maxDepth = 4;
 
@@ -1436,32 +1435,38 @@ async function resolveTarget(
     if (!node.url || visited.has(node.url)) continue;
     visited.add(node.url);
 
-    const isAkwamNavigation = isAkwamUrl(node.url) && isLikelyNavigationUrl(node.url);
+    const akwamNavigation = isAkwamUrl(node.url) && isLikelyNavigationUrl(node.url);
 
-    // Direct/foreign media gets one probe. Akwam navigation targets skip this
-    // probe entirely, avoiding the old double-request pattern.
-    if (!isAkwamNavigation) {
+    // Probe direct media only once. If an external media candidate fails,
+    // do not fetch its binary body again as if it were an HTML navigation page.
+    if (!akwamNavigation) {
       const direct = mediaFromUrl(node.url, node.referer);
       if (await validateMedia(env, direct, budget)) return direct;
+
+      if (!isAkwamUrl(node.url)) continue;
+    }
+
+    // Current and legacy Akwam download endpoints are handled as generic
+    // route patterns, not as title-specific logic.
+    if (/^https:\/\/akwam\.ss\/old\/download\//i.test(node.url)) {
+      const legacyMedia = await resolveLegacyAkwamDownload(
+        env,
+        node.url,
+        node.referer,
+        budget,
+        session,
+      );
+      if (legacyMedia) return legacyMedia;
     }
 
     const html = await fetchText(env, node.url, undefined, node.referer, budget, session);
     if (!html) continue;
 
-    // Generic extraction stages shared by every movie, series, and episode:
-    // 1) explicit download/player hand-off
-    // 2) embedded video/source
-    // 3) structured/data/script media hints
-    // 4) additional Akwam navigation hops
     const buttonMedia = extractDownloadButtonMedia(html, node.url);
-    if (buttonMedia) {
-      if (await validateMedia(env, buttonMedia, budget)) return buttonMedia;
-    }
+    if (buttonMedia && await validateMedia(env, buttonMedia, budget)) return buttonMedia;
 
     const embeddedMedia = extractMedia(html, node.url);
-    if (embeddedMedia) {
-      if (await validateMedia(env, embeddedMedia, budget)) return embeddedMedia;
-    }
+    if (embeddedMedia && await validateMedia(env, embeddedMedia, budget)) return embeddedMedia;
 
     for (const candidate of extractMediaCandidates(html, node.url).slice(0, 8)) {
       const media = mediaFromUrl(candidate.url, node.url, candidate.quality || html);
@@ -1470,8 +1475,8 @@ async function resolveTarget(
 
     if (node.depth >= maxDepth) continue;
 
-    // Do not probe navigation links here. Queue them for the same generic
-    // resolver graph so each page is fetched exactly once.
+    // Navigation candidates are queued, never pre-probed. This removes the
+    // old validation+fetch double-hit that made some titles appear much slower.
     for (const next of extractTargets(html, node.url).slice(0, 5)) {
       if (!next || visited.has(next)) continue;
       queue.push({ url: next, referer: node.url, depth: node.depth + 1 });
