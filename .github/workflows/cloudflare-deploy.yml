@@ -52,6 +52,15 @@ jobs:
           test -n "$TMDB_API_READ_ACCESS_TOKEN"
           printf '%s' "$TMDB_API_READ_ACCESS_TOKEN" | npx wrangler secret put TMDB_API_READ_ACCESS_TOKEN
 
+      - name: Configure optional Arabic subtitle provider
+        if: ${{ secrets.OPENSUBTITLES_API_KEY != '' && secrets.OPENSUBTITLES_TOKEN != '' }}
+        env:
+          OPENSUBTITLES_API_KEY: ${{ secrets.OPENSUBTITLES_API_KEY }}
+          OPENSUBTITLES_TOKEN: ${{ secrets.OPENSUBTITLES_TOKEN }}
+        run: |
+          printf '%s' "$OPENSUBTITLES_API_KEY" | npx wrangler secret put OPENSUBTITLES_API_KEY
+          printf '%s' "$OPENSUBTITLES_TOKEN" | npx wrangler secret put OPENSUBTITLES_TOKEN
+
       - name: Deploy
         uses: cloudflare/wrangler-action@v4
         with:
