@@ -29,9 +29,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     && Number(episodeNumber) > 0;
 
   const embedUrl = isSeries && validEpisode
-    ? `https://urplayer.net/embed/tv/${encodeURIComponent(contentId)}/${Number(seasonNumber)}/${Number(episodeNumber)}`
+    ? `https://vidsrc.sh/embed/tv/${encodeURIComponent(contentId)}/${Number(seasonNumber)}/${Number(episodeNumber)}`
     : !isSeries
-      ? `https://urplayer.net/embed/movie/${encodeURIComponent(contentId)}`
+      ? `https://vidsrc.sh/embed/movie/${encodeURIComponent(contentId)}`
       : '';
 
   const detailsPath = isSeries ? `/series/${contentId}` : `/movies/${contentId}`;
@@ -121,8 +121,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               key={embedUrl}
               src={embedUrl}
               title={isSeries
-                ? `URPlayer TV ${contentId} S${seasonNumber} E${episodeNumber}`
-                : `URPlayer Movie ${contentId}`}
+                ? `VidSrc TV ${contentId} S${seasonNumber} E${episodeNumber}`
+                : `VidSrc Movie ${contentId}`}
               className="w-full h-full border-0 bg-black"
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
               allowFullScreen

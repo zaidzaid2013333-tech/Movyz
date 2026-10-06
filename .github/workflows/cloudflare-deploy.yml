@@ -73,7 +73,7 @@ jobs:
               echo "ERROR: legacy Supabase error text is still live: $asset"
               exit 1
             fi
-            printf '%s' "$js" | grep -Fq 'urplayer.net'
+            printf '%s' "$js" | grep -Fq 'vidsrc.sh'
           done
           printf '%s' "$html" | grep -q 'Movyza'
           body="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/tmdb/movie/550?language=en-US")"
