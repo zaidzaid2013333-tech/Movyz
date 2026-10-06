@@ -63,6 +63,9 @@ const SERIES_CACHE_MAX_KEYS = 256;
 
 const seriesCandidateMemory = new Map<string, { candidate: Candidate; cachedAt: number }>();
 const seriesDetailMemory = new Map<string, { html: string; cachedAt: number }>();
+const movieCandidateMemory = new Map<string, { candidate: Candidate; cachedAt: number }>();
+
+const MOVIE_CANDIDATE_TTL_MS = 10 * 60 * 1000;
 
 function trimSeriesCaches() {
   while (seriesCandidateMemory.size > SERIES_CACHE_MAX_KEYS) {
@@ -75,6 +78,34 @@ function trimSeriesCaches() {
     if (!first) break;
     seriesDetailMemory.delete(first);
   }
+  while (movieCandidateMemory.size > SERIES_CACHE_MAX_KEYS) {
+    const first = movieCandidateMemory.keys().next().value;
+    if (!first) break;
+    movieCandidateMemory.delete(first);
+  }
+}
+
+function movieCacheKey(titles: string[], year?: number) {
+  return normalize(titles.filter(Boolean).slice(0, 4).join(" | ")) + "|y" + (year || "");
+}
+
+async function findMovieCandidateCached(
+  env: Env,
+  titles: string[],
+  year?: number,
+  budget?: RequestBudget,
+  session?: AkwamSession,
+) {
+  const key = movieCacheKey(titles, year);
+  const now = Date.now();
+  const hit = movieCandidateMemory.get(key);
+  if (hit && hit.cachedAt + MOVIE_CANDIDATE_TTL_MS > now) return hit.candidate;
+  if (hit) movieCandidateMemory.delete(key);
+
+  const candidate = await findCandidate(env, titles, year, "movie", undefined, budget, session);
+  movieCandidateMemory.set(key, { candidate, cachedAt: now });
+  trimSeriesCaches();
+  return candidate;
 }
 
 function seriesCacheKey(titles: string[], season: number) {
@@ -199,33 +230,6 @@ function markdownToSyntheticHtml(markdown: string) {
   return value.replace(/\n{2,}/g, "\n").replace(/\n/g, "<br>");
 }
 
-async function fetchAkwamMirror(url: string, diagnostics?: string[]) {
-  try {
-    const response = await fetch("https://r.jina.ai/" + url, {
-      headers: {
-        Accept: "text/plain,text/markdown;q=0.9,*/*;q=0.5",
-        "User-Agent": "Movyz/1.0 AkwamReaderFallback",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(9000),
-    });
-    if (!response.ok) {
-      diagnostics?.push("jina:" + response.status);
-      return null;
-    }
-    const markdown = await response.text();
-    if (!markdown.trim()) {
-      diagnostics?.push("jina:empty");
-      return null;
-    }
-    diagnostics?.push("jina:ok");
-    return markdownToSyntheticHtml(markdown);
-  } catch {
-    diagnostics?.push("jina:ERR");
-    return null;
-  }
-}
-
 async function fetchText(
   env: Env,
   url: string,
@@ -234,14 +238,6 @@ async function fetchText(
   budget?: RequestBudget,
   session?: AkwamSession,
 ): Promise<string | null> {
-  // Akwam's server-side edge is intermittently unreachable from GitHub Actions
-  // and Cloudflare. Prefer the reader path for Akwam HTML so discovery does not
-  // burn the entire resolver budget on repeated network timeouts.
-  if (isAkwamUrl(url)) {
-    const mirror = await fetchAkwamMirror(url, diagnostics);
-    if (mirror) return mirror;
-  }
-
   try {
     consumeRequest(budget);
     const cookie = sessionCookieHeader(session);
@@ -252,9 +248,10 @@ async function fetchText(
         ...(cookie ? { Cookie: cookie } : {}),
       },
       redirect: "follow",
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(4000),
     });
     absorbSetCookie(session, response);
+
     if (response.ok) {
       const text = await response.text();
       if (text.trim()) return text;
@@ -262,17 +259,15 @@ async function fetchText(
       diagnostics?.push(new URL(url).hostname + ":" + response.status);
     }
   } catch {
-    diagnostics?.push(new URL(url).hostname + ":ERR");
-  }
-
-  // Last resort: try the reader again after direct HTTP failed.
-  if (isAkwamUrl(url)) {
-    return await fetchAkwamMirror(url, diagnostics);
+    try {
+      diagnostics?.push(new URL(url).hostname + ":ERR");
+    } catch {
+      diagnostics?.push("fetch:ERR");
+    }
   }
 
   return null;
 }
-
 
 function decodeHtml(value: string) {
   return value
@@ -663,19 +658,6 @@ async function findCandidate(
 
   const finalWinner = readBest();
   if (finalWinner && finalWinner.score >= 80) return finalWinner.item;
-
-  // Some Akwam search routes reject server-side traffic while public content
-  // pages remain reachable. Use a search index only for discovery, then fetch
-  // and extract the actual content page from Akwam itself.
-  const discoveryCandidates = await Promise.all(
-    variants.slice(0, 2).map((variant) =>
-      discoverAkwamUrlsViaSearch(env, variant, expected === "episode" ? "series" : expected, expectedSeason),
-    ),
-  );
-  const mergedDiscovery = discoveryCandidates.flat();
-  if (mergedDiscovery.length) {
-    return mergedDiscovery[0];
-  }
 
   throw new Error("AKWAM_SEARCH_EMPTY probes=" + diagnostics.slice(0, 12).join(","));
 }
@@ -1503,7 +1485,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
       );
     }
   } else {
-    candidate = await findCandidate(env, ctx.titles, ctx.year, "movie", undefined, budget, session);
+    candidate = await findMovieCandidateCached(env, ctx.titles, ctx.year, budget, session);
     if (!candidate) throw new Error("AKWAM_NOT_FOUND");
 
     const detail = await fetchText(env, candidate.url, undefined, undefined, budget, session);
@@ -1517,7 +1499,7 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
   // Keep enough ranked targets for Akwam's fallback variants, but do not wait
   // for every target. Return the first playable hand-off and only spend a short
   // grace window collecting additional sources.
-  const rankedTargets = usefulResolutionTargets(targets, isEpisode ? 6 : 4);
+  const rankedTargets = usefulResolutionTargets(targets, isEpisode ? 5 : 4);
   type TargetResult = { index: number; media: Media | null };
   const pendingTargets: Array<{ index: number; promise: Promise<TargetResult> }> = rankedTargets.map((target, index) => ({
     index,
@@ -1526,13 +1508,13 @@ async function discover(env: Env, job: Job, ctx: any, budget: RequestBudget) {
       .catch(() => ({ index, media: null })),
   }));
 
-  const firstSourceDeadline = Date.now() + (isEpisode ? 25000 : 20000);
+  const firstSourceDeadline = Date.now() + (isEpisode ? 15000 : 12000);
   let firstSourceFoundAt: number | null = null;
 
-  while (pendingTargets.length && medias.length < 3) {
+  while (pendingTargets.length && medias.length < 2) {
     const deadline = firstSourceFoundAt === null
       ? firstSourceDeadline
-      : firstSourceFoundAt + 600;
+      : firstSourceFoundAt + 300;
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) break;
 
@@ -1736,7 +1718,7 @@ export async function resolveAkwamWithContext(
     attempts: 1,
   };
 
-  const budget: RequestBudget = { used: 0, max: 40 };
+  const budget: RequestBudget = { used: 0, max: 24 };
   return discover(env, job, ctx, budget);
 }
 
