@@ -40,14 +40,24 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const safeEpisode = Math.max(1, Number(episodeNumber || 1));
 
   const subtitlePriority = useMemo(() => {
-    const metaPriority = document.querySelector('meta[name="movyz-subtitle-priority"]')?.getAttribute('content') || '';
-    const legacy = document.querySelector('meta[name="movyz-subtitle-language"]')?.getAttribute('content') || '';
-    const values = (metaPriority || legacy || language || 'en')
-      .split(',')
-      .map((value) => value.trim().toLowerCase())
-      .filter((value) => /^[a-z]{2,3}$/.test(value))
-      .slice(0, 3);
-    return values.length ? Array.from(new Set(values)) : ['en'];
+    // The explicit Movyz page language is authoritative for subtitle selection.
+    // This prevents an incorrect CDN geolocation/browser language from forcing
+    // French (or another language) on users who are viewing an Arabic page.
+    const fallbackByLanguage: Record<string, string[]> = {
+      ar: ['ar', 'en'],
+      en: ['en'],
+      fr: ['fr', 'en'],
+      de: ['de', 'en'],
+      es: ['es', 'en'],
+      it: ['it', 'en'],
+      pt: ['pt', 'en'],
+      ru: ['ru', 'en'],
+      tr: ['tr', 'en'],
+      hi: ['hi', 'en'],
+      ja: ['ja', 'en'],
+      ko: ['ko', 'en'],
+    };
+    return fallbackByLanguage[language] || ['en'];
   }, [language]);
 
   const embedUrl = useMemo(() => {
