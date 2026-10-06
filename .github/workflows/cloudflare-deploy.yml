@@ -62,13 +62,21 @@ jobs:
         run: |
           set -euo pipefail
           base="https://movyz.sameranede.workers.dev"
+          echo "Live response headers:"
+          curl --fail --silent --show-error -I -H 'Cache-Control: no-cache' "$base/"
           html="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/")"
-          marker="$(printf '%s' "$html" | sed -n 's/.*name="movyz-build" content="\\([^"]*\\)".*/\\1/p')"
+          echo "Live HTML (first 5000 bytes):"
+          printf '%s' "$html" | head -c 5000
+          printf '\n--- END LIVE HTML ---\n'
+          marker="$(printf '%s' "$html" | sed -n 's/.*name="movyz-build" content="\([^"]*\)".*/\1/p')"
           echo "Live Movyz build marker: $marker"
-          assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\\.js' | sort -u || true)"
+          assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | sort -u || true)"
           echo "Live JS assets:"
-          printf '%s\\n' "$assets"
-          test -n "$assets"
+          printf '%s\n' "$assets"
+          if [ -z "$assets" ]; then
+            echo "ERROR: live HTML contains no built JS asset."
+            exit 1
+          fi
           found_old=0
           found_catalog=0
           for asset in $assets; do
