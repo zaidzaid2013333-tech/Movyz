@@ -75,22 +75,35 @@ function requestKey(context: Context) {
 }
 
 function normalizeSources(sources: any[]): MediaSource[] {
-  return sources
-    .filter((source) => /^https:\/\//i.test(String(source?.url || "")))
-    .slice(0, 1)
-    .map((source) => ({
-      url: String(source.url),
+  const seen = new Set<string>();
+  const normalized: MediaSource[] = [];
+
+  for (const source of sources) {
+    const url = String(source?.url || "").trim();
+    if (!/^https:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+
+    const providerKey = String(source.providerKey || "akwam");
+    const providerReferer =
+      typeof source.referer === "string" && /^https:\/\//i.test(source.referer)
+        ? source.referer
+        : providerKey === "vidlink" || providerKey.startsWith("tmdb-embed:")
+          ? "https://vidlink.pro/"
+          : "https://akwam.ss/";
+
+    normalized.push({
+      url,
       type: String(source.type || "direct").toLowerCase(),
       quality: source.quality ? String(source.quality) : null,
-      referer:
-        typeof source.referer === "string" && /^https:\/\//i.test(source.referer)
-          ? source.referer
-          : source.providerKey === "vidlink"
-            ? "https://vidlink.pro/"
-            : "https://akwam.ss/",
+      referer: providerReferer,
       provider: String(source.provider || "Akwam"),
-      providerKey: String(source.providerKey || "akwam"),
-    }));
+      providerKey,
+    });
+
+    if (normalized.length >= 8) break;
+  }
+
+  return normalized;
 }
 
 async function resolve(context: Context): Promise<MediaSource[]> {
@@ -121,10 +134,8 @@ async function resolve(context: Context): Promise<MediaSource[]> {
     activeResolutions += 1;
     try {
       const startedAt = Date.now();
-      let akwamError = "";
-
-      try {
-        const sources = await resolveAkwamWithContext(
+      const providerResults = await Promise.allSettled([
+        resolveAkwamWithContext(
           {
             SUPABASE_URL: "",
             SUPABASE_SERVICE_ROLE_KEY: "",
@@ -144,115 +155,68 @@ async function resolve(context: Context): Promise<MediaSource[]> {
             seasonNumber: context.seasonNumber,
             episodeNumber: context.episodeNumber,
           },
-        );
-
-        const normalized = normalizeSources(sources);
-        if (normalized.length) {
-          resolutionCache.set(key, {
-            expiresAt: Date.now() + cacheTtlMs,
-            sources: normalized,
-          });
-
-          console.log(
-            JSON.stringify({
-              event: "resolution_success",
-              provider: normalized[0]?.providerKey || "akwam",
-              contentType: context.contentType,
-              contentId: context.contentId,
-              sourceCount: normalized.length,
-              durationMs: Date.now() - startedAt,
-              cacheTtlMs,
-            }),
-          );
-
-          return normalized;
-        }
-
-        akwamError = "NO_PLAYABLE_SOURCES";
-      } catch (error) {
-        akwamError = error instanceof Error ? error.message : String(error);
-      }
-
-      const vidlinkContentId = Number.isFinite(context.tmdbId)
-        ? String(context.tmdbId)
-        : context.contentId;
-
-      const vidlinkContext: VidLinkContext = {
-        contentType: context.contentType,
-        contentId: vidlinkContentId,
-        seasonNumber: context.seasonNumber,
-        episodeNumber: context.episodeNumber,
-      };
-
-      try {
-        const tmdbEmbedContext: TmdbEmbedContext = {
+        ),
+        resolveTmdbEmbed({
           contentType: context.contentType,
           tmdbId: context.tmdbId,
           seasonNumber: context.seasonNumber,
           episodeNumber: context.episodeNumber,
-        };
-        const tmdbEmbedSources = await resolveTmdbEmbed(tmdbEmbedContext);
-        const normalized = normalizeSources(tmdbEmbedSources as any[]);
-        if (normalized.length) {
-          resolutionCache.set(key, {
-            expiresAt: Date.now() + cacheTtlMs,
-            sources: normalized,
-          });
+        }),
+      ]);
 
-          console.log(
-            JSON.stringify({
-              event: "resolution_success",
-              provider: normalized[0]?.providerKey || "tmdb-embed",
-              fallbackFrom: akwamError || "akwam-empty",
-              contentType: context.contentType,
-              contentId: context.contentId,
-              sourceCount: normalized.length,
-              durationMs: Date.now() - startedAt,
-              cacheTtlMs,
-            }),
-          );
+      const merged = [
+        ...(providerResults[0].status === "fulfilled" ? providerResults[0].value : []),
+        ...(providerResults[1].status === "fulfilled" ? providerResults[1].value : []),
+      ];
+      let normalized = normalizeSources(merged);
 
-          return normalized;
-        }
+      if (!normalized.length) {
+        const vidlinkContentId = Number.isFinite(context.tmdbId)
+          ? String(context.tmdbId)
+          : context.contentId;
 
-        throw new Error("TMDB_EMBED_NO_PLAYABLE_SOURCES");
-      } catch (tmdbEmbedError) {
-        const tmdbEmbedMessage =
-          tmdbEmbedError instanceof Error ? tmdbEmbedError.message : String(tmdbEmbedError);
+        const vidlinkSources = await resolveVidLink({
+          contentType: context.contentType,
+          contentId: vidlinkContentId,
+          seasonNumber: context.seasonNumber,
+          episodeNumber: context.episodeNumber,
+        });
 
-        try {
-          const vidlinkSources = await resolveVidLink(vidlinkContext);
-          const normalized = normalizeSources(vidlinkSources);
-          if (!normalized.length) throw new Error("VIDLINK_NO_PLAYABLE_SOURCES");
-
-          resolutionCache.set(key, {
-            expiresAt: Date.now() + cacheTtlMs,
-            sources: normalized,
-          });
-
-          console.log(
-            JSON.stringify({
-              event: "resolution_success",
-              provider: normalized[0]?.providerKey || "vidlink",
-              fallbackFrom: akwamError || "akwam-empty",
-              fallbackFrom2: tmdbEmbedMessage,
-              contentType: context.contentType,
-              contentId: context.contentId,
-              sourceCount: normalized.length,
-              durationMs: Date.now() - startedAt,
-              cacheTtlMs,
-            }),
-          );
-
-          return normalized;
-        } catch (vidlinkError) {
-          const vidlinkMessage =
-            vidlinkError instanceof Error ? vidlinkError.message : String(vidlinkError);
-          throw new Error(
-            `NO_PLAYABLE_SOURCES akwam=${akwamError || "unknown"} tmdbEmbed=${tmdbEmbedMessage} vidlink=${vidlinkMessage}`,
-          );
-        }
+        normalized = normalizeSources(vidlinkSources);
       }
+
+      if (!normalized.length) {
+        const akwamError =
+          providerResults[0].status === "rejected"
+            ? String(providerResults[0].reason instanceof Error ? providerResults[0].reason.message : providerResults[0].reason)
+            : "NO_PLAYABLE_SOURCES";
+        const tmdbEmbedError =
+          providerResults[1].status === "rejected"
+            ? String(providerResults[1].reason instanceof Error ? providerResults[1].reason.message : providerResults[1].reason)
+            : "NO_PLAYABLE_SOURCES";
+        throw new Error(
+          `NO_PLAYABLE_SOURCES akwam=${akwamError} tmdbEmbed=${tmdbEmbedError}`,
+        );
+      }
+
+      resolutionCache.set(key, {
+        expiresAt: Date.now() + cacheTtlMs,
+        sources: normalized,
+      });
+
+      console.log(
+        JSON.stringify({
+          event: "resolution_success",
+          providers: Array.from(new Set(normalized.map((source) => source.providerKey))),
+          contentType: context.contentType,
+          contentId: context.contentId,
+          sourceCount: normalized.length,
+          durationMs: Date.now() - startedAt,
+          cacheTtlMs,
+        }),
+      );
+
+      return normalized;
     } finally {
       activeResolutions -= 1;
     }
@@ -273,7 +237,7 @@ async function handle(request: Request): Promise<Response> {
     return json(200, {
       ok: true,
       service: "movyz-live-resolver",
-      mode: "akwam-primary-tmdb-embed-then-vidlink-fallback",
+      mode: "akwam-plus-tmdb-embed-with-vidlink-fallback",
       providers: ["akwam", "tmdb-embed", "vidlink"],
       active: activeResolutions,
       queued: queuedResolutions,
