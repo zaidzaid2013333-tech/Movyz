@@ -8,6 +8,7 @@ import { HeroSkeleton } from '../components/ui/Skeletons';
 import { ErrorState } from '../components/ui/FeedbackStates';
 import { ShareButton } from '../components/ui/ShareButton';
 import { QuickRating } from '../components/ui/QuickRating';
+import { SeoHead } from '../components/SEOHead';
 import {
   Play,
   Bookmark,
@@ -94,16 +95,42 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
   }
 
   const isSaved = watchlist.includes(series.id);
-  const titlePrimary = series.titleEn || series.title;
-  const titleSecondary = series.originalTitle;
-  const overview = language === 'ar' ? series.overview : series.overviewEn;
+  const titlePrimary = series.title || series.titleEn || series.originalTitle;
+  const titleSecondary = series.originalTitle !== titlePrimary ? series.originalTitle : '';
+  const overview = series.overview || series.overviewEn || '';
+  const seoDescription = overview || `${titlePrimary} — Movyza`;
+
 
   const activeSeason =
     series.seasons.find((s) => s.seasonNumber === selectedSeasonNumber) ||
     series.seasons[0];
 
   return (
-    <div className="movyza-shell space-y-12 pb-20 animate-in fade-in duration-300">
+    <>
+      <SeoHead
+        title={`${titlePrimary} | Movyza`}
+        description={seoDescription}
+        keywords={[series.originalTitle, series.title, ...series.genres.map((genre) => genre.name).filter(Boolean)]}
+        image={series.backdropUrl || series.posterUrl}
+        type="video.tv_show"
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@type': 'TVSeries',
+          name: titlePrimary,
+          alternateName: series.originalTitle,
+          image: series.posterUrl ? [series.posterUrl] : undefined,
+          startDate: series.releaseDate || undefined,
+          description: seoDescription,
+          aggregateRating: series.rating > 0 ? {
+            '@type': 'AggregateRating',
+            ratingValue: series.rating.toFixed(1),
+            bestRating: '10',
+            ratingCount: String(series.votesCount || 1),
+          } : undefined,
+          url: window.location.href,
+        }}
+      />
+      <div className="movyza-shell space-y-12 pb-20 animate-in fade-in duration-300">
       {/* Toast Notice */}
       {toastMessage && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-amber-500 text-slate-950 font-bold px-4 py-2 rounded-xl shadow-2xl text-xs flex items-center gap-2">
@@ -419,6 +446,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
           </SectionRow>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 };
