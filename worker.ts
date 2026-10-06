@@ -134,6 +134,24 @@ const detectSubtitleLocale = (request: Request): LocaleCode => {
   const fromCountry = String(countryFromRequest(request) || '').toUpperCase();
   return SUBTITLE_COUNTRY_LANGUAGE[fromCountry] || 'en';
 };
+const subtitlePriorityForCountry = (country: string | null): string => {
+  const primary = SUBTITLE_COUNTRY_LANGUAGE[String(country || '').toUpperCase()] || 'en';
+  const fallbackByPrimary: Record<LocaleCode, string[]> = {
+    ar: ['ar', 'en', 'fr'],
+    en: ['en'],
+    fr: ['fr', 'en', 'ar'],
+    de: ['de', 'en', 'fr'],
+    es: ['es', 'en', 'fr'],
+    it: ['it', 'en', 'fr'],
+    pt: ['pt', 'en', 'es'],
+    ru: ['ru', 'en', 'tr'],
+    tr: ['tr', 'en', 'ar'],
+    hi: ['hi', 'en'],
+    ja: ['ja', 'en'],
+    ko: ['ko', 'en'],
+  };
+  return fallbackByPrimary[primary].slice(0, 3).join(',');
+};
 
 const isAppHtmlPath = (pathname: string) =>
   !pathname.includes('.') &&
@@ -257,7 +275,8 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   const injection = `<!-- movyz-seo -->` +
     `<meta name="movyz-country" content="${String(countryFromRequest(request) || 'XX').toUpperCase()}" />` +
     `<meta name="movyz-subtitle-language" content="${subtitleLocale}" />` +
-    `<meta name="keywords" content="${keywords.replace(/"/g, '&quot;')}" />` +
+    `<meta name="movyz-subtitle-priority" content="${subtitlePriorityForCountry(countryFromRequest(request))}" />` +
+        `<meta name="keywords" content="${keywords.replace(/"/g, '&quot;')}" />` +
     `<meta name="robots" content="${isNoIndex ? 'noindex,follow' : 'index,follow,max-image-preview:large'}" />` +
     `<meta property="og:title" content="${seoTitle.replace(/"/g, '&quot;')}" />` +
     `<meta property="og:description" content="${description.replace(/"/g, '&quot;')}" />` +
