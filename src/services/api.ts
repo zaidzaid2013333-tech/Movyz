@@ -281,7 +281,7 @@ export const MovyzaApi = {
   },
 
   addToWatchlist: async (item: Omit<WatchlistItem, 'id' | 'addedAt'>) => {
-    const db = requireSupabase();
+    const db = requireAuthenticatedSupabase();
     const user = (await db.auth.getUser()).data.user;
     if (!user) throw new Error('You must be signed in');
     const { data, error } = await db.from('watchlist').upsert({
@@ -292,7 +292,7 @@ export const MovyzaApi = {
   },
 
   removeFromWatchlist: async (contentId: string) => {
-    const db = requireSupabase();
+    const db = requireAuthenticatedSupabase();
     const user = (await db.auth.getUser()).data.user;
     if (!user) throw new Error('You must be signed in');
     const { error } = await db.from('watchlist').delete().eq('user_id', user.id).eq('content_id', String(contentId));
@@ -354,7 +354,7 @@ export const MovyzaApi = {
   },
 
   saveWatchProgress: async (progress: WatchProgress) => {
-    const db = requireSupabase();
+    const db = requireAuthenticatedSupabase();
     const user = (await db.auth.getUser()).data.user;
     if (!user) throw new Error('You must be signed in');
     const { error } = await db.from('watch_history').upsert({
@@ -371,7 +371,7 @@ export const MovyzaApi = {
   },
 
   getAdminStats: async () => {
-    const db = requireSupabase();
+    const db = requireAuthenticatedSupabase();
     const user = (await db.auth.getUser()).data.user;
     if (!user) throw new Error('Authentication required');
     const profile = await db.from('profiles').select('role').eq('id', user.id).single();
@@ -387,7 +387,7 @@ export const MovyzaApi = {
   },
 
   getMe: async () => {
-    const db = requireSupabase();
+    const db = requireAuthenticatedSupabase();
     const user = (await db.auth.getUser()).data.user;
     if (!user) throw new Error('Not authenticated');
     const { data: profile, error } = await db.from('profiles').select('*').eq('id', user.id).single();
