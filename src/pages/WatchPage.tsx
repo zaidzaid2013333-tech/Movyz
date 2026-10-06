@@ -235,7 +235,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 {subtitleHint}
               </div>
               <div className="relative aspect-video w-full overflow-hidden rounded-2xl sm:rounded-3xl bg-black border border-white/[0.09] shadow-2xl">
-                {!iframeLoaded && !iframeFailed && (
+                {!iframeLoaded && !iframeFailed && playbackAvailability !== 'checking' && playbackAvailability !== 'unavailable' && (
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#030405]">
                     <div className="flex flex-col items-center gap-3 text-slate-300">
                       <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
