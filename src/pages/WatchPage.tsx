@@ -1792,6 +1792,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     startupGuardTimerRef.current = null;
                   }
                   setPlayerReady(true);
+                  clearPlayerLoadTimeout();
+                  setPlayerLoadingState(false);
                   syncPlayerNaturalResolution();
                   if (Number.isFinite(video.duration) && video.duration > 0) setPlayerDuration(video.duration);
 
@@ -1880,15 +1882,22 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onWaiting={() => {
                   const video = videoRef.current;
                   const wasPlaying = Boolean(video && !video.paused && !video.ended);
-                  if (wasPlaying || userPlayRequestedRef.current) {
+                  const playbackRequested = userPlayRequestedRef.current;
+                  if (wasPlaying || playbackRequested) {
                     resumeAfterBufferingRef.current = true;
+                  }
+                  if (!playbackRequested && !wasPlaying) {
+                    // Metadata/preload can emit waiting before the user presses play.
+                    // Do not trap the UI behind a permanent loading overlay.
+                    clearPlayerLoadTimeout();
+                    setPlayerLoadingState(false);
+                    return;
                   }
                   if (!playbackStartedRef.current) {
                     setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Loading data…');
                   } else {
                     setPlayerLoadingState(false);
                   }
-                  // Metadata-aware armPlayerLoadTimeout() will no-op during normal buffering.
                   armPlayerLoadTimeout();
                   if (!playbackStartedRef.current) {
                     setPlaybackError(null);
@@ -1897,8 +1906,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 onStalled={() => {
                   const video = videoRef.current;
                   const wasPlaying = Boolean(video && !video.paused && !video.ended);
-                  if (wasPlaying || userPlayRequestedRef.current) {
+                  const playbackRequested = userPlayRequestedRef.current;
+                  if (wasPlaying || playbackRequested) {
                     resumeAfterBufferingRef.current = true;
+                  }
+                  if (!playbackRequested && !wasPlaying) {
+                    clearPlayerLoadTimeout();
+                    setPlayerLoadingState(false);
+                    return;
                   }
                   if (!playbackStartedRef.current) {
                     setPlayerLoadingState(true, language === 'ar' ? 'جارٍ تحميل البيانات…' : 'Loading data…');
