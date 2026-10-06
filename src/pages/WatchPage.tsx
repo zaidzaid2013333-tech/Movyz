@@ -462,10 +462,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   // Playback is live-broker only. The API never returns persisted source rows.
   useEffect(() => {
-    const routeUsesTmdbId = /^\d+$/.test(contentId);
-    const targetId = mediaType === 'movie'
-      ? (routeUsesTmdbId ? contentId : content?.id || contentId)
-      : (routeUsesTmdbId ? contentId : currentEpisode?.id);
+    // All watch routes now resolve from the canonical route identifier.
+    // The broker accepts internal UUIDs and TMDB IDs for movies and series.
+    const targetId = contentId;
 
     if (!targetId) {
       setRemotePlaybackSources([]);
@@ -490,8 +489,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           const response = await MovyzaApi.preparePlayback(
             mediaType === 'movie' ? 'movie' : 'episode',
             targetId,
-            mediaType === 'series' ? currentEpisode?.seasonNumber : undefined,
-            mediaType === 'series' ? currentEpisode?.episodeNumber : undefined,
+            mediaType === 'series' ? activeSeason : undefined,
+            mediaType === 'series' ? activeEpisode : undefined,
           );
           if (cancelled) return;
           const sources = Array.isArray(response.data?.sources) ? response.data.sources : [];
@@ -551,10 +550,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     };
   }, [
     mediaType,
-    content?.id,
-    currentEpisode?.id,
-    currentEpisode?.seasonNumber,
-    currentEpisode?.episodeNumber,
+    contentId,
+    activeSeason,
+    activeEpisode,
     language,
   ]);
 
