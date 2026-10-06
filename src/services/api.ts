@@ -4,8 +4,7 @@ import {
   UserProfile, ApiResponse, Season, Episode, CastMember
 } from '../types';
 
-type DbMovie = any;
-type DbSeries = any;
+const TMDB_BASE = (import.meta.env.VITE_TMDB_PROXY_URL || '/tmdb').replace(/\/$/, '');
 
 const ok = <T,>(data: T, meta?: ApiResponse<T>['meta']): ApiResponse<T> => ({
   success: true,
@@ -13,301 +12,246 @@ const ok = <T,>(data: T, meta?: ApiResponse<T>['meta']): ApiResponse<T> => ({
   ...(meta ? { meta } : {}),
 });
 
-const requireSupabase = () => {
-  if (!supabase) throw new Error('Supabase is not configured');
-  return supabase;
+const tmdb = async <T,>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> => {
+  const search = new URLSearchParams();
+  search.set('language', 'ar-SA');
+  search.set('region', 'DZ');
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') search.set(key, String(value));
+  });
+  const response = await fetch(`${TMDB_BASE}/${path.replace(/^\//, '')}?${search.toString()}`);
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.status_message || `TMDB request failed (${response.status})`);
+  return payload as T;
 };
 
-const genre = (g: any): Genre => ({
-  id: Number(g.id),
-  name: g.name_ar || g.name || '',
-  nameEn: g.name_en || g.nameEn || '',
-  slug: g.slug || '',
-});
-
-const castMember = (row: any): CastMember => ({
-  id: row.person_id || row.id,
-  name: row.people?.name_ar || row.name_ar || row.people?.name_en || row.name_en || '',
-  nameEn: row.people?.name_en || row.name_en || row.people?.name_ar || row.name_ar || '',
-  character: row.character_ar || row.character_en || '',
-  characterEn: row.character_en || row.character_ar || '',
-  avatarUrl: row.people?.avatar_url || row.avatar_url || '',
-});
-
-const mapMovie = (m: DbMovie, genres: Genre[] = [], cast: CastMember[] = []): Movie => ({
-  id: m.id,
-  tmdbId: Number(m.tmdb_id || 0),
+const movieMap = (m: any): Movie => ({
+  id: String(m.id),
+  tmdbId: Number(m.id),
   type: 'movie',
-  title: m.title_ar || m.title_en || '',
-  titleEn: m.title_en || m.title_ar || '',
-  originalTitle: m.original_title || m.title_en || m.title_ar || '',
+  title: m.title || m.original_title || '',
+  titleEn: m.original_title || m.title || '',
+  originalTitle: m.original_title || m.title || '',
   year: Number(String(m.release_date || '').slice(0, 4) || 0),
   releaseDate: m.release_date || '',
-  rating: Number(m.rating || 0),
+  rating: Number(m.vote_average || 0),
   votesCount: Number(m.vote_count || 0),
-  runtime: Number(m.runtime_minutes || 0),
-  overview: m.overview_ar || m.overview_en || '',
-  overviewEn: m.overview_en || m.overview_ar || '',
-  posterUrl: m.poster_url || '',
-  backdropUrl: m.backdrop_url || '',
-  genres,
-  director: m.metadata?.director_ar || m.metadata?.director || '',
-  directorEn: m.metadata?.director_en || m.metadata?.director || '',
-  cast,
+  runtime: Number(m.runtime || 0),
+  overview: m.overview || '',
+  overviewEn: m.overview || '',
+  posterUrl: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : '',
+  backdropUrl: m.backdrop_path ? `https://image.tmdb.org/t/p/w1280${m.backdrop_path}` : '',
+  genres: (m.genres || m.genre_ids || []).map((g: any) => typeof g === 'number' ? ({ id: g, name: '', nameEn: '', slug: '' }) : ({ id: Number(g.id), name: g.name || '', nameEn: g.name || '', slug: String(g.name || '').toLowerCase().replace(/\s+/g, '-') })),
+  director: (m.credits?.crew || []).find((x: any) => x.job === 'Director')?.name || '',
+  directorEn: (m.credits?.crew || []).find((x: any) => x.job === 'Director')?.original_name || '',
+  cast: (m.credits?.cast || []).slice(0, 16).map((x: any) => ({
+    id: String(x.id), name: x.name || '', nameEn: x.original_name || x.name || '',
+    character: x.character || '', characterEn: x.character || '',
+    avatarUrl: x.profile_path ? `https://image.tmdb.org/t/p/w185${x.profile_path}` : '',
+  })),
   sources: [],
-  isFeatured: !!m.featured,
-  isTrending: !!m.trending,
-  isPopular: !!m.popular,
-  addedAt: m.created_at || '',
-  ageRating: m.age_rating || '',
+  isFeatured: false,
+  isTrending: false,
+  isPopular: false,
+  addedAt: m.release_date || new Date().toISOString(),
+  ageRating: '',
 });
 
-const mapEpisode = (e: any, seriesId: string, seasonNumber: number): Episode => ({
-  id: e.id,
-  tmdbId: e.tmdb_id ? Number(e.tmdb_id) : undefined,
+const episodeMap = (e: any, seriesId: string, seasonNumber: number): Episode => ({
+  id: String(e.id),
+  tmdbId: Number(e.id),
   seriesId,
   seasonNumber,
   episodeNumber: Number(e.episode_number || 0),
-  title: e.name_ar || e.name_en || '',
-  titleEn: e.name_en || e.name_ar || '',
-  overview: e.overview_ar || e.overview_en || '',
-  overviewEn: e.overview_en || e.overview_ar || '',
-  stillUrl: e.still_url || '',
-  duration: Number(e.runtime_minutes || 0),
+  title: e.name || e.original_name || '',
+  titleEn: e.original_name || e.name || '',
+  overview: e.overview || '',
+  overviewEn: e.overview || '',
+  stillUrl: e.still_path ? `https://image.tmdb.org/t/p/w780${e.still_path}` : '',
+  duration: Number(e.runtime || 0),
   airDate: e.air_date || '',
   sources: [],
 });
 
-const mapSeason = (s: any, seriesId: string, episodes: Episode[] = []): Season => ({
-  id: s.id,
-  seriesId,
-  seasonNumber: Number(s.season_number || 0),
-  name: s.name_ar || s.name_en || '',
-  nameEn: s.name_en || s.name_ar || '',
-  posterUrl: s.poster_url || '',
-  overview: s.overview_ar || s.overview_en || '',
-  airDate: s.air_date || '',
-  episodesCount: episodes.length,
-  episodes,
-});
-
-const mapSeries = (s: DbSeries, genres: Genre[] = [], cast: CastMember[] = [], seasons: Season[] = []): Series => ({
-  id: s.id,
-  tmdbId: Number(s.tmdb_id || 0),
+const seriesMap = (s: any, seasons: Season[] = []): Series => ({
+  id: String(s.id),
+  tmdbId: Number(s.id),
   type: 'series',
-  title: s.title_ar || s.title_en || '',
-  titleEn: s.title_en || s.title_ar || '',
-  originalTitle: s.original_title || s.title_en || s.title_ar || '',
+  title: s.name || s.original_name || '',
+  titleEn: s.original_name || s.name || '',
+  originalTitle: s.original_name || s.name || '',
   startYear: Number(String(s.first_air_date || '').slice(0, 4) || 0),
   endYear: s.last_air_date ? Number(String(s.last_air_date).slice(0, 4)) : undefined,
   releaseDate: s.first_air_date || '',
-  rating: Number(s.rating || 0),
+  rating: Number(s.vote_average || 0),
   votesCount: Number(s.vote_count || 0),
-  overview: s.overview_ar || s.overview_en || '',
-  overviewEn: s.overview_en || s.overview_ar || '',
-  posterUrl: s.poster_url || '',
-  backdropUrl: s.backdrop_url || '',
-  genres,
-  creator: s.metadata?.creator_ar || s.metadata?.creator || '',
-  creatorEn: s.metadata?.creator_en || s.metadata?.creator || '',
-  cast,
-  seasonsCount: seasons.length || Number(s.metadata?.seasons_count || 0),
-  episodesCount: seasons.reduce((n, x) => n + x.episodesCount, 0),
+  overview: s.overview || '',
+  overviewEn: s.overview || '',
+  posterUrl: s.poster_path ? `https://image.tmdb.org/t/p/w500${s.poster_path}` : '',
+  backdropUrl: s.backdrop_path ? `https://image.tmdb.org/t/p/w1280${s.backdrop_path}` : '',
+  genres: (s.genres || s.genre_ids || []).map((g: any) => typeof g === 'number' ? ({ id: g, name: '', nameEn: '', slug: '' }) : ({ id: Number(g.id), name: g.name || '', nameEn: g.name || '', slug: String(g.name || '').toLowerCase().replace(/\s+/g, '-') })),
+  creator: (s.created_by || [])[0]?.name || '',
+  creatorEn: (s.created_by || [])[0]?.original_name || (s.created_by || [])[0]?.name || '',
+  cast: (s.credits?.cast || []).slice(0, 16).map((x: any) => ({
+    id: String(x.id), name: x.name || '', nameEn: x.original_name || x.name || '',
+    character: x.character || '', characterEn: x.character || '',
+    avatarUrl: x.profile_path ? `https://image.tmdb.org/t/p/w185${x.profile_path}` : '',
+  })),
   seasons,
-  isFeatured: !!s.featured,
-  isTrending: !!s.trending,
-  isPopular: !!s.popular,
+  seasonsCount: seasons.length || Number(s.number_of_seasons || 0),
+  episodesCount: Number(s.number_of_episodes || seasons.reduce((n, x) => n + x.episodesCount, 0)),
+  sources: undefined as never,
+  isFeatured: false,
+  isTrending: false,
+  isPopular: false,
   status: s.status,
-  addedAt: s.created_at || '',
-  ageRating: s.age_rating || '',
+  addedAt: s.first_air_date || new Date().toISOString(),
+  ageRating: '',
 });
 
-async function getMovieExtras(movieId: string) {
-  const db = requireSupabase();
-  const [{ data: links }, { data: castLinks }] = await Promise.all([
-    db.from('movie_genres').select('genre_id, genres(*)').eq('movie_id', movieId),
-    db.from('movie_cast').select('person_id, character_ar, character_en, people(*)').eq('movie_id', movieId).order('cast_order', { ascending: true }),
-  ]);
-  return {
-    genres: (links || []).map((x: any) => genre(x.genres)).filter((x: Genre) => x.id),
-    cast: (castLinks || []).map(castMember),
-  };
+const makeSeason = (s: any, episodes: Episode[] = []): Season => ({
+  id: String(s.id || `${s.season_number}`),
+  seriesId: String(s.tv_id || ''),
+  seasonNumber: Number(s.season_number || 0),
+  name: s.name || `Season ${s.season_number}`,
+  nameEn: s.name || `Season ${s.season_number}`,
+  posterUrl: s.poster_path ? `https://image.tmdb.org/t/p/w500${s.poster_path}` : '',
+  overview: s.overview || '',
+  airDate: s.air_date || '',
+  episodesCount: Number(s.episode_count || episodes.length),
+  episodes,
+});
+
+async function loadSeriesSeason(seriesId: string, seasonNumber: number): Promise<Season> {
+  const data = await tmdb<any>(`tv/${seriesId}/season/${seasonNumber}`);
+  return { ...makeSeason({ ...data, tv_id: seriesId }), episodes: (data.episodes || []).map((e: any) => episodeMap(e, seriesId, seasonNumber)) };
 }
 
-async function getSeriesExtras(seriesId: string) {
-  const db = requireSupabase();
-  const [{ data: genreLinks }, { data: castLinks }, { data: seasonRows }] = await Promise.all([
-    db.from('series_genres').select('genre_id, genres(*)').eq('series_id', seriesId),
-    db.from('series_cast').select('person_id, character_ar, character_en, people(*)').eq('series_id', seriesId).order('cast_order', { ascending: true }),
-    db.from('seasons').select('*').eq('series_id', seriesId).order('season_number', { ascending: true }),
-  ]);
-  const seasons = await Promise.all((seasonRows || []).map(async (s: any) => {
-    const { data: eps } = await db.from('episodes').select('*').eq('season_id', s.id).order('episode_number', { ascending: true });
-    return mapSeason(s, seriesId, (eps || []).map((e: any) => mapEpisode(e, seriesId, Number(s.season_number))));
-  }));
-  return {
-    genres: (genreLinks || []).map((x: any) => genre(x.genres)).filter((x: Genre) => x.id),
-    cast: (castLinks || []).map(castMember),
-    seasons,
-  };
+async function detailMovie(id: string) {
+  return tmdb<any>(`movie/${encodeURIComponent(id)}`, { append_to_response: 'credits,similar,release_dates' });
 }
 
-async function listMovies(params: {
-  genreId?: number; year?: number; minRating?: number; sortBy?: 'popular' | 'rating' | 'newest';
-  search?: string; page?: number; limit?: number;
-} = {}) {
-  const db = requireSupabase();
-  const page = Math.max(1, params.page || 1);
-  const limit = Math.min(48, Math.max(1, params.limit || 24));
-  let q = db.from('movies').select('*', { count: 'exact' }).eq('status', 'published');
-  if (params.genreId) {
-    const { data: ids } = await db.from('movie_genres').select('movie_id').eq('genre_id', params.genreId);
-    const movieIds = (ids || []).map((x: any) => x.movie_id);
-    if (!movieIds.length) return ok<Movie[]>([], { page, limit, total: 0, totalPages: 0 });
-    q = q.in('id', movieIds);
-  }
-  if (params.year) q = q.gte('release_date', `${params.year}-01-01`).lte('release_date', `${params.year}-12-31`);
-  if (params.minRating) q = q.gte('rating', params.minRating);
-  if (params.search) {
-    const term = params.search.replace(/[%_]/g, '');
-    q = q.or(`title_ar.ilike.%${term}%,title_en.ilike.%${term}%,original_title.ilike.%${term}%`);
-  }
-  if (params.sortBy === 'rating') q = q.order('rating', { ascending: false });
-  else if (params.sortBy === 'newest') q = q.order('release_date', { ascending: false, nullsFirst: false });
-  else q = q.order(params.sortBy === 'popular' ? 'vote_count' : 'created_at', { ascending: false, nullsFirst: false });
-  q = q.range((page - 1) * limit, page * limit - 1);
-  const { data, error, count } = await q;
-  if (error) throw error;
-  return ok((data || []).map((m: any) => mapMovie(m)), {
-    page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
-  });
-}
-
-async function listSeries(params: {
-  genreId?: number; year?: number; sortBy?: 'popular' | 'rating' | 'newest'; search?: string;
-  page?: number; limit?: number;
-} = {}) {
-  const db = requireSupabase();
-  const page = Math.max(1, params.page || 1);
-  const limit = Math.min(48, Math.max(1, params.limit || 24));
-  let q = db.from('series').select('*', { count: 'exact' }).eq('status', 'published');
-  if (params.genreId) {
-    const { data: ids } = await db.from('series_genres').select('series_id').eq('genre_id', params.genreId);
-    const seriesIds = (ids || []).map((x: any) => x.series_id);
-    if (!seriesIds.length) return ok<Series[]>([], { page, limit, total: 0, totalPages: 0 });
-    q = q.in('id', seriesIds);
-  }
-  if (params.year) q = q.gte('first_air_date', `${params.year}-01-01`).lte('first_air_date', `${params.year}-12-31`);
-  if (params.search) {
-    const term = params.search.replace(/[%_]/g, '');
-    q = q.or(`title_ar.ilike.%${term}%,title_en.ilike.%${term}%,original_title.ilike.%${term}%`);
-  }
-  if (params.sortBy === 'rating') q = q.order('rating', { ascending: false });
-  else if (params.sortBy === 'newest') q = q.order('first_air_date', { ascending: false, nullsFirst: false });
-  else q = q.order(params.sortBy === 'popular' ? 'vote_count' : 'created_at', { ascending: false, nullsFirst: false });
-  q = q.range((page - 1) * limit, page * limit - 1);
-  const { data, error, count } = await q;
-  if (error) throw error;
-  return ok((data || []).map((s: any) => mapSeries(s)), {
-    page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
-  });
+async function detailSeries(id: string) {
+  return tmdb<any>(`tv/${encodeURIComponent(id)}`, { append_to_response: 'credits,similar' });
 }
 
 export const MovyzaApi = {
   getHomeData: async () => {
-    const [featured, trending, popularMovies, featuredSeries, recentAdded, genres] = await Promise.all([
-      listMovies({ limit: 12 }).then((x) => x.data),
-      listMovies({ sortBy: 'popular', limit: 12 }).then((x) => x.data),
-      listMovies({ sortBy: 'rating', limit: 12 }).then((x) => x.data),
-      listSeries({ sortBy: 'popular', limit: 12 }).then((x) => x.data),
-      Promise.all([
-        listMovies({ sortBy: 'newest', limit: 8 }).then((x) => x.data),
-        listSeries({ sortBy: 'newest', limit: 8 }).then((x) => x.data),
-      ]).then(([m, s]) => [...m, ...s].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 12)),
-      MovyzaApi.getGenres().then((x) => x.data),
+    const [trending, popularMovies, popularSeries, latestMovies, latestSeries, genreMovies, genreSeries] = await Promise.all([
+      tmdb<any>('trending/all/week'),
+      tmdb<any>('movie/popular', { page: 1 }),
+      tmdb<any>('tv/popular', { page: 1 }),
+      tmdb<any>('movie/now_playing', { page: 1 }),
+      tmdb<any>('tv/on_the_air', { page: 1 }),
+      tmdb<any>('genre/movie/list'),
+      tmdb<any>('genre/tv/list'),
     ]);
-    const hero = featured.find((x) => x.isFeatured) || featured[0] || trending[0] || popularMovies[0] || featuredSeries[0];
+    const trendingItems = (trending.results || []).filter((x: any) => x.media_type === 'movie' || x.media_type === 'tv').slice(0, 18);
+    const movieItems = (popularMovies.results || []).slice(0, 18).map(movieMap);
+    const seriesItems = (popularSeries.results || []).slice(0, 18).map((x: any) => seriesMap(x));
+    const recentAdded = [
+      ...(latestMovies.results || []).slice(0, 8).map(movieMap),
+      ...(latestSeries.results || []).slice(0, 8).map((x: any) => seriesMap(x)),
+    ].sort((a, b) => b.addedAt.localeCompare(a.addedAt));
+    const trendingMapped = trendingItems.map((x: any) => x.media_type === 'movie' ? movieMap(x) : seriesMap(x));
+    const genreMap = new Map<number, Genre>();
+    [...(genreMovies.genres || []), ...(genreSeries.genres || [])].forEach((g: any) => genreMap.set(Number(g.id), {
+      id: Number(g.id), name: g.name || '', nameEn: g.name || '', slug: String(g.name || '').toLowerCase().replace(/\s+/g, '-'),
+    }));
+    const hero = trendingMapped[0] || movieItems[0] || seriesItems[0];
     const history = await MovyzaApi.getWatchHistory().catch(() => ok<WatchProgress[]>([]));
     return ok({
-      hero: hero as Movie | Series,
-      continueWatching: history.data.filter((x) => !x.completed && x.percentage > 2).slice(0, 12),
-      trending,
-      popularMovies,
-      featuredSeries,
-      recentAdded,
-      genres,
+      hero, continueWatching: history.data.filter((x) => !x.completed && x.percentage > 2).slice(0, 10),
+      trending: trendingMapped, popularMovies: movieItems, featuredSeries: seriesItems,
+      recentAdded: recentAdded.slice(0, 16), genres: Array.from(genreMap.values()),
     });
   },
 
-  getMovies: (params?: Parameters<typeof listMovies>[0]) => listMovies(params),
-  getMovieById: async (id: string) => {
-    const db = requireSupabase();
-    const { data, error } = await db.from('movies').select('*').eq('id', id).eq('status', 'published').single();
-    if (error) throw error;
-    const extras = await getMovieExtras(id);
-    const similar = (await listMovies({ genreId: extras.genres[0]?.id, limit: 12 })).data.filter((x) => x.id !== id);
-    return ok({ movie: mapMovie(data, extras.genres, extras.cast), similar });
-  },
-  getMovieByTmdbId: async (tmdbId: number) => {
-    const db = requireSupabase();
-    const { data, error } = await db.from('movies').select('*').eq('tmdb_id', tmdbId).eq('status', 'published').single();
-    if (error) throw error;
-    const extras = await getMovieExtras(data.id);
-    const similar = (await listMovies({ genreId: extras.genres[0]?.id, limit: 12 })).data.filter((x) => x.id !== data.id);
-    return ok({ movie: mapMovie(data, extras.genres, extras.cast), similar });
-  },
-  getSeries: (params?: Parameters<typeof listSeries>[0]) => listSeries(params),
-  getSeriesById: async (id: string) => {
-    const db = requireSupabase();
-    const { data, error } = await db.from('series').select('*').eq('id', id).eq('status', 'published').single();
-    if (error) throw error;
-    const extras = await getSeriesExtras(id);
-    const similar = (await listSeries({ limit: 12 })).data.filter((x) => x.id !== id);
-    return ok({ series: mapSeries(data, extras.genres, extras.cast, extras.seasons), similar });
-  },
-  getSeriesByTmdbId: async (tmdbId: number) => {
-    const db = requireSupabase();
-    const { data, error } = await db.from('series').select('*').eq('tmdb_id', tmdbId).eq('status', 'published').single();
-    if (error) throw error;
-    const extras = await getSeriesExtras(data.id);
-    const similar = (await listSeries({ limit: 12 })).data.filter((x) => x.id !== data.id);
-    return ok({ series: mapSeries(data, extras.genres, extras.cast, extras.seasons), similar });
-  },
-  getSeriesWatchByTmdbId: async (tmdbId: number, season: number, episode: number) => {
-    const base = await MovyzaApi.getSeriesByTmdbId(tmdbId);
-    const currentSeason = base.data.series.seasons.find((s) => s.seasonNumber === season) || base.data.series.seasons[0];
-    if (!currentSeason) throw new Error('Season not found');
-    return ok({ series: base.data.series, currentSeason });
-  },
-  getSeriesWatchById: async (id: string, season: number, episode: number) => {
-    const base = await MovyzaApi.getSeriesById(id);
-    const currentSeason = base.data.series.seasons.find((s) => s.seasonNumber === season) || base.data.series.seasons[0];
-    if (!currentSeason) throw new Error('Season not found');
-    return ok({ series: base.data.series, currentSeason });
-  },
-  searchCatalog: async (search: string) => {
-    const term = search.trim().replace(/[%_]/g, '');
-    if (!term) return ok({ movies: [], series: [], cast: [] });
-    const db = requireSupabase();
-    const [m, s, p] = await Promise.all([
-      db.from('movies').select('*').eq('status', 'published').or(`title_ar.ilike.%${term}%,title_en.ilike.%${term}%,original_title.ilike.%${term}%`).limit(20),
-      db.from('series').select('*').eq('status', 'published').or(`title_ar.ilike.%${term}%,title_en.ilike.%${term}%,original_title.ilike.%${term}%`).limit(20),
-      db.from('people').select('*').or(`name_ar.ilike.%${term}%,name_en.ilike.%${term}%,original_name.ilike.%${term}%`).limit(12),
-    ]);
-    if (m.error) throw m.error;
-    if (s.error) throw s.error;
-    if (p.error) throw p.error;
-    return ok({
-      movies: (m.data || []).map((x: any) => mapMovie(x)),
-      series: (s.data || []).map((x: any) => mapSeries(x)),
-      cast: (p.data || []).map((x: any) => ({ name: x.name_ar || x.name_en || '', nameEn: x.name_en || x.name_ar || '', worksCount: 0, avatarUrl: x.avatar_url || '' })),
+  getMovies: async (params: any = {}) => {
+    let endpoint = params.sortBy === 'rating' ? 'movie/top_rated' : params.sortBy === 'newest' ? 'movie/now_playing' : 'discover/movie';
+    const page = Math.max(1, Number(params.page || 1));
+    const data = await tmdb<any>(endpoint, {
+      page,
+      with_genres: params.genreId,
+      'vote_average.gte': params.minRating,
+      query: params.search,
+      sort_by: params.sortBy === 'rating' ? undefined : 'popularity.desc',
     });
+    const items = (data.results || []).map(movieMap);
+    return ok(items, { page, limit: Number(params.limit || 20), total: Number(data.total_results || items.length), totalPages: Number(data.total_pages || 1) });
   },
+
+  getMovieById: async (id: string) => {
+    const data = await detailMovie(id);
+    const movie = movieMap(data);
+    const similar = (data.similar?.results || []).slice(0, 12).map(movieMap);
+    return ok({ movie, similar });
+  },
+
+  getMovieByTmdbId: async (tmdbId: number) => MovyzaApi.getMovieById(String(tmdbId)),
+
+  getSeries: async (params: any = {}) => {
+    const endpoint = params.sortBy === 'rating' ? 'tv/top_rated' : params.sortBy === 'newest' ? 'tv/on_the_air' : 'discover/tv';
+    const page = Math.max(1, Number(params.page || 1));
+    const data = await tmdb<any>(endpoint, {
+      page,
+      with_genres: params.genreId,
+      query: params.search,
+      sort_by: params.sortBy === 'rating' ? undefined : 'popularity.desc',
+    });
+    const items = (data.results || []).map(seriesMap);
+    return ok(items, { page, limit: Number(params.limit || 20), total: Number(data.total_results || items.length), totalPages: Number(data.total_pages || 1) });
+  },
+
+  getSeriesById: async (id: string) => {
+    const data = await detailSeries(id);
+    const baseSeasons = (data.seasons || []).filter((s: any) => Number(s.season_number) > 0);
+    const firstSeasons = await Promise.all(baseSeasons.map((s: any) => loadSeriesSeason(String(data.id), Number(s.season_number))));
+    const series = seriesMap(data, firstSeasons);
+    const similar = (data.similar?.results || []).slice(0, 12).map(seriesMap);
+    return ok({ series, similar });
+  },
+
+  getSeriesByTmdbId: async (tmdbId: number) => MovyzaApi.getSeriesById(String(tmdbId)),
+
+  getSeriesWatchByTmdbId: async (tmdbId: number, season: number) => {
+    const base = await MovyzaApi.getSeriesByTmdbId(tmdbId);
+    const currentSeason = base.data.series.seasons.find((s) => s.seasonNumber === season) || await loadSeriesSeason(String(tmdbId), season);
+    return ok({ series: base.data.series, currentSeason });
+  },
+
+  getSeriesWatchById: async (id: string, season: number) => {
+    const base = await MovyzaApi.getSeriesById(id);
+    const currentSeason = base.data.series.seasons.find((s) => s.seasonNumber === season) || await loadSeriesSeason(id, season);
+    return ok({ series: base.data.series, currentSeason });
+  },
+
+  searchCatalog: async (search: string) => {
+    const data = await tmdb<any>('search/multi', { query: search, page: 1, include_adult: false });
+    const movies: Movie[] = [];
+    const series: Series[] = [];
+    const cast: { name: string; nameEn: string; worksCount: number; avatarUrl: string }[] = [];
+    (data.results || []).slice(0, 40).forEach((x: any) => {
+      if (x.media_type === 'movie') movies.push(movieMap(x));
+      else if (x.media_type === 'tv') series.push(seriesMap(x));
+      else if (x.media_type === 'person') cast.push({
+        name: x.name || '', nameEn: x.original_name || x.name || '', worksCount: Number(x.known_for_department === 'Acting' ? (x.known_for?.length || 0) : 0),
+        avatarUrl: x.profile_path ? `https://image.tmdb.org/t/p/w185${x.profile_path}` : '',
+      });
+    });
+    return ok({ movies, series, cast });
+  },
+
   getGenres: async () => {
-    const db = requireSupabase();
-    const { data, error } = await db.from('genres').select('*').order('name_en');
-    if (error) throw error;
-    return ok((data || []).map(genre));
+    const [movies, series] = await Promise.all([
+      tmdb<any>('genre/movie/list'),
+      tmdb<any>('genre/tv/list'),
+    ]);
+    const map = new Map<number, Genre>();
+    [...(movies.genres || []), ...(series.genres || [])].forEach((g: any) => map.set(Number(g.id), {
+      id: Number(g.id), name: g.name || '', nameEn: g.name || '', slug: String(g.name || '').toLowerCase().replace(/\s+/g, '-'),
+    }));
+    return ok(Array.from(map.values()));
   },
 
   getWatchlist: async () => {
@@ -317,22 +261,19 @@ export const MovyzaApi = {
     const { data, error } = await db.from('watchlist').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
     if (error) throw error;
     const rows = data || [];
-    const movieIds = rows.filter((x: any) => x.content_type === 'movie').map((x: any) => x.content_id);
-    const seriesIds = rows.filter((x: any) => x.content_type === 'series').map((x: any) => x.content_id);
-    const [{ data: movies }, { data: series }] = await Promise.all([
-      movieIds.length ? db.from('movies').select('*').in('id', movieIds) : Promise.resolve({ data: [] as any[] }),
-      seriesIds.length ? db.from('series').select('*').in('id', seriesIds) : Promise.resolve({ data: [] as any[] }),
-    ]);
-    const map = new Map<string, any>([...(movies || []), ...(series || [])].map((x) => [x.id, x]));
-    return ok(rows.map((r: any) => {
-      const item = map.get(r.content_id) || {};
-      return {
-        id: r.id, userId: r.user_id, contentId: r.content_id, contentType: r.content_type,
-        title: item.title_ar || item.title_en || '', titleEn: item.title_en || item.title_ar || '',
-        posterUrl: item.poster_url || '', year: Number(String(item.release_date || item.first_air_date || '').slice(0, 4) || 0),
-        rating: Number(item.rating || 0), genres: [], addedAt: r.created_at,
-      } as WatchlistItem;
+    const items = await Promise.all(rows.slice(0, 100).map(async (row: any) => {
+      try {
+        const media = row.content_type === 'movie'
+          ? (await MovyzaApi.getMovieByTmdbId(Number(row.content_id))).data.movie
+          : (await MovyzaApi.getSeriesByTmdbId(Number(row.content_id))).data.series;
+        return {
+          id: row.id, userId: row.user_id, contentId: row.content_id, contentType: row.content_type,
+          title: media.title, titleEn: media.titleEn, posterUrl: media.posterUrl,
+          year: media.type === 'movie' ? media.year : media.startYear, rating: media.rating, genres: media.genres.map((g) => g.name), addedAt: row.created_at,
+        } as WatchlistItem;
+      } catch { return null; }
     }));
+    return ok(items.filter(Boolean) as WatchlistItem[]);
   },
 
   addToWatchlist: async (item: Omit<WatchlistItem, 'id' | 'addedAt'>) => {
@@ -340,7 +281,7 @@ export const MovyzaApi = {
     const user = (await db.auth.getUser()).data.user;
     if (!user) throw new Error('You must be signed in');
     const { data, error } = await db.from('watchlist').upsert({
-      user_id: user.id, content_type: item.contentType, content_id: item.contentId,
+      user_id: user.id, content_type: item.contentType, content_id: String(item.contentId),
     }, { onConflict: 'user_id,content_type,content_id' }).select('*').single();
     if (error) throw error;
     return ok({ ...item, id: data.id, addedAt: data.created_at } as WatchlistItem);
@@ -350,7 +291,7 @@ export const MovyzaApi = {
     const db = requireSupabase();
     const user = (await db.auth.getUser()).data.user;
     if (!user) throw new Error('You must be signed in');
-    const { error } = await db.from('watchlist').delete().eq('user_id', user.id).eq('content_id', contentId);
+    const { error } = await db.from('watchlist').delete().eq('user_id', user.id).eq('content_id', String(contentId));
     if (error) throw error;
     return ok({ removed: true });
   },
@@ -361,23 +302,21 @@ export const MovyzaApi = {
     if (!user) return ok<WatchProgress[]>([]);
     const { data, error } = await db.from('watch_history').select('*').eq('user_id', user.id).order('updated_at', { ascending: false });
     if (error) throw error;
-    const rows = data || [];
-    const movieIds = rows.filter((x: any) => x.content_type === 'movie').map((x: any) => x.content_id);
-    const [{ data: movies }] = await Promise.all([
-      movieIds.length ? db.from('movies').select('*').in('id', movieIds) : Promise.resolve({ data: [] as any[] }),
-    ]);
-    const movieMap = new Map((movies || []).map((x: any) => [x.id, x]));
-    return ok(rows.filter((r: any) => r.content_type === 'movie').map((r: any) => {
-      const m = movieMap.get(r.content_id) || {};
-      const duration = Number(r.duration_seconds || 0);
-      return {
-        contentId: r.content_id, tmdbId: Number(m.tmdb_id || 0), contentType: 'movie',
-        title: m.title_ar || m.title_en || '', titleEn: m.title_en || m.title_ar || '',
-        posterUrl: m.poster_url || '', backdropUrl: m.backdrop_url || '', positionSeconds: Number(r.position_seconds || 0),
-        durationSeconds: duration, percentage: duration ? Math.min(100, Math.round(Number(r.position_seconds || 0) / duration * 100)) : 0,
-        lastWatchedAt: r.updated_at, completed: !!r.completed,
-      } as WatchProgress;
+    const rows = (data || []).filter((x: any) => x.content_type === 'movie');
+    const items = await Promise.all(rows.slice(0, 50).map(async (row: any) => {
+      try {
+        const movie = await MovyzaApi.getMovieByTmdbId(Number(row.content_id));
+        const duration = Number(row.duration_seconds || 0);
+        return {
+          contentId: String(row.content_id), tmdbId: movie.data.movie.tmdbId, contentType: 'movie',
+          title: movie.data.movie.title, titleEn: movie.data.movie.titleEn, posterUrl: movie.data.movie.posterUrl,
+          backdropUrl: movie.data.movie.backdropUrl, positionSeconds: Number(row.position_seconds || 0), durationSeconds: duration,
+          percentage: duration ? Math.min(100, Math.round(Number(row.position_seconds || 0) / duration * 100)) : 0,
+          lastWatchedAt: row.updated_at, completed: !!row.completed,
+        } as WatchProgress;
+      } catch { return null; }
     }));
+    return ok(items.filter(Boolean) as WatchProgress[]);
   },
 
   clearWatchHistory: async () => {
@@ -393,21 +332,16 @@ export const MovyzaApi = {
     const db = requireSupabase();
     const user = (await db.auth.getUser()).data.user;
     if (!user) return ok<WatchProgress | null>(null);
-    const { data, error } = await db.from('watch_history').select('*').eq('user_id', user.id).eq('content_id', contentId).maybeSingle();
+    const { data, error } = await db.from('watch_history').select('*').eq('user_id', user.id).eq('content_id', String(contentId)).maybeSingle();
     if (error) throw error;
     if (!data) return ok<WatchProgress | null>(null);
-    const [movie, series] = await Promise.all([
-      db.from('movies').select('*').eq('id', contentId).maybeSingle(),
-      db.from('series').select('*').eq('id', contentId).maybeSingle(),
-    ]);
-    const m = movie.data || series.data || {};
+    const movie = await MovyzaApi.getMovieByTmdbId(Number(contentId));
     const duration = Number(data.duration_seconds || 0);
     return ok({
-      contentId, tmdbId: Number(m.tmdb_id || 0), contentType: data.content_type,
-      title: m.title_ar || m.title_en || '', titleEn: m.title_en || m.title_ar || '',
-      posterUrl: m.poster_url || '', backdropUrl: m.backdrop_url || '',
-      positionSeconds: Number(data.position_seconds || 0), durationSeconds: duration,
-      percentage: duration ? Math.min(100, Math.round(Number(data.position_seconds || 0) / duration * 100)) : 0,
+      contentId: String(contentId), tmdbId: movie.data.movie.tmdbId, contentType: 'movie',
+      title: movie.data.movie.title, titleEn: movie.data.movie.titleEn, posterUrl: movie.data.movie.posterUrl,
+      backdropUrl: movie.data.movie.backdropUrl, positionSeconds: Number(data.position_seconds || 0),
+      durationSeconds: duration, percentage: duration ? Math.min(100, Math.round(Number(data.position_seconds || 0) / duration * 100)) : 0,
       lastWatchedAt: data.updated_at, completed: !!data.completed,
     } as WatchProgress);
   },
@@ -416,19 +350,17 @@ export const MovyzaApi = {
     const db = requireSupabase();
     const user = (await db.auth.getUser()).data.user;
     if (!user) throw new Error('You must be signed in');
-    const { data, error } = await db.from('watch_history').upsert({
-      user_id: user.id, content_type: progress.contentType === 'series' ? 'movie' : progress.contentType,
-      content_id: progress.episodeId || progress.contentId,
-      position_seconds: Math.floor(progress.positionSeconds),
-      duration_seconds: Math.floor(progress.durationSeconds),
-      completed: progress.completed,
-    }, { onConflict: 'user_id,content_type,content_id' }).select('*').single();
+    const { error } = await db.from('watch_history').upsert({
+      user_id: user.id, content_type: progress.episodeId ? 'episode' : 'movie',
+      content_id: String(progress.episodeId || progress.contentId),
+      position_seconds: Math.floor(progress.positionSeconds), duration_seconds: Math.floor(progress.durationSeconds), completed: progress.completed,
+    }, { onConflict: 'user_id,content_type,content_id' });
     if (error) throw error;
     return ok(progress);
   },
 
   reportIssue: async (_report: Omit<StreamReport, 'id' | 'reportedAt' | 'status'> & { contentType: 'movie' | 'episode' }) => {
-    throw new Error('Playback reports are disabled in catalog-only mode.');
+    throw new Error('Playback reporting is disabled in catalog-only mode.');
   },
 
   getAdminStats: async () => {
@@ -437,12 +369,14 @@ export const MovyzaApi = {
     if (!user) throw new Error('Authentication required');
     const profile = await db.from('profiles').select('role').eq('id', user.id).single();
     if (profile.data?.role !== 'ADMIN' && profile.data?.role !== 'OWNER') throw new Error('Admin access required');
-    const [{ count: movies }, { count: series }, { count: episodes }] = await Promise.all([
-      db.from('movies').select('id', { count: 'exact', head: true }).eq('status', 'published'),
-      db.from('series').select('id', { count: 'exact', head: true }).eq('status', 'published'),
-      db.from('episodes').select('id', { count: 'exact', head: true }),
-    ]);
-    return ok({ totalMovies: movies || 0, totalSeries: series || 0, totalEpisodes: episodes || 0, activeProviders: 0, streamHealthPct: 0, dailyStreamRequests: 0 });
+    const movies = await tmdb<any>('movie/popular', { page: 1 });
+    const series = await tmdb<any>('tv/popular', { page: 1 });
+    return ok({
+      totalMovies: Number(movies.total_results || 0),
+      totalSeries: Number(series.total_results || 0),
+      totalEpisodes: 0,
+      activeProviders: 0, streamHealthPct: 0, dailyStreamRequests: 0,
+    });
   },
 
   getMe: async () => {
@@ -453,10 +387,12 @@ export const MovyzaApi = {
     if (error) throw error;
     return ok<UserProfile>({
       id: user.id, email: user.email || '', name: profile.display_name || '',
-      role: profile.role, avatarUrl: profile.avatar_url || '', preferredLanguage: profile.locale || 'ar',
-      createdAt: profile.created_at,
+      role: profile.role, avatarUrl: profile.avatar_url || '', preferredLanguage: profile.locale || 'ar', createdAt: profile.created_at,
     });
   },
 };
 
-export { ok as apiResponse };
+const requireSupabase = () => {
+  if (!supabase) throw new Error('Supabase is not configured');
+  return supabase;
+};
