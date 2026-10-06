@@ -1,12 +1,14 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-
-export type Language = 'ar' | 'en';
+import {
+  Language,
+  LANGUAGE_LIST,
+  detectLanguageFromBrowser,
+  getLanguageFromPath,
+  withLanguagePrefix,
+} from '../lib/i18n';
 
 interface Translations {
-  [key: string]: {
-    ar: string;
-    en: string;
-  };
+  [key: string]: Partial<Record<Language, string>>;
 }
 
 export const DICTIONARY: Translations = {
@@ -138,8 +140,11 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>(() => {
+    const fromUrl = getLanguageFromPath(window.location.pathname);
+    if (fromUrl) return fromUrl;
     const saved = localStorage.getItem('movyza_lang');
-    return saved === 'en' ? 'en' : 'ar';
+    if (saved && LANGUAGE_LIST.some((entry) => entry.code === saved)) return saved as Language;
+    return detectLanguageFromBrowser();
   });
 
   const direction = language === 'ar' ? 'rtl' : 'ltr';
@@ -152,16 +157,25 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
+    const nextPath = withLanguagePrefix(window.location.pathname + window.location.search, lang);
+    if (nextPath !== window.location.pathname + window.location.search) {
+      window.history.pushState({}, '', nextPath);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
   };
 
   const toggleLanguage = () => {
     setLanguageState((prev) => (prev === 'ar' ? 'en' : 'ar'));
+    const next = language === 'ar' ? 'en' : 'ar';
+    const nextPath = withLanguagePrefix(window.location.pathname + window.location.search, next);
+    window.history.pushState({}, '', nextPath);
+    window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
   const t = (key: keyof typeof DICTIONARY): string => {
     const entry = DICTIONARY[key];
     if (!entry) return String(key);
-    return entry[language] || entry.ar;
+    return entry[language] || entry.en || entry.ar || String(key);
   };
 
   return (
