@@ -271,7 +271,7 @@ jobs:
 
           print("EPISODE_PLAYBACK_OK", len(episode_sources), "sources", "episode_id", episode_id)
 
-          for tmdb_id, title in ((93405, "Squid Game"), (66732, "Stranger Things")):
+          for tmdb_id, title in ((119051, "Wednesday"), (93405, "Squid Game"), (66732, "Stranger Things")):
               status, _, watch_payload = request_json(
                   api + f"/api/v1/series/tmdb/{tmdb_id}/watch/1/1"
               )
