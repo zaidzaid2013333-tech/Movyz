@@ -704,7 +704,7 @@ async function seriesDto(row: any, includePlaybackSources = false, requestUrl?: 
     posterUrl: row.poster_url || '', backdropUrl: row.backdrop_url || '',
     genres: genres.map((x: any) => genreDto(x.genres)),
     creator: row.metadata?.creator_ar || '', creatorEn: row.metadata?.creator_en || '',
-    cast: cast.map((x: any) => ({
+    cast: (cast.data || []).map((x: any) => ({
       id: x.people.id, name: x.people.name_ar || x.people.name_en,
       nameEn: x.people.name_en || x.people.name_ar,
       character: x.character_ar || '', characterEn: x.character_en || '',
@@ -727,7 +727,8 @@ async function seriesWatchDto(row: any, seasonNumber: number, episodeNumber: num
   if (seasonResult.error || !seasonResult.data) return null;
   const season = seasonResult.data;
   const genres = genresResult.error ? [] : (genresResult.data || []);
-  const cast = castResult.error ? [] : (castResult.data || []);  const { data: episodes, error: episodesError } = await adminSupabase
+  const cast = castResult.error ? [] : (castResult.data || []);
+  const { data: episodes, error: episodesError } = await adminSupabase
     .from('episodes').select('*').eq('season_id', season.id).order('episode_number');
   if (episodesError) throw new Error('Unable to load season episodes: ' + episodesError.message);
 
