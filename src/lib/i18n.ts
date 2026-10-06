@@ -22,15 +22,15 @@ export interface LanguageConfig {
 }
 
 export const LANGUAGE_CONFIGS: Record<Language, LanguageConfig> = {
-  ar: { code: 'ar', tmdb: 'ar-SA', region: 'DZ', label: 'Arabic', nativeName: 'العربية', countries: ['DZ','MA','TN','LY','EG','SA','AE','QA','KW','BH','OM','JO','LB','IQ','SY','YE','PS','SD'] },
-  en: { code: 'en', tmdb: 'en-US', region: 'US', label: 'English', nativeName: 'English', countries: ['US','GB','CA','AU','NZ','IE','ZA','SG'] },
-  fr: { code: 'fr', tmdb: 'fr-FR', region: 'FR', label: 'French', nativeName: 'Français', countries: ['FR','BE','LU','MC','SN','CI'] },
+  ar: { code: 'ar', tmdb: 'ar-SA', region: 'DZ', label: 'Arabic', nativeName: 'العربية', countries: ['DZ','MA','TN','LY','EG','SD','MR','SA','AE','QA','KW','BH','OM','YE','JO','LB','IQ','SY','PS','SO','DJ','KM'] },
+  en: { code: 'en', tmdb: 'en-US', region: 'US', label: 'English', nativeName: 'English', countries: ['US','GB','IE','CA','AU','NZ','SG','JM','BS','BB','TT','GD','LC','VC','AG','DM','KN','BZ','GY','FJ','PG','SB','VU','WS','TO','FM','MH','PW','NR','KI','GH','NG','KE','UG','TZ','ZM','ZW','MW','BW','NA','LS','SZ','ZA','SL','LR','GM','SS','MU','SC','CN','TW','HK','MO','NL','SE','NO','DK','FI','IS','PL','CZ','SK','HU','RO','BG','HR','SI','RS','BA','ME','MK','AL','EE','LV','LT','MD','UA','GR','MT','CY','GE','AM','AZ','UZ','TJ','TM','AF','NP','BD','LK','MV','PK','MY','TH','ID','PH','VN','KH','LA','MN','IL','IR'] },
+  fr: { code: 'fr', tmdb: 'fr-FR', region: 'FR', label: 'French', nativeName: 'Français', countries: ['FR','BE','LU','MC','SN','CI','BF','BJ','TG','ML','NE','GN','GA','CG','CD','CM','CF','TD','MG','RW','BI','HT'] },
   de: { code: 'de', tmdb: 'de-DE', region: 'DE', label: 'German', nativeName: 'Deutsch', countries: ['DE','AT','CH','LI'] },
-  es: { code: 'es', tmdb: 'es-ES', region: 'ES', label: 'Spanish', nativeName: 'Español', countries: ['ES','MX','AR','CL','CO','PE','VE','UY','EC','BO','PY','CR','GT','PA'] },
+  es: { code: 'es', tmdb: 'es-ES', region: 'ES', label: 'Spanish', nativeName: 'Español', countries: ['ES','MX','AR','CL','CO','PE','VE','UY','PY','BO','EC','PA','CR','GT','HN','SV','NI','CU','DO','GQ'] },
   it: { code: 'it', tmdb: 'it-IT', region: 'IT', label: 'Italian', nativeName: 'Italiano', countries: ['IT','SM','VA'] },
-  pt: { code: 'pt', tmdb: 'pt-BR', region: 'BR', label: 'Portuguese', nativeName: 'Português', countries: ['BR','PT'] },
+  pt: { code: 'pt', tmdb: 'pt-BR', region: 'BR', label: 'Portuguese', nativeName: 'Português', countries: ['PT','BR','AO','MZ','CV','GW','ST','TL'] },
   ru: { code: 'ru', tmdb: 'ru-RU', region: 'RU', label: 'Russian', nativeName: 'Русский', countries: ['RU','BY','KZ','KG'] },
-  tr: { code: 'tr', tmdb: 'tr-TR', region: 'TR', label: 'Turkish', nativeName: 'Türkçe', countries: ['TR','CY'] },
+  tr: { code: 'tr', tmdb: 'tr-TR', region: 'TR', label: 'Turkish', nativeName: 'Türkçe', countries: ['TR'] },
   hi: { code: 'hi', tmdb: 'hi-IN', region: 'IN', label: 'Hindi', nativeName: 'हिन्दी', countries: ['IN'] },
   ja: { code: 'ja', tmdb: 'ja-JP', region: 'JP', label: 'Japanese', nativeName: '日本語', countries: ['JP'] },
   ko: { code: 'ko', tmdb: 'ko-KR', region: 'KR', label: 'Korean', nativeName: '한국어', countries: ['KR'] },
