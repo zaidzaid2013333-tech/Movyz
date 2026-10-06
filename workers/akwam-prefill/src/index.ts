@@ -307,7 +307,6 @@ async function discoverAkwamUrlsViaSearch(
 ): Promise<Candidate[]> {
   const q = [
     "site:akwam.ss",
-    expected === "movie" ? "inurl:/movie/" : "inurl:/shows/ OR inurl:/series/ OR inurl:/episode/",
     query,
     expectedSeason ? "season " + expectedSeason : "",
   ].filter(Boolean).join(" ");
@@ -1401,10 +1400,7 @@ async function resolveTarget(
     visited.add(node.url);
 
     const direct = mediaFromUrl(node.url, node.referer);
-    if (!isLikelyNavigationUrl(node.url)) {
-      if (await validateMedia(env, direct, budget)) return direct;
-      continue;
-    }
+    if (await validateMedia(env, direct, budget)) return direct;
 
     if (/^https:\/\/akwam\.ss\/old\/download\//i.test(node.url)) {
       const legacyMedia = await resolveLegacyAkwamDownload(
@@ -1446,11 +1442,7 @@ async function resolveTarget(
       if (!next || visited.has(next)) continue;
 
       const nextMedia = mediaFromUrl(next, node.url);
-      if (!isLikelyNavigationUrl(next)) {
-        if (!isAkwamUrl(nextMedia.url)) return nextMedia;
-        if (await validateMedia(env, nextMedia, budget)) return nextMedia;
-        continue;
-      }
+      if (await validateMedia(env, nextMedia, budget)) return nextMedia;
 
       queue.push({ url: next, referer: node.url, depth: node.depth + 1 });
     }
