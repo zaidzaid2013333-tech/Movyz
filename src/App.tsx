@@ -24,10 +24,11 @@ import { AdminDashboard } from './pages/AdminDashboard';
 
 import { MovyzaApi } from './services/api';
 import { Movie, Series } from './types';
+import { getLanguageFromPath, stripLanguagePrefix, withLanguagePrefix, Language } from './lib/i18n';
 
 
 function MainApp() {
-  const { direction } = useLanguage();
+  const { direction, language } = useLanguage();
   const { user, isAdmin } = useAuth();
   const { isSurpriseOpen, closeSurprise } = useTheme();
 
@@ -67,8 +68,13 @@ function MainApp() {
   }, [user?.id]);
 
   const navigate = (path: string) => {
-    window.history.pushState({}, '', path);
-    setCurrentPath(path);
+    const target = new URL(path, window.location.origin);
+    const targetPath = getLanguageFromPath(target.pathname)
+      ? target.pathname
+      : withLanguagePrefix(target.pathname, language);
+    const localizedPath = targetPath + target.search + target.hash;
+    window.history.pushState({}, '', localizedPath);
+    setCurrentPath(localizedPath);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -99,7 +105,9 @@ function MainApp() {
 
   // Route dispatcher
   const renderCurrentRoute = () => {
-    const [pathOnly, queryString] = currentPath.split('?');
+    const [rawPath, queryString] = currentPath.split('?');
+    const route = stripLanguagePrefix(rawPath || '/');
+    const pathOnly = route.pathname;
     const searchParams = new URLSearchParams(queryString || '');
 
     // Direct iframe watch routes. No API request is made here.
@@ -273,14 +281,14 @@ function MainApp() {
     );
   };
 
-  const isWatchPage = currentPath.startsWith('/watch/');
+  const isWatchPage = stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname.startsWith('/watch/');
 
   return (
     <div className="min-h-screen bg-[#08090d] text-slate-100 flex flex-col font-sans selection:bg-amber-500/30 selection:text-amber-200">
       {/* Header: hidden when in fullscreen watch page to maximize cinematic focus */}
       {!isWatchPage && (
         <Header
-          currentPath={currentPath.split('?')[0]}
+          currentPath={stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname}
           onNavigate={navigate}
           watchlistCount={watchlistIds.length}
         />
@@ -295,7 +303,7 @@ function MainApp() {
       {/* Mobile Ergonomic Bottom Tab Navigation: hidden on watch page */}
       {!isWatchPage && (
         <MobileNavigation
-          currentPath={currentPath.split('?')[0]}
+          currentPath={stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname}
           onNavigate={navigate}
         />
       )}
