@@ -81,7 +81,7 @@ async function requestJson(url) {
       signal: controller.signal,
       headers: {
         Accept: "application/json",
-        "User-Agent": "Movyz-Catalog-Audit/1.0",
+        "User-Agent": "Movyz-Manual-Catalog-Audit/1.0",
         "Cache-Control": "no-cache",
       },
     });
