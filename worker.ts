@@ -490,10 +490,8 @@ const catalogTop1000 = async (request: Request, env: MovyzEnvironment) => {
   if (cached) {
     payload = await cached.json() as { items: any[]; total: number; generatedAt: string };
   } else {
-    const [movies, series] = await Promise.all([
-      collectCatalogType(env, locale, 'movie'),
-      collectCatalogType(env, locale, 'tv'),
-    ]);
+    const movies = await collectCatalogType(env, locale, 'movie');
+    const series = await collectCatalogType(env, locale, 'tv');
 
     const combined = [...movies, ...series]
       .sort((a, b) => {
