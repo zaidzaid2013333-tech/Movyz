@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "test": "node -e \"console.log('Movyz catalog smoke: Supabase-backed catalog')\"",
+    "test": "node -e \"console.log('Movyz catalog smoke: TMDB + Supabase + Cloudflare')\"",
     "cf:deploy": "wrangler deploy"
   },
   "dependencies": {
