@@ -796,18 +796,6 @@ const handleSitemap = async (request: Request, env: MovyzEnvironment) => {
   const url = new URL(request.url);
   if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
 
-  if (url.pathname === '/sitemap.xml') {
-    const xml = buildSitemapIndex(url.origin);
-    return new Response(xml, {
-      status: 200,
-      headers: {
-        'content-type': 'application/xml; charset=UTF-8',
-        'cache-control': 'public, max-age=3600, s-maxage=86400',
-        'cdn-cache-control': 'public, max-age=86400',
-      },
-    });
-  }
-
   const staticMatch = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko|zh|nl|sv|da|no|fi|pl|cs|uk|he|vi|id|ms|th|ro|hu|el|bn|ur|fa)\/static\.xml$/);
   if (staticMatch) {
     return buildStaticSitemapSegment(request, staticMatch[1] as LocaleCode);
@@ -832,7 +820,7 @@ export default {
         'Access-Control-Allow-Headers': 'Authorization,Content-Type',
       }});
     }
-    if (request.method === 'GET' && (url.pathname === '/sitemap.xml' || url.pathname.startsWith('/sitemap/'))) {
+    if (request.method === 'GET' && url.pathname.startsWith('/sitemap/')) {
       const sitemapResponse = await handleSitemap(request, env);
       if (sitemapResponse) return sitemapResponse;
     }
