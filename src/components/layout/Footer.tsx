@@ -54,6 +54,12 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           >
             {t('watchlist')}
           </button>
+          <button
+            onClick={() => onNavigate('/legal')}
+            className="hover:text-white transition-colors cursor-pointer"
+          >
+            {language === 'ar' ? 'DMCA والسياسات' : 'DMCA & Policy'}
+          </button>
         </div>
 
         <div className="text-slate-400 text-[11px] tabular-nums">
