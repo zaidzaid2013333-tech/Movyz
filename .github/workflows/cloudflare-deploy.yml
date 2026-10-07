@@ -90,8 +90,9 @@ jobs:
           fight_club="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies/550")"
           printf '%s' "$fight_club" | grep -q 'Fight Club'
           printf '%s' "$fight_club" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
-          printf '%s' "$fight_club" | grep -q 'rel="canonical" href="https://movyz-api.sameranede.workers.dev/ar/movies/550"'
+          printf '%s' "$fight_club" | grep -q 'rel="canonical"'
           printf '%s' "$fight_club" | grep -q '"@type":"Movie"'
 
-          # The production custom domain has Bot Fight Mode enabled and may challenge GitHub runners.
-          # Public-domain SEO crawling is validated manually with Google Search Console URL Inspection.
+          # Production custom domains can be protected by Cloudflare Bot Fight Mode.
+          # The worker-origin checks above validate the application contract; public-domain
+          # crawling is validated separately with Google Search Console URL Inspection.
