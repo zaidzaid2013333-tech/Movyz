@@ -123,7 +123,7 @@ jobs:
           watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/watch/movie/550")"
           printf '%s' "$watch_html" | grep -q 'Fight Club'
 
-          echo "CHECK 11/10: robots"
+          echo "CHECK 11/11: robots"
           robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/robots.txt")"
           printf '%s' "$robots" | grep -q 'Sitemap:'
 
