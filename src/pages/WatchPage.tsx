@@ -68,6 +68,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     const params = new URLSearchParams();
     // VidSrc accepts up to three subtitle languages in priority order.
     params.set('ds_lang', subtitlePriority.join(','));
+    // Custom VidSrc domains support direct autoplay when the browser permits it.
+    params.set('autoplay', '1');
 
     if (isSeries) {
       return VIDSRC_BASE_URL + '/embed/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode + '?' + params.toString();
