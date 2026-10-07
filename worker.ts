@@ -1,9 +1,6 @@
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 
-type LocaleCode =
-  | 'ar' | 'en' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'ru' | 'tr' | 'hi' | 'ja' | 'ko'
-  | 'zh' | 'nl' | 'sv' | 'da' | 'no' | 'fi' | 'pl' | 'cs' | 'uk' | 'he' | 'vi'
-  | 'id' | 'ms' | 'th' | 'ro' | 'hu' | 'el' | 'bn' | 'ur' | 'fa';
+type LocaleCode = 'ar' | 'en' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'ru' | 'tr' | 'hi' | 'ja' | 'ko' | 'zh' | 'nl' | 'sv' | 'da' | 'no' | 'fi' | 'pl' | 'cs' | 'uk' | 'he' | 'vi' | 'id' | 'ms' | 'th' | 'ro' | 'hu' | 'el' | 'bn' | 'ur' | 'fa';
 
 const LOCALES: Record<LocaleCode, {
   tmdb: string;
@@ -64,9 +61,10 @@ const stripLocale = (pathname: string) => {
 
 const languageFromAcceptLanguage = (header: string | null): LocaleCode | null => {
   const raw = String(header || '').toLowerCase();
+  const codes: LocaleCode[] = ['ar', 'en', 'fr', 'de', 'es', 'it', 'pt', 'ru', 'tr', 'hi', 'ja', 'ko', 'zh', 'nl', 'sv', 'da', 'no', 'fi', 'pl', 'cs', 'uk', 'he', 'vi', 'id', 'ms', 'th', 'ro', 'hu', 'el', 'bn', 'ur', 'fa'];
   for (const token of raw.split(',')) {
     const base = token.trim().split(';')[0].split('-')[0];
-    if (isLocale(base)) return base;
+    if (codes.includes(base as LocaleCode)) return base as LocaleCode;
   }
   return null;
 };
@@ -87,61 +85,36 @@ const detectRequestLocale = (request: Request): LocaleCode => {
     || 'en';
 };
 
+const SUBTITLE_COUNTRY_LANGUAGE: Record<string, LocaleCode> = Object.fromEntries(
+  Object.entries(LOCALES).flatMap(([locale, config]) =>
+    config.countries.map((country) => [country, locale as LocaleCode]),
+  ),
+);
+
 const detectSubtitleLocale = (request: Request): LocaleCode => {
+  // An explicit /ar/... or /fr/... route is the strongest signal because the
+  // visitor intentionally selected that Movyza language.
   const fromPath = localeFromPath(new URL(request.url).pathname);
-  return fromPath || detectRequestLocale(request);
+  if (fromPath) return fromPath;
+
+  const fromCountry = String(countryFromRequest(request) || '').toUpperCase();
+  return SUBTITLE_COUNTRY_LANGUAGE[fromCountry] || 'en';
 };
 
 const VIDSRC_BASE_URL = 'https://player.movyza.sbs';
 
-const subtitlePriorityForLanguage = (primary: LocaleCode): string => {
-  const languages = primary === 'en' ? ['en'] : [primary, 'en'];
-  return languages.slice(0, 3).join(',');
-};
-
-const isAppHtmlPath = (pathname: string) =>
-  !pathname.includes('.') &&
-  !pathname.startsWith('/tmdb');
+const subtitlePriorityForLanguage = (primary: LocaleCode): string =>
+  primary === 'en' ? 'en' : primary + ',en';
 
 const isAppHtmlPath = (pathname: string) =>
   !pathname.includes('.') &&
   !pathname.startsWith('/tmdb');
 
 const titleKeywords = (locale: LocaleCode, title: string) => {
-  const base = locale === 'ar' ? [title, title + ' مترجم عربي', 'مشاهدة ' + title, title + ' فيلم', title + ' مسلسل']
-    : locale === 'fr' ? [title, title + ' film', 'regarder ' + title, title + ' streaming']
-    : locale === 'de' ? [title, title + ' Film', title + ' Stream', title + ' online']
-    : locale === 'es' ? [title, title + ' película', 'ver ' + title, title + ' online']
-    : locale === 'it' ? [title, title + ' film', 'guardare ' + title, title + ' streaming']
-    : locale === 'pt' ? [title, title + ' filme', 'assistir ' + title, title + ' online']
-    : locale === 'ru' ? [title, title + ' фильм', 'смотреть ' + title, title + ' онлайн']
-    : locale === 'tr' ? [title, title + ' film izle', title + ' izle', title + ' online']
-    : locale === 'hi' ? [title, title + ' movie', 'watch ' + title, title + ' series']
-    : locale === 'ja' ? [title, title + ' 映画', title + ' 見る', title + ' ドラマ']
-    : locale === 'ko' ? [title, title + ' 영화', title + ' 보기', title + ' 드라마']
-    : locale === 'zh' ? [title, title + ' 电影', '观看 ' + title, title + ' 剧集']
-    : locale === 'nl' ? [title, title + ' film', title + ' serie', title + ' kijken']
-    : locale === 'sv' ? [title, title + ' film', 'se ' + title, title + ' serie']
-    : locale === 'da' ? [title, title + ' film', 'se ' + title, title + ' serie']
-    : locale === 'no' ? [title, title + ' film', 'se ' + title, title + ' serie']
-    : locale === 'fi' ? [title, title + ' elokuva', 'katso ' + title, title + ' sarja']
-    : locale === 'pl' ? [title, title + ' film', 'oglądaj ' + title, title + ' serial']
-    : locale === 'cs' ? [title, title + ' film', 'sledovat ' + title, title + ' seriál']
-    : locale === 'uk' ? [title, title + ' фільм', 'дивитися ' + title, title + ' серіал']
-    : locale === 'he' ? [title, title + ' סרט', 'צפייה ב' + title, title + ' סדרה']
-    : locale === 'vi' ? [title, 'phim ' + title, 'xem ' + title, 'series ' + title]
-    : locale === 'id' ? [title, 'film ' + title, 'nonton ' + title, 'serial ' + title]
-    : locale === 'ms' ? [title, 'filem ' + title, 'tonton ' + title, 'siri ' + title]
-    : locale === 'th' ? [title, 'หนัง ' + title, 'ดู ' + title, 'ซีรีส์ ' + title]
-    : locale === 'ro' ? [title, 'filmul ' + title, 'vezi ' + title, 'serial ' + title]
-    : locale === 'hu' ? [title, title + ' film', 'nézd ' + title, title + ' sorozat']
-    : locale === 'el' ? [title, title + ' ταινία', 'δες ' + title, title + ' σειρά']
-    : locale === 'bn' ? [title, title + ' সিনেমা', title + ' দেখুন', title + ' সিরিজ']
-    : locale === 'ur' ? [title, title + ' فلم', title + ' دیکھیں', title + ' سیریز']
-    : locale === 'fa' ? [title, 'فیلم ' + title, 'تماشای ' + title, 'سریال ' + title]
-    : [title, title + ' watch', 'watch ' + title, title + ' movie', title + ' series'];
-  return Array.from(new Set(base)).join(', ');
+  const terms = {"ar":["مترجم عربي","مشاهدة","فيلم","مسلسل"],"en":["watch","watch","movie","series"],"fr":["film","regarder","streaming"],"de":["Film","Stream","online"],"es":["película","ver","online"],"it":["film","guardare","streaming"],"pt":["filme","assistir","online"],"ru":["фильм","смотреть","онлайн"],"tr":["film izle","izle","online"],"hi":["movie","watch","series"],"ja":["映画","見る","ドラマ"],"ko":["영화","보기","드라마"],"zh":["电影","观看","剧集"],"nl":["film","serie","kijken"],"sv":["film","se","serie"],"da":["film","se","serie"],"no":["film","se","serie"],"fi":["elokuva","katso","sarja"],"pl":["film","oglądaj","serial"],"cs":["film","sledovat","seriál"],"uk":["фільм","дивитися","серіал"],"he":["סרט","צפייה","סדרה"],"vi":["phim","xem","series"],"id":["film","nonton","serial"],"ms":["filem","tonton","siri"],"th":["หนัง","ดู","ซีรีส์"],"ro":["filmul","vezi","serial"],"hu":["film","nézd","sorozat"],"el":["ταινία","δες","σειρά"],"bn":["সিনেমা","দেখুন","সিরিজ"],"ur":["فلم","دیکھیں","سیریز"],"fa":["فیلم","تماشای","سریال"]}[locale] || {"ar":["مترجم عربي","مشاهدة","فيلم","مسلسل"],"en":["watch","watch","movie","series"],"fr":["film","regarder","streaming"],"de":["Film","Stream","online"],"es":["película","ver","online"],"it":["film","guardare","streaming"],"pt":["filme","assistir","online"],"ru":["фильм","смотреть","онлайн"],"tr":["film izle","izle","online"],"hi":["movie","watch","series"],"ja":["映画","見る","ドラマ"],"ko":["영화","보기","드라마"],"zh":["电影","观看","剧集"],"nl":["film","serie","kijken"],"sv":["film","se","serie"],"da":["film","se","serie"],"no":["film","se","serie"],"fi":["elokuva","katso","sarja"],"pl":["film","oglądaj","serial"],"cs":["film","sledovat","seriál"],"uk":["фільм","дивитися","серіал"],"he":["סרט","צפייה","סדרה"],"vi":["phim","xem","series"],"id":["film","nonton","serial"],"ms":["filem","tonton","siri"],"th":["หนัง","ดู","ซีรีส์"],"ro":["filmul","vezi","serial"],"hu":["film","nézd","sorozat"],"el":["ταινία","δες","σειρά"],"bn":["সিনেমা","দেখুন","সিরিজ"],"ur":["فلم","دیکھیں","سیریز"],"fa":["فیلم","تماشای","سریال"]}.en;
+  return Array.from(new Set([title, ...terms.map((term) => term + ' ' + title)])).join(', ');
 };
+
 const localizedHtml = async (request: Request, env: MovyzEnvironment, response: Response, locale: LocaleCode) => {
   if (!response.headers.get('content-type')?.includes('text/html')) return response;
   const url = new URL(request.url);
@@ -160,62 +133,59 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   const watchMovie = route.match(/^\/watch\/movie\/(\d+)$/);
   const watchEpisode = route.match(/^\/watch\/tv\/(\d+)\/(\d+)\/(\d+)$/);
 
-  const genericByLocale: Record<LocaleCode, {
-    home: string; movies: string; series: string; discover: string; search: string; catalog: string; legal: string;
-  }> = {
-    ar: { home: 'موفيزا — منصة الأفلام والمسلسلات', movies: 'الأفلام والمسلسلات المترجمة | موفيزا', series: 'المسلسلات التلفزيونية | موفيزا', discover: 'استكشاف الأفلام والمسلسلات | موفيزا', search: 'البحث في موفيزا', catalog: 'أفضل 1000 فيلم ومسلسل | موفيزا', legal: 'إخلاء المسؤولية وDMCA | موفيزا' },
-    en: { home: 'Movyza — Movies & TV Shows', movies: 'Movies & Films | Movyza', series: 'TV Series | Movyza', discover: 'Discover Movies & TV | Movyza', search: 'Search | Movyza', catalog: 'Movyza Top 1000 Movies & TV Shows', legal: 'DMCA & Third-Party Policy | Movyza' },
-    fr: { home: 'Movyza — Films et séries', movies: 'Films | Movyza', series: 'Séries TV | Movyza', discover: 'Découvrir | Movyza', search: 'Recherche | Movyza', catalog: 'Top 1000 Films et séries | Movyza', legal: 'DMCA et politique des tiers | Movyza' },
-    de: { home: 'Movyza — Filme & Serien', movies: 'Filme | Movyza', series: 'Serien | Movyza', discover: 'Entdecken | Movyza', search: 'Suche | Movyza', catalog: 'Top 1000 Filme und Serien | Movyza', legal: 'DMCA und Richtlinie für Drittanbieter | Movyza' },
-    es: { home: 'Movyza — Películas y series', movies: 'Películas | Movyza', series: 'Series | Movyza', discover: 'Descubrir | Movyza', search: 'Buscar | Movyza', catalog: 'Top 1000 Películas y series | Movyza', legal: 'DMCA y política de terceros | Movyza' },
-    it: { home: 'Movyza — Film e serie TV', movies: 'Film | Movyza', series: 'Serie TV | Movyza', discover: 'Scopri | Movyza', search: 'Cerca | Movyza', catalog: 'Top 1000 Film e serie TV | Movyza', legal: 'DMCA e policy di terze parti | Movyza' },
-    pt: { home: 'Movyza — Filmes e séries', movies: 'Filmes | Movyza', series: 'Séries | Movyza', discover: 'Descobrir | Movyza', search: 'Pesquisar | Movyza', catalog: 'Top 1000 Filmes e séries | Movyza', legal: 'DMCA e política de terceiros | Movyza' },
-    ru: { home: 'Movyza — Фильмы и сериалы', movies: 'Фильмы | Movyza', series: 'Сериалы | Movyza', discover: 'Каталог и рекомендации | Movyza', search: 'Поиск | Movyza', catalog: 'Топ-1000 фильмов и сериалов | Movyza', legal: 'DMCA и политика сторонних сервисов | Movyza' },
-    tr: { home: 'Movyza — Filmler ve diziler', movies: 'Filmler | Movyza', series: 'Diziler | Movyza', discover: 'Keşfet | Movyza', search: 'Ara | Movyza', catalog: 'Movyza En İyi 1000 Film ve Dizi', legal: 'DMCA ve üçüncü taraf politikası | Movyza' },
-    hi: { home: 'Movyza — फ़िल्में और सीरीज़', movies: 'फ़िल्में | Movyza', series: 'सीरीज़ | Movyza', discover: 'खोजें | Movyza', search: 'खोज | Movyza', catalog: 'Movyza Top 1000 फ़िल्में और सीरीज़', legal: 'DMCA और तृतीय-पक्ष नीति | Movyza' },
-    ja: { home: 'Movyza — 映画・ドラマ', movies: '映画 | Movyza', series: 'ドラマ | Movyza', discover: '探す | Movyza', search: '検索 | Movyza', catalog: 'Movyza 人気映画・ドラマ Top 1000', legal: 'DMCA・第三者ポリシー | Movyza' },
-    ko: { home: 'Movyza — 영화 및 드라마', movies: '영화 | Movyza', series: '드라마 | Movyza', discover: '둘러보기 | Movyza', search: '검색 | Movyza', catalog: 'Movyza 인기 영화·드라마 Top 1000', legal: 'DMCA 및 제3자 정책 | Movyza' },
-    zh: { home: 'Movyza — 电影与剧集', movies: '电影 | Movyza', series: '剧集 | Movyza', discover: '探索 | Movyza', search: '搜索 | Movyza', catalog: 'Movyza 热门电影与剧集 Top 1000', legal: 'DMCA 与第三方政策 | Movyza' },
-    nl: { home: 'Movyza — Films en series', movies: 'Films | Movyza', series: 'Series | Movyza', discover: 'Ontdekken | Movyza', search: 'Zoeken | Movyza', catalog: 'Movyza Top 1000 films en series', legal: 'DMCA en beleid voor derden | Movyza' },
-    sv: { home: 'Movyza — Filmer och serier', movies: 'Filmer | Movyza', series: 'Serier | Movyza', discover: 'Upptäck | Movyza', search: 'Sök | Movyza', catalog: 'Movyza Top 1000 filmer och serier', legal: 'DMCA och policy för tredje part | Movyza' },
-    da: { home: 'Movyza — Film og serier', movies: 'Film | Movyza', series: 'Serier | Movyza', discover: 'Udforsk | Movyza', search: 'Søg | Movyza', catalog: 'Movyza Top 1000 film og serier', legal: 'DMCA og tredjepartspolitik | Movyza' },
-    no: { home: 'Movyza — Filmer og serier', movies: 'Filmer | Movyza', series: 'Serier | Movyza', discover: 'Utforsk | Movyza', search: 'Søk | Movyza', catalog: 'Movyza Topp 1000 filmer og serier', legal: 'DMCA og tredjepartspolicy | Movyza' },
-    fi: { home: 'Movyza — Elokuvat ja sarjat', movies: 'Elokuvat | Movyza', series: 'Sarjat | Movyza', discover: 'Tutustu | Movyza', search: 'Haku | Movyza', catalog: 'Movyza Top 1000 elokuvat ja sarjat', legal: 'DMCA ja kolmansien osapuolten käytäntö | Movyza' },
-    pl: { home: 'Movyza — Filmy i seriale', movies: 'Filmy | Movyza', series: 'Seriale | Movyza', discover: 'Odkrywaj | Movyza', search: 'Szukaj | Movyza', catalog: 'Movyza Top 1000 filmów i seriali', legal: 'DMCA i polityka stron trzecich | Movyza' },
-    cs: { home: 'Movyza — Filmy a seriály', movies: 'Filmy | Movyza', series: 'Seriály | Movyza', discover: 'Prozkoumat | Movyza', search: 'Hledat | Movyza', catalog: 'Movyza Top 1000 filmů a seriálů', legal: 'DMCA a zásady třetích stran | Movyza' },
-    uk: { home: 'Movyza — Фільми та серіали', movies: 'Фільми | Movyza', series: 'Серіали | Movyza', discover: 'Досліджувати | Movyza', search: 'Пошук | Movyza', catalog: 'Movyza Топ-1000 фільмів і серіалів', legal: 'DMCA та політика сторонніх сервісів | Movyza' },
-    he: { home: 'Movyza — סרטים וסדרות', movies: 'סרטים | Movyza', series: 'סדרות | Movyza', discover: 'גילוי | Movyza', search: 'חיפוש | Movyza', catalog: 'Movyza 1000 הסרטים והסדרות המובילים', legal: 'DMCA ומדיניות צד שלישי | Movyza' },
-    vi: { home: 'Movyza — Phim và series', movies: 'Phim | Movyza', series: 'Series | Movyza', discover: 'Khám phá | Movyza', search: 'Tìm kiếm | Movyza', catalog: 'Movyza Top 1000 phim và series', legal: 'DMCA và chính sách bên thứ ba | Movyza' },
-    id: { home: 'Movyza — Film dan serial TV', movies: 'Film | Movyza', series: 'Serial | Movyza', discover: 'Jelajahi | Movyza', search: 'Cari | Movyza', catalog: 'Movyza Top 1000 film dan serial', legal: 'DMCA dan kebijakan pihak ketiga | Movyza' },
-    ms: { home: 'Movyza — Filem dan siri', movies: 'Filem | Movyza', series: 'Siri | Movyza', discover: 'Teroka | Movyza', search: 'Cari | Movyza', catalog: 'Movyza Top 1000 filem dan siri', legal: 'DMCA dan polisi pihak ketiga | Movyza' },
-    th: { home: 'Movyza — ภาพยนตร์และซีรีส์', movies: 'ภาพยนตร์ | Movyza', series: 'ซีรีส์ | Movyza', discover: 'สำรวจ | Movyza', search: 'ค้นหา | Movyza', catalog: 'Movyza Top 1000 ภาพยนตร์และซีรีส์', legal: 'DMCA และนโยบายบุคคลที่สาม | Movyza' },
-    ro: { home: 'Movyza — Filme și seriale', movies: 'Filme | Movyza', series: 'Seriale | Movyza', discover: 'Descoperă | Movyza', search: 'Caută | Movyza', catalog: 'Movyza Top 1000 filme și seriale', legal: 'DMCA și politica terților | Movyza' },
-    hu: { home: 'Movyza — Filmek és sorozatok', movies: 'Filmek | Movyza', series: 'Sorozatok | Movyza', discover: 'Felfedezés | Movyza', search: 'Keresés | Movyza', catalog: 'Movyza Top 1000 film és sorozat', legal: 'DMCA és harmadik felek szabályzata | Movyza' },
-    el: { home: 'Movyza — Ταινίες και σειρές', movies: 'Ταινίες | Movyza', series: 'Σειρές | Movyza', discover: 'Εξερεύνηση | Movyza', search: 'Αναζήτηση | Movyza', catalog: 'Movyza Top 1000 ταινίες και σειρές', legal: 'DMCA και πολιτική τρίτων | Movyza' },
-    bn: { home: 'Movyza — সিনেমা ও সিরিজ', movies: 'সিনেমা | Movyza', series: 'সিরিজ | Movyza', discover: 'অন্বেষণ | Movyza', search: 'অনুসন্ধান | Movyza', catalog: 'Movyza Top 1000 সিনেমা ও সিরিজ', legal: 'DMCA ও তৃতীয় পক্ষের নীতি | Movyza' },
-    ur: { home: 'Movyza — فلمیں اور سیریز', movies: 'فلمیں | Movyza', series: 'سیریز | Movyza', discover: 'دریافت کریں | Movyza', search: 'تلاش | Movyza', catalog: 'Movyza کی ٹاپ 1000 فلمیں اور سیریز', legal: 'DMCA اور تھرڈ پارٹی پالیسی | Movyza' },
-    fa: { home: 'Movyza — فیلم و سریال', movies: 'فیلم‌ها | Movyza', series: 'سریال‌ها | Movyza', discover: 'کشف | Movyza', search: 'جستجو | Movyza', catalog: '۱۰۰۰ فیلم و سریال برتر Movyza', legal: 'DMCA و سیاست محتوای شخص ثالث | Movyza' },
+  const generic: Record<LocaleCode, { home: string; movies: string; series: string; discover: string; search: string; catalog: string; legal: string }> = {
+    ar: { home: "موفيزا — منصة الأفلام والمسلسلات", movies: "الأفلام والمسلسلات المترجمة | موفيزا", series: "المسلسلات التلفزيونية | موفيزا", discover: "استكشاف الأفلام والمسلسلات | موفيزا", search: "البحث في موفيزا", catalog: "أفضل 1000 فيلم ومسلسل | موفيزا", legal: "إخلاء المسؤولية وDMCA | موفيزا" },
+    en: { home: "Movyza — Movies & TV Shows", movies: "Movies & Films | Movyza", series: "TV Series | Movyza", discover: "Discover Movies & TV | Movyza", search: "Search | Movyza", catalog: "Movyza Top 1000 Movies & TV Shows", legal: "DMCA & Third-Party Policy | Movyza" },
+    fr: { home: "Movyza — Films et séries", movies: "Films | Movyza", series: "Séries TV | Movyza", discover: "Découvrir | Movyza", search: "Recherche | Movyza", catalog: "Top 1000 Films et séries | Movyza", legal: "DMCA et politique des tiers | Movyza" },
+    de: { home: "Movyza — Filme & Serien", movies: "Filme | Movyza", series: "Serien | Movyza", discover: "Entdecken | Movyza", search: "Suche | Movyza", catalog: "Top 1000 Filme und Serien | Movyza", legal: "DMCA und Richtlinie für Drittanbieter | Movyza" },
+    es: { home: "Movyza — Películas y series", movies: "Películas | Movyza", series: "Series | Movyza", discover: "Descubrir | Movyza", search: "Buscar | Movyza", catalog: "Top 1000 Películas y series | Movyza", legal: "DMCA y política de terceros | Movyza" },
+    it: { home: "Movyza — Film e serie TV", movies: "Film | Movyza", series: "Serie TV | Movyza", discover: "Scopri | Movyza", search: "Cerca | Movyza", catalog: "Top 1000 Film e serie TV | Movyza", legal: "DMCA e policy di terze parti | Movyza" },
+    pt: { home: "Movyza — Filmes e séries", movies: "Filmes | Movyza", series: "Séries | Movyza", discover: "Descobrir | Movyza", search: "Pesquisar | Movyza", catalog: "Top 1000 Filmes e séries | Movyza", legal: "DMCA e política de terceiros | Movyza" },
+    ru: { home: "Movyza — Фильмы и сериалы", movies: "Фильмы | Movyza", series: "Сериалы | Movyza", discover: "Каталог | Movyza", search: "Поиск | Movyza", catalog: "Топ-1000 фильмов и сериалов | Movyza", legal: "DMCA и политика сторонних сервисов | Movyza" },
+    tr: { home: "Movyza — Filmler ve diziler", movies: "Filmler | Movyza", series: "Diziler | Movyza", discover: "Keşfet | Movyza", search: "Ara | Movyza", catalog: "En İyi 1000 Film ve Dizi | Movyza", legal: "DMCA ve üçüncü taraf politikası | Movyza" },
+    hi: { home: "Movyza — फ़िल्में और सीरीज़", movies: "फ़िल्में | Movyza", series: "सीरीज़ | Movyza", discover: "खोजें | Movyza", search: "खोज | Movyza", catalog: "Top 1000 फ़िल्में और सीरीज़ | Movyza", legal: "DMCA और तृतीय-पक्ष नीति | Movyza" },
+    ja: { home: "Movyza — 映画・ドラマ", movies: "映画 | Movyza", series: "ドラマ | Movyza", discover: "探す | Movyza", search: "検索 | Movyza", catalog: "人気映画・ドラマ Top 1000 | Movyza", legal: "DMCA・第三者ポリシー | Movyza" },
+    ko: { home: "Movyza — 영화 및 드라마", movies: "영화 | Movyza", series: "드라마 | Movyza", discover: "둘러보기 | Movyza", search: "검색 | Movyza", catalog: "인기 영화·드라마 Top 1000 | Movyza", legal: "DMCA 및 제3자 정책 | Movyza" },
+    zh: { home: "Movyza — 电影与剧集", movies: "电影 | Movyza", series: "剧集 | Movyza", discover: "探索 | Movyza", search: "搜索 | Movyza", catalog: "热门电影与剧集 Top 1000 | Movyza", legal: "DMCA 与第三方政策 | Movyza" },
+    nl: { home: "Movyza — Films en series", movies: "Films | Movyza", series: "Series | Movyza", discover: "Ontdekken | Movyza", search: "Zoeken | Movyza", catalog: "Top 1000 films en series | Movyza", legal: "DMCA en beleid voor derden | Movyza" },
+    sv: { home: "Movyza — Filmer och serier", movies: "Filmer | Movyza", series: "Serier | Movyza", discover: "Upptäck | Movyza", search: "Sök | Movyza", catalog: "Top 1000 filmer och serier | Movyza", legal: "DMCA och policy för tredje part | Movyza" },
+    da: { home: "Movyza — Film og serier", movies: "Film | Movyza", series: "Serier | Movyza", discover: "Udforsk | Movyza", search: "Søg | Movyza", catalog: "Top 1000 film og serier | Movyza", legal: "DMCA og tredjepartspolitik | Movyza" },
+    no: { home: "Movyza — Filmer og serier", movies: "Filmer | Movyza", series: "Serier | Movyza", discover: "Utforsk | Movyza", search: "Søk | Movyza", catalog: "Topp 1000 filmer og serier | Movyza", legal: "DMCA og tredjepartspolicy | Movyza" },
+    fi: { home: "Movyza — Elokuvat ja sarjat", movies: "Elokuvat | Movyza", series: "Sarjat | Movyza", discover: "Tutustu | Movyza", search: "Haku | Movyza", catalog: "Top 1000 elokuvat ja sarjat | Movyza", legal: "DMCA ja kolmansien osapuolten käytäntö | Movyza" },
+    pl: { home: "Movyza — Filmy i seriale", movies: "Filmy | Movyza", series: "Seriale | Movyza", discover: "Odkrywaj | Movyza", search: "Szukaj | Movyza", catalog: "Top 1000 filmów i seriali | Movyza", legal: "DMCA i polityka stron trzecich | Movyza" },
+    cs: { home: "Movyza — Filmy a seriály", movies: "Filmy | Movyza", series: "Seriály | Movyza", discover: "Prozkoumat | Movyza", search: "Hledat | Movyza", catalog: "Top 1000 filmů a seriálů | Movyza", legal: "DMCA a zásady třetích stran | Movyza" },
+    uk: { home: "Movyza — Фільми та серіали", movies: "Фільми | Movyza", series: "Серіали | Movyza", discover: "Досліджувати | Movyza", search: "Пошук | Movyza", catalog: "Топ-1000 фільмів і серіалів | Movyza", legal: "DMCA та політика сторонніх сервісів | Movyza" },
+    he: { home: "Movyza — סרטים וסדרות", movies: "סרטים | Movyza", series: "סדרות | Movyza", discover: "גילוי | Movyza", search: "חיפוש | Movyza", catalog: "1000 הסרטים והסדרות המובילים | Movyza", legal: "DMCA ומדיניות צד שלישי | Movyza" },
+    vi: { home: "Movyza — Phim và series", movies: "Phim | Movyza", series: "Series | Movyza", discover: "Khám phá | Movyza", search: "Tìm kiếm | Movyza", catalog: "Top 1000 phim và series | Movyza", legal: "DMCA và chính sách bên thứ ba | Movyza" },
+    id: { home: "Movyza — Film dan serial TV", movies: "Film | Movyza", series: "Serial | Movyza", discover: "Jelajahi | Movyza", search: "Cari | Movyza", catalog: "Top 1000 film dan serial | Movyza", legal: "DMCA dan kebijakan pihak ketiga | Movyza" },
+    ms: { home: "Movyza — Filem dan siri", movies: "Filem | Movyza", series: "Siri | Movyza", discover: "Teroka | Movyza", search: "Cari | Movyza", catalog: "Top 1000 filem dan siri | Movyza", legal: "DMCA dan polisi pihak ketiga | Movyza" },
+    th: { home: "Movyza — ภาพยนตร์และซีรีส์", movies: "ภาพยนตร์ | Movyza", series: "ซีรีส์ | Movyza", discover: "สำรวจ | Movyza", search: "ค้นหา | Movyza", catalog: "Top 1000 ภาพยนตร์และซีรีส์ | Movyza", legal: "DMCA และนโยบายบุคคลที่สาม | Movyza" },
+    ro: { home: "Movyza — Filme și seriale", movies: "Filme | Movyza", series: "Seriale | Movyza", discover: "Descoperă | Movyza", search: "Caută | Movyza", catalog: "Top 1000 filme și seriale | Movyza", legal: "DMCA și politica terților | Movyza" },
+    hu: { home: "Movyza — Filmek és sorozatok", movies: "Filmek | Movyza", series: "Sorozatok | Movyza", discover: "Felfedezés | Movyza", search: "Keresés | Movyza", catalog: "Top 1000 film és sorozat | Movyza", legal: "DMCA és harmadik felek szabályzata | Movyza" },
+    el: { home: "Movyza — Ταινίες και σειρές", movies: "Ταινίες | Movyza", series: "Σειρές | Movyza", discover: "Εξερεύνηση | Movyza", search: "Αναζήτηση | Movyza", catalog: "Top 1000 ταινίες και σειρές | Movyza", legal: "DMCA και πολιτική τρίτων | Movyza" },
+    bn: { home: "Movyza — সিনেমা ও সিরিজ", movies: "সিনেমা | Movyza", series: "সিরিজ | Movyza", discover: "অন্বেষণ | Movyza", search: "অনুসন্ধান | Movyza", catalog: "Top 1000 সিনেমা ও সিরিজ | Movyza", legal: "DMCA ও তৃতীয় পক্ষের নীতি | Movyza" },
+    ur: { home: "Movyza — فلمیں اور سیریز", movies: "فلمیں | Movyza", series: "سیریز | Movyza", discover: "دریافت کریں | Movyza", search: "تلاش | Movyza", catalog: "ٹاپ 1000 فلمیں اور سیریز | Movyza", legal: "DMCA اور تھرڈ پارٹی پالیسی | Movyza" },
+    fa: { home: "Movyza — فیلم و سریال", movies: "فیلم‌ها | Movyza", series: "سریال‌ها | Movyza", discover: "کشف | Movyza", search: "جستجو | Movyza", catalog: "۱۰۰۰ فیلم و سریال برتر | Movyza", legal: "DMCA و سیاست شخص ثالث | Movyza" },
   };
-  const generic = genericByLocale[locale];
 
   if (route === '/') {
-    contentTitle = generic.home;
-    description = generic.home;
+    contentTitle = generic[locale].home;
+    description = generic[locale].home;
   } else if (route === '/movies') {
     contentTitle = generic.movies;
-    description = generic.movies;
+    description = generic[locale].movies;
   } else if (route === '/series') {
     contentTitle = generic.series;
-    description = generic.series;
+    description = generic[locale].series;
   } else if (route === '/discover') {
     contentTitle = generic.discover;
     description = generic.discover;
   } else if (route === '/legal') {
-    contentTitle = generic.legal;
-    description = generic.legal;
+    contentTitle = generic[locale].legal;
+    description = generic[locale].legal;
   } else if (route === '/catalog') {
-    contentTitle = generic.catalog;
-    description = generic.catalog;
+    contentTitle = generic[locale].catalog;
+    description = generic[locale].catalog;
   } else if (route === '/search' || route.startsWith('/search/')) {
     contentTitle = generic.search;
     description = generic.search;
@@ -301,7 +271,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
 
   if (!contentTitle) {
     contentTitle = generic.home;
-    description = generic.home;
+    description = generic[locale].home;
   }
 
   const isWatchPage = Boolean(watchMovie || watchEpisode);
@@ -838,188 +808,12 @@ const handleSitemap = async (request: Request, env: MovyzEnvironment) => {
     });
   }
 
-  const localePattern = Object.keys(LOCALES).join('|');
-  const staticMatch = new RegExp('^/sitemap/(' + localePattern + ')/static\\.xml$').exec(url.pathname);
+  const staticMatch = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko|zh|nl|sv|da|no|fi|pl|cs|uk|he|vi|id|ms|th|ro|hu|el|bn|ur|fa)\/static\.xml$/);
   if (staticMatch) {
     return buildStaticSitemapSegment(request, staticMatch[1] as LocaleCode);
   }
 
-  const match = new RegExp('^/sitemap/(' + localePattern + ')/(\\d+)\\.xml$').exec(url.pathname);
-  if (!match) return null;
-
-  const locale = match[1] as LocaleCode;
-  const type = match[2] as 'movies' | 'series' | 'episodes';
-  const page = Number(match[3]);
-  return buildSitemapSegment(request, env, locale, type, page);
-};
-
-export default {
-  async fetch(request: Request, env: MovyzEnvironment, _ctx: ExecutionContextLike): Promise<Response> {
-    const url = new URL(request.url);
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET,OPTIONS',
-        'Access-Control-Allow-Headers': 'Authorization,Content-Type',
-      }});
-    }
-    if (request.method === 'GET' && (url.pathname === '/sitemap.xml' || url.pathname.startsWith('/sitemap/'))) {
-      const sitemapResponse = await handleSitemap(request, env);
-      if (sitemapResponse) return sitemapResponse;
-    }
-    if (request.method === 'GET' && url.pathname === '/catalog/top1000') {
-      return catalogTop1000(request, env);
-    }
-    if (url.pathname === '/tmdb' || url.pathname.startsWith('/tmdb/')) {
-      return proxyTmdb(request, env);
-    }
-    if (request.method === 'GET' && isAppHtmlPath(url.pathname) && !localeFromPath(url.pathname)) {
-      const target = new URL(request.url);
-      const locale = detectRequestLocale(request);
-      target.pathname = target.pathname === '/' ? `/${locale}/` : `/${locale}${target.pathname}`;
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: target.toString(),
-          'Cache-Control': 'public, max-age=300',
-        },
-      });
-    }
-
-    const html = request.method === 'GET' && (url.pathname === '/' || isAppHtmlPath(url.pathname));
-    if (html) {
-      const freshUrl = new URL(request.url);
-      freshUrl.searchParams.set('__movyz_asset_version', env.MOVYZ_BUILD_ID || 'dev');
-      const freshRequest = new Request(freshUrl.toString(), request);
-      const localized = await env.ASSETS.fetch(freshRequest);
-      const locale = localeFromPath(url.pathname);
-      if (locale) return noCache(await localizedHtml(request, env, localized, locale));
-      return noCache(localized);
-    }
-    return await env.ASSETS.fetch(request);
-  },
-};
-).exec(url.pathname);
-  if (staticMatch) {
-    return buildStaticSitemapSegment(request, staticMatch[1] as LocaleCode);
-  }
-
-  const match = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko)\/(movies|series|episodes)\/(\d+)\.xml$/);
-  if (!match) return null;
-
-  const locale = match[1] as LocaleCode;
-  const type = match[2] as 'movies' | 'series' | 'episodes';
-  const page = Number(match[3]);
-  return buildSitemapSegment(request, env, locale, type, page);
-};
-
-export default {
-  async fetch(request: Request, env: MovyzEnvironment, _ctx: ExecutionContextLike): Promise<Response> {
-    const url = new URL(request.url);
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET,OPTIONS',
-        'Access-Control-Allow-Headers': 'Authorization,Content-Type',
-      }});
-    }
-    if (request.method === 'GET' && (url.pathname === '/sitemap.xml' || url.pathname.startsWith('/sitemap/'))) {
-      const sitemapResponse = await handleSitemap(request, env);
-      if (sitemapResponse) return sitemapResponse;
-    }
-    if (request.method === 'GET' && url.pathname === '/catalog/top1000') {
-      return catalogTop1000(request, env);
-    }
-    if (url.pathname === '/tmdb' || url.pathname.startsWith('/tmdb/')) {
-      return proxyTmdb(request, env);
-    }
-    if (request.method === 'GET' && isAppHtmlPath(url.pathname) && !localeFromPath(url.pathname)) {
-      const target = new URL(request.url);
-      const locale = detectRequestLocale(request);
-      target.pathname = target.pathname === '/' ? `/${locale}/` : `/${locale}${target.pathname}`;
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: target.toString(),
-          'Cache-Control': 'public, max-age=300',
-        },
-      });
-    }
-
-    const html = request.method === 'GET' && (url.pathname === '/' || isAppHtmlPath(url.pathname));
-    if (html) {
-      const freshUrl = new URL(request.url);
-      freshUrl.searchParams.set('__movyz_asset_version', env.MOVYZ_BUILD_ID || 'dev');
-      const freshRequest = new Request(freshUrl.toString(), request);
-      const localized = await env.ASSETS.fetch(freshRequest);
-      const locale = localeFromPath(url.pathname);
-      if (locale) return noCache(await localizedHtml(request, env, localized, locale));
-      return noCache(localized);
-    }
-    return await env.ASSETS.fetch(request);
-  },
-};
-).exec(url.pathname);
-  if (!match) return null;
-
-  const locale = match[1] as LocaleCode;
-  const type = match[2] as 'movies' | 'series' | 'episodes';
-  const page = Number(match[3]);
-  return buildSitemapSegment(request, env, locale, type, page);
-};
-
-export default {
-  async fetch(request: Request, env: MovyzEnvironment, _ctx: ExecutionContextLike): Promise<Response> {
-    const url = new URL(request.url);
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET,OPTIONS',
-        'Access-Control-Allow-Headers': 'Authorization,Content-Type',
-      }});
-    }
-    if (request.method === 'GET' && (url.pathname === '/sitemap.xml' || url.pathname.startsWith('/sitemap/'))) {
-      const sitemapResponse = await handleSitemap(request, env);
-      if (sitemapResponse) return sitemapResponse;
-    }
-    if (request.method === 'GET' && url.pathname === '/catalog/top1000') {
-      return catalogTop1000(request, env);
-    }
-    if (url.pathname === '/tmdb' || url.pathname.startsWith('/tmdb/')) {
-      return proxyTmdb(request, env);
-    }
-    if (request.method === 'GET' && isAppHtmlPath(url.pathname) && !localeFromPath(url.pathname)) {
-      const target = new URL(request.url);
-      const locale = detectRequestLocale(request);
-      target.pathname = target.pathname === '/' ? `/${locale}/` : `/${locale}${target.pathname}`;
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: target.toString(),
-          'Cache-Control': 'public, max-age=300',
-        },
-      });
-    }
-
-    const html = request.method === 'GET' && (url.pathname === '/' || isAppHtmlPath(url.pathname));
-    if (html) {
-      const freshUrl = new URL(request.url);
-      freshUrl.searchParams.set('__movyz_asset_version', env.MOVYZ_BUILD_ID || 'dev');
-      const freshRequest = new Request(freshUrl.toString(), request);
-      const localized = await env.ASSETS.fetch(freshRequest);
-      const locale = localeFromPath(url.pathname);
-      if (locale) return noCache(await localizedHtml(request, env, localized, locale));
-      return noCache(localized);
-    }
-    return await env.ASSETS.fetch(request);
-  },
-};
-).exec(url.pathname);
-  if (staticMatch) {
-    return buildStaticSitemapSegment(request, staticMatch[1] as LocaleCode);
-  }
-
-  const match = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko)\/(movies|series|episodes)\/(\d+)\.xml$/);
+  const match = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko|zh|nl|sv|da|no|fi|pl|cs|uk|he|vi|id|ms|th|ro|hu|el|bn|ur|fa)\/(movies|series|episodes)\/(\d+)\.xml$/);
   if (!match) return null;
 
   const locale = match[1] as LocaleCode;
