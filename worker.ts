@@ -329,7 +329,16 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   }
 
   const isWatchPage = Boolean(watchMovie || watchEpisode);
-  const isNoIndex = route === '/search' || route.startsWith('/search/');
+  const noindexRoutes = new Set([
+    '/admin',
+    '/profile',
+    '/watchlist',
+    '/history',
+    '/login',
+    '/register',
+    '/forgot-password',
+  ]);
+  const isNoIndex = route === '/search' || route.startsWith('/search/') || noindexRoutes.has(route);
   const searchTitle = alternateTitle || contentTitle;
   const seoTitle = isWatchPage
     ? (locale === 'ar'
