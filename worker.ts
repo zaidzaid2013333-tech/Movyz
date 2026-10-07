@@ -798,6 +798,24 @@ const SITEMAP_PUBLIC_ORIGIN = 'https://movyza.sbs';
 
 const buildRootSitemap = () => buildSitemapIndex(SITEMAP_CRAWL_ORIGIN);
 
+const buildRobotsTxt = () => [
+  '# Movyza crawler policy',
+  '# robots.txt manages crawling; it is not an access-control mechanism.',
+  '',
+  'User-agent: *',
+  'Allow: /',
+  'Disallow: /admin',
+  'Disallow: /*/admin',
+  'Disallow: /tmdb',
+  'Disallow: /tmdb/',
+  'Disallow: /api/v1/playback/resolve',
+  '',
+  '# Search pages are marked noindex by the application instead of being blocked here.',
+  '',
+  'Sitemap: https://movyz-api.sameranede.workers.dev/sitemap.xml',
+  '',
+].join('\n');
+
 const xmlResponse = (xml: string, maxAge = 3600) =>
   new Response(xml, {
     status: 200,
@@ -836,6 +854,16 @@ export default {
         'Access-Control-Allow-Methods': 'GET,OPTIONS',
         'Access-Control-Allow-Headers': 'Authorization,Content-Type',
       }});
+    }
+    if (request.method === 'GET' && url.pathname === '/robots.txt') {
+      return new Response(buildRobotsTxt(), {
+        status: 200,
+        headers: {
+          'content-type': 'text/plain; charset=UTF-8',
+          'cache-control': 'public, max-age=3600, s-maxage=86400',
+          'cdn-cache-control': 'public, max-age=86400',
+        },
+      });
     }
     if (request.method === 'GET' && url.pathname === '/sitemap.xml') {
       return xmlResponse(buildRootSitemap());
