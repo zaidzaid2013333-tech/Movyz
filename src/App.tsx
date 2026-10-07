@@ -313,20 +313,15 @@ function MainApp() {
   const isWatchPage = stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname.startsWith('/watch/');
   const hilltopEligiblePath = stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname;
 
-  // HilltopAds is reserved for high-intent content surfaces. Home, auth, legal,
-  // admin and the watch/player route rely on their existing UX/ad strategy.
+  // HilltopAds is enabled across public content/discovery pages, while
+  // sensitive utility/auth/admin/legal surfaces remain ad-free.
   const showHilltopBanner =
     !isWatchPage &&
-    (
-      hilltopEligiblePath === '/movies' ||
-      hilltopEligiblePath === '/series' ||
-      hilltopEligiblePath === '/search' ||
-      hilltopEligiblePath === '/discover' ||
-      hilltopEligiblePath === '/catalog' ||
-      hilltopEligiblePath === '/watchlist' ||
-      hilltopEligiblePath.startsWith('/movies/') ||
-      hilltopEligiblePath.startsWith('/series/')
-    );
+    hilltopEligiblePath !== '/login' &&
+    hilltopEligiblePath !== '/register' &&
+    hilltopEligiblePath !== '/forgot-password' &&
+    hilltopEligiblePath !== '/legal' &&
+    hilltopEligiblePath !== '/admin';
 
   // Monetag MultiTag is intentionally disabled on the watch route because its
   // notification-style formats can inject overlays above the playback iframe.
