@@ -46,20 +46,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     // This prevents an incorrect CDN geolocation/browser language from forcing
     // French (or another language) on users who are viewing an Arabic page.
     const fallbackByLanguage: Record<string, string[]> = {
-      ar: ['ar', 'en'],
       en: ['en'],
-      fr: ['fr', 'en'],
-      de: ['de', 'en'],
-      es: ['es', 'en'],
-      it: ['it', 'en'],
-      pt: ['pt', 'en'],
-      ru: ['ru', 'en'],
-      tr: ['tr', 'en'],
-      hi: ['hi', 'en'],
-      ja: ['ja', 'en'],
-      ko: ['ko', 'en'],
     };
-    return fallbackByLanguage[language] || ['en'];
+    return fallbackByLanguage[language] || [language, 'en'];
   }, [language]);
 
   const embedUrl = useMemo(() => {
