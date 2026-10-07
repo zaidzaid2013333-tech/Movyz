@@ -608,6 +608,7 @@ const escapeXml = (value: string) =>
 
 const SITEMAP_DISCOVERY_PAGES = 20;
 const SITEMAP_EPISODE_PAGES = 20;
+const SITEMAP_CRAWL_ORIGIN = 'https://movyz-api.sameranede.workers.dev';
 
 const buildSitemapIndex = (origin: string) => {
   const entries: string[] = [];
@@ -640,7 +641,7 @@ const buildSitemapIndex = (origin: string) => {
 };
 
 const buildStaticSitemapSegment = (request: Request, locale: LocaleCode) => {
-  const origin = new URL(request.url).origin;
+  const origin = SITEMAP_PUBLIC_ORIGIN;
   const routes = ['/', '/movies', '/series', '/discover', '/catalog', '/legal'];
   const urls = routes
     .map((route) =>
@@ -674,7 +675,7 @@ const buildSitemapSegment = async (
   }
 
   const config = LOCALES[locale];
-  const origin = new URL(request.url).origin;
+  const origin = SITEMAP_PUBLIC_ORIGIN;
 
   const fetchJson = async (target: URL) => {
     const upstream = await fetch(target.toString(), { headers: tmdbHeaders(env) });
@@ -795,17 +796,7 @@ const buildSitemapSegment = async (
 const ROOT_SITEMAP_ROUTES = ['/', '/movies', '/series', '/discover', '/catalog', '/legal'] as const;
 const SITEMAP_PUBLIC_ORIGIN = 'https://movyza.sbs';
 
-const buildRootSitemap = () => {
-  const urls = (Object.keys(LOCALES) as LocaleCode[])
-    .flatMap((locale) => ROOT_SITEMAP_ROUTES.map((route) => {
-      const path = route === '/' ? `/${locale}/` : `/${locale}${route}`;
-      const priority = route === '/' ? '1.0' : '0.8';
-      return `<url><loc>${escapeXml(SITEMAP_PUBLIC_ORIGIN + path)}</loc><changefreq>daily</changefreq><priority>${priority}</priority></url>`;
-    }))
-    .join('');
-
-  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`;
-};
+const buildRootSitemap = () => buildSitemapIndex(SITEMAP_CRAWL_ORIGIN);
 
 const xmlResponse = (xml: string, maxAge = 3600) =>
   new Response(xml, {
