@@ -9,8 +9,6 @@ on:
 permissions:
   contents: read
 
-# Keep production deploys tied to the latest main commit.
-
 concurrency:
   group: movyza-cloudflare-${{ github.ref }}
   cancel-in-progress: true
@@ -66,32 +64,58 @@ jobs:
         run: |
           set -euo pipefail
           base="https://movyz-api.sameranede.workers.dev"
+
+          echo "CHECK 1/10: localized home"
           html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/")"
           printf '%s' "$html" | grep -q 'name="movyz-player" content="vidsrc"'
           printf '%s' "$html" | grep -q 'name="movyz-subtitles" content="vidsrc-locale-subtitles-v1"'
+
+          echo "CHECK 2/10: Arabic movies"
           ar_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies")"
+          printf '%s' "$ar_html" | grep -q '<html lang="ar" dir="rtl"'
+          printf '%s' "$ar_html" | grep -q 'hreflang="en-us"'
+
+          echo "CHECK 3/10: English movies"
           en_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/en/movies")"
+          printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'
+          printf '%s' "$en_html" | grep -q 'hreflang="ar-sa"'
+
+          echo "CHECK 4/10: sitemap index"
           sitemap="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
           printf '%s' "$sitemap" | grep -q '<sitemapindex'
           printf '%s' "$sitemap" | grep -q '/sitemap/ar/movies/1.xml'
           printf '%s' "$sitemap" | grep -q '/sitemap/en/series/1.xml'
+
+          echo "CHECK 5/10: sitemap segment"
           sitemap_segment="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml")"
           printf '%s' "$sitemap_segment" | grep -q '<urlset'
           printf '%s' "$sitemap_segment" | grep -q '/ar/movies/'
-          printf '%s' "$ar_html" | grep -q '<html lang="ar" dir="rtl"'
-          printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'
-          printf '%s' "$ar_html" | grep -q 'hreflang="en-us"'
-          printf '%s' "$en_html" | grep -q 'hreflang="ar-sa"'
+
+          echo "CHECK 6/10: static assets"
           assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | sort -u)"
           test -n "$assets"
           printf '%s' "$html" | grep -q 'Movyza'
+
+          echo "CHECK 7/10: TMDB proxy"
           body="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/tmdb/movie/550?language=en-US")"
           printf '%s' "$body" | grep -q '"id":550'
+
+          echo "CHECK 8/10: movie deep link"
           fight_club="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies/550")"
           printf '%s' "$fight_club" | grep -q 'Fight Club'
           printf '%s' "$fight_club" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
           printf '%s' "$fight_club" | grep -q 'rel="canonical"'
           printf '%s' "$fight_club" | grep -q '"@type":"Movie"'
+
+          echo "CHECK 9/10: watch deep link"
+          watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/watch/movie/550")"
+          printf '%s' "$watch_html" | grep -q 'Fight Club'
+
+          echo "CHECK 10/10: robots"
+          robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/robots.txt")"
+          printf '%s' "$robots" | grep -q 'Sitemap:'
+
+          echo "ALL PRODUCTION HEALTH CHECKS PASSED"
 
           # Production custom domains can be protected by Cloudflare Bot Fight Mode.
           # The worker-origin checks above validate the application contract; public-domain
