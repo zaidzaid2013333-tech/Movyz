@@ -792,6 +792,32 @@ const buildSitemapSegment = async (
   }
 };
 
+const ROOT_SITEMAP_ROUTES = ['/', '/movies', '/series', '/discover', '/catalog', '/legal'] as const;
+const SITEMAP_PUBLIC_ORIGIN = 'https://movyza.sbs';
+
+const buildRootSitemap = () => {
+  const urls = (Object.keys(LOCALES) as LocaleCode[])
+    .flatMap((locale) => ROOT_SITEMAP_ROUTES.map((route) => {
+      const path = route === '/' ? `/${locale}/` : `/${locale}${route}`;
+      const priority = route === '/' ? '1.0' : '0.8';
+      return `<url><loc>${escapeXml(SITEMAP_PUBLIC_ORIGIN + path)}</loc><changefreq>daily</changefreq><priority>${priority}</priority></url>`;
+    }))
+    .join('');
+
+  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`;
+};
+
+const xmlResponse = (xml: string, maxAge = 3600) =>
+  new Response(xml, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/xml; charset=UTF-8',
+      'Cache-Control': `public, max-age=${maxAge}, s-maxage=86400`,
+      'CDN-Cache-Control': 'public, max-age=86400',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+
 const handleSitemap = async (request: Request, env: MovyzEnvironment) => {
   const url = new URL(request.url);
   if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
@@ -819,6 +845,9 @@ export default {
         'Access-Control-Allow-Methods': 'GET,OPTIONS',
         'Access-Control-Allow-Headers': 'Authorization,Content-Type',
       }});
+    }
+    if (request.method === 'GET' && url.pathname === '/sitemap.xml') {
+      return xmlResponse(buildRootSitemap());
     }
     if (request.method === 'GET' && url.pathname.startsWith('/sitemap/')) {
       const sitemapResponse = await handleSitemap(request, env);
