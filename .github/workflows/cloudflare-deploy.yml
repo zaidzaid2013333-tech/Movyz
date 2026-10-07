@@ -90,20 +90,21 @@ jobs:
           printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/en/movies'
           printf '%s' "$sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
-          echo "CHECK 5/10: public-domain root sitemap"
-          echo "CHECK 5A/10: public-domain Googlebot access"
-          googlebot_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -o /tmp/googlebot-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap.xml")"
-          test "$googlebot_status" = "200"
-          googlebot_sitemap="$(cat /tmp/googlebot-sitemap.xml)"
-          printf '%s' "$googlebot_sitemap" | grep -q '<urlset'
-          printf '%s' "$googlebot_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
+          echo "CHECK 5/10: worker sitemap index"
+          worker_sitemap="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "https://movyz-api.sameranede.workers.dev/sitemap.xml")"
+          printf '%s' "$worker_sitemap" | grep -q '<sitemapindex'
+          printf '%s' "$worker_sitemap" | grep -q 'https://movyz-api.sameranede.workers.dev/sitemap/ar/movies/1.xml'
+          printf '%s' "$worker_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
-          public_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/public-sitemap.xml -H 'Cache-Control: no-cache' "https://movyza.sbs/sitemap.xml")"
-          printf '%s' "$public_headers" | grep -Eiq '^content-type: *application/xml'
-          public_sitemap="$(cat /tmp/public-sitemap.xml)"
-          printf '%s' "$public_sitemap" | grep -q '<urlset'
-          printf '%s' "$public_sitemap" | grep -q 'https://movyza.sbs/ar/'
-          printf '%s' "$public_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
+          echo "CHECK 5A/10: worker sitemap segment publishes Movyza URLs"
+          worker_segment="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "https://movyz-api.sameranede.workers.dev/sitemap/ar/movies/1.xml")"
+          printf '%s' "$worker_segment" | grep -q '<urlset'
+          printf '%s' "$worker_segment" | grep -q 'https://movyza.sbs/ar/movies/'
+          printf '%s' "$worker_segment" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
+
+          echo "CHECK 5B/10: public robots points to crawler-safe sitemap"
+          public_robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "https://movyza.sbs/robots.txt")"
+          printf '%s' "$public_robots" | grep -q 'Sitemap: https://movyz-api.sameranede.workers.dev/sitemap.xml'
 
           echo "CHECK 6/10: sitemap segment"
           sitemap_segment="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml")"
