@@ -1,0 +1,109 @@
+name: Movyza crawler protection
+
+on:
+  push:
+    paths:
+      - .github/workflows/cloudflare-crawler-protection.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      ZONE_NAME: movyza.sbs
+    steps:
+      - name: Apply edge crawler block
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "$CLOUDFLARE_API_TOKEN"
+
+          API="https://api.cloudflare.com/client/v4"
+
+          zone_json="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "$API/zones?name=$ZONE_NAME&status=active&per_page=1")"
+
+          zone_id="$(printf '%s' "$zone_json" | jq -r '.result[0].id // empty')"
+          test -n "$zone_id"
+
+          expression='(lower(http.user_agent) contains "netflix") or (lower(http.user_agent) contains "primevideo") or (lower(http.user_agent) contains "prime video") or (lower(http.user_agent) contains "amazonbot") or (lower(http.user_agent) contains "amzn-searchbot") or (lower(http.user_agent) contains "amzn-user") or (lower(http.user_agent) contains "shahid")'
+
+          entry_url="$API/zones/$zone_id/rulesets/phases/http_request_firewall_custom/entrypoint"
+          entry_status="$(curl --silent --show-error --output /tmp/entrypoint.json --write-out '%{http_code}' \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "$entry_url")"
+
+          if [ "$entry_status" = "200" ]; then
+            ruleset_id="$(jq -r '.result.id // empty' /tmp/entrypoint.json)"
+            test -n "$ruleset_id"
+
+            already_present="$(jq -r --arg d 'Movyza: block unwanted media crawlers by declared user-agent' '
+              any(.result.rules[]?; .description == $d)
+            ' /tmp/entrypoint.json)"
+
+            if [ "$already_present" = "true" ]; then
+              echo "Movyza crawler block rule already exists."
+              exit 0
+            fi
+
+            payload="$(jq -n \
+              --arg expr "$expression" \
+              '{
+                description: "Movyza: block unwanted media crawlers by declared user-agent",
+                expression: $expr,
+                action: "block"
+              }')"
+
+            curl --fail --silent --show-error \
+              -X POST \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$payload" \
+              "$API/zones/$zone_id/rulesets/$ruleset_id/rules" >/tmp/create-rule.json
+          elif [ "$entry_status" = "404" ]; then
+            payload="$(jq -n \
+              --arg expr "$expression" \
+              '{
+                name: "zone",
+                description: "Zone-level phase entry point",
+                kind: "zone",
+                phase: "http_request_firewall_custom",
+                rules: [
+                  {
+                    description: "Movyza: block unwanted media crawlers by declared user-agent",
+                    expression: $expr,
+                    action: "block"
+                  }
+                ]
+              }')"
+
+            curl --fail --silent --show-error \
+              -X POST \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$payload" \
+              "$API/zones/$zone_id/rulesets" >/tmp/create-entrypoint.json
+          else
+            cat /tmp/entrypoint.json
+            exit 1
+          fi
+
+          verify="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "$entry_url")"
+
+          printf '%s' "$verify" | jq -e --arg d 'Movyza: block unwanted media crawlers by declared user-agent' '
+            any(.result.rules[]?; .description == $d)
+          ' >/dev/null
+
+          echo "Cloudflare crawler protection is active."
