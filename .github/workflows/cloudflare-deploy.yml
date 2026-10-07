@@ -80,21 +80,17 @@ jobs:
           printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'
           printf '%s' "$en_html" | grep -q 'hreflang="ar-sa"'
 
-          echo "CHECK 4/10: root sitemap"
+          echo "CHECK 4/10: root sitemap index"
           sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
           printf '%s' "$sitemap_headers" | grep -Eiq '^content-type: *application/xml'
           sitemap="$(cat /tmp/sitemap.xml)"
           printf '%s' "$sitemap" | grep -q '^<?xml version="1.0" encoding="UTF-8"?>'
-          printf '%s' "$sitemap" | grep -q '<urlset'
-          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/ar/'
-          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/en/movies'
+          printf '%s' "$sitemap" | grep -q '<sitemapindex'
+          printf '%s' "$sitemap" | grep -q 'https://movyz-api.sameranede.workers.dev/sitemap/ar/movies/1.xml'
           printf '%s' "$sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
           echo "CHECK 5/10: worker sitemap index"
           worker_sitemap="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "https://movyz-api.sameranede.workers.dev/sitemap.xml")"
-          echo "WORKER SITEMAP RESPONSE (first 1200 chars):"
-          printf '%s' "$worker_sitemap" | head -c 1200
-          echo
           printf '%s' "$worker_sitemap" | grep -q '<sitemapindex'
           printf '%s' "$worker_sitemap" | grep -q 'https://movyz-api.sameranede.workers.dev/sitemap/ar/movies/1.xml'
           printf '%s' "$worker_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
