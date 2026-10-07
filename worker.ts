@@ -608,7 +608,7 @@ const escapeXml = (value: string) =>
 
 const SITEMAP_DISCOVERY_PAGES = 20;
 const SITEMAP_EPISODE_PAGES = 20;
-const SITEMAP_CRAWL_ORIGIN = 'https://movyz-api.sameranede.workers.dev';
+const SITEMAP_CRAWL_ORIGIN = SITEMAP_PUBLIC_ORIGIN;
 
 const buildSitemapIndex = (origin: string) => {
   const entries: string[] = [];
