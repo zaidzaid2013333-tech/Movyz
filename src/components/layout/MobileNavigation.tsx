@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Film, Tv, User, Compass } from 'lucide-react';
+import { Home, Film, Tv, User, Search } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface MobileNavigationProps {
@@ -8,13 +8,13 @@ interface MobileNavigationProps {
 }
 
 export const MobileNavigation: React.FC<MobileNavigationProps> = ({ currentPath, onNavigate }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   const tabs = [
     { id: 'home', label: t('home'), path: '/', icon: Home },
     { id: 'movies', label: t('movies'), path: '/movies', icon: Film },
+    { id: 'search', label: language === 'ar' ? 'بحث' : 'Search', path: '/search', icon: Search },
     { id: 'series', label: t('series'), path: '/series', icon: Tv },
-    { id: 'discover', label: t('discover'), path: '/discover', icon: Compass },
     { id: 'profile', label: t('profile'), path: '/profile', icon: User },
   ];
 
