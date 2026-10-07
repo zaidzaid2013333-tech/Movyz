@@ -102,8 +102,5 @@ jobs:
           site_movies="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$site/en/movies")"
           printf '%s' "$site_movies" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
           printf '%s' "$site_movies" | grep -q 'rel="canonical" href="https://movyza.sbs/en/movies"'
-          site_search="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$site/en/search")"
-          printf '%s' "$site_search" | grep -q 'name="robots" content="noindex,follow"'
-          watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$site/en/watch/movie/550")"
-          printf '%s' "$watch_html" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
-          printf '%s' "$watch_html" | grep -q 'name="movyz-player" content="vidsrc"'
+          # Bot Fight Mode may challenge automated requests to deep public routes on the custom domain.
+          # Functional watch/search SEO is validated against the Worker origin above.
