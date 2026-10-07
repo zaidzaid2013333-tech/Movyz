@@ -839,12 +839,12 @@ const handleSitemap = async (request: Request, env: MovyzEnvironment) => {
   }
 
   const localePattern = Object.keys(LOCALES).join('|');
-  const staticMatch = new RegExp('^/sitemap/(' + localePattern + ')/static\\.xml
+  const staticMatch = new RegExp('^/sitemap/(' + localePattern + ')/static\\.xml$').exec(url.pathname);
   if (staticMatch) {
     return buildStaticSitemapSegment(request, staticMatch[1] as LocaleCode);
   }
 
-  const match = new RegExp('^/sitemap/(' + localePattern + ')/(movies|series|episodes)/(\\d+)\\.xml
+  const match = new RegExp('^/sitemap/(' + localePattern + ')/(\\d+)\\.xml$').exec(url.pathname);
   if (!match) return null;
 
   const locale = match[1] as LocaleCode;
