@@ -313,7 +313,8 @@ function MainApp() {
 
   // Monetag MultiTag is intentionally disabled on the watch route because its
   // notification-style formats can inject overlays above the playback iframe.
-  // Keep monetization active on all non-watch pages.
+  // Re-initialize it on every non-watch route so SPA navigation does not leave
+  // the ad tag bound only to the first page (typically the home page).
   useEffect(() => {
     const existing = document.getElementById('movyza-monetag-multitag');
     existing?.remove();
@@ -331,7 +332,7 @@ function MainApp() {
     return () => {
       document.getElementById('movyza-monetag-multitag')?.remove();
     };
-  }, [isWatchPage]);
+  }, [isWatchPage, currentPath]);
 
   return (
     <div className="min-h-screen bg-[#08090d] text-slate-100 flex flex-col font-sans selection:bg-amber-500/30 selection:text-amber-200">
