@@ -142,6 +142,8 @@ const detectSubtitleLocale = (request: Request): LocaleCode => {
   return SUBTITLE_COUNTRY_LANGUAGE[fromCountry] || 'en';
 };
 
+const VIDSRC_BASE_URL = 'https://player.movyza.sbs';
+
 const subtitlePriorityForLanguage = (primary: LocaleCode): string => {
   const fallbackByPrimary: Record<LocaleCode, string[]> = {
     ar: ['ar', 'en'],
@@ -270,8 +272,8 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
         const episodeNumber = Number(watchEpisode?.[3] || 0);
         const subtitle = subtitlePriorityForLanguage(locale);
         const embedUrl = isMovieWatch
-          ? `https://vidsrc.sh/embed/movie/${id}?ds_lang=${encodeURIComponent(subtitle)}`
-          : `https://vidsrc.sh/embed/tv/${id}/${seasonNumber}/${episodeNumber}?ds_lang=${encodeURIComponent(subtitle)}`;
+          ? `${VIDSRC_BASE_URL}/embed/movie/${id}?ds_lang=${encodeURIComponent(subtitle)}`
+          : `${VIDSRC_BASE_URL}/embed/tv/${id}/${seasonNumber}/${episodeNumber}?ds_lang=${encodeURIComponent(subtitle)}`;
 
         if (isMovieWatch) {
           const upstream = await fetch(`https://api.themoviedb.org/3/movie/${id}?language=${encodeURIComponent(config.tmdb)}&append_to_response=credits`, {
