@@ -14,7 +14,7 @@ export function HilltopBanner({
   allowImmediatePair = false,
 }: HilltopBannerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [active, setActive] = useState(false);
+  const [hasAd, setHasAd] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -41,15 +41,20 @@ export function HilltopBanner({
     const sameSlotCooldown = !allowImmediatePair && lastPath === currentPath + ':' + slotKey && now - lastShownAt < 45_000;
     if (sameSlotCooldown) return;
 
-    let mounted = true;
-    setActive(true);
-
     const script = document.createElement('script');
     script.async = true;
     script.referrerPolicy = 'no-referrer-when-downgrade';
     script.src = HILLTOP_SRC;
+    (script as HTMLScriptElement & { settings?: Record<string, unknown> }).settings = {};
 
     container.replaceChildren(script);
+
+    const observer = new MutationObserver(() => {
+      const renderedNodes = Array.from(container.children).some((child) => child !== script);
+      if (renderedNodes) setHasAd(true);
+    });
+
+    observer.observe(container, { childList: true, subtree: true });
 
     try {
       window.localStorage.setItem(
@@ -62,21 +67,15 @@ export function HilltopBanner({
     } catch {}
 
     return () => {
-      mounted = false;
+      observer.disconnect();
       if (container.contains(script)) script.remove();
-
-      // Keep state cleanup deterministic if the component unmounts before
-      // the network script finishes.
-      if (mounted === false) setActive(false);
     };
   }, [slotKey, allowImmediatePair]);
-
-  if (!active) return null;
 
   return (
     <div
       ref={containerRef}
-      className={`w-full flex justify-center overflow-hidden ${className}`}
+      className={`w-full flex justify-center overflow-hidden transition-[min-height] duration-150 ${hasAd ? 'min-h-[100px] sm:min-h-[250px]' : 'min-h-0'} ${className}`}
       aria-label="Advertisement"
     />
   );
