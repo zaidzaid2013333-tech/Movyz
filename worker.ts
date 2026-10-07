@@ -1,6 +1,9 @@
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 
-type LocaleCode = 'ar' | 'en' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'ru' | 'tr' | 'hi' | 'ja' | 'ko';
+type LocaleCode =
+  | 'ar' | 'en' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'ru' | 'tr' | 'hi' | 'ja' | 'ko'
+  | 'zh' | 'nl' | 'sv' | 'da' | 'no' | 'fi' | 'pl' | 'cs' | 'uk' | 'he' | 'vi'
+  | 'id' | 'ms' | 'th' | 'ro' | 'hu' | 'el' | 'bn' | 'ur' | 'fa';
 
 const LOCALES: Record<LocaleCode, {
   tmdb: string;
@@ -10,18 +13,38 @@ const LOCALES: Record<LocaleCode, {
   nativeName: string;
   countries: string[];
 }> = {
-  ar: { tmdb: 'ar-SA', region: 'DZ', dir: 'rtl', name: 'Arabic', nativeName: 'العربية', countries: ['AE','BH','DJ','DZ','EG','EH','IQ','JO','KM','KW','LB','LY','MA','MR','OM','PS','QA','SA','SD','SO','SY','TN','YE'] },
-  en: { tmdb: 'en-US', region: 'US', dir: 'ltr', name: 'English', nativeName: 'English', countries: ['US','GB','CA','AU','NZ','IE','ZA','SG','JM','BS','BB','TT','GD','LC','VC','AG','DM','KN','BZ','GY','FJ','PG','SB','VU','WS','TO','FM','MH','PW','NR','KI','GH','NG','KE','UG','TZ','ZM','ZW','MW','BW','NA','LS','SZ','SL','LR','GM','SS','MU','SC','CN','TW','HK','MO','NL','SE','NO','DK','FI','IS','PL','CZ','SK','HU','RO','BG','HR','SI','RS','BA','ME','MK','AL','EE','LV','LT','MD','UA','GR','MT','CY','GE','AM','AZ','UZ','TJ','TM','AF','NP','BD','LK','MV','PK','MY','TH','ID','PH','VN','KH','LA','MN','IL','IR','AD','AI','AQ','AS','AW','AX','BM','BN','BQ','BV','CC','CK','CW','CX','ER','ET','FK','FO','GG','GI','GL','GS','GU','HM','IM','IO','JE','KY','MM','MP','MS','NF','NU','SJ','SR','SX','TC','TF','TK','TV','UM','VG','VI'] },
-  fr: { tmdb: 'fr-FR', region: 'FR', dir: 'ltr', name: 'French', nativeName: 'Français', countries: ['FR','BE','LU','MC','SN','CI','BF','BJ','TG','ML','NE','GN','GA','CG','CD','CM','CF','TD','MG','RW','BI','HT','GP','GF','MQ','NC','PF','PM','RE','BL','MF','YT','WF'] },
+  ar: { tmdb: 'ar-SA', region: 'DZ', dir: 'rtl', name: 'Arabic', nativeName: 'العربية', countries: ['AE','BH','DJ','DZ','EG','IQ','JO','KM','KW','LB','LY','MA','MR','OM','PS','QA','SA','SD','SO','SY','TN','YE','TD'] },
+  en: { tmdb: 'en-US', region: 'US', dir: 'ltr', name: 'English', nativeName: 'English', countries: ['US','GB','CA','AU','NZ','IE','ZA','SG','JM','BS','BB','TT','GD','LC','VC','AG','DM','KN','BZ','GY','FJ','PG','SB','VU','WS','TO','FM','MH','PW','NR','KI','GH','NG','KE','UG','TZ','ZM','ZW','MW','BW','NA','LS','SZ','SL','LR','GM','SS','MU','SC','ET','ER','SK','BG','HR','SI','RS','BA','ME','MK','AL','EE','LV','LT','MT','IS','AD','AQ','AS','AW','AX','BM','BQ','BV','CC','CK','CW','CX','FK','FO','GG','GI','GL','GS','GU','HM','IM','IO','JE','KY','MM','MP','MS','NF','NU','SJ','SR','SX','TC','TF','TK','TV','UM','VG','VI','KH','LA','PH','LK','MV'] },
+  fr: { tmdb: 'fr-FR', region: 'FR', dir: 'ltr', name: 'French', nativeName: 'Français', countries: ['FR','BE','LU','MC','SN','CI','BF','BJ','TG','ML','NE','GN','GA','CG','CD','CM','CF','MG','RW','BI','HT','TD','GQ','RE','GP','GF','MQ','NC','PF','PM','BL','MF','YT','WF'] },
   de: { tmdb: 'de-DE', region: 'DE', dir: 'ltr', name: 'German', nativeName: 'Deutsch', countries: ['DE','AT','CH','LI'] },
   es: { tmdb: 'es-ES', region: 'ES', dir: 'ltr', name: 'Spanish', nativeName: 'Español', countries: ['ES','MX','AR','CL','CO','PE','VE','UY','EC','BO','PY','CR','GT','PA','HN','SV','NI','CU','DO','GQ','PR'] },
   it: { tmdb: 'it-IT', region: 'IT', dir: 'ltr', name: 'Italian', nativeName: 'Italiano', countries: ['IT','SM','VA'] },
   pt: { tmdb: 'pt-BR', region: 'BR', dir: 'ltr', name: 'Portuguese', nativeName: 'Português', countries: ['PT','BR','AO','MZ','CV','GW','ST','TL'] },
-  ru: { tmdb: 'ru-RU', region: 'RU', dir: 'ltr', name: 'Russian', nativeName: 'Русский', countries: ['RU','BY','KZ','KG'] },
-  tr: { tmdb: 'tr-TR', region: 'TR', dir: 'ltr', name: 'Turkish', nativeName: 'Türkçe', countries: ['TR'] },
-  hi: { tmdb: 'hi-IN', region: 'IN', dir: 'ltr', name: 'Hindi', nativeName: 'हिन्दी', countries: ['IN'] },
+  ru: { tmdb: 'ru-RU', region: 'RU', dir: 'ltr', name: 'Russian', nativeName: 'Русский', countries: ['RU','BY','KZ','KG','AM','GE','UZ','TJ','TM','MN'] },
+  tr: { tmdb: 'tr-TR', region: 'TR', dir: 'ltr', name: 'Turkish', nativeName: 'Türkçe', countries: ['TR','AZ'] },
+  hi: { tmdb: 'hi-IN', region: 'IN', dir: 'ltr', name: 'Hindi', nativeName: 'हिन्दी', countries: ['IN','NP'] },
   ja: { tmdb: 'ja-JP', region: 'JP', dir: 'ltr', name: 'Japanese', nativeName: '日本語', countries: ['JP'] },
   ko: { tmdb: 'ko-KR', region: 'KR', dir: 'ltr', name: 'Korean', nativeName: '한국어', countries: ['KR','KP'] },
+  zh: { tmdb: 'zh-CN', region: 'CN', dir: 'ltr', name: 'Chinese', nativeName: '中文', countries: ['CN','TW','HK','MO'] },
+  nl: { tmdb: 'nl-NL', region: 'NL', dir: 'ltr', name: 'Dutch', nativeName: 'Nederlands', countries: ['NL'] },
+  sv: { tmdb: 'sv-SE', region: 'SE', dir: 'ltr', name: 'Swedish', nativeName: 'Svenska', countries: ['SE'] },
+  da: { tmdb: 'da-DK', region: 'DK', dir: 'ltr', name: 'Danish', nativeName: 'Dansk', countries: ['DK'] },
+  no: { tmdb: 'no-NO', region: 'NO', dir: 'ltr', name: 'Norwegian', nativeName: 'Norsk', countries: ['NO'] },
+  fi: { tmdb: 'fi-FI', region: 'FI', dir: 'ltr', name: 'Finnish', nativeName: 'Suomi', countries: ['FI'] },
+  pl: { tmdb: 'pl-PL', region: 'PL', dir: 'ltr', name: 'Polish', nativeName: 'Polski', countries: ['PL'] },
+  cs: { tmdb: 'cs-CZ', region: 'CZ', dir: 'ltr', name: 'Czech', nativeName: 'Čeština', countries: ['CZ'] },
+  uk: { tmdb: 'uk-UA', region: 'UA', dir: 'ltr', name: 'Ukrainian', nativeName: 'Українська', countries: ['UA'] },
+  he: { tmdb: 'he-IL', region: 'IL', dir: 'rtl', name: 'Hebrew', nativeName: 'עברית', countries: ['IL'] },
+  vi: { tmdb: 'vi-VN', region: 'VN', dir: 'ltr', name: 'Vietnamese', nativeName: 'Tiếng Việt', countries: ['VN'] },
+  id: { tmdb: 'id-ID', region: 'ID', dir: 'ltr', name: 'Indonesian', nativeName: 'Bahasa Indonesia', countries: ['ID'] },
+  ms: { tmdb: 'ms-MY', region: 'MY', dir: 'ltr', name: 'Malay', nativeName: 'Bahasa Melayu', countries: ['MY','BN'] },
+  th: { tmdb: 'th-TH', region: 'TH', dir: 'ltr', name: 'Thai', nativeName: 'ไทย', countries: ['TH'] },
+  ro: { tmdb: 'ro-RO', region: 'RO', dir: 'ltr', name: 'Romanian', nativeName: 'Română', countries: ['RO','MD'] },
+  hu: { tmdb: 'hu-HU', region: 'HU', dir: 'ltr', name: 'Hungarian', nativeName: 'Magyar', countries: ['HU'] },
+  el: { tmdb: 'el-GR', region: 'GR', dir: 'ltr', name: 'Greek', nativeName: 'Ελληνικά', countries: ['GR','CY'] },
+  bn: { tmdb: 'bn-BD', region: 'BD', dir: 'ltr', name: 'Bengali', nativeName: 'বাংলা', countries: ['BD'] },
+  ur: { tmdb: 'ur-PK', region: 'PK', dir: 'rtl', name: 'Urdu', nativeName: 'اردو', countries: ['PK'] },
+  fa: { tmdb: 'fa-IR', region: 'IR', dir: 'rtl', name: 'Persian', nativeName: 'فارسی', countries: ['IR','AF'] },
 };
 
 const isLocale = (value: string | null | undefined): value is LocaleCode =>
@@ -41,15 +64,9 @@ const stripLocale = (pathname: string) => {
 
 const languageFromAcceptLanguage = (header: string | null): LocaleCode | null => {
   const raw = String(header || '').toLowerCase();
-  const codes: Array<[string, LocaleCode]> = [
-    ['ar', 'ar'], ['fr', 'fr'], ['de', 'de'], ['es', 'es'], ['it', 'it'],
-    ['pt', 'pt'], ['ru', 'ru'], ['tr', 'tr'], ['hi', 'hi'], ['ja', 'ja'],
-    ['ko', 'ko'], ['en', 'en'],
-  ];
   for (const token of raw.split(',')) {
     const base = token.trim().split(';')[0].split('-')[0];
-    const match = codes.find(([key]) => key === base);
-    if (match) return match[1];
+    if (isLocale(base)) return base;
   }
   return null;
 };
@@ -57,109 +74,29 @@ const languageFromAcceptLanguage = (header: string | null): LocaleCode | null =>
 const countryFromRequest = (request: Request): string | null =>
   ((request as Request & { cf?: { country?: string } }).cf?.country || null);
 
+const COUNTRY_TO_LOCALE: Record<string, LocaleCode> = Object.fromEntries(
+  Object.entries(LOCALES).flatMap(([locale, config]) =>
+    config.countries.map((country) => [country, locale as LocaleCode]),
+  ),
+);
+
 const detectRequestLocale = (request: Request): LocaleCode => {
-  const fromCountry = String(countryFromRequest(request) || '').toUpperCase();
-  for (const [code, config] of Object.entries(LOCALES) as Array<[LocaleCode, typeof LOCALES.en]>) {
-    if (config.countries.includes(fromCountry)) return code;
-  }
-  // Do not let a French/English browser preference override Movyza's
-  // Arabic-first country routing when Cloudflare has no country signal.
-  return 'ar';
-};
-
-const SUBTITLE_COUNTRY_LANGUAGE: Record<string, LocaleCode> = {
-  // Arabic
-  DZ: 'ar', MA: 'ar', TN: 'ar', LY: 'ar', EG: 'ar', SD: 'ar', MR: 'ar',
-  SA: 'ar', AE: 'ar', QA: 'ar', KW: 'ar', BH: 'ar', OM: 'ar', YE: 'ar',
-  JO: 'ar', LB: 'ar', IQ: 'ar', SY: 'ar', PS: 'ar', SO: 'ar', DJ: 'ar',
-  KM: 'ar',
-
-  // English
-  US: 'en', GB: 'en', IE: 'en', CA: 'en', AU: 'en', NZ: 'en', SG: 'en',
-  JM: 'en', BS: 'en', BB: 'en', TT: 'en', GD: 'en', LC: 'en', VC: 'en',
-  AG: 'en', DM: 'en', KN: 'en', BZ: 'en', GY: 'en', FJ: 'en', PG: 'en',
-  SB: 'en', VU: 'en', WS: 'en', TO: 'en', FM: 'en', MH: 'en', PW: 'en',
-  NR: 'en', KI: 'en', GH: 'en', NG: 'en', KE: 'en', UG: 'en', TZ: 'en',
-  ZM: 'en', ZW: 'en', MW: 'en', BW: 'en', NA: 'en', LS: 'en', SZ: 'en',
-  ZA: 'en', SL: 'en', LR: 'en', GM: 'en', SS: 'en', MU: 'en', SC: 'en',
-
-  // French
-  FR: 'fr', BE: 'fr', LU: 'fr', MC: 'fr', SN: 'fr', CI: 'fr', BF: 'fr',
-  BJ: 'fr', TG: 'fr', ML: 'fr', NE: 'fr', GN: 'fr', GA: 'fr', CG: 'fr',
-  CD: 'fr', CM: 'fr', CF: 'fr', TD: 'fr', MG: 'fr', RW: 'fr', BI: 'fr',
-  HT: 'fr', CH: 'de', GP: 'fr', GF: 'fr', MQ: 'fr', NC: 'fr', PF: 'fr', PM: 'fr', RE: 'fr', BL: 'fr', MF: 'fr', YT: 'fr', WF: 'fr',
-
-  // German
-  DE: 'de', AT: 'de', LI: 'de',
-
-  // Spanish
-  ES: 'es', MX: 'es', AR: 'es', CL: 'es', CO: 'es', PE: 'es', VE: 'es',
-  UY: 'es', PY: 'es', BO: 'es', EC: 'es', PA: 'es', CR: 'es', GT: 'es',
-  HN: 'es', SV: 'es', NI: 'es', CU: 'es', DO: 'es', GQ: 'es', PR: 'es',
-
-  // Italian
-  IT: 'it', SM: 'it', VA: 'it',
-
-  // Portuguese
-  PT: 'pt', BR: 'pt', AO: 'pt', MZ: 'pt', CV: 'pt', GW: 'pt', ST: 'pt',
-  TL: 'pt',
-
-  // Russian
-  RU: 'ru', BY: 'ru', KZ: 'ru', KG: 'ru',
-
-  // Turkish
-  TR: 'tr',
-
-  // Hindi
-  IN: 'hi',
-
-  // Japanese
-  JP: 'ja',
-
-  // Korean
-  KR: 'ko', KP: 'ko',
-
-  // Countries where none of the supported subtitle languages is a clear country-wide default:
-  // use English rather than browser language or geolocation inference.
-  CN: 'en', TW: 'en', HK: 'en', MO: 'en', NL: 'en',
-  SE: 'en', NO: 'en', DK: 'en', FI: 'en', IS: 'en',
-  PL: 'en', CZ: 'en', SK: 'en', HU: 'en', RO: 'en', BG: 'en', HR: 'en',
-  SI: 'en', RS: 'en', BA: 'en', ME: 'en', MK: 'en', AL: 'en', EE: 'en',
-  LV: 'en', LT: 'en', MD: 'en', UA: 'en', GR: 'en', MT: 'en', CY: 'en',
-  GE: 'en', AM: 'en', AZ: 'en', UZ: 'en', TJ: 'en', TM: 'en', AF: 'en',
-  NP: 'en', BD: 'en', LK: 'en', MV: 'en', PK: 'en', MY: 'en', TH: 'en',
-  ID: 'en', PH: 'en', VN: 'en', KH: 'en', LA: 'en', MN: 'en',
-  IL: 'en', IR: 'en'
+  const country = String(countryFromRequest(request) || '').toUpperCase();
+  return COUNTRY_TO_LOCALE[country]
+    || languageFromAcceptLanguage(request.headers.get('accept-language'))
+    || 'en';
 };
 
 const detectSubtitleLocale = (request: Request): LocaleCode => {
-  // An explicit /ar/... or /fr/... route is the strongest signal because the
-  // visitor intentionally selected that Movyza language.
   const fromPath = localeFromPath(new URL(request.url).pathname);
-  if (fromPath) return fromPath;
-
-  const fromCountry = String(countryFromRequest(request) || '').toUpperCase();
-  return SUBTITLE_COUNTRY_LANGUAGE[fromCountry] || 'en';
+  return fromPath || detectRequestLocale(request);
 };
 
 const VIDSRC_BASE_URL = 'https://player.movyza.sbs';
 
 const subtitlePriorityForLanguage = (primary: LocaleCode): string => {
-  const fallbackByPrimary: Record<LocaleCode, string[]> = {
-    ar: ['ar', 'en'],
-    en: ['en'],
-    fr: ['fr', 'en'],
-    de: ['de', 'en'],
-    es: ['es', 'en'],
-    it: ['it', 'en'],
-    pt: ['pt', 'en'],
-    ru: ['ru', 'en'],
-    tr: ['tr', 'en'],
-    hi: ['hi', 'en'],
-    ja: ['ja', 'en'],
-    ko: ['ko', 'en'],
-  };
-  return fallbackByPrimary[primary].slice(0, 3).join(',');
+  const fallback = primary === 'en' ? ['en'] : [primary, 'en'];
+  return fallback.slice(0, 3).join(',');
 };
 
 const isAppHtmlPath = (pathname: string) =>
@@ -167,21 +104,41 @@ const isAppHtmlPath = (pathname: string) =>
   !pathname.startsWith('/tmdb');
 
 const titleKeywords = (locale: LocaleCode, title: string) => {
-  const map: Record<LocaleCode, string[]> = {
-    ar: [title, `${title} مترجم عربي`, `${title} مترجم`, `مشاهدة ${title}`, `${title} مشاهدة`, `${title} فيلم`, `${title} مسلسل`, `${title} اون لاين`],
-    en: [title, `${title} watch`, `watch ${title}`, `${title} movie`, `${title} series`, `${title} online`, `${title} streaming`],
-    fr: [title, `${title} film`, `regarder ${title}`, `${title} streaming`, `${title} VOSTFR`, `${title} en streaming`],
-    de: [title, `${title} Film`, `${title} Stream`, `${title} online schauen`, `${title} ansehen`],
-    es: [title, `${title} película`, `ver ${title}`, `${title} online`, `${title} streaming`],
-    it: [title, `${title} film`, `guardare ${title}`, `${title} streaming`, `${title} online`],
-    pt: [title, `${title} filme`, `assistir ${title}`, `${title} online`, `${title} streaming`],
-    ru: [title, `${title} фильм`, `смотреть ${title}`, `${title} смотреть онлайн`, `${title} сериал`],
-    tr: [title, `${title} film izle`, `${title} izle`, `${title} online`, `${title} Türkçe altyazılı`],
-    hi: [title, `${title} movie`, `watch ${title}`, `${title} online`, `${title} series`],
-    ja: [title, `${title} 映画`, `${title} 見る`, `${title} 配信`, `${title} ドラマ`],
-    ko: [title, `${title} 영화`, `${title} 보기`, `${title} 스트리밍`, `${title} 드라마`],
+  const map: Partial<Record<LocaleCode, string[]>> = {
+    ar: [title, `${title} مترجم عربي`, `مشاهدة ${title}`, `${title} فيلم`, `${title} مسلسل`],
+    en: [title, `${title} watch`, `watch ${title}`, `${title} movie`, `${title} series`],
+    fr: [title, `${title} film`, `regarder ${title}`, `${title} streaming`],
+    de: [title, `${title} Film`, `${title} Stream`, `${title} online`],
+    es: [title, `${title} película`, `ver ${title}`, `${title} online`],
+    it: [title, `${title} film`, `guardare ${title}`, `${title} streaming`],
+    pt: [title, `${title} filme`, `assistir ${title}`, `${title} online`],
+    ru: [title, `${title} фильм`, `смотреть ${title}`, `${title} онлайн`],
+    tr: [title, `${title} film izle`, `${title} izle`, `${title} online`],
+    hi: [title, `${title} movie`, `watch ${title}`, `${title} series`],
+    ja: [title, `${title} 映画`, `${title} 見る`, `${title} ドラマ`],
+    ko: [title, `${title} 영화`, `${title} 보기`, `${title} 드라마`],
+    zh: [title, `${title} 电影`, `观看 ${title}`, `${title} 剧集`],
+    nl: [title, `${title} film`, `${title} serie`, `${title} kijken`],
+    sv: [title, `${title} film`, `se ${title}`, `${title} serie`],
+    da: [title, `${title} film`, `se ${title}`, `${title} serie`],
+    no: [title, `${title} film`, `se ${title}`, `${title} serie`],
+    fi: [title, `${title} elokuva`, `katso ${title}`, `${title} sarja`],
+    pl: [title, `${title} film`, `oglądaj ${title}`, `${title} serial`],
+    cs: [title, `${title} film`, `sledovat ${title}`, `${title} seriál`],
+    uk: [title, `${title} фільм`, `дивитися ${title}`, `${title} серіал`],
+    he: [title, `${title} סרט`, `צפייה ב${title}`, `${title} סדרה`],
+    vi: [title, `phim ${title}`, `xem ${title}`, `series ${title}`],
+    id: [title, `film ${title}`, `nonton ${title}`, `serial ${title}`],
+    ms: [title, `filem ${title}`, `tonton ${title}`, `siri ${title}`],
+    th: [title, `หนัง ${title}`, `ดู ${title}`, `ซีรีส์ ${title}`],
+    ro: [title, `filmul ${title}`, `vezi ${title}`, `serial ${title}`],
+    hu: [title, `${title} film`, `nézd ${title}`, `${title} sorozat`],
+    el: [title, `${title} ταινία`, `δες ${title}`, `${title} σειρά`],
+    bn: [title, `${title} সিনেমা`, `${title} দেখুন`, `${title} সিরিজ`],
+    ur: [title, `${title} فلم`, `${title} دیکھیں`, `${title} سیریز`],
+    fa: [title, `فیلم ${title}`, `تماشای ${title}`, `سریال ${title}`],
   };
-  return Array.from(new Set(map[locale])).join(', ');
+  return Array.from(new Set(map[locale] || map.en || [title])).join(', ');
 };
 
 const localizedHtml = async (request: Request, env: MovyzEnvironment, response: Response, locale: LocaleCode) => {
