@@ -312,7 +312,21 @@ function MainApp() {
 
   const isWatchPage = stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname.startsWith('/watch/');
   const hilltopEligiblePath = stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname;
-  const showHilltopBanner = !isWatchPage && hilltopEligiblePath !== '/login' && hilltopEligiblePath !== '/register' && hilltopEligiblePath !== '/forgot-password' && hilltopEligiblePath !== '/legal' && hilltopEligiblePath !== '/admin';
+
+  // HilltopAds is reserved for high-intent content surfaces. Home, auth, legal,
+  // admin and the watch/player route rely on their existing UX/ad strategy.
+  const showHilltopBanner =
+    !isWatchPage &&
+    (
+      hilltopEligiblePath === '/movies' ||
+      hilltopEligiblePath === '/series' ||
+      hilltopEligiblePath === '/search' ||
+      hilltopEligiblePath === '/discover' ||
+      hilltopEligiblePath === '/catalog' ||
+      hilltopEligiblePath === '/watchlist' ||
+      hilltopEligiblePath.startsWith('/movies/') ||
+      hilltopEligiblePath.startsWith('/series/')
+    );
 
   // Monetag MultiTag is intentionally disabled on the watch route because its
   // notification-style formats can inject overlays above the playback iframe.
@@ -351,8 +365,8 @@ function MainApp() {
       {/* Main Content */}
       <main className="flex-1 w-full min-w-0 overflow-x-clip">
         {showHilltopBanner && (
-          <div className="px-3 pt-4 pb-1">
-            <HilltopBanner key={hilltopEligiblePath} />
+          <div className="px-3 pt-3 pb-1 min-h-0">
+            <HilltopBanner key={hilltopEligiblePath} slotKey={hilltopEligiblePath} />
           </div>
         )}
         {renderCurrentRoute()}
