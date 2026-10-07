@@ -157,7 +157,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return detectLanguageFromBrowser();
   });
 
-  const direction = language === 'ar' ? 'rtl' : 'ltr';
+  const direction = ['ar', 'he', 'fa', 'ur'].includes(language) ? 'rtl' : 'ltr';
 
   useEffect(() => {
     localStorage.setItem('movyza_lang', language);
