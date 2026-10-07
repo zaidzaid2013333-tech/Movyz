@@ -75,6 +75,16 @@ function MainApp() {
       ? target.pathname
       : withLanguagePrefix(target.pathname, language);
     const localizedPath = targetPath + target.search + target.hash;
+    const currentIsWatch = stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname.startsWith('/watch/');
+    const targetIsWatch = stripLanguagePrefix(localizedPath.split('?')[0] || '/').pathname.startsWith('/watch/');
+
+    // Force a clean document transition when entering/leaving the watch page.
+    // This prevents Monetag's injected UI from surviving into the iframe player.
+    if (currentIsWatch !== targetIsWatch) {
+      window.location.assign(localizedPath);
+      return;
+    }
+
     window.history.pushState({}, '', localizedPath);
     setCurrentPath(localizedPath);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -300,6 +310,28 @@ function MainApp() {
   };
 
   const isWatchPage = stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname.startsWith('/watch/');
+
+  // Monetag MultiTag is intentionally disabled on the watch route because its
+  // notification-style formats can inject overlays above the playback iframe.
+  // Keep monetization active on all non-watch pages.
+  useEffect(() => {
+    const existing = document.getElementById('movyza-monetag-multitag');
+    existing?.remove();
+
+    if (isWatchPage) return;
+
+    const script = document.createElement('script');
+    script.id = 'movyza-monetag-multitag';
+    script.src = 'https://quge5.com/88/tag.min.js';
+    script.async = true;
+    script.dataset.zone = '292090';
+    script.dataset.cfasync = 'false';
+    document.head.appendChild(script);
+
+    return () => {
+      document.getElementById('movyza-monetag-multitag')?.remove();
+    };
+  }, [isWatchPage]);
 
   return (
     <div className="min-h-screen bg-[#08090d] text-slate-100 flex flex-col font-sans selection:bg-amber-500/30 selection:text-amber-200">
