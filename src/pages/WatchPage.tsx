@@ -6,7 +6,7 @@ import { Movie, Series, Episode, Season } from '../types';
 import { MovieCard } from '../components/ui/MovieCard';
 import { SeriesCard } from '../components/ui/SeriesCard';
 
-const VIDSRC_BASE_URL = String(import.meta.env.VITE_VIDSRC_BASE_URL || 'https://vidsrc.sh').replace(/\/+$/, '');
+const VIDSRC_BASE_URL = 'https://player.movyza.sbs';
 import { HeroSkeleton } from '../components/ui/Skeletons';
 import { ErrorState } from '../components/ui/FeedbackStates';
 
