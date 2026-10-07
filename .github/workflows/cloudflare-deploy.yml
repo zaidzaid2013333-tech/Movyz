@@ -9,6 +9,8 @@ on:
 permissions:
   contents: read
 
+# Keep production deploys tied to the latest main commit.
+
 concurrency:
   group: movyza-cloudflare-${{ github.ref }}
   cancel-in-progress: true
