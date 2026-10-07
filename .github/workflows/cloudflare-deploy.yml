@@ -102,7 +102,13 @@ jobs:
           printf '%s' "$worker_segment" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
           echo "CHECK 5B/10: public Googlebot sitemap access"
-          googlebot_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -o /tmp/googlebot-public-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap.xml")"
+          googlebot_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -D /tmp/googlebot-public-sitemap.headers -o /tmp/googlebot-public-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap.xml")"
+          echo "Googlebot HTTP status: $googlebot_status"
+          echo "Googlebot response headers:"
+          cat /tmp/googlebot-public-sitemap.headers
+          echo "Googlebot response body (first 500 chars):"
+          head -c 500 /tmp/googlebot-public-sitemap.xml || true
+          echo
           test "$googlebot_status" = "200"
           googlebot_public_sitemap="$(cat /tmp/googlebot-public-sitemap.xml)"
           printf '%s' "$googlebot_public_sitemap" | grep -q '<sitemapindex'
