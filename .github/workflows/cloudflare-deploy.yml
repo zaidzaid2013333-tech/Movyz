@@ -86,11 +86,11 @@ jobs:
           sitemap="$(cat /tmp/sitemap.xml)"
           printf '%s' "$sitemap" | grep -q '^<?xml version="1.0" encoding="UTF-8"?>'
           printf '%s' "$sitemap" | grep -q '<sitemapindex'
-          printf '%s' "$sitemap" | grep -q 'https://movyz-api.sameranede.workers.dev/sitemap/ar/movies/1.xml'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/movies/1.xml'
           printf '%s' "$sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
           echo "CHECK 5/10: worker sitemap index"
-          worker_sitemap="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "https://movyz-api.sameranede.workers.dev/sitemap.xml")"
+          worker_sitemap="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "https://movyza.sbs/sitemap.xml")"
           printf '%s' "$worker_sitemap" | grep -q '<sitemapindex'
           printf '%s' "$worker_sitemap" | grep -q 'https://movyz-api.sameranede.workers.dev/sitemap/ar/movies/1.xml'
           printf '%s' "$worker_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
@@ -101,9 +101,17 @@ jobs:
           printf '%s' "$worker_segment" | grep -q 'https://movyza.sbs/ar/movies/'
           printf '%s' "$worker_segment" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
-          echo "CHECK 5B/10: public robots points to crawler-safe sitemap"
+          echo "CHECK 5B/10: public Googlebot sitemap access"
+          googlebot_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -o /tmp/googlebot-public-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap.xml")"
+          test "$googlebot_status" = "200"
+          googlebot_public_sitemap="$(cat /tmp/googlebot-public-sitemap.xml)"
+          printf '%s' "$googlebot_public_sitemap" | grep -q '<sitemapindex'
+          printf '%s' "$googlebot_public_sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/movies/1.xml'
+          printf '%s' "$googlebot_public_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
+
+          echo "CHECK 5C/10: public robots points to same-origin sitemap"
           public_robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "https://movyza.sbs/robots.txt")"
-          printf '%s' "$public_robots" | grep -q 'Sitemap: https://movyz-api.sameranede.workers.dev/sitemap.xml'
+          printf '%s' "$public_robots" | grep -q 'Sitemap: https://movyza.sbs/sitemap.xml'
 
           echo "CHECK 6/10: sitemap segment"
           sitemap_segment="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml")"
