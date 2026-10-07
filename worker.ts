@@ -229,6 +229,11 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   } else if (route === '/discover') {
     contentTitle = generic.discover;
     description = generic.discover;
+  } else if (route === '/legal') {
+    contentTitle = locale === 'ar' ? 'إخلاء المسؤولية وDMCA | موفيزا' : 'DMCA & Third-Party Policy | Movyza';
+    description = locale === 'ar'
+      ? 'سياسة موفيزا للمحتوى المضمّن من الأطراف الثالثة وطلبات حقوق النشر والإبلاغ.'
+      : 'Movyza policy for third-party embedded content, copyright notices, and DMCA requests.';
   } else if (route === '/catalog') {
     const catalogNames: Record<LocaleCode, string> = {
       ar: 'أفضل 1000 فيلم ومسلسل | موفيزا', en: 'Movyza Top 1000 Movies & TV Shows', fr: 'Top 1000 Films et séries | Movyza',
@@ -695,7 +700,7 @@ const buildSitemapIndex = (origin: string) => {
 
 const buildStaticSitemapSegment = (request: Request, locale: LocaleCode) => {
   const origin = new URL(request.url).origin;
-  const routes = ['/', '/movies', '/series', '/discover', '/catalog'];
+  const routes = ['/', '/movies', '/series', '/discover', '/catalog', '/legal'];
   const urls = routes
     .map((route) =>
       `<url><loc>${escapeXml(`${origin}/${locale}${route === '/' ? '/' : route}`)}</loc><changefreq>daily</changefreq><priority>${route === '/' ? '1.0' : '0.8'}</priority></url>`
