@@ -92,3 +92,18 @@ jobs:
           printf '%s' "$fight_club" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
           printf '%s' "$fight_club" | grep -q 'rel="canonical" href="https://movyz-api.sameranede.workers.dev/ar/movies/550"'
           printf '%s' "$fight_club" | grep -q '"@type":"Movie"'
+
+          site="https://movyza.sbs"
+          site_robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$site/robots.txt")"
+          printf '%s' "$site_robots" | grep -q 'Sitemap: https://movyza.sbs/sitemap.xml'
+          ! printf '%s' "$site_robots" | grep -q '^Disallow: /watch/'
+          site_sitemap="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$site/sitemap.xml")"
+          printf '%s' "$site_sitemap" | grep -q '<sitemapindex'
+          site_movies="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$site/en/movies")"
+          printf '%s' "$site_movies" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
+          printf '%s' "$site_movies" | grep -q 'rel="canonical" href="https://movyza.sbs/en/movies"'
+          site_private="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$site/en/profile")"
+          printf '%s' "$site_private" | grep -q 'name="robots" content="noindex,follow"'
+          watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$site/en/watch/movie/550")"
+          printf '%s' "$watch_html" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
+          printf '%s' "$watch_html" | grep -q 'name="movyz-player" content="vidsrc"'
