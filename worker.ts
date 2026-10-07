@@ -172,14 +172,14 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     contentTitle = generic[locale].home;
     description = generic[locale].home;
   } else if (route === '/movies') {
-    contentTitle = generic.movies;
+    contentTitle = generic[locale].movies;
     description = generic[locale].movies;
   } else if (route === '/series') {
-    contentTitle = generic.series;
+    contentTitle = generic[locale].series;
     description = generic[locale].series;
   } else if (route === '/discover') {
-    contentTitle = generic.discover;
-    description = generic.discover;
+    contentTitle = generic[locale].discover;
+    description = generic[locale].discover;
   } else if (route === '/legal') {
     contentTitle = generic[locale].legal;
     description = generic[locale].legal;
@@ -187,8 +187,8 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     contentTitle = generic[locale].catalog;
     description = generic[locale].catalog;
   } else if (route === '/search' || route.startsWith('/search/')) {
-    contentTitle = generic.search;
-    description = generic.search;
+    contentTitle = generic[locale].search;
+    description = generic[locale].search;
   } else if (detailMovie || detailSeries) {
     const type = detailMovie ? 'movie' : 'tv';
     const id = Number((detailMovie || detailSeries)?.[1] || 0);
@@ -270,7 +270,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   }
 
   if (!contentTitle) {
-    contentTitle = generic.home;
+    contentTitle = generic[locale].home;
     description = generic[locale].home;
   }
 
