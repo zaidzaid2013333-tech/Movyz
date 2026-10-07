@@ -812,7 +812,7 @@ const buildRobotsTxt = () => [
   '',
   '# Search pages are marked noindex by the application instead of being blocked here.',
   '',
-  'Sitemap: https://movyz-api.sameranede.workers.dev/sitemap.xml',
+  'Sitemap: https://movyza.sbs/sitemap.xml',
   '',
 ].join('\n');
 
