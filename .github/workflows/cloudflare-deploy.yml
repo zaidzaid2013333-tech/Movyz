@@ -91,6 +91,13 @@ jobs:
           printf '%s' "$sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
           echo "CHECK 5/10: public-domain root sitemap"
+          echo "CHECK 5A/10: public-domain Googlebot access"
+          googlebot_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -o /tmp/googlebot-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap.xml")"
+          test "$googlebot_status" = "200"
+          googlebot_sitemap="$(cat /tmp/googlebot-sitemap.xml)"
+          printf '%s' "$googlebot_sitemap" | grep -q '<urlset'
+          printf '%s' "$googlebot_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
+
           public_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/public-sitemap.xml -H 'Cache-Control: no-cache' "https://movyza.sbs/sitemap.xml")"
           printf '%s' "$public_headers" | grep -Eiq '^content-type: *application/xml'
           public_sitemap="$(cat /tmp/public-sitemap.xml)"
