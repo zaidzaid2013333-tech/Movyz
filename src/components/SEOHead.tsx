@@ -40,26 +40,27 @@ const ensureLink = (rel: string, href: string, attrs: Record<string, string> = {
   node.setAttribute('href', href);
 };
 
-const keywordTemplates: Record<Language, (title: string) => string[]> = {
-  ar: (title) => [
-    `${title} مترجم عربي`, `${title} مترجم`, `${title} مشاهدة`, `مشاهدة ${title}`,
-    `${title} فيلم`, `${title} مسلسل`, `${title} مشاهدة اون لاين`, `${title} بالعربي`,
-  ],
-  en: (title) => [`${title} watch`, `watch ${title}`, `${title} movie`, `${title} series`, `${title} online`, `${title} streaming`, `watch ${title} online`],
-  fr: (title) => [`${title} film`, `regarder ${title}`, `${title} streaming`, `${title} VOSTFR`, `${title} VF`, `${title} en streaming`],
-  de: (title) => [`${title} Film`, `${title} Stream`, `${title} online schauen`, `${title} ansehen`, `${title} Serie`],
-  es: (title) => [`${title} película`, `ver ${title}`, `${title} online`, `${title} serie`, `${title} streaming`],
-  it: (title) => [`${title} film`, `guardare ${title}`, `${title} streaming`, `${title} online`, `${title} serie TV`],
-  pt: (title) => [`${title} filme`, `assistir ${title}`, `${title} online`, `${title} série`, `${title} streaming`],
-  ru: (title) => [`${title} фильм`, `смотреть ${title}`, `${title} смотреть онлайн`, `${title} сериал`, `${title} онлайн`],
-  tr: (title) => [`${title} film izle`, `${title} izle`, `${title} online`, `${title} dizi`, `${title} Türkçe altyazılı`],
-  hi: (title) => [`${title} movie`, `${title} film`, `watch ${title}`, `${title} online`, `${title} series`],
-  ja: (title) => [`${title} 映画`, `${title} 見る`, `${title} 配信`, `${title} ドラマ`],
-  ko: (title) => [`${title} 영화`, `${title} 보기`, `${title} 스트리밍`, `${title} 드라마`],
+const keywordTerms: Record<Language, string[]> = {
+  ar: ['مترجم عربي','مشاهدة','فيلم','مسلسل'], en: ['watch','movie','series','online'],
+  fr: ['film','regarder','streaming'], de: ['Film','Stream','online'], es: ['película','ver','online'],
+  it: ['film','guardare','streaming'], pt: ['filme','assistir','online'], ru: ['фильм','смотреть','онлайн'],
+  tr: ['film izle','izle','online'], hi: ['movie','watch','series'], ja: ['映画','見る','ドラマ'],
+  ko: ['영화','보기','드라마'], zh: ['电影','观看','剧集'], nl: ['film','serie','kijken'],
+  sv: ['film','se','serie'], da: ['film','se','serie'], no: ['film','se','serie'], fi: ['elokuva','katso','sarja'],
+  pl: ['film','oglądaj','serial'], cs: ['film','sledovat','seriál'], uk: ['фільм','дивитися','серіал'],
+  he: ['סרט','צפייה','סדרה'], vi: ['phim','xem','series'], id: ['film','nonton','serial'],
+  ms: ['filem','tonton','siri'], th: ['หนัง','ดู','ซีรีส์'], ro: ['film','vezi','serial'],
+  hu: ['film','nézd','sorozat'], el: ['ταινία','δες','σειρά'], bn: ['সিনেমা','দেখুন','সিরিজ'],
+  ur: ['فلم','دیکھیں','سیریز'], fa: ['فیلم','تماشا','سریال'],
 };
 
+
 export const buildSeoKeywords = (language: Language, title: string, extra: string[] = []) =>
-  Array.from(new Set([...keywordTemplates[language](title), ...extra])).slice(0, 18);
+  Array.from(new Set([
+    title,
+    ...(keywordTerms[language] || keywordTerms.en).map((term) => term + ' ' + title),
+    ...extra,
+  ])).slice(0, 18);
 
 export const SeoHead: React.FC<SeoHeadProps> = ({
   title,
