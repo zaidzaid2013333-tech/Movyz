@@ -5,6 +5,8 @@ import { MovyzaApi } from '../services/api';
 import { Movie, Series, Episode, Season } from '../types';
 import { MovieCard } from '../components/ui/MovieCard';
 import { SeriesCard } from '../components/ui/SeriesCard';
+
+const VIDSRC_BASE_URL = String(import.meta.env.VITE_VIDSRC_BASE_URL || 'https://vidsrc.sh').replace(/\/+$/, '');
 import { HeroSkeleton } from '../components/ui/Skeletons';
 import { ErrorState } from '../components/ui/FeedbackStates';
 
@@ -68,9 +70,9 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     params.set('ds_lang', subtitlePriority.join(','));
 
     if (isSeries) {
-      return 'https://vidsrc.sh/embed/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode + '?' + params.toString();
+      return VIDSRC_BASE_URL + '/embed/tv/' + encodeURIComponent(contentId) + '/' + safeSeason + '/' + safeEpisode + '?' + params.toString();
     }
-    return 'https://vidsrc.sh/embed/movie/' + encodeURIComponent(contentId) + '?' + params.toString();
+    return VIDSRC_BASE_URL + '/embed/movie/' + encodeURIComponent(contentId) + '?' + params.toString();
   }, [contentId, isSeries, safeSeason, safeEpisode, subtitlePriority]);
 
   const subtitleLabel = subtitlePriority[0] ? subtitlePriority[0].toUpperCase() + ' subtitles' : 'Subtitles';
