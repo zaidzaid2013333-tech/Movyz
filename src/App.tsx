@@ -22,6 +22,7 @@ import { HistoryPage } from './pages/HistoryPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { AuthPage } from './pages/AuthPages';
 import { AdminDashboard } from './pages/AdminDashboard';
+import { LegalPage } from './pages/LegalPage';
 
 import { MovyzaApi } from './services/api';
 import { Movie, Series } from './types';
@@ -267,6 +268,11 @@ function MainApp() {
     }
     if (pathOnly === '/forgot-password') {
       return <AuthPage mode="forgot" onNavigate={navigate} />;
+    }
+
+    // Public legal / DMCA policy route
+    if (pathOnly === '/legal') {
+      return <LegalPage />;
     }
 
     // Admin route
