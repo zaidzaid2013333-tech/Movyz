@@ -608,7 +608,7 @@ const escapeXml = (value: string) =>
 
 const SITEMAP_DISCOVERY_PAGES = 20;
 const SITEMAP_EPISODE_PAGES = 20;
-const SITEMAP_CRAWL_ORIGIN = SITEMAP_PUBLIC_ORIGIN;
+const SITEMAP_CRAWL_ORIGIN = 'https://movyza.sbs';
 
 const buildSitemapIndex = (origin: string) => {
   const entries: string[] = [];
