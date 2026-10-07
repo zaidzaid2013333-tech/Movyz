@@ -6,6 +6,7 @@ import { Header } from './components/layout/Header';
 import { MobileNavigation } from './components/layout/MobileNavigation';
 import { Footer } from './components/layout/Footer';
 import { SurpriseMeModal } from './components/ui/SurpriseMeModal';
+import { HilltopBanner } from './components/ads/HilltopBanner';
 
 // Pages
 import { HomePage } from './pages/HomePage';
@@ -310,6 +311,8 @@ function MainApp() {
   };
 
   const isWatchPage = stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname.startsWith('/watch/');
+  const hilltopEligiblePath = stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname;
+  const showHilltopBanner = !isWatchPage && hilltopEligiblePath !== '/login' && hilltopEligiblePath !== '/register' && hilltopEligiblePath !== '/forgot-password' && hilltopEligiblePath !== '/legal' && hilltopEligiblePath !== '/admin';
 
   // Monetag MultiTag is intentionally disabled on the watch route because its
   // notification-style formats can inject overlays above the playback iframe.
@@ -346,7 +349,14 @@ function MainApp() {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 w-full min-w-0 overflow-x-clip">{renderCurrentRoute()}</main>
+      <main className="flex-1 w-full min-w-0 overflow-x-clip">
+        {showHilltopBanner && (
+          <div className="px-3 pt-4 pb-1">
+            <HilltopBanner key={hilltopEligiblePath} />
+          </div>
+        )}
+        {renderCurrentRoute()}
+      </main>
 
       {/* Footer: hidden on watch page */}
       {!isWatchPage && <Footer onNavigate={navigate} />}
