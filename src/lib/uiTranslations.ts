@@ -264,6 +264,6 @@ const COMMON_EXTRAS: Partial<Record<Language, Record<string, string>>> = {
 };
 
 for (const [language, values] of Object.entries(COMMON_EXTRAS)) {
-  if (!UI_TRANSLATIONS[language as Language]) UI_TRANSLATIONS[language as Language] = {};
-  Object.assign(UI_TRANSLATIONS[language as Language], values);
+  const target = UI_TRANSLATIONS[language as Language] as Record<string, string> | undefined;
+  if (target) Object.assign(target, values);
 }
