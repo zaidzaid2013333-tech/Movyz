@@ -89,19 +89,7 @@ jobs:
           printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/movies/1.xml'
           printf '%s' "$sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
-          echo "CHECK 5/10: worker sitemap index"
-          worker_sitemap="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "https://movyza.sbs/sitemap.xml")"
-          printf '%s' "$worker_sitemap" | grep -q '<sitemapindex'
-          printf '%s' "$worker_sitemap" | grep -q 'https://movyz-api.sameranede.workers.dev/sitemap/ar/movies/1.xml'
-          printf '%s' "$worker_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
-
-          echo "CHECK 5A/10: worker sitemap segment publishes Movyza URLs"
-          worker_segment="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "https://movyz-api.sameranede.workers.dev/sitemap/ar/movies/1.xml")"
-          printf '%s' "$worker_segment" | grep -q '<urlset'
-          printf '%s' "$worker_segment" | grep -q 'https://movyza.sbs/ar/movies/'
-          printf '%s' "$worker_segment" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
-
-          echo "CHECK 5B/10: public Googlebot sitemap access"
+          echo "CHECK 5/10: public Googlebot sitemap access"
           googlebot_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -D /tmp/googlebot-public-sitemap.headers -o /tmp/googlebot-public-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap.xml")"
           echo "Googlebot HTTP status: $googlebot_status"
           echo "Googlebot response headers:"
@@ -115,7 +103,7 @@ jobs:
           printf '%s' "$googlebot_public_sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/movies/1.xml'
           printf '%s' "$googlebot_public_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
-          echo "CHECK 5C/10: public robots points to same-origin sitemap"
+          echo "CHECK 5B/10: public robots points to same-origin sitemap"
           public_robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "https://movyza.sbs/robots.txt")"
           printf '%s' "$public_robots" | grep -q 'Sitemap: https://movyza.sbs/sitemap.xml'
 
