@@ -13,6 +13,7 @@
     <meta name="movyz-build" content="%VITE_MOVYZ_BUILD_ID%" />
     <meta name="movyz-player" content="vidsrc" />
     <meta name="movyz-subtitles" content="vidsrc-locale-subtitles-v1" />
+    <script src="https://quge5.com/88/tag.min.js" data-zone="292090" async data-cfasync="false"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=El+Messiri:wght@400;600;700&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -30,7 +31,11 @@
 
           if ('serviceWorker' in navigator) {
             const registrations = await navigator.serviceWorker.getRegistrations();
-            await Promise.all(registrations.map((registration) => registration.unregister()));
+            await Promise.all(
+              registrations
+                .filter((registration) => !registration.active?.scriptURL.endsWith('/sw.js'))
+                .map((registration) => registration.unregister()),
+            );
           }
 
           if ('caches' in window) {
