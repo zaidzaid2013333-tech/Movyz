@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { UI_TRANSLATIONS } from '../lib/uiTranslations';
 import {
   Language,
   LANGUAGE_LIST,
@@ -180,7 +181,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const t = (key: keyof typeof DICTIONARY): string => {
     const entry = DICTIONARY[key];
     if (!entry) return String(key);
-    return entry[language] || entry.en || entry.ar || String(key);
+    return UI_TRANSLATIONS[language]?.[String(key)] || entry[language] || entry.en || entry.ar || String(key);
   };
 
   return (
