@@ -606,8 +606,8 @@ const escapeXml = (value: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 
-const SITEMAP_DISCOVERY_PAGES = 500;
-const SITEMAP_EPISODE_PAGES = 200;
+const SITEMAP_DISCOVERY_PAGES = 20;
+const SITEMAP_EPISODE_PAGES = 20;
 
 const buildSitemapIndex = (origin: string) => {
   const entries: string[] = [];
