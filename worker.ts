@@ -857,10 +857,18 @@ export default {
 
     const html = request.method === 'GET' && (url.pathname === '/' || isAppHtmlPath(url.pathname));
     if (html) {
-      const freshUrl = new URL(request.url);
-      freshUrl.searchParams.set('__movyz_asset_version', env.MOVYZ_BUILD_ID || 'dev');
-      const freshRequest = new Request(freshUrl.toString(), request);
-      const localized = await env.ASSETS.fetch(freshRequest);
+      // Never rely on the asset binding's SPA fallback for document requests.
+      // Fetch the real application shell explicitly so deep links such as
+      // /ar/movies/157336 and /ar/watch/movie/157336 remain client-routable,
+      // while /sitemap.xml, robots.txt and other real assets never become HTML.
+      const shellUrl = new URL(request.url);
+      shellUrl.pathname = '/index.html';
+      shellUrl.search = '__movyz_asset_version=' + encodeURIComponent(env.MOVYZ_BUILD_ID || 'dev');
+      const shellRequest = new Request(shellUrl.toString(), request);
+      const localized = await env.ASSETS.fetch(shellRequest);
+      if (!localized.ok) {
+        return new Response('Application shell unavailable', { status: 503 });
+      }
       const locale = localeFromPath(url.pathname);
       if (locale) return noCache(await localizedHtml(request, env, localized, locale));
       return noCache(localized);
