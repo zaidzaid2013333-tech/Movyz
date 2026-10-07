@@ -1,28 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-const HILLTOP_SCRIPT = String.raw`(function(kgdnb){
-var d = document,
-    s = d.createElement('script'),
-    l = d.currentScript || d.scripts[d.scripts.length - 1];
-s.settings = kgdnb || {};
-s.src = "\/\/untimely-hello.com\/bwX.VpsddcGSl\/0IY\/WQcs\/KePmk9ZuSZEUJlHk\/PdTMc\/0cOsTjgZx\/Naj\/kKt\/NizbQl5\/O-D\/E\/3\/MGwQ";
-s.async = true;
-s.referrerPolicy = 'no-referrer-when-downgrade';
-l.parentNode.insertBefore(s, l);
-})({})`;
-
-const STORAGE_KEY = 'movyza_hilltop_ad_state_v1';
-const COOLDOWN_MS = 75_000;
-const WINDOW_MS = 30 * 60 * 1000;
-const SAME_PATH_COOLDOWN_MS = 10 * 60 * 1000;
-const MAX_IMPRESSIONS = 4;
-
-type AdState = {
-  timestamps: number[];
-  lastShownAt: number;
-  lastPath: string;
-  lastPathShownAt: number;
-};
+const HILLTOP_SRC = 'https://untimely-hello.com/bwX.VpsddcGSl/0IY/WQcs/KePmk9ZuSZEUJlHk/PdTMc/0cOsTjgZx/Naj/kKt/NizbQl5/O-D/E/3/MGwQ';
 
 type HilltopBannerProps = {
   className?: string;
@@ -30,105 +8,75 @@ type HilltopBannerProps = {
   allowImmediatePair?: boolean;
 };
 
-let memoryState: AdState = {
-  timestamps: [],
-  lastShownAt: 0,
-  lastPath: '',
-  lastPathShownAt: 0,
-};
-
-function readState(): AdState {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return memoryState;
-    const parsed = JSON.parse(raw) as Partial<AdState>;
-    return {
-      timestamps: Array.isArray(parsed.timestamps) ? parsed.timestamps.filter((value) => Number.isFinite(value)) : [],
-      lastShownAt: Number.isFinite(parsed.lastShownAt) ? Number(parsed.lastShownAt) : 0,
-      lastPath: typeof parsed.lastPath === 'string' ? parsed.lastPath : '',
-      lastPathShownAt: Number.isFinite(parsed.lastPathShownAt) ? Number(parsed.lastPathShownAt) : 0,
-    };
-  } catch {
-    return memoryState;
-  }
-}
-
-function saveState(state: AdState) {
-  memoryState = state;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Keep the in-memory limiter when storage is unavailable.
-  }
-}
-
-export function HilltopBanner({ className = '', slotKey = 'unknown', allowImmediatePair = false }: HilltopBannerProps) {
+export function HilltopBanner({
+  className = '',
+  slotKey = 'default',
+  allowImmediatePair = false,
+}: HilltopBannerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [approved, setApproved] = useState(false);
+  const [active, setActive] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const timer = window.setTimeout(() => {
-      if (cancelled || document.visibilityState === 'hidden') return;
-
-      const now = Date.now();
-      const state = readState();
-      const recent = state.timestamps.filter((timestamp) => now - timestamp < WINDOW_MS);
-
-      const blockedByCooldown = allowImmediatePair
-        ? state.lastPath === slotKey && state.lastShownAt > 0 && now - state.lastShownAt < COOLDOWN_MS
-        : state.lastShownAt > 0 && now - state.lastShownAt < COOLDOWN_MS;
-
-      const blockedOnSamePath =
-        state.lastPath === slotKey &&
-        state.lastPathShownAt > 0 &&
-        now - state.lastPathShownAt < SAME_PATH_COOLDOWN_MS;
-
-      if (blockedByCooldown || blockedOnSamePath || recent.length >= MAX_IMPRESSIONS) {
-        return;
-      }
-
-      saveState({
-        timestamps: [...recent, now],
-        lastShownAt: now,
-        lastPath: slotKey,
-        lastPathShownAt: now,
-      });
-
-      if (!cancelled) setApproved(true);
-    }, 900);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [slotKey]);
-
-  useEffect(() => {
-    if (!approved) return;
-
     const container = containerRef.current;
     if (!container) return;
 
-    container.replaceChildren();
+    const currentPath = window.location.pathname;
+    const storageKey = 'movyza_hilltop_state_v2';
+    const now = Date.now();
 
-    const bootstrap = document.createElement('script');
-    bootstrap.type = 'text/javascript';
-    bootstrap.text = HILLTOP_SCRIPT;
-    container.appendChild(bootstrap);
+    let lastPath = '';
+    let lastShownAt = 0;
+
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { lastPath?: string; lastShownAt?: number };
+        lastPath = typeof parsed.lastPath === 'string' ? parsed.lastPath : '';
+        lastShownAt = Number.isFinite(parsed.lastShownAt) ? Number(parsed.lastShownAt) : 0;
+      }
+    } catch {}
+
+    // Only suppress immediate duplicate mounts of the exact same slot.
+    // Navigation to a new page is allowed to load Hilltop immediately.
+    const sameSlotCooldown = !allowImmediatePair && lastPath === currentPath + ':' + slotKey && now - lastShownAt < 45_000;
+    if (sameSlotCooldown) return;
+
+    let mounted = true;
+    setActive(true);
+
+    const script = document.createElement('script');
+    script.async = true;
+    script.referrerPolicy = 'no-referrer-when-downgrade';
+    script.src = HILLTOP_SRC;
+
+    container.replaceChildren(script);
+
+    try {
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          lastPath: currentPath + ':' + slotKey,
+          lastShownAt: now,
+        }),
+      );
+    } catch {}
 
     return () => {
-      container.replaceChildren();
-    };
-  }, [approved]);
+      mounted = false;
+      if (container.contains(script)) script.remove();
 
-  if (!approved) return null;
+      // Keep state cleanup deterministic if the component unmounts before
+      // the network script finishes.
+      if (mounted === false) setActive(false);
+    };
+  }, [slotKey, allowImmediatePair]);
+
+  if (!active) return null;
 
   return (
     <div
       ref={containerRef}
-      className={`w-full max-w-[300px] min-h-[250px] mx-auto flex items-center justify-center overflow-hidden ${className}`}
+      className={`w-full flex justify-center overflow-hidden ${className}`}
       aria-label="Advertisement"
     />
   );
