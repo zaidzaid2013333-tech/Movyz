@@ -89,6 +89,16 @@ jobs:
           printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/movies/1.xml'
           printf '%s' "$sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
+          echo "CHECK 4A/10: Cloudflare bot configuration diagnostics"
+          zone_json="$(curl --silent --show-error --location --fail -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/zones?name=movyza.sbs&status=active" || true)"
+          zone_id="$(printf '%s' "$zone_json" | python -c 'import json,sys; d=json.load(sys.stdin) if sys.stdin.readable() else {}; print((d.get("result") or [{}])[0].get("id",""))' 2>/dev/null || true)"
+          if [ -n "$zone_id" ]; then
+            bot_json="$(curl --silent --show-error --location --fail -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/zones/$zone_id/bot_management" || true)"
+            printf '%s' "$bot_json" | python -c 'import json,sys; d=json.load(sys.stdin); r=d.get("result") or {}; print("fight_mode="+str(r.get("fight_mode"))); print("sbfm_verified_bots="+str(r.get("sbfm_verified_bots"))); print("sbfm_definitely_automated="+str(r.get("sbfm_definitely_automated"))); print("sbfm_likely_automated="+str(r.get("sbfm_likely_automated")))' 2>/dev/null || echo "Bot Management read unavailable"
+          else
+            echo "Zone lookup unavailable with current API token"
+          fi
+
           echo "CHECK 5/10: public Googlebot sitemap access"
           googlebot_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -D /tmp/googlebot-public-sitemap.headers -o /tmp/googlebot-public-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap.xml")"
           echo "Googlebot HTTP status: $googlebot_status"
