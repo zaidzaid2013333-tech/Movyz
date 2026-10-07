@@ -81,37 +81,49 @@ jobs:
           printf '%s' "$en_html" | grep -q 'hreflang="ar-sa"'
 
           echo "CHECK 4/10: root sitemap"
-          sitemap="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
+          sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
+          printf '%s' "$sitemap_headers" | grep -Eiq '^content-type: *application/xml'
+          sitemap="$(cat /tmp/sitemap.xml)"
+          printf '%s' "$sitemap" | grep -q '^<?xml version="1.0" encoding="UTF-8"?>'
           printf '%s' "$sitemap" | grep -q '<urlset'
           printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/ar/'
           printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/en/movies'
+          printf '%s' "$sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
-          echo "CHECK 5/10: sitemap segment"
+          echo "CHECK 5/10: public-domain root sitemap"
+          public_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/public-sitemap.xml -H 'Cache-Control: no-cache' "https://movyza.sbs/sitemap.xml")"
+          printf '%s' "$public_headers" | grep -Eiq '^content-type: *application/xml'
+          public_sitemap="$(cat /tmp/public-sitemap.xml)"
+          printf '%s' "$public_sitemap" | grep -q '<urlset'
+          printf '%s' "$public_sitemap" | grep -q 'https://movyza.sbs/ar/'
+          printf '%s' "$public_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
+
+          echo "CHECK 6/10: sitemap segment"
           sitemap_segment="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml")"
           printf '%s' "$sitemap_segment" | grep -q '<urlset'
           printf '%s' "$sitemap_segment" | grep -q '/ar/movies/'
 
-          echo "CHECK 6/10: static assets"
+          echo "CHECK 7/10: static assets"
           assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | sort -u)"
           test -n "$assets"
           printf '%s' "$html" | grep -q 'Movyza'
 
-          echo "CHECK 7/10: TMDB proxy"
+          echo "CHECK 8/10: TMDB proxy"
           body="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/tmdb/movie/550?language=en-US")"
           printf '%s' "$body" | grep -q '"id":550'
 
-          echo "CHECK 8/10: movie deep link"
+          echo "CHECK 9/10: movie deep link"
           fight_club="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies/550")"
           printf '%s' "$fight_club" | grep -q 'Fight Club'
           printf '%s' "$fight_club" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
           printf '%s' "$fight_club" | grep -q 'rel="canonical"'
           printf '%s' "$fight_club" | grep -q '"@type":"Movie"'
 
-          echo "CHECK 9/10: watch deep link"
+          echo "CHECK 10/10: watch deep link"
           watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/watch/movie/550")"
           printf '%s' "$watch_html" | grep -q 'Fight Club'
 
-          echo "CHECK 10/10: robots"
+          echo "CHECK 11/10: robots"
           robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/robots.txt")"
           printf '%s' "$robots" | grep -q 'Sitemap:'
 
