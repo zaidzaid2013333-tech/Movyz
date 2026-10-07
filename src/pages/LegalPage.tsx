@@ -72,11 +72,11 @@ export const LegalPage: React.FC = () => {
                 accessible through Movyza infringes their rights may contact:
               </p>
               <a
-                href="mailto:legal@movyza.sbs"
+                href="mailto:sameranede@gmail.com"
                 className="mt-3 inline-flex items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-4 py-3 font-bold text-amber-200 hover:bg-amber-400/[0.10]"
               >
                 <Mail className="w-4 h-4" />
-                legal@movyza.sbs
+                sameranede@gmail.com
               </a>
               <p className="mt-3">A notice should include:</p>
               <ol className="mt-2 list-decimal pl-5 space-y-1.5">
