@@ -80,11 +80,11 @@ jobs:
           printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'
           printf '%s' "$en_html" | grep -q 'hreflang="ar-sa"'
 
-          echo "CHECK 4/10: sitemap index"
+          echo "CHECK 4/10: root sitemap"
           sitemap="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
-          printf '%s' "$sitemap" | grep -q '<sitemapindex'
-          printf '%s' "$sitemap" | grep -q '/sitemap/ar/movies/1.xml'
-          printf '%s' "$sitemap" | grep -q '/sitemap/en/series/1.xml'
+          printf '%s' "$sitemap" | grep -q '<urlset'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/ar/'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/en/movies'
 
           echo "CHECK 5/10: sitemap segment"
           sitemap_segment="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml")"
