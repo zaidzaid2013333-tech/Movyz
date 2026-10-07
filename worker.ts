@@ -796,6 +796,20 @@ const buildSitemapSegment = async (
 const ROOT_SITEMAP_ROUTES = ['/', '/movies', '/series', '/discover', '/catalog', '/legal'] as const;
 const SITEMAP_PUBLIC_ORIGIN = 'https://movyza.sbs';
 
+const buildGscSitemap = () => {
+  const urls: string[] = [];
+  for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
+    for (const route of ROOT_SITEMAP_ROUTES) {
+      urls.push(
+        `<url><loc>${escapeXml(`${SITEMAP_PUBLIC_ORIGIN}/${locale}${route === '/' ? '/' : route}`)}</loc></url>`,
+      );
+    }
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`;
+};
+
 const buildRootSitemap = () => buildSitemapIndex(SITEMAP_CRAWL_ORIGIN);
 
 const buildRobotsTxt = () => [
@@ -864,6 +878,9 @@ export default {
           'cdn-cache-control': 'public, max-age=86400',
         },
       });
+    }
+    if (request.method === 'GET' && url.pathname === '/sitemap-gsc.xml') {
+      return xmlResponse(buildGscSitemap(), 3600);
     }
     if (request.method === 'GET' && url.pathname === '/sitemap.xml') {
       return xmlResponse(buildRootSitemap());
