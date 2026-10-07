@@ -27,6 +27,7 @@ type AdState = {
 type HilltopBannerProps = {
   className?: string;
   slotKey?: string;
+  allowImmediatePair?: boolean;
 };
 
 let memoryState: AdState = {
@@ -61,7 +62,7 @@ function saveState(state: AdState) {
   }
 }
 
-export function HilltopBanner({ className = '', slotKey = 'unknown' }: HilltopBannerProps) {
+export function HilltopBanner({ className = '', slotKey = 'unknown', allowImmediatePair = false }: HilltopBannerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [approved, setApproved] = useState(false);
 
@@ -75,8 +76,9 @@ export function HilltopBanner({ className = '', slotKey = 'unknown' }: HilltopBa
       const state = readState();
       const recent = state.timestamps.filter((timestamp) => now - timestamp < WINDOW_MS);
 
-      const blockedByCooldown =
-        state.lastShownAt > 0 && now - state.lastShownAt < COOLDOWN_MS;
+      const blockedByCooldown = allowImmediatePair
+        ? state.lastPath === slotKey && state.lastShownAt > 0 && now - state.lastShownAt < COOLDOWN_MS
+        : state.lastShownAt > 0 && now - state.lastShownAt < COOLDOWN_MS;
 
       const blockedOnSamePath =
         state.lastPath === slotKey &&
