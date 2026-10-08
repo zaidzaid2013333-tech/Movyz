@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: movyza-native-android
+  cancel-in-progress: true
+
 jobs:
   build-apk:
     runs-on: ubuntu-latest
