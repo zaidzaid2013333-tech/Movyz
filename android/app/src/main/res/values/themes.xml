@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Movyza" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@color/movyza_bg</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowBackground">@color/movyza_bg</item>
+    </style>
+</resources>
