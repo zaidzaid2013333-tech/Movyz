@@ -15,12 +15,12 @@ fun quoted(value: String): String =
 
 android {
     namespace = "com.movyza.app"
-    compileSdk = 36
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.movyza.app"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 35
         versionCode = 5
         versionName = "2.0.4"
 
