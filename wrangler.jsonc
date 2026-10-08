@@ -3,7 +3,7 @@
   "name": "movyz-api",
   "main": "worker.ts",
   "compatibility_date": "2026-09-26",
-  "cache": { "enabled": false },
+  "cache": { "enabled": true, "cross_version_cache": true },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
