@@ -99,6 +99,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.movyza.app.data.Movie
 import com.movyza.app.data.MovyzaApi
 import com.movyza.app.data.TmdbDetails
