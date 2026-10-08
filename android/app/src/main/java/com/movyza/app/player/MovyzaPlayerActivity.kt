@@ -460,12 +460,52 @@ class MovyzaPlayerActivity : ComponentActivity() {
             .build()
     }
 
-    private fun normalizedLanguage(language: String): String =
-        language.trim().lowercase().substringBefore('-').substringBefore('_')
+    private fun normalizedLanguage(language: String): String {
+        val code = language.trim().lowercase()
+            .substringBefore('-')
+            .substringBefore('_')
+
+        return when (code) {
+            "eng" -> "en"
+            "ara" -> "ar"
+            "fra", "fre" -> "fr"
+            "deu", "ger" -> "de"
+            "spa" -> "es"
+            "ita" -> "it"
+            "por" -> "pt"
+            "rus" -> "ru"
+            "tur" -> "tr"
+            "hin" -> "hi"
+            "jpn" -> "ja"
+            "kor" -> "ko"
+            "zho", "chi" -> "zh"
+            "nld", "dut" -> "nl"
+            "swe" -> "sv"
+            "dan" -> "da"
+            "nor" -> "no"
+            "fin" -> "fi"
+            "pol" -> "pl"
+            "ces", "cze" -> "cs"
+            "ukr" -> "uk"
+            "heb" -> "he"
+            "vie" -> "vi"
+            "ind" -> "id"
+            "msa", "may" -> "ms"
+            "tha" -> "th"
+            "ron", "rum" -> "ro"
+            "hun" -> "hu"
+            "ell", "gre" -> "el"
+            "ben" -> "bn"
+            "urd" -> "ur"
+            "fas", "per" -> "fa"
+            else -> code
+        }
+    }
 
     private fun languageDisplayName(language: String): String {
         if (language.isBlank() || language.equals("und", ignoreCase = true)) return ""
-        val locale = Locale.forLanguageTag(language.replace('_', '-'))
+        val normalized = normalizedLanguage(language)
+        val locale = Locale.forLanguageTag(normalized)
         return locale.getDisplayLanguage(Locale.getDefault()).ifBlank { language }
     }
 
