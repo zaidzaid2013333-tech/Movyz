@@ -9,8 +9,7 @@ val supabaseUrl = providers.environmentVariable("SUPABASE_URL").orElse("").get()
 val supabaseAnonKey = providers.environmentVariable("SUPABASE_ANON_KEY").orElse("").get()
 
 fun quoted(value: String): String =
-    "\" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "com.movyza.app"
