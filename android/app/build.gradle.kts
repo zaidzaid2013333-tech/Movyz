@@ -14,14 +14,6 @@ android {
         versionName = "2.0.4"
     }
 
-    sourceSets {
-        getByName("main") {
-            java.setSrcDirs(listOf("src/ramus-canary/java"))
-            res.setSrcDirs(emptyList<String>())
-            manifest.srcFile("src/ramus-canary/AndroidManifest.xml")
-        }
-    }
-
     buildFeatures {
         buildConfig = false
     }
