@@ -48,13 +48,15 @@ object MovyzaPlaybackRepository {
         val base = BuildConfig.PLAYBACK_API_BASE.trim().trimEnd('/')
         if (base.isBlank()) throw IOException("Playback API is not configured")
 
+        val isSeries = request.mediaType.equals("series", ignoreCase = true) ||
+            request.mediaType.equals("tv", ignoreCase = true)
         val endpoint = buildString {
             append(base)
             append("/api/v1/playback/resolve?tmdb_id=")
             append(request.tmdbId)
             append("&media_type=")
-            append(request.mediaType)
-            if (request.mediaType == "series") {
+            append(if (isSeries) "series" else "movie")
+            if (isSeries) {
                 append("&season=")
                 append(request.season.coerceAtLeast(1))
                 append("&episode=")
@@ -62,13 +64,14 @@ object MovyzaPlaybackRepository {
             }
         }
 
-        // VidLink is the configured native provider: prefer its signed direct
-        // media URLs. Use the Movyza broker only if VidLink yields no usable URL.
+        // Preserve VidLink's quality order, but keep broker sources behind it as
+        // real failover candidates. This also lets the player recover when an
+        // API URL is returned but the upstream CDN refuses to serve it.
         val vidLinkCandidates = runCatching { resolveFromVidLink(request) }.getOrNull().orEmpty()
-        if (vidLinkCandidates.isNotEmpty()) return@withContext vidLinkCandidates
-
-        val denoCandidates = runCatching { fetchCandidates(endpoint) }.getOrNull().orEmpty()
-        if (denoCandidates.isNotEmpty()) return@withContext denoCandidates
+        val brokerCandidates = runCatching { fetchCandidates(endpoint) }.getOrNull().orEmpty()
+        val candidates = (vidLinkCandidates + brokerCandidates)
+            .distinctBy { normalizeUrl(it.url) }
+        if (candidates.isNotEmpty()) return@withContext candidates
 
         throw IOException("VidLink and playback broker returned no playable source")
     }
@@ -118,7 +121,9 @@ object MovyzaPlaybackRepository {
 
         if (encodedId.isBlank()) throw IOException("VidLink encode returned no ID")
 
-        val endpoint = if (request.mediaType == "series") {
+        val isSeries = request.mediaType.equals("series", ignoreCase = true) ||
+            request.mediaType.equals("tv", ignoreCase = true)
+        val endpoint = if (isSeries) {
             "https://vidlink.pro/api/b/tv/$encodedId/" +
                 request.season.coerceAtLeast(1) + "/" +
                 request.episode.coerceAtLeast(1) + "?multiLang=0"
@@ -144,40 +149,65 @@ object MovyzaPlaybackRepository {
             val stream = root.optJSONObject("stream")
                 ?: throw IOException("VidLink returned no stream object")
             val qualities = stream.optJSONObject("qualities")
-                ?: throw IOException("VidLink returned no quality streams")
-
             val candidates = mutableListOf<PlaybackCandidate>()
-            val keys = qualities.keys()
-            while (keys.hasNext()) {
-                val qualityKey = keys.next()
-                val entry = qualities.optJSONObject(qualityKey) ?: continue
-                val rawUrl = entry.optString("url").trim()
-                if (rawUrl.isBlank()) continue
+            if (qualities != null) {
+                val keys = qualities.keys()
+                while (keys.hasNext()) {
+                    val qualityKey = keys.next()
+                    val entry = qualities.optJSONObject(qualityKey) ?: continue
+                    val rawUrl = entry.optString("url").trim()
+                    if (rawUrl.isBlank()) continue
 
-                // VidLink embeds the required media request headers in the URL
-                // as ?headers={...}. Strip that transport parameter before giving
-                // the URL to Media3, and apply its decoded values as HTTP headers.
-                val (url, embeddedHeaders) = extractEmbeddedHeaders(rawUrl)
-                if (!isPlayable(url)) continue
+                    // Some VidLink URLs have no extension and identify their
+                    // container only through the API's type field.
+                    val declaredFormat = entry.optString("type")
+                    val (url, embeddedHeaders) = extractEmbeddedHeaders(rawUrl)
+                    if (!isPlayableOrDeclaredFormat(url, declaredFormat)) continue
 
-                candidates += PlaybackCandidate(
-                    url = url,
-                    quality = parseQuality(qualityKey) ?: 0,
-                    format = entry.optString("type").ifBlank {
-                        if (url.substringBefore("?").endsWith(".mp4", true)) "video/mp4"
-                        else "application/x-mpegURL"
-                    },
-                    headers = mapOf(
-                        "Referer" to "https://vidlink.pro/",
-                        "Origin" to "https://vidlink.pro",
-                        "User-Agent" to VIDLINK_USER_AGENT
-                    ) + embeddedHeaders,
-                    subtitles = collectSubtitleTracks(entry).ifEmpty {
-                        collectSubtitleTracks(stream)
-                    }
-                )
+                    candidates += PlaybackCandidate(
+                        url = url,
+                        quality = parseQuality(qualityKey) ?: 0,
+                        format = declaredFormat.ifBlank {
+                            if (url.substringBefore("?").endsWith(".mp4", true)) "video/mp4"
+                            else "application/x-mpegURL"
+                        },
+                        headers = mapOf(
+                            "Referer" to "https://vidlink.pro/",
+                            "Origin" to "https://vidlink.pro",
+                            "User-Agent" to VIDLINK_USER_AGENT
+                        ) + embeddedHeaders,
+                        subtitles = collectSubtitleTracks(entry).ifEmpty {
+                            collectSubtitleTracks(stream)
+                        }
+                    )
+                }
             }
 
+            // Some responses expose only one master HLS playlist instead of a
+            // qualities object. Use it as an explicit HLS Media3 source.
+            val rawPlaylist = stream.optString("playlist").trim()
+            if (rawPlaylist.isNotBlank() && isHttpUrl(rawPlaylist)) {
+                val (playlist, embeddedHeaders) = extractEmbeddedHeaders(rawPlaylist)
+                if (isHttpUrl(playlist) &&
+                    !playlist.contains("/embed/", ignoreCase = true) &&
+                    !playlist.contains("iframe", ignoreCase = true) &&
+                    !playlist.contains("player.movyza", ignoreCase = true)
+                ) {
+                    candidates += PlaybackCandidate(
+                        url = playlist,
+                        quality = 0,
+                        format = "application/x-mpegURL",
+                        headers = mapOf(
+                            "Referer" to "https://vidlink.pro/",
+                            "Origin" to "https://vidlink.pro",
+                            "User-Agent" to VIDLINK_USER_AGENT
+                        ) + embeddedHeaders,
+                        subtitles = collectSubtitleTracks(stream)
+                    )
+                }
+            }
+
+            if (candidates.isEmpty()) throw IOException("VidLink returned no playable stream URL")
             return candidates
                 .distinctBy { normalizeUrl(it.url) }
                 .sortedWith(compareBy<PlaybackCandidate> { qualityRank(it.quality) }.thenBy { it.url.length })
@@ -422,17 +452,38 @@ object MovyzaPlaybackRepository {
 
     private fun isPlayable(url: String): Boolean {
         val lower = url.lowercase()
+        val path = lower.substringBefore("?").substringBefore("#")
         if (!isHttpUrl(url)) return false
         if (lower.contains("/embed/") || lower.contains("iframe") || lower.contains("player.movyza")) return false
-        if (lower.endsWith(".html") || lower.endsWith(".htm")) return false
-        return lower.contains(".mp4") ||
-            lower.contains(".webm") ||
-            lower.contains(".m3u8") ||
-            lower.contains(".mpd") ||
-            lower.contains(".mkv") ||
-            lower.contains(".mov") ||
-            lower.contains(".ts") ||
+        if (path.endsWith(".html") || path.endsWith(".htm")) return false
+        return path.contains(".mp4") ||
+            path.contains(".webm") ||
+            path.contains(".m3u8") ||
+            path.contains(".mpd") ||
+            path.contains(".mkv") ||
+            path.contains(".mov") ||
+            path.contains(".ts") ||
             lower.contains("manifest")
+    }
+
+    private fun isPlayableOrDeclaredFormat(url: String, format: String): Boolean {
+        if (isPlayable(url)) return true
+        if (!isHttpUrl(url)) return false
+        val lowerUrl = url.lowercase()
+        val path = lowerUrl.substringBefore("?").substringBefore("#")
+        if (lowerUrl.contains("/embed/") || lowerUrl.contains("iframe") ||
+            lowerUrl.contains("player.movyza") || path.endsWith(".html") || path.endsWith(".htm")
+        ) return false
+        val type = format.trim().lowercase()
+        return type.contains("mp4") ||
+            type.contains("webm") ||
+            type.contains("m3u8") ||
+            type.contains("mpegurl") ||
+            type.contains("hls") ||
+            type.contains("mpd") ||
+            type.contains("dash") ||
+            type.contains("mp2t") ||
+            type.contains("video/")
     }
 
     private fun isHttpUrl(url: String): Boolean {

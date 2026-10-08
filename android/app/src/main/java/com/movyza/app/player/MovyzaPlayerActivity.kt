@@ -396,11 +396,12 @@ class MovyzaPlayerActivity : ComponentActivity() {
             }
         }
 
-        val mediaItem = MediaItem.Builder()
+        val mediaItemBuilder = MediaItem.Builder()
             .setUri(source.url)
             .setTag(source)
             .setSubtitleConfigurations(subtitleConfigurations)
-            .build()
+        mediaMimeTypeFor(source)?.let { mediaItemBuilder.setMimeType(it) }
+        val mediaItem = mediaItemBuilder.build()
 
         val mediaSource = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
             .createMediaSource(mediaItem)
@@ -408,6 +409,22 @@ class MovyzaPlayerActivity : ComponentActivity() {
         player.setMediaSource(mediaSource)
         player.prepare()
         player.playWhenReady = true
+    }
+
+    private fun mediaMimeTypeFor(source: PlaybackCandidate): String? {
+        val declared = source.format.trim().lowercase(Locale.US).substringBefore(";")
+        val path = source.url.lowercase(Locale.US).substringBefore("?").substringBefore("#")
+        return when {
+            declared in setOf("hls", "m3u8", "mpegurl") ||
+                declared.contains("mpegurl") || declared.contains("mpegurl") ||
+                path.endsWith(".m3u8") -> MimeTypes.APPLICATION_M3U8
+            declared in setOf("dash", "mpd") || declared.contains("dash") ||
+                declared.contains("dash+xml") || path.endsWith(".mpd") -> MimeTypes.APPLICATION_MPD
+            declared.contains("mp4") || path.endsWith(".mp4") -> MimeTypes.VIDEO_MP4
+            declared.contains("webm") || path.endsWith(".webm") -> MimeTypes.VIDEO_WEBM
+            declared.contains("mp2t") || path.endsWith(".ts") -> MimeTypes.VIDEO_MP2T
+            else -> null
+        }
     }
 
     private suspend fun buildPreparedSubtitleConfiguration(
