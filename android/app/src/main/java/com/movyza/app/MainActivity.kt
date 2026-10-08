@@ -91,6 +91,7 @@ import com.movyza.app.data.Movie
 import com.movyza.app.data.MovyzaApi
 import com.movyza.app.data.TmdbDetails
 import com.movyza.app.data.UserSession
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -308,7 +309,10 @@ fun MovyzaApp(vm: MainViewModel = viewModel()) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
-            NavigationBar(containerColor = Color(0xFF0A0C10)) {
+            NavigationBar(
+                containerColor = MovyzaBlack,
+                tonalElevation = 0.dp
+            ) {
                 Tab.values().forEach { item ->
                     NavigationBarItem(
                         selected = tab == item,
@@ -327,9 +331,9 @@ fun MovyzaApp(vm: MainViewModel = viewModel()) {
                         },
                         label = { Text(item.label, fontSize = 11.sp) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MovyzaDark.primary,
-                            selectedTextColor = MovyzaDark.primary,
-                            indicatorColor = Color(0xFF17200D)
+                            selectedIconColor = MovyzaGoldBright,
+                            selectedTextColor = MovyzaGoldBright,
+                            indicatorColor = MovyzaGold.copy(alpha = 0.16f)
                         )
                     )
                 }
@@ -340,7 +344,10 @@ fun MovyzaApp(vm: MainViewModel = viewModel()) {
         AnimatedContent(
             targetState = tab,
             modifier = Modifier.padding(padding),
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            transitionSpec = {
+                fadeIn(animationSpec = androidx.compose.animation.core.tween(260)) togetherWith
+                    fadeOut(animationSpec = androidx.compose.animation.core.tween(180))
+            },
             label = "tab"
         ) { current ->
             when (current) {
@@ -455,20 +462,29 @@ fun FeaturedCard(movie: Movie, onOpen: (Movie) -> Unit) {
 
 @Composable
 fun Section(title: String, movies: List<Movie>, onOpen: (Movie) -> Unit) {
-    if (movies.isEmpty()) return
-    Column(Modifier.padding(top = 24.dp)) {
-        Row(
-            Modifier.padding(horizontal = 18.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.weight(1f))
-            Text("المزيد", color = Color(0xFF8C949E), fontSize = 13.sp)
-        }
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(movies.take(12)) { MovieCard(it, onOpen) }
+    AnimatedVisibility(
+        visible = movies.isNotEmpty(),
+        enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(420)) +
+            androidx.compose.animation.expandVertically(animationSpec = androidx.compose.animation.core.tween(420))
+    ) {
+        Column(Modifier.padding(top = 26.dp)) {
+            Row(
+                Modifier.padding(horizontal = 18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier.width(3.dp).height(19.dp).clip(RoundedCornerShape(99.dp)).background(MovyzaGold)
+                )
+                Spacer(Modifier.width(9.dp))
+                Text(title, color = MovyzaText, fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.weight(1f))
+                Text("المزيد", color = MovyzaMuted, fontSize = 12.sp)
+            }
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(movies.take(10), key = { "${it.mediaType}-${it.id}" }) { MovieCard(it, onOpen) }
+            }
         }
     }
 }
@@ -476,26 +492,57 @@ fun Section(title: String, movies: List<Movie>, onOpen: (Movie) -> Unit) {
 @Composable
 fun MovieCard(movie: Movie, onOpen: (Movie) -> Unit) {
     Column(
-        Modifier.width(142.dp).clickable { onOpen(movie) }
+        Modifier.width(136.dp).clickable { onOpen(movie) }
     ) {
-        Box(Modifier.fillMaxWidth().height(210.dp).clip(RoundedCornerShape(18.dp))) {
-            AsyncImage(model = movie.posterUrl, contentDescription = movie.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Box(
+            Modifier.fillMaxWidth()
+                .height(202.dp)
+                .clip(RoundedCornerShape(17.dp))
+                .background(MovyzaSurface)
+        ) {
+            AsyncImage(
+                model = movie.posterUrl,
+                contentDescription = movie.title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.72f to Color.Transparent,
+                        1f to MovyzaBlack.copy(alpha = 0.72f)
+                    )
+                )
+            )
             Surface(
                 modifier = Modifier.padding(8.dp).align(Alignment.TopEnd),
-                shape = RoundedCornerShape(10.dp),
-                color = Color(0xCC101318)
+                shape = RoundedCornerShape(999.dp),
+                color = Color(0xDD080706)
             ) {
-                Text("★ " + String.format("%.1f", movie.rating), fontSize = 11.sp, modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp))
+                Text(
+                    "★ " + String.format("%.1f", movie.rating),
+                    color = MovyzaGoldBright,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                )
             }
         }
         Text(
             movie.title.ifBlank { movie.originalTitle },
+            color = MovyzaText,
             modifier = Modifier.padding(top = 8.dp),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp
         )
-        Text(if (movie.mediaType == "series") "مسلسل" else "فيلم", color = Color(0xFF8C949E), fontSize = 11.sp)
+        Text(
+            if (movie.mediaType == "series") "مسلسل" else "فيلم",
+            color = MovyzaMuted,
+            fontSize = 10.sp
+        )
     }
 }
 
