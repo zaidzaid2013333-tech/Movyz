@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.outlined.AspectRatio
 import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -53,6 +54,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -92,6 +94,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.movyza.app.MainViewModel
 import com.movyza.app.MovyzaColors
@@ -106,6 +109,7 @@ import java.util.Locale
 import kotlin.math.abs
 
 private enum class TrackDialog { SUBTITLES, AUDIO }
+private enum class SubtitleVisualStyle { CLASSIC, GOLD, HIGH_CONTRAST }
 
 private data class TrackOption(
     val type: Int,
@@ -151,6 +155,13 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private var subtitleTracks by mutableStateOf<List<TrackOption>>(emptyList())
     private var audioTracks by mutableStateOf<List<TrackOption>>(emptyList())
     private var defaultSubtitleApplied = false
+    private val playerPrefs by lazy {
+        getSharedPreferences("movyza_player_preferences", MODE_PRIVATE)
+    }
+    private var autoplayNext by mutableStateOf(true)
+    private var playbackSpeed by mutableFloatStateOf(1f)
+    private var subtitleVisualStyle by mutableStateOf(SubtitleVisualStyle.CLASSIC)
+    private var preferredQualityHeight by mutableIntStateOf(720)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -162,6 +173,16 @@ class MovyzaPlayerActivity : ComponentActivity() {
         activeEpisode = intent.getIntExtra(EXTRA_EPISODE, 1).coerceAtLeast(1)
         displayTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "MOVYZA" }
         val isSeries = intent.getStringExtra(EXTRA_MEDIA_TYPE) == "series"
+
+        autoplayNext = playerPrefs.getBoolean("autoplay_next", true)
+        playbackSpeed = playerPrefs.getFloat("playback_speed", 1f).coerceIn(0.5f, 2f)
+        preferredQualityHeight = playerPrefs.getInt("preferred_quality", 720).coerceAtLeast(144)
+        subtitleVisualStyle = runCatching {
+            SubtitleVisualStyle.valueOf(
+                playerPrefs.getString("subtitle_style", SubtitleVisualStyle.CLASSIC.name)
+                    ?: SubtitleVisualStyle.CLASSIC.name
+            )
+        }.getOrDefault(SubtitleVisualStyle.CLASSIC)
 
         val deviceLanguage = Locale.getDefault().language.takeIf { it.isNotBlank() } ?: "en"
         trackSelector = DefaultTrackSelector(this).apply {
@@ -183,6 +204,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
             )
             .build()
 
+        player.setPlaybackSpeed(playbackSpeed)
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 buffering = state == Player.STATE_BUFFERING
@@ -196,7 +218,10 @@ class MovyzaPlayerActivity : ComponentActivity() {
                         }
                         refreshTracks()
                     }
-                    Player.STATE_ENDED -> saveProgress(true)
+                    Player.STATE_ENDED -> {
+                        saveProgress(true)
+                        if (isSeries && autoplayNext) playNextEpisode()
+                    }
                 }
             }
 
@@ -235,20 +260,30 @@ class MovyzaPlayerActivity : ComponentActivity() {
                     selectedQualityHeight = selectedQualityHeight,
                     subtitleTracks = subtitleTracks,
                     audioTracks = audioTracks,
+                    playbackSpeed = playbackSpeed,
+                    autoplayNext = autoplayNext,
+                    subtitleVisualStyle = subtitleVisualStyle,
                     onClose = { finish() },
                     onSeek = { player.seekTo(it.coerceIn(0L, duration)) },
                     onTogglePlay = { if (player.isPlaying) player.pause() else player.play() },
                     onSkip = { delta -> player.seekTo((player.currentPosition + delta).coerceIn(0L, duration)) },
                     onNextEpisode = {
-                        if (isSeries) {
-                            saveProgress(true)
-                            activeEpisode += 1
-                            val baseName = displayTitle.substringBefore(" — ")
-                            displayTitle = "$baseName — S$activeSeason E$activeEpisode"
-                            lifecycleScope.launch { resolveAndStart() }
-                        }
+                        if (isSeries) playNextEpisode()
                     },
                     onQuality = { selectQuality(it) },
+                    onSpeed = { speed ->
+                        playbackSpeed = speed.coerceIn(0.5f, 2f)
+                        playerPrefs.edit().putFloat("playback_speed", playbackSpeed).apply()
+                        player.setPlaybackSpeed(playbackSpeed)
+                    },
+                    onAutoplayNext = { enabled ->
+                        autoplayNext = enabled
+                        playerPrefs.edit().putBoolean("autoplay_next", enabled).apply()
+                    },
+                    onSubtitleStyle = { style ->
+                        subtitleVisualStyle = style
+                        playerPrefs.edit().putString("subtitle_style", style.name).apply()
+                    },
                     onSelectSubtitle = { selectTextTrack(it) },
                     onSelectPreferredSubtitle = { selectPreferredTextTrack() },
                     onSelectAudio = { selectAudioTrack(it) },
@@ -396,8 +431,8 @@ class MovyzaPlayerActivity : ComponentActivity() {
 
         if (!defaultQualityApplied && heights.isNotEmpty()) {
             defaultQualityApplied = true
-            val preferred = heights.minByOrNull { abs(it - 720) } ?: heights.first()
-            selectQuality(preferred)
+            val preferred = heights.minByOrNull { abs(it - preferredQualityHeight) } ?: heights.first()
+            selectQuality(preferred, persist = false)
         }
 
         if (!defaultSubtitleApplied && subtitleTracks.isNotEmpty()) {
@@ -509,8 +544,12 @@ class MovyzaPlayerActivity : ComponentActivity() {
         return locale.getDisplayLanguage(Locale.getDefault()).ifBlank { language }
     }
 
-    private fun selectQuality(height: Int) {
+    private fun selectQuality(height: Int, persist: Boolean = true) {
         selectedQualityHeight = height
+        if (persist) {
+            preferredQualityHeight = height
+            playerPrefs.edit().putInt("preferred_quality", height).apply()
+        }
         val tracks = mutableListOf<Pair<Tracks.Group, Int>>()
         player.currentTracks.groups
             .filter { it.type == C.TRACK_TYPE_VIDEO }
@@ -529,6 +568,50 @@ class MovyzaPlayerActivity : ComponentActivity() {
             .buildUpon()
             .setOverrideForType(TrackSelectionOverride(picked.first.mediaTrackGroup, picked.second))
             .build()
+    }
+
+    private fun playNextEpisode() {
+        if (!intent.getStringExtra(EXTRA_MEDIA_TYPE).equals("series", ignoreCase = true)) return
+        saveProgress(true)
+        activeEpisode += 1
+        val baseName = displayTitle.substringBefore(" — ")
+        displayTitle = "$baseName — S$activeSeason E$activeEpisode"
+        lifecycleScope.launch { resolveAndStart() }
+    }
+
+    private fun subtitleStyleForCurrent(): CaptionStyleCompat = when (subtitleVisualStyle) {
+        SubtitleVisualStyle.CLASSIC -> CaptionStyleCompat(
+            android.graphics.Color.WHITE,
+            android.graphics.Color.argb(170, 0, 0, 0),
+            android.graphics.Color.TRANSPARENT,
+            CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+            android.graphics.Color.BLACK,
+            android.graphics.Typeface.DEFAULT
+        )
+        SubtitleVisualStyle.GOLD -> CaptionStyleCompat(
+            android.graphics.Color.rgb(245, 201, 76),
+            android.graphics.Color.argb(160, 0, 0, 0),
+            android.graphics.Color.TRANSPARENT,
+            CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+            android.graphics.Color.BLACK,
+            android.graphics.Typeface.DEFAULT_BOLD
+        )
+        SubtitleVisualStyle.HIGH_CONTRAST -> CaptionStyleCompat(
+            android.graphics.Color.WHITE,
+            android.graphics.Color.BLACK,
+            android.graphics.Color.TRANSPARENT,
+            CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
+            android.graphics.Color.BLACK,
+            android.graphics.Typeface.DEFAULT_BOLD
+        )
+    }
+
+    private fun applySubtitleStyle(playerView: PlayerView) {
+        playerView.subtitleView?.apply {
+            setApplyEmbeddedStyles(false)
+            setStyle(subtitleStyleForCurrent())
+            setFractionalTextSize(0.055f)
+        }
     }
 
     private fun restoreSavedProgress() {
@@ -608,6 +691,9 @@ private fun MovyzaPlayerScreen(
     selectedQualityHeight: Int,
     subtitleTracks: List<TrackOption>,
     audioTracks: List<TrackOption>,
+    playbackSpeed: Float,
+    autoplayNext: Boolean,
+    subtitleVisualStyle: SubtitleVisualStyle,
     onClose: () -> Unit,
     onSeek: (Long) -> Unit,
     onTogglePlay: () -> Unit,
@@ -617,6 +703,9 @@ private fun MovyzaPlayerScreen(
     onSelectSubtitle: (TrackOption?) -> Unit,
     onSelectPreferredSubtitle: () -> Unit,
     onSelectAudio: (TrackOption) -> Unit,
+    onSpeed: (Float) -> Unit,
+    onAutoplayNext: (Boolean) -> Unit,
+    onSubtitleStyle: (SubtitleVisualStyle) -> Unit,
     onRetry: () -> Unit
 ) {
     if (LocalInspectionMode.current) return
@@ -624,6 +713,7 @@ private fun MovyzaPlayerScreen(
     var controls by remember { mutableStateOf(true) }
     var showQuality by remember { mutableStateOf(false) }
     var trackDialog by remember { mutableStateOf<TrackDialog?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
 
@@ -658,10 +748,12 @@ private fun MovyzaPlayerScreen(
                     setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                     this.player = player
                     setBackgroundColor(android.graphics.Color.BLACK)
+                    applySubtitleStyle(this)
                 }
             },
             update = { view ->
                 view.resizeMode = resizeMode
+                applySubtitleStyle(view)
             },
             modifier = Modifier
                 .fillMaxSize()
@@ -799,6 +891,23 @@ private fun MovyzaPlayerScreen(
                         }
                         Spacer(Modifier.width(6.dp))
                     }
+
+                    Surface(
+                        shape = MovyzaShapes.Sm,
+                        color = MovyzaColors.GlassStrong,
+                        border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
+                    ) {
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(
+                                Icons.Outlined.Settings,
+                                contentDescription = "إعدادات المشغل",
+                                tint = MovyzaColors.Text,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.width(8.dp))
 
                     Surface(
                         shape = MovyzaShapes.Sm,
@@ -1009,6 +1118,81 @@ private fun MovyzaPlayerScreen(
                 }
             }
         }
+    }
+
+    if (showSettings) {
+        AlertDialog(
+            onDismissRequest = { showSettings = false },
+            containerColor = MovyzaColors.Bg2,
+            shape = MovyzaShapes.Lg,
+            title = { Text("إعدادات المشغل", color = MovyzaColors.Text, fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("سرعة التشغيل", color = MovyzaColors.Text2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { speed ->
+                            TextButton(
+                                onClick = { onSpeed(speed) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    "${speed}x",
+                                    color = if (kotlin.math.abs(playbackSpeed - speed) < 0.01f) MovyzaColors.Gold300 else MovyzaColors.Text,
+                                    fontWeight = if (kotlin.math.abs(playbackSpeed - speed) < 0.01f) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("التشغيل التلقائي للحلقة التالية", color = MovyzaColors.Text, fontWeight = FontWeight.Bold)
+                            Text(
+                                if (autoplayNext) "ينتقل تلقائياً عند انتهاء الحلقة" else "لن ينتقل تلقائياً",
+                                color = MovyzaColors.Text3,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Switch(checked = autoplayNext, onCheckedChange = onAutoplayNext)
+                    }
+
+                    Text("شكل الترجمة", color = MovyzaColors.Text2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    listOf(
+                        SubtitleVisualStyle.CLASSIC to "أبيض كلاسيكي",
+                        SubtitleVisualStyle.GOLD to "ذهبي Movyza",
+                        SubtitleVisualStyle.HIGH_CONTRAST to "تباين مرتفع"
+                    ).forEach { (style, label) ->
+                        TextButton(
+                            onClick = { onSubtitleStyle(style) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                label,
+                                color = if (subtitleVisualStyle == style) MovyzaColors.Gold300 else MovyzaColors.Text,
+                                fontWeight = if (subtitleVisualStyle == style) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+
+                    Text(
+                        "الجودة الافتراضية تُحفظ تلقائياً عند اختيار جودة جديدة.",
+                        color = MovyzaColors.Text3,
+                        fontSize = 11.sp
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSettings = false }) {
+                    Text("تم", color = MovyzaColors.Gold300, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 
     if (showQuality) {
