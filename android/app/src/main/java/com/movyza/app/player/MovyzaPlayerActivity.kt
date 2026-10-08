@@ -100,6 +100,7 @@ import com.movyza.app.MainViewModel
 import com.movyza.app.MovyzaColors
 import com.movyza.app.MovyzaShapes
 import com.movyza.app.MovyzaTheme
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -143,6 +144,8 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private lateinit var trackSelector: DefaultTrackSelector
     private var sources: List<PlaybackCandidate> = emptyList()
     private var sourceIndex = 0
+    private var playbackRequestGeneration = 0
+    private var sourcePreparationGeneration = 0
     private var brokerFallbackAttempted = false
     private var handlingPlaybackError = false
     private var firstReady = true
@@ -366,6 +369,10 @@ class MovyzaPlayerActivity : ComponentActivity() {
     )
 
     private suspend fun resolveAndStart() {
+        val requestGeneration = ++playbackRequestGeneration
+        // Invalidate any source that is still waiting on subtitle downloads or
+        // a previous provider lookup before resolving the new request.
+        sourcePreparationGeneration++
         startupWatchdogJob?.cancel()
         startupWatchdogJob = null
         error = null
@@ -373,17 +380,24 @@ class MovyzaPlayerActivity : ComponentActivity() {
         handlingPlaybackError = false
         brokerFallbackAttempted = false
         val directUrl = intent.getStringExtra(EXTRA_SOURCE_URL)?.trim().orEmpty()
-        sources = if (directUrl.isNotBlank()) {
+        val resolvedSources = if (directUrl.isNotBlank()) {
             listOf(PlaybackCandidate(directUrl, provider = PlaybackProvider.DIRECT))
         } else {
-            runCatching { MovyzaPlaybackRepository.resolve(currentPlaybackRequest()) }
-                .getOrElse {
-                    buffering = false
-                    error = it.message ?: "لم نتمكن من تجهيز مصدر البث المباشر."
-                    emptyList()
-                }
+            try {
+                MovyzaPlaybackRepository.resolve(currentPlaybackRequest())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (requestGeneration != playbackRequestGeneration) return
+                buffering = false
+                error = failure.message ?: "لم نتمكن من تجهيز مصدر البث المباشر."
+                emptyList()
+            }
         }
 
+        // A retry/new episode may have resolved while this request was in flight.
+        if (requestGeneration != playbackRequestGeneration) return
+        sources = resolvedSources
         if (sources.isEmpty()) return
 
         sourceIndex = 0
@@ -400,6 +414,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
         startupWatchdogJob?.cancel()
         startupWatchdogJob = null
         buffering = false
+        val recoveryGeneration = sourcePreparationGeneration
         val errorCode = playerError?.errorCodeName ?: "STARTUP_TIMEOUT"
         val resumePosition = player.currentPosition.coerceAtLeast(0L)
 
@@ -414,17 +429,21 @@ class MovyzaPlayerActivity : ComponentActivity() {
         if (!isExplicitDirectSource && !hasBrokerCandidates && !brokerFallbackAttempted) {
             brokerFallbackAttempted = true
             buffering = true
-            val fallback = runCatching {
+            val fallback = try {
                 MovyzaPlaybackRepository.resolveBrokerFallback(
                     currentPlaybackRequest(),
                     sources.map { it.url }.toSet()
                 )
-            }.getOrElse {
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (recoveryGeneration != sourcePreparationGeneration) return
                 buffering = false
                 error = "تعذر تشغيل مصدر VidLink (${errorCode}) ولم يتوفر بديل."
                 return
             }
 
+            if (recoveryGeneration != sourcePreparationGeneration) return
             val firstFallbackIndex = sources.size
             sources = sources + fallback
             sourceIndex = firstFallbackIndex
@@ -436,6 +455,9 @@ class MovyzaPlayerActivity : ComponentActivity() {
     }
 
     private suspend fun prepareSource(source: PlaybackCandidate, resumePositionMs: Long? = null) {
+        val preparationGeneration = ++sourcePreparationGeneration
+        startupWatchdogJob?.cancel()
+        startupWatchdogJob = null
         error = null
         buffering = true
         if (source.quality > 0) selectedQualityHeight = source.quality
@@ -472,6 +494,9 @@ class MovyzaPlayerActivity : ComponentActivity() {
             }.awaitAll().filterNotNull()
         }
 
+        // Do not let a stale preparation finish after a retry or source switch.
+        if (preparationGeneration != sourcePreparationGeneration) return
+
         val mediaItemBuilder = MediaItem.Builder()
             .setUri(source.url)
             .setTag(source)
@@ -500,7 +525,8 @@ class MovyzaPlayerActivity : ComponentActivity() {
         startupWatchdogJob?.cancel()
         startupWatchdogJob = lifecycleScope.launch {
             delay(25_000)
-            if (sourceIndex != watchedSourceIndex ||
+            if (preparationGeneration != sourcePreparationGeneration ||
+                sourceIndex != watchedSourceIndex ||
                 player.isPlaying ||
                 !player.playWhenReady ||
                 player.playbackState == Player.STATE_ENDED ||
@@ -900,6 +926,8 @@ class MovyzaPlayerActivity : ComponentActivity() {
     override fun onDestroy() {
         progressJob?.cancel()
         startupWatchdogJob?.cancel()
+        playbackRequestGeneration++
+        sourcePreparationGeneration++
         player.release()
         super.onDestroy()
     }
