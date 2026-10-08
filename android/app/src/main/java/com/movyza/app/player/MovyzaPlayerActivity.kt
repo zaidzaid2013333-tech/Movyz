@@ -269,7 +269,8 @@ class MovyzaPlayerActivity : ComponentActivity() {
                 startupWatchdogJob = null
                 if (handlingPlaybackError) return
                 handlingPlaybackError = true
-                lifecycleScope.launch { handlePlaybackError(playerError) }
+                val failedGeneration = sourcePreparationGeneration
+                lifecycleScope.launch { handlePlaybackError(playerError, failedGeneration) }
             }
         })
 
@@ -370,14 +371,22 @@ class MovyzaPlayerActivity : ComponentActivity() {
 
     private suspend fun resolveAndStart() {
         val requestGeneration = ++playbackRequestGeneration
-        // Invalidate any source that is still waiting on subtitle downloads or
-        // a previous provider lookup before resolving the new request.
+        // Invalidate in-flight preparation/recovery and clear the old timeline
+        // before resolving again; a late error from the previous item must not
+        // consume a source belonging to the new request.
         sourcePreparationGeneration++
         startupWatchdogJob?.cancel()
         startupWatchdogJob = null
+        handlingPlaybackError = true
+        player.stop()
+        player.clearMediaItems()
+        sources = emptyList()
+        sourceIndex = 0
+        qualities = emptyList()
+        subtitleTracks = emptyList()
+        audioTracks = emptyList()
         error = null
         buffering = true
-        handlingPlaybackError = false
         brokerFallbackAttempted = false
         val directUrl = intent.getStringExtra(EXTRA_SOURCE_URL)?.trim().orEmpty()
         val resolvedSources = if (directUrl.isNotBlank()) {
@@ -410,11 +419,15 @@ class MovyzaPlayerActivity : ComponentActivity() {
         prepareSource(sources.first())
     }
 
-    private suspend fun handlePlaybackError(playerError: PlaybackException?) {
+    private suspend fun handlePlaybackError(
+        playerError: PlaybackException?,
+        expectedPreparationGeneration: Int,
+    ) {
         startupWatchdogJob?.cancel()
         startupWatchdogJob = null
+        if (expectedPreparationGeneration != sourcePreparationGeneration) return
         buffering = false
-        val recoveryGeneration = sourcePreparationGeneration
+        val recoveryGeneration = expectedPreparationGeneration
         val errorCode = playerError?.errorCodeName ?: "STARTUP_TIMEOUT"
         val resumePosition = player.currentPosition.coerceAtLeast(0L)
 
@@ -534,7 +547,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
             ) return@launch
 
             handlingPlaybackError = true
-            handlePlaybackError(null)
+            handlePlaybackError(null, preparationGeneration)
         }
     }
 
