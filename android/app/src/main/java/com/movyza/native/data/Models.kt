@@ -16,10 +16,10 @@ data class Movie(
     val genreIds: List<Int> = emptyList()
 ) {
     val posterUrl: String?
-        get() = posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
+        get() = posterPath?.let { "https://image.tmdb.org/t/p/w342$it" }
 
     val backdropUrl: String?
-        get() = backdropPath?.let { "https://image.tmdb.org/t/p/w1280$it" }
+        get() = backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }
 
     val yearText: String
         get() = releaseDate.takeIf { it.length >= 4 }?.take(4).orEmpty()
@@ -61,7 +61,7 @@ data class EpisodeItem(
     val runtime: Int = 0
 ) {
     val stillUrl: String?
-        get() = stillPath?.let { "https://image.tmdb.org/t/p/w500$it" }
+        get() = stillPath?.let { "https://image.tmdb.org/t/p/w342$it" }
 }
 
 @Immutable
