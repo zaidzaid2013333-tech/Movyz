@@ -748,7 +748,7 @@ private fun MovyzaPlayerScreen(
                     setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                     this.player = player
                     setBackgroundColor(android.graphics.Color.BLACK)
-                    applySubtitleStyle(this)
+                    applySubtitleStyle(this, subtitleVisualStyle)
                 }
             },
             update = { view ->
