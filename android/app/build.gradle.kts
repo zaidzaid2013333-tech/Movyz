@@ -19,9 +19,9 @@ android {
         versionCode = 1
         versionName = "2.0.0"
 
-        buildConfigField("String", "TMDB_TOKEN", "\\"$tmdbToken\\")
-        buildConfigField("String", "SUPABASE_URL", "\\"$supabaseUrl\\")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\\"$supabaseAnonKey\\")
+        buildConfigField("String", "TMDB_TOKEN", "\\\"$tmdbToken\\\"")
+        buildConfigField("String", "SUPABASE_URL", "\\\"$supabaseUrl\\\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\\\"$supabaseAnonKey\\\"")
     }
 
     buildFeatures {
@@ -57,6 +57,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
