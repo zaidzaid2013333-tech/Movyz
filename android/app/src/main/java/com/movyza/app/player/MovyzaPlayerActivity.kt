@@ -384,7 +384,7 @@ private fun MovyzaPlayerScreen(
                     useController = false
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                    player = player
+                    this.player = player
                     setBackgroundColor(android.graphics.Color.BLACK)
                 }
             },
