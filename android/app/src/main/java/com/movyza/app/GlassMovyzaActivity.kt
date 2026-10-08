@@ -11,6 +11,16 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -157,34 +167,144 @@ private fun launchPlayer(
 
 @Composable
 private fun MovyzaLaunchScreen() {
+    val transition = rememberInfiniteTransition(label = "movyza-launch")
+    val drift by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3200),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "launch-drift"
+    )
+    val pulse by transition.animateFloat(
+        initialValue = 0.78f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "launch-pulse"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MovyzaColors.Bg),
-        contentAlignment = Alignment.Center
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF171107),
+                        MovyzaColors.Bg2,
+                        MovyzaColors.Bg
+                    ),
+                    radius = 950f
+                )
+            )
     ) {
+        Box(
+            modifier = Modifier
+                .size(280.dp)
+                .align(Alignment.TopEnd)
+                .graphicsLayer {
+                    translationX = drift * -90f
+                    translationY = drift * 70f
+                    alpha = 0.18f + pulse * 0.14f
+                }
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(MovyzaColors.Gold400, Color.Transparent)
+                    )
+                )
+        )
+
+        Box(
+            modifier = Modifier
+                .size(220.dp)
+                .align(Alignment.BottomStart)
+                .graphicsLayer {
+                    translationX = drift * 70f
+                    translationY = drift * -50f
+                    alpha = 0.10f + pulse * 0.10f
+                }
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(MovyzaColors.Gold600, Color.Transparent)
+                    )
+                )
+        )
+
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier.align(Alignment.Center),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Box(
+                modifier = Modifier
+                    .size(94.dp)
+                    .clip(MovyzaShapes.Xl)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(MovyzaColors.Gold300, MovyzaColors.Gold500, MovyzaColors.Gold700)
+                        )
+                    )
+                    .border(1.dp, MovyzaColors.Gold300.copy(alpha = 0.72f), MovyzaShapes.Xl),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "M",
+                    color = MovyzaColors.Bg,
+                    fontSize = 50.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = (-2).sp
+                )
+            }
+
+            Spacer(Modifier.height(22.dp))
+
             Text(
                 text = "MOVYZA",
                 color = MovyzaColors.Gold300,
-                fontSize = 36.sp,
+                fontSize = 32.sp,
                 fontWeight = FontWeight.Black,
-                letterSpacing = 5.sp
+                letterSpacing = 6.sp
             )
+
+            Spacer(Modifier.height(6.dp))
+
             Text(
                 text = "سينماك تبدأ هنا",
-                color = MovyzaColors.Text3,
+                color = MovyzaColors.Text2,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
             )
-            Spacer(Modifier.height(4.dp))
-            CircularProgressIndicator(
-                modifier = Modifier.size(22.dp),
-                strokeWidth = 2.dp,
-                color = MovyzaColors.Gold300
+
+            Spacer(Modifier.height(22.dp))
+
+            Box(
+                modifier = Modifier
+                    .width(132.dp)
+                    .height(3.dp)
+                    .clip(MovyzaShapes.Pill)
+                    .background(MovyzaColors.Glass2)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.34f + pulse * 0.34f)
+                        .fillMaxSize()
+                        .clip(MovyzaShapes.Pill)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color.Transparent, MovyzaColors.Gold300, Color.Transparent)
+                            )
+                        )
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Text(
+                text = "تهيئة التجربة…",
+                color = MovyzaColors.Text3,
+                fontSize = 10.sp
             )
         }
     }
@@ -198,7 +318,7 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
         // Draw the lightweight launch surface first, then start network/model work.
         withFrameNanos { }
         vm.startInitialLoad()
-        delay(650)
+        delay(420)
         launchComplete = true
     }
 
@@ -282,7 +402,17 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
                     targetState = tab,
                     modifier = Modifier.fillMaxSize(),
                     transitionSpec = {
-                        fadeIn(tween(150)) togetherWith fadeOut(tween(110))
+                        (
+                            slideInHorizontally(
+                                animationSpec = tween(260),
+                                initialOffsetX = { it / 7 }
+                            ) + fadeIn(tween(220))
+                        ) togetherWith (
+                            slideOutHorizontally(
+                                animationSpec = tween(220),
+                                targetOffsetX = { -it / 10 }
+                            ) + fadeOut(tween(150))
+                        )
                     },
                     label = "movyza-tab"
                 ) { current ->
@@ -407,8 +537,8 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
         // Full-Screen Details Overlay
         AnimatedVisibility(
             visible = selected != null,
-            enter = fadeIn(tween(170)),
-            exit = fadeOut(tween(130))
+            enter = slideInVertically(tween(260)) { it / 8 } + fadeIn(tween(220)),
+            exit = slideOutVertically(tween(200)) { it / 10 } + fadeOut(tween(150))
         ) {
             val currentMovie = selected
             if (currentMovie != null) {
@@ -774,21 +904,49 @@ private fun FixedHorizontalSection(
             actionLabel = actionLabel,
             onAction = onAction
         )
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(
-                count = slotCount,
-                key = { index -> "$sectionId-slot-$index" }
-            ) { index ->
-                val movie = movies.getOrNull(index)
-                MovyzaPosterCardTemplate(
-                    movie = movie,
-                    onClick = if (movie != null) ({ onOpen(movie) }) else null,
-                    fixedWidth = 138.dp
-                )
+
+        Box(Modifier.fillMaxWidth()) {
+            LazyRow(
+                state = rememberLazyListState(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(
+                    count = slotCount,
+                    key = { index -> "$sectionId-slot-$index" },
+                    contentType = { "poster" }
+                ) { index ->
+                    val movie = movies.getOrNull(index)
+                    MovyzaPosterCardTemplate(
+                        movie = movie,
+                        onClick = if (movie != null) ({ onOpen(movie) }) else null,
+                        fixedWidth = 138.dp
+                    )
+                }
             }
+
+            Box(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxHeight()
+                    .width(22.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(MovyzaColors.Bg.copy(alpha = 0.98f), Color.Transparent)
+                        )
+                    )
+            )
+            Box(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .width(22.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(Color.Transparent, MovyzaColors.Bg.copy(alpha = 0.98f))
+                        )
+                    )
+            )
         }
     }
 }
@@ -886,7 +1044,8 @@ private fun MovyzaCatalogTemplateScreen(
         ) {
             items(
                 count = slotCount,
-                key = { index -> "catalog-$title-$filterIndex-$selectedGenreId-slot-$index" }
+                key = { index -> "catalog-$title-$filterIndex-$selectedGenreId-slot-$index" },
+                contentType = { "poster" }
             ) { index ->
                 val movie = activeList.getOrNull(index)
                 MovyzaPosterCardTemplate(
