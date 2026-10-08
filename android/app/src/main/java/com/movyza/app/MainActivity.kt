@@ -399,38 +399,61 @@ suspend fun vmDetails(vm: MainViewModel, movie: Movie): TmdbDetails {
 @Composable
 fun HomeScreen(state: HomeState, loading: Boolean, error: String?, onOpen: (Movie) -> Unit, onRefresh: () -> Unit) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().background(
-            Brush.verticalGradient(listOf(Color(0xFF0A0D11), Color(0xFF06070A), Color(0xFF06070A)))
-        ),
-        contentPadding = PaddingValues(bottom = 28.dp)
+        modifier = Modifier.fillMaxSize().background(MovyzaBlack),
+        contentPadding = PaddingValues(bottom = 34.dp)
     ) {
         item {
-            Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 20.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("MOVYZA", fontSize = 28.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                        Text("اكتشف شيئًا يستحق المشاهدة", color = Color(0xFF98A0AA))
-                    }
-                    IconButton(onClick = onRefresh) { Icon(Icons.Filled.AccountCircle, "الحساب", tint = MovyzaDark.primary) }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("MOVYZA", color = MovyzaGoldBright, fontSize = 27.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
+                    Text("قصص تستحق أن تُعاش.", color = MovyzaMuted, fontSize = 12.sp)
                 }
-                Spacer(Modifier.height(18.dp))
-                if (state.trending.isNotEmpty()) FeaturedCard(state.trending.first(), onOpen)
-                if (error != null) {
-                    Spacer(Modifier.height(12.dp))
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF241418))) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(error, color = Color(0xFFFF9EA7), modifier = Modifier.weight(1f))
-                            TextButton(onClick = onRefresh) { Text("إعادة") }
-                        }
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MovyzaSurfaceElevated
+                ) {
+                    IconButton(onClick = onRefresh) {
+                        Icon(Icons.Filled.AccountCircle, "الحساب", tint = MovyzaGoldBright)
                     }
-                }
-                if (loading) {
-                    Spacer(Modifier.height(18.dp))
-                    LinearLoading()
                 }
             }
         }
-        item { Section("الأكثر رواجًا", state.trending, onOpen) }
+        item {
+            state.trending.firstOrNull()?.let { hero ->
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(520)) +
+                        androidx.compose.animation.expandVertically(animationSpec = androidx.compose.animation.core.tween(520))
+                ) {
+                    FeaturedCard(hero, onOpen)
+                }
+            }
+        }
+        if (error != null) {
+            item {
+                Spacer(Modifier.height(12.dp))
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF201711)),
+                    modifier = Modifier.padding(horizontal = 18.dp)
+                ) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(error, color = Color(0xFFE5B7A0), modifier = Modifier.weight(1f), fontSize = 12.sp)
+                        TextButton(onClick = onRefresh) { Text("إعادة", color = MovyzaGoldBright) }
+                    }
+                }
+            }
+        }
+        if (loading) {
+            item {
+                Spacer(Modifier.height(10.dp))
+                LinearLoading()
+            }
+        }
+        item { Section("الأكثر رواجًا", state.trending.drop(1), onOpen) }
         item { Section("أفلام شعبية", state.movies, onOpen) }
         item { Section("الأعلى تقييمًا", state.topRated, onOpen) }
         item { Section("مسلسلات شعبية", state.series, onOpen) }
@@ -440,22 +463,72 @@ fun HomeScreen(state: HomeState, loading: Boolean, error: String?, onOpen: (Movi
 @Composable
 fun FeaturedCard(movie: Movie, onOpen: (Movie) -> Unit) {
     Box(
-        Modifier.fillMaxWidth().height(390.dp).clip(RoundedCornerShape(28.dp)).clickable { onOpen(movie) }
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 18.dp)
+            .height(390.dp)
+            .clip(RoundedCornerShape(26.dp))
+            .clickable { onOpen(movie) }
     ) {
-        AsyncImage(model = movie.backdropUrl ?: movie.posterUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xFF06070A)))))
-        Column(
-            Modifier.align(Alignment.BottomStart).padding(22.dp)
-        ) {
-            Text("TRENDING", color = MovyzaDark.primary, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-            Text(movie.title, fontSize = 27.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(
-                if (movie.overview.isBlank()) "اضغط لعرض التفاصيل" else movie.overview,
-                color = Color(0xFFD0D5DB),
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 6.dp)
+        AsyncImage(
+            model = movie.backdropUrl ?: movie.posterUrl,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    0f to Color.Transparent,
+                    0.38f to Color.Transparent,
+                    0.72f to MovyzaBlack.copy(alpha = 0.82f),
+                    1f to MovyzaBlack
+                )
             )
+        )
+        Box(
+            Modifier.align(Alignment.BottomStart)
+                .padding(start = 18.dp, end = 18.dp, bottom = 18.dp)
+        ) {
+            Column {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MovyzaGold.copy(alpha = 0.17f)
+                ) {
+                    Text(
+                        "مميّز الآن",
+                        color = MovyzaGoldBright,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                    )
+                }
+                Spacer(Modifier.height(9.dp))
+                Text(
+                    movie.title.ifBlank { movie.originalTitle },
+                    color = MovyzaText,
+                    fontSize = 29.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "★ " + String.format("%.1f", movie.rating) + "  •  " +
+                        (if (movie.mediaType == "series") "مسلسل" else "فيلم"),
+                    color = MovyzaGoldBright,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    if (movie.overview.isBlank()) "اضغط لمشاهدة التفاصيل." else movie.overview,
+                    color = MovyzaText.copy(alpha = 0.74f),
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
