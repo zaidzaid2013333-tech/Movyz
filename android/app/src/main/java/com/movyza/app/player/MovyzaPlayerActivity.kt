@@ -148,6 +148,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private var firstReady = true
     private var defaultQualityApplied = false
     private var progressJob: Job? = null
+    private var startupWatchdogJob: Job? = null
     private var lastPositionSave = 0L
 
     private var activeSeason by mutableIntStateOf(1)
@@ -247,6 +248,10 @@ class MovyzaPlayerActivity : ComponentActivity() {
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
+                if (isPlaying) {
+                    startupWatchdogJob?.cancel()
+                    startupWatchdogJob = null
+                }
             }
 
             override fun onTracksChanged(tracks: Tracks) {
@@ -257,6 +262,8 @@ class MovyzaPlayerActivity : ComponentActivity() {
                 // ExoPlayer can emit more than one callback for a failing
                 // timeline. Serialize recovery so two coroutines cannot advance
                 // sourceIndex twice or launch duplicate broker fallbacks.
+                startupWatchdogJob?.cancel()
+                startupWatchdogJob = null
                 if (handlingPlaybackError) return
                 handlingPlaybackError = true
                 lifecycleScope.launch { handlePlaybackError(playerError) }
@@ -359,6 +366,8 @@ class MovyzaPlayerActivity : ComponentActivity() {
     )
 
     private suspend fun resolveAndStart() {
+        startupWatchdogJob?.cancel()
+        startupWatchdogJob = null
         error = null
         buffering = true
         handlingPlaybackError = false
@@ -387,8 +396,11 @@ class MovyzaPlayerActivity : ComponentActivity() {
         prepareSource(sources.first())
     }
 
-    private suspend fun handlePlaybackError(playerError: PlaybackException) {
+    private suspend fun handlePlaybackError(playerError: PlaybackException?) {
+        startupWatchdogJob?.cancel()
+        startupWatchdogJob = null
         buffering = false
+        val errorCode = playerError?.errorCodeName ?: "STARTUP_TIMEOUT"
         val resumePosition = player.currentPosition.coerceAtLeast(0L)
 
         if (sourceIndex + 1 < sources.size) {
@@ -409,7 +421,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
                 )
             }.getOrElse {
                 buffering = false
-                error = "تعذر تشغيل مصادر VidLink (${playerError.errorCodeName}) ولم يتوفر بديل."
+                error = "تعذر تشغيل مصدر VidLink (${errorCode}) ولم يتوفر بديل."
                 return
             }
 
@@ -420,7 +432,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
             return
         }
 
-        error = "تعذر تشغيل الفيديو (${playerError.errorCodeName}). جرّب مصدرًا آخر أو أعد المحاولة."
+        error = "تعذر تشغيل الفيديو (${errorCode}). جرّب مصدرًا آخر أو أعد المحاولة."
     }
 
     private suspend fun prepareSource(source: PlaybackCandidate, resumePositionMs: Long? = null) {
@@ -480,6 +492,24 @@ class MovyzaPlayerActivity : ComponentActivity() {
         }
         player.prepare()
         player.playWhenReady = true
+
+        // A dead manifest/CDN can leave ExoPlayer buffering forever without
+        // emitting a terminal error. Give each source 25 seconds to start,
+        // then route it through the same serialized failover path.
+        val watchedSourceIndex = sourceIndex
+        startupWatchdogJob?.cancel()
+        startupWatchdogJob = lifecycleScope.launch {
+            delay(25_000)
+            if (sourceIndex != watchedSourceIndex ||
+                player.isPlaying ||
+                !player.playWhenReady ||
+                player.playbackState == Player.STATE_ENDED ||
+                handlingPlaybackError
+            ) return@launch
+
+            handlingPlaybackError = true
+            handlePlaybackError(null)
+        }
     }
 
     private fun mediaMimeTypeFor(source: PlaybackCandidate): String? {
@@ -861,12 +891,15 @@ class MovyzaPlayerActivity : ComponentActivity() {
 
     override fun onPause() {
         saveProgress(true)
+        startupWatchdogJob?.cancel()
+        startupWatchdogJob = null
         player.pause()
         super.onPause()
     }
 
     override fun onDestroy() {
         progressJob?.cancel()
+        startupWatchdogJob?.cancel()
         player.release()
         super.onDestroy()
     }
