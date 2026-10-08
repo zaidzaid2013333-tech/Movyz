@@ -1,6 +1,6 @@
-package com.movyza.native.data
+package com.movyza.app.data
 
-import com.movyza.native.BuildConfig
+import com.movyza.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
