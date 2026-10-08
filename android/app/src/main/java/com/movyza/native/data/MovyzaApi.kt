@@ -2,6 +2,9 @@ package com.movyza.app.data
 
 import com.movyza.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -10,9 +13,23 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 class MovyzaApi {
-    private val client = OkHttpClient.Builder().build()
+    companion object {
+        val instance: MovyzaApi by lazy { MovyzaApi() }
+
+        private val sharedClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(12, TimeUnit.SECONDS)
+                .readTimeout(18, TimeUnit.SECONDS)
+                .writeTimeout(15, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .build()
+        }
+    }
+
+    private val client: OkHttpClient = sharedClient
     private val tmdbBase = "https://api.themoviedb.org/3"
     private val supabaseBase = BuildConfig.SUPABASE_URL.trimEnd('/')
 
@@ -34,28 +51,49 @@ class MovyzaApi {
         parseMovies(tmdb("trending/all/week?language=ar-SA"))
     }
 
-    suspend fun popularMovies(): List<Movie> = withContext(Dispatchers.IO) {
-        parseMovies(tmdb("movie/popular?language=ar-SA&page=1"), "movie")
+    suspend fun popularMovies(page: Int = 1): List<Movie> = withContext(Dispatchers.IO) {
+        parseMovies(tmdb("movie/popular?language=ar-SA&page=${page.coerceAtLeast(1)}"), "movie")
     }
 
-    suspend fun topRatedMovies(): List<Movie> = withContext(Dispatchers.IO) {
-        parseMovies(tmdb("movie/top_rated?language=ar-SA&page=1"), "movie")
+    suspend fun topRatedMovies(page: Int = 1): List<Movie> = withContext(Dispatchers.IO) {
+        parseMovies(tmdb("movie/top_rated?language=ar-SA&page=${page.coerceAtLeast(1)}"), "movie")
     }
 
-    suspend fun popularSeries(): List<Movie> = withContext(Dispatchers.IO) {
-        parseMovies(tmdb("tv/popular?language=ar-SA&page=1"), "series")
+    suspend fun popularSeries(page: Int = 1): List<Movie> = withContext(Dispatchers.IO) {
+        parseMovies(tmdb("tv/popular?language=ar-SA&page=${page.coerceAtLeast(1)}"), "series")
+    }
+
+    suspend fun topRatedSeries(page: Int = 1): List<Movie> = withContext(Dispatchers.IO) {
+        parseMovies(tmdb("tv/top_rated?language=ar-SA&page=${page.coerceAtLeast(1)}"), "series")
     }
 
     suspend fun search(query: String): List<Movie> = withContext(Dispatchers.IO) {
-        if (query.isBlank()) return@withContext emptyList()
-        parseMovies(tmdb("search/multi?query=" + java.net.URLEncoder.encode(query, "UTF-8") + "&language=ar-SA&include_adult=false&page=1"))
+        val clean = query.trim()
+        if (clean.isBlank()) return@withContext emptyList()
+        val encoded = java.net.URLEncoder.encode(clean, "UTF-8")
+        parseMovies(tmdb("search/multi?query=$encoded&language=ar-SA&include_adult=false&page=1"))
     }
 
     suspend fun details(id: Int, mediaType: String): TmdbDetails = withContext(Dispatchers.IO) {
-        val path = if (mediaType == "series") "tv/" + id + "?language=ar-SA" else "movie/" + id + "?language=ar-SA"
-        val obj = JSONObject(tmdb(path))
-        val title = obj.optString(if (mediaType == "series") "name" else "title")
-        val originalTitle = obj.optString(if (mediaType == "series") "original_name" else "original_title")
+        val isSeries = mediaType == "series" || mediaType == "tv"
+        val normalizedType = if (isSeries) "series" else "movie"
+        val endpoint = if (isSeries) {
+            "tv/$id?language=ar-SA&append_to_response=credits,similar"
+        } else {
+            "movie/$id?language=ar-SA&append_to_response=credits,similar"
+        }
+        val obj = JSONObject(tmdb(endpoint))
+        val title = obj.optString(if (isSeries) "name" else "title")
+        val originalTitle = obj.optString(if (isSeries) "original_name" else "original_title")
+        val genresArray = obj.optJSONArray("genres")
+        val genreIds = buildList {
+            if (genresArray != null) {
+                for (i in 0 until genresArray.length()) {
+                    val gid = genresArray.optJSONObject(i)?.optInt("id", 0) ?: 0
+                    if (gid != 0) add(gid)
+                }
+            }
+        }
         val movie = Movie(
             id = id,
             title = title,
@@ -63,20 +101,121 @@ class MovyzaApi {
             overview = obj.optString("overview"),
             posterPath = obj.optString("poster_path").ifBlank { null },
             backdropPath = obj.optString("backdrop_path").ifBlank { null },
-            releaseDate = obj.optString(if (mediaType == "series") "first_air_date" else "release_date"),
+            releaseDate = obj.optString(if (isSeries) "first_air_date" else "release_date"),
             rating = obj.optDouble("vote_average", 0.0),
-            mediaType = mediaType
+            mediaType = normalizedType,
+            genreIds = genreIds
         )
         val genres = buildList {
-            val arr = obj.optJSONArray("genres") ?: return@buildList
-            for (i in 0 until arr.length()) add(arr.getJSONObject(i).optString("name"))
+            if (genresArray == null) return@buildList
+            for (i in 0 until genresArray.length()) {
+                val g = genresArray.optJSONObject(i)?.optString("name").orEmpty()
+                if (g.isNotBlank()) add(g)
+            }
         }
+        val runtime = if (isSeries) {
+            val runTimes = obj.optJSONArray("episode_run_time")
+            if (runTimes != null && runTimes.length() > 0) runTimes.optInt(0, 0) else 0
+        } else {
+            obj.optInt("runtime", 0)
+        }
+
+        val creditsObj = obj.optJSONObject("credits")
+        val director = if (isSeries) {
+            val createdBy = obj.optJSONArray("created_by")
+            if (createdBy != null && createdBy.length() > 0) {
+                createdBy.optJSONObject(0)?.optString("name").orEmpty()
+            } else ""
+        } else {
+            val crew = creditsObj?.optJSONArray("crew")
+            var dirName = ""
+            if (crew != null) {
+                for (i in 0 until crew.length()) {
+                    val member = crew.optJSONObject(i) ?: continue
+                    if (member.optString("job") == "Director") {
+                        dirName = member.optString("name")
+                        break
+                    }
+                }
+            }
+            dirName
+        }
+
+        val cast = buildList {
+            val castArr = creditsObj?.optJSONArray("cast") ?: return@buildList
+            for (i in 0 until minOf(castArr.length(), 14)) {
+                val c = castArr.optJSONObject(i) ?: continue
+                val name = c.optString("name")
+                if (name.isBlank()) continue
+                add(
+                    CastMemberItem(
+                        id = c.optInt("id", i),
+                        name = name,
+                        character = c.optString("character"),
+                        profilePath = c.optString("profile_path").ifBlank { null }
+                    )
+                )
+            }
+        }
+
+        val seasons = buildList {
+            if (!isSeries) return@buildList
+            val arr = obj.optJSONArray("seasons") ?: return@buildList
+            for (i in 0 until arr.length()) {
+                val s = arr.optJSONObject(i) ?: continue
+                val seasonNum = s.optInt("season_number", 0)
+                val epCount = s.optInt("episode_count", 0)
+                if (seasonNum <= 0 || epCount <= 0) continue
+                add(
+                    SeasonSummary(
+                        seasonNumber = seasonNum,
+                        name = s.optString("name").ifBlank { "الموسم $seasonNum" },
+                        episodeCount = epCount,
+                        posterPath = s.optString("poster_path").ifBlank { null }
+                    )
+                )
+            }
+        }
+        val similarObj = obj.optJSONObject("similar")
+        val similar = if (similarObj != null) {
+            parseMovies(similarObj.toString(), normalizedType).take(12)
+        } else {
+            emptyList()
+        }
+
         TmdbDetails(
             movie = movie,
             genres = genres,
-            runtime = obj.optInt(if (mediaType == "series") "runtime" else "runtime", 0),
-            tagline = obj.optString("tagline")
+            runtime = runtime,
+            tagline = obj.optString("tagline"),
+            director = director,
+            cast = cast,
+            seasons = seasons,
+            similar = similar
         )
+    }
+
+    suspend fun seasonEpisodes(seriesId: Int, seasonNumber: Int): List<EpisodeItem> = withContext(Dispatchers.IO) {
+        val safeSeason = seasonNumber.coerceAtLeast(1)
+        val obj = JSONObject(tmdb("tv/$seriesId/season/$safeSeason?language=ar-SA"))
+        val arr = obj.optJSONArray("episodes") ?: return@withContext emptyList()
+        buildList {
+            for (i in 0 until arr.length()) {
+                val e = arr.optJSONObject(i) ?: continue
+                val epNum = e.optInt("episode_number", i + 1)
+                add(
+                    EpisodeItem(
+                        id = e.optInt("id", epNum),
+                        episodeNumber = epNum,
+                        seasonNumber = safeSeason,
+                        name = e.optString("name").ifBlank { "الحلقة $epNum" },
+                        overview = e.optString("overview"),
+                        stillPath = e.optString("still_path").ifBlank { null },
+                        runtime = e.optInt("runtime", 0)
+                    )
+                )
+            }
+        }
     }
 
     suspend fun signIn(email: String, password: String): Result<UserSession> = withContext(Dispatchers.IO) {
@@ -128,38 +267,42 @@ class MovyzaApi {
             val type = if (movie.mediaType == "series") "series" else "movie"
             supabaseRequest(
                 "DELETE",
-                "/rest/v1/watchlist?user_id=eq." + session.userId +
-                    "&content_type=eq." + type +
-                    "&content_id=eq." + movie.id,
+                "/rest/v1/watchlist?user_id=eq.${session.userId}&content_type=eq.$type&content_id=eq.${movie.id}",
                 token = session.accessToken
             )
         }.map { Unit }
     }
 
     suspend fun watchlist(session: UserSession): List<Movie> = withContext(Dispatchers.IO) {
-        val path = "/rest/v1/watchlist?select=content_type,content_id&user_id=eq." +
-            session.userId + "&order=created_at.desc"
+        val path = "/rest/v1/watchlist?select=content_type,content_id&user_id=eq.${session.userId}&order=created_at.desc"
         val rows = supabaseArrayRequest(path, session.accessToken)
-        val result = ArrayList<Movie>()
-        for (i in 0 until rows.length()) {
-            val row = rows.getJSONObject(i)
-            val id = row.optString("content_id").toIntOrNull() ?: continue
-            val type = row.optString("content_type").ifBlank { "movie" }
-            runCatching { details(id, type) }.getOrNull()?.let { result += it.movie }
+        val entries = buildList {
+            for (i in 0 until minOf(rows.length(), 40)) {
+                val row = rows.optJSONObject(i) ?: continue
+                val id = row.optString("content_id").toIntOrNull() ?: continue
+                val type = row.optString("content_type").ifBlank { "movie" }
+                add(id to type)
+            }
         }
-        result
+        coroutineScope {
+            entries.map { (id, type) ->
+                async {
+                    runCatching { details(id, type).movie }.getOrNull()
+                }
+            }.awaitAll().filterNotNull()
+        }
     }
 
     private fun tmdb(path: String): String {
         if (BuildConfig.TMDB_TOKEN.isBlank()) throw IOException("TMDB token is missing")
         val request = Request.Builder()
-            .url(tmdbBase + "/" + path)
-            .header("Authorization", "Bearer " + BuildConfig.TMDB_TOKEN)
+            .url("$tmdbBase/$path")
+            .header("Authorization", "Bearer ${BuildConfig.TMDB_TOKEN}")
             .header("Accept", "application/json")
             .build()
         client.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw IOException("TMDB " + response.code + ": " + text)
+            if (!response.isSuccessful) throw IOException("TMDB ${response.code}: $text")
             return text
         }
     }
@@ -187,7 +330,7 @@ class MovyzaApi {
         }
         client.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw IOException("Supabase " + response.code + ": " + text)
+            if (!response.isSuccessful) throw IOException("Supabase ${response.code}: $text")
             return if (text.isBlank()) JSONObject() else JSONObject(text)
         }
     }
@@ -196,37 +339,50 @@ class MovyzaApi {
         val request = Request.Builder()
             .url(supabaseBase + path)
             .header("apikey", BuildConfig.SUPABASE_ANON_KEY)
-            .header("Authorization", "Bearer " + token)
+            .header("Authorization", "Bearer $token")
             .header("Accept", "application/json")
             .get()
             .build()
         client.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw IOException("Supabase " + response.code + ": " + text)
+            if (!response.isSuccessful) throw IOException("Supabase ${response.code}: $text")
             return JSONArray(text)
         }
     }
 
     private fun parseMovies(json: String, forcedType: String? = null): List<Movie> {
         val arr = JSONObject(json).optJSONArray("results") ?: return emptyList()
-        val result = ArrayList<Movie>()
+        val result = ArrayList<Movie>(arr.length())
         for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
+            val o = arr.optJSONObject(i) ?: continue
             val type = forcedType ?: o.optString("media_type")
             if (type != "movie" && type != "tv" && type != "series") continue
             val series = type == "tv" || type == "series"
+            val id = o.optInt("id", 0)
+            val posterPath = o.optString("poster_path").ifBlank { null }
+            if (id == 0 || posterPath == null) continue
+            val genreArr = o.optJSONArray("genre_ids")
+            val genreIds = buildList {
+                if (genreArr != null) {
+                    for (g in 0 until genreArr.length()) {
+                        val gid = genreArr.optInt(g, 0)
+                        if (gid != 0) add(gid)
+                    }
+                }
+            }
             result += Movie(
-                id = o.optInt("id"),
+                id = id,
                 title = o.optString(if (series) "name" else "title"),
                 originalTitle = o.optString(if (series) "original_name" else "original_title"),
                 overview = o.optString("overview"),
-                posterPath = o.optString("poster_path").ifBlank { null },
+                posterPath = posterPath,
                 backdropPath = o.optString("backdrop_path").ifBlank { null },
                 releaseDate = o.optString(if (series) "first_air_date" else "release_date"),
                 rating = o.optDouble("vote_average", 0.0),
-                mediaType = if (series) "series" else "movie"
+                mediaType = if (series) "series" else "movie",
+                genreIds = genreIds
             )
         }
-        return result.filter { it.id != 0 && !it.posterPath.isNullOrBlank() }
+        return result
     }
 }

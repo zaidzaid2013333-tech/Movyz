@@ -1,11 +1,16 @@
 package com.movyza.app
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -15,7 +20,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -24,50 +28,56 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AccountCircle
-import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkAdded
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LocalMovies
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Tv
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -78,20 +88,29 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
+import com.movyza.app.data.EpisodeItem
 import com.movyza.app.data.Movie
-import com.movyza.app.data.MovyzaApi
 import com.movyza.app.data.TmdbDetails
 import com.movyza.app.data.UserSession
+import com.movyza.app.data.WatchHistoryEntry
+import com.movyza.app.player.MovyzaPlayerActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 class GlassMovyzaActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -107,20 +126,66 @@ class GlassMovyzaActivity : ComponentActivity() {
     }
 }
 
+private fun launchPlayer(
+    context: Context,
+    vm: MainViewModel,
+    movie: Movie,
+    season: Int = 1,
+    episode: Int = 1,
+    episodeTitle: String? = null
+) {
+    vm.recordMediaOpened(movie, season, episode)
+    val fullTitle = if (movie.mediaType == "series") {
+        val base = movie.displayTitle
+        val suffix = "S${season} E${episode}" + (episodeTitle?.takeIf { it.isNotBlank() }?.let { " • $it" } ?: "")
+        "$base — $suffix"
+    } else {
+        movie.displayTitle
+    }
+    context.startActivity(
+        Intent(context, MovyzaPlayerActivity::class.java).apply {
+            putExtra(MovyzaPlayerActivity.EXTRA_TMDB_ID, movie.id)
+            putExtra(MovyzaPlayerActivity.EXTRA_MEDIA_TYPE, movie.mediaType)
+            putExtra(MovyzaPlayerActivity.EXTRA_SEASON, season.coerceAtLeast(1))
+            putExtra(MovyzaPlayerActivity.EXTRA_EPISODE, episode.coerceAtLeast(1))
+            putExtra(MovyzaPlayerActivity.EXTRA_TITLE, fullTitle)
+        }
+    )
+}
+
 @Composable
-private fun MovyzaNativeApp(vm: MainViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
+fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
     var tab by remember { mutableStateOf(Tab.HOME) }
     var selected by remember { mutableStateOf<Movie?>(null) }
     var details by remember { mutableStateOf<TmdbDetails?>(null) }
+    var detailsLoading by remember { mutableStateOf(false) }
     var authOpen by remember { mutableStateOf(false) }
     var loginMode by remember { mutableStateOf(true) }
 
     val scope = rememberCoroutineScope()
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val snackbar = remember { SnackbarHostState() }
     val home by vm.home.collectAsStateWithLifecycle()
     val search by vm.search.collectAsStateWithLifecycle()
     val watchlist by vm.watchlist.collectAsStateWithLifecycle()
+    val watchHistory by vm.watchHistory.collectAsStateWithLifecycle()
+
+    // Refresh watch history when returning from MovyzaPlayerActivity
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                vm.refreshWatchHistory()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Handle system Back button when on non-Home tab
+    BackHandler(enabled = selected == null && tab != Tab.HOME) {
+        tab = Tab.HOME
+    }
 
     if (authOpen) {
         MovyzaAuthDialog(
@@ -144,126 +209,280 @@ private fun MovyzaNativeApp(vm: MainViewModel = androidx.lifecycle.viewmodel.com
         )
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = MovyzaColors.Bg,
-        snackbarHost = { SnackbarHost(snackbar) },
-        bottomBar = {
-            if (selected == null) {
-                MovyzaBottomBar(tab) { tab = it }
-            }
-        }
-    ) { innerPadding ->
-        AnimatedContent(
-            targetState = tab,
+    // Root deterministic shell: Column locks MovyzaFixedBottomBar at the bottom edge of the screen
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MovyzaColors.Bg)
+    ) {
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            transitionSpec = { fadeIn(androidx.compose.animation.core.tween(140)) togetherWith fadeOut(androidx.compose.animation.core.tween(100)) },
-            label = "movyza-tab"
-        ) { current ->
-            when (current) {
-                Tab.HOME -> MovyzaHomeTemplateScreen(
-                    state = home,
-                    loading = vm.loading,
-                    error = vm.error,
-                    onOpen = { selected = it },
-                    onSearch = { tab = Tab.SEARCH },
-                    onProfile = { tab = Tab.PROFILE }
+                .background(MovyzaColors.Bg)
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+            ) {
+                AnimatedContent(
+                    targetState = tab,
+                    modifier = Modifier.fillMaxSize(),
+                    transitionSpec = {
+                        fadeIn(tween(150)) togetherWith fadeOut(tween(110))
+                    },
+                    label = "movyza-tab"
+                ) { current ->
+                    when (current) {
+                        Tab.HOME -> MovyzaHomeTemplateScreen(
+                            state = home,
+                            loading = vm.loading,
+                            error = vm.error,
+                            watchlist = watchlist,
+                            watchHistory = watchHistory,
+                            onOpen = { item ->
+                                details = null
+                                selected = item
+                            },
+                            onPlay = { item, season, ep ->
+                                launchPlayer(context, vm, item, season, ep)
+                            },
+                            onToggleWatchlist = { item ->
+                                if (vm.session == null) {
+                                    loginMode = true
+                                    authOpen = true
+                                } else {
+                                    vm.toggleWatchlist(item) { msg ->
+                                        scope.launch { snackbar.showSnackbar(msg) }
+                                    }
+                                }
+                            },
+                            onSelectTab = { tab = it },
+                            onRefresh = { vm.refreshHome() }
+                        )
+
+                        Tab.MOVIES -> MovyzaCatalogTemplateScreen(
+                            title = "الأفلام",
+                            subtitle = "تشكيلة سينمائية منتقاة بجودة عالية",
+                            popularItems = home.movies,
+                            topRatedItems = home.topRated,
+                            loading = vm.loading,
+                            loadingMore = vm.loadingMoreMovies,
+                            onLoadMore = { vm.loadMoreMovies() },
+                            onOpen = { item ->
+                                details = null
+                                selected = item
+                            }
+                        )
+
+                        Tab.SERIES -> MovyzaCatalogTemplateScreen(
+                            title = "المسلسلات",
+                            subtitle = "أقوى المسلسلات الدرامية والعالمية",
+                            popularItems = home.series,
+                            topRatedItems = home.topRatedSeries.ifEmpty { home.series },
+                            loading = vm.loading,
+                            loadingMore = vm.loadingMoreSeries,
+                            onLoadMore = { vm.loadMoreSeries() },
+                            onOpen = { item ->
+                                details = null
+                                selected = item
+                            }
+                        )
+
+                        Tab.SEARCH -> MovyzaSearchTemplateScreen(
+                            results = search,
+                            suggestions = home.trending,
+                            loading = vm.searchLoading,
+                            onQuery = vm::search,
+                            onOpen = { item ->
+                                details = null
+                                selected = item
+                            }
+                        )
+
+                        Tab.PROFILE -> MovyzaProfileTemplateScreen(
+                            session = vm.session,
+                            watchlist = watchlist,
+                            watchHistory = watchHistory,
+                            onOpen = { item ->
+                                details = null
+                                selected = item
+                            },
+                            onResumeHistory = { entry ->
+                                launchPlayer(context, vm, entry.toMovie(), entry.season, entry.episode)
+                            },
+                            onClearHistory = {
+                                vm.clearWatchHistory()
+                                scope.launch { snackbar.showSnackbar("تم مسح سجل المشاهدة") }
+                            },
+                            onLogin = {
+                                loginMode = true
+                                authOpen = true
+                            },
+                            onSignup = {
+                                loginMode = false
+                                authOpen = true
+                            },
+                            onLogout = {
+                                vm.signOut()
+                                scope.launch { snackbar.showSnackbar("تم تسجيل الخروج") }
+                            },
+                            onBrowseCatalog = { tab = Tab.MOVIES }
+                        )
+                    }
+                }
+
+                SnackbarHost(
+                    hostState = snackbar,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(12.dp)
                 )
-                Tab.MOVIES -> MovyzaCatalogTemplateScreen(
-                    title = "أفلام",
-                    subtitle = "اختيارات سينمائية جاهزة",
-                    movies = home.movies,
-                    loading = vm.loading,
-                    onOpen = { selected = it }
-                )
-                Tab.SERIES -> MovyzaCatalogTemplateScreen(
-                    title = "مسلسلات",
-                    subtitle = "عناوين جاهزة للاكتشاف",
-                    movies = home.series,
-                    loading = vm.loading,
-                    onOpen = { selected = it }
-                )
-                Tab.SEARCH -> MovyzaSearchTemplateScreen(
-                    results = search,
-                    loading = vm.loading,
-                    onQuery = vm::search,
-                    onOpen = { selected = it }
-                )
-                Tab.PROFILE -> MovyzaProfileTemplateScreen(
-                    session = vm.session,
-                    watchlist = watchlist,
-                    onOpen = { selected = it },
-                    onLogin = { loginMode = true; authOpen = true },
-                    onSignup = { loginMode = false; authOpen = true },
-                    onLogout = vm::signOut
+            }
+
+            // Locked Bottom Bar: Always anchored at the physical bottom of the Column
+            MovyzaFixedBottomBar(
+                selected = tab,
+                onSelect = { newTab ->
+                    selected = null
+                    details = null
+                    tab = newTab
+                }
+            )
+        }
+
+        // Full-Screen Details Overlay
+        AnimatedVisibility(
+            visible = selected != null,
+            enter = fadeIn(tween(170)),
+            exit = fadeOut(tween(130))
+        ) {
+            val currentMovie = selected
+            if (currentMovie != null) {
+                MovyzaDetailsTemplateScreen(
+                    movie = currentMovie,
+                    details = details,
+                    detailsLoading = detailsLoading,
+                    watchlisted = watchlist.any { it.id == currentMovie.id && it.mediaType == currentMovie.mediaType },
+                    onBack = {
+                        selected = null
+                        details = null
+                    },
+                    onRequestDetails = { target ->
+                        detailsLoading = true
+                        vm.fetchDetails(target) { loaded ->
+                            if (selected?.id == target.id) {
+                                details = loaded
+                            }
+                            detailsLoading = false
+                        }
+                    },
+                    onRequestSeasonEpisodes = { seriesId, seasonNum, callback ->
+                        vm.fetchSeasonEpisodes(seriesId, seasonNum, callback)
+                    },
+                    onWatch = { season, episode, epTitle ->
+                        launchPlayer(context, vm, currentMovie, season, episode, epTitle)
+                    },
+                    onToggleWatchlist = {
+                        if (vm.session == null) {
+                            loginMode = true
+                            authOpen = true
+                        } else {
+                            vm.toggleWatchlist(currentMovie) { message ->
+                                scope.launch { snackbar.showSnackbar(message) }
+                            }
+                        }
+                    },
+                    onSelectSimilar = { nextMovie ->
+                        details = null
+                        selected = nextMovie
+                    }
                 )
             }
         }
-    }
-
-    if (selected != null) {
-        MovyzaDetailsTemplateScreen(
-            movie = selected!!,
-            details = details,
-            watchlisted = watchlist.any { it.id == selected!!.id && it.mediaType == selected!!.mediaType },
-            onBack = { selected = null; details = null },
-            onLoad = {
-                scope.launch {
-                    runCatching { MovyzaApi().details(selected!!.id, selected!!.mediaType) }
-                        .onSuccess { details = it }
-                }
-            },
-            onWatch = {
-                context.startActivity(
-                    Intent(context, com.movyza.app.player.MovyzaPlayerActivity::class.java).apply {
-                        putExtra(com.movyza.app.player.MovyzaPlayerActivity.EXTRA_TMDB_ID, selected!!.id)
-                        putExtra(com.movyza.app.player.MovyzaPlayerActivity.EXTRA_MEDIA_TYPE, selected!!.mediaType)
-                        putExtra(com.movyza.app.player.MovyzaPlayerActivity.EXTRA_TITLE, selected!!.title.ifBlank { selected!!.originalTitle })
-                    }
-                )
-            },
-            onToggleWatchlist = {
-                vm.toggleWatchlist(selected!!) { message ->
-                    scope.launch { snackbar.showSnackbar(message) }
-                }
-            }
-        )
     }
 }
 
+/**
+ * Custom Fixed Glass Bottom Navigation Bar:
+ * Does not use Material3's NavigationBar subcomposition or double windowInsets,
+ * guaranteeing it stays 100% locked at the bottom of the screen across all devices.
+ */
 @Composable
-private fun MovyzaBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
-    NavigationBar(
-        containerColor = MovyzaColors.Bg2,
-        tonalElevation = 0.dp
+private fun MovyzaFixedBottomBar(
+    selected: Tab,
+    onSelect: (Tab) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MovyzaColors.GlassStrong)
+            .navigationBarsPadding()
     ) {
-        Tab.values().forEach { item ->
-            NavigationBarItem(
-                selected = selected == item,
-                onClick = { onSelect(item) },
-                icon = {
-                    Icon(
-                        when (item) {
-                            Tab.HOME -> Icons.Outlined.Home
-                            Tab.MOVIES -> Icons.Outlined.LocalMovies
-                            Tab.SERIES -> Icons.Outlined.Tv
-                            Tab.SEARCH -> Icons.Outlined.Search
-                            Tab.PROFILE -> Icons.Outlined.Person
-                        },
-                        contentDescription = item.label
-                    )
-                },
-                label = { Text(item.label, fontSize = 10.sp, maxLines = 1) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MovyzaColors.Gold300,
-                    selectedTextColor = MovyzaColors.Gold300,
-                    unselectedIconColor = MovyzaColors.Text3,
-                    unselectedTextColor = MovyzaColors.Text3,
-                    indicatorColor = MovyzaColors.Gold500.copy(alpha = .12f)
+        HorizontalDivider(thickness = 1.dp, color = MovyzaColors.GlassBorder)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            Tab.entries.forEach { item ->
+                val active = selected == item
+                val tint by animateColorAsState(
+                    targetValue = if (active) MovyzaColors.Gold300 else MovyzaColors.Text3,
+                    animationSpec = tween(160),
+                    label = "nav-tint"
                 )
-            )
+                val pillBg by animateColorAsState(
+                    targetValue = if (active) MovyzaColors.Gold500.copy(alpha = 0.16f) else Color.Transparent,
+                    animationSpec = tween(160),
+                    label = "nav-bg"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp)
+                        .padding(horizontal = 3.dp)
+                        .clip(MovyzaShapes.Md)
+                        .background(pillBg)
+                        .then(
+                            if (active) Modifier.border(1.dp, MovyzaColors.GoldBorder, MovyzaShapes.Md)
+                            else Modifier
+                        )
+                        .clickable { onSelect(item) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = when (item) {
+                                Tab.HOME -> Icons.Outlined.Home
+                                Tab.MOVIES -> Icons.Outlined.LocalMovies
+                                Tab.SERIES -> Icons.Outlined.Tv
+                                Tab.SEARCH -> Icons.Outlined.Search
+                                Tab.PROFILE -> Icons.Outlined.Person
+                            },
+                            contentDescription = item.label,
+                            tint = tint,
+                            modifier = Modifier.size(21.dp)
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = item.label,
+                            color = tint,
+                            fontSize = 11.sp,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -273,51 +492,251 @@ private fun MovyzaHomeTemplateScreen(
     state: HomeState,
     loading: Boolean,
     error: String?,
+    watchlist: List<Movie>,
+    watchHistory: List<WatchHistoryEntry>,
     onOpen: (Movie) -> Unit,
-    onSearch: () -> Unit,
-    onProfile: () -> Unit
+    onPlay: (Movie, Int, Int) -> Unit,
+    onToggleWatchlist: (Movie) -> Unit,
+    onSelectTab: (Tab) -> Unit,
+    onRefresh: () -> Unit
 ) {
-    val hero = state.trending.firstOrNull()
+    val heroCandidates = remember(state.trending) {
+        state.trending.take(5)
+    }
+    var heroIndex by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(heroCandidates.size) {
+        if (heroCandidates.size > 1) {
+            while (true) {
+                delay(6_500)
+                heroIndex = (heroIndex + 1) % heroCandidates.size
+            }
+        } else {
+            heroIndex = 0
+        }
+    }
+
+    val hero = heroCandidates.getOrNull(heroIndex) ?: state.trending.firstOrNull()
+    val heroWatchlisted = hero != null && watchlist.any { it.id == hero.id && it.mediaType == hero.mediaType }
+
     LazyColumn(
-        Modifier.fillMaxSize().background(MovyzaColors.Bg),
-        contentPadding = PaddingValues(bottom = 22.dp)
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MovyzaColors.Bg),
+        contentPadding = PaddingValues(bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        item {
+        item(key = "home-header") {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("MOVYZA", color = MovyzaColors.Gold300, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
-                    Text("Cinema, reimagined.", color = MovyzaColors.Text3, fontSize = 9.sp, letterSpacing = 1.sp)
+                    Text(
+                        text = "MOVYZA",
+                        color = MovyzaColors.Gold300,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 2.sp
+                    )
+                    Text(
+                        text = "منصة السينما والدراما العربية",
+                        color = MovyzaColors.Text3,
+                        fontSize = 11.sp
+                    )
                 }
-                NativeIconButton(Icons.Outlined.Search, onSearch)
-                Spacer(Modifier.width(7.dp))
-                NativeIconButton(Icons.Outlined.AccountCircle, onProfile)
+                GlassIconButton(
+                    onClick = { onSelectTab(Tab.SEARCH) },
+                    icon = Icons.Outlined.Search,
+                    contentDescription = "البحث"
+                )
+                Spacer(Modifier.width(8.dp))
+                GlassIconButton(
+                    onClick = { onSelectTab(Tab.PROFILE) },
+                    icon = Icons.Outlined.AccountCircle,
+                    contentDescription = "حسابي"
+                )
             }
         }
-        item {
-            NativeHeroTemplate(hero, hero?.let { { onOpen(it) } })
+
+        item(key = "home-hero") {
+            MovyzaHeroTemplate(
+                movie = hero,
+                watchlisted = heroWatchlisted,
+                heroIndex = heroIndex,
+                heroCount = heroCandidates.size,
+                onSelectHeroIndex = { heroIndex = it },
+                onPlay = { if (hero != null) onPlay(hero, 1, 1) },
+                onOpenDetails = { if (hero != null) onOpen(hero) },
+                onToggleWatchlist = { if (hero != null) onToggleWatchlist(hero) }
+            )
         }
-        item {
+
+        item(key = "home-quick-pills") {
             Row(
-                Modifier
+                modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(androidx.compose.foundation.rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                NativePill("أفلام", onSearch)
-                NativePill("مسلسلات", onSearch)
-                NativePill("بحث", onSearch)
-                NativePill("قائمتي", onProfile)
+                GlassPill(
+                    text = "الأفلام",
+                    icon = Icons.Outlined.LocalMovies,
+                    onClick = { onSelectTab(Tab.MOVIES) }
+                )
+                GlassPill(
+                    text = "المسلسلات",
+                    icon = Icons.Outlined.Tv,
+                    onClick = { onSelectTab(Tab.SERIES) }
+                )
+                GlassPill(
+                    text = "البحث السريع",
+                    icon = Icons.Outlined.Search,
+                    onClick = { onSelectTab(Tab.SEARCH) }
+                )
+                GlassPill(
+                    text = "قائمتي المحفوظة",
+                    icon = Icons.Outlined.BookmarkAdded,
+                    onClick = { onSelectTab(Tab.PROFILE) }
+                )
             }
         }
-        if (error != null) item { NativeError(error) }
-        item { NativeSectionTemplate("الأكثر رواجًا", "عناوين تتصدر Movyza", state.trending.drop(1), loading, onOpen) }
-        item { NativeSectionTemplate("أفلام شعبية", "اختيارات جاهزة للمشاهدة", state.movies, loading, onOpen) }
-        item { NativeSectionTemplate("الأعلى تقييمًا", "أقوى التقييمات", state.topRated, loading, onOpen) }
-        item { NativeSectionTemplate("مسلسلات شعبية", "جلسة مشاهدة جديدة", state.series, loading, onOpen) }
+
+        if (error != null) {
+            item(key = "home-error") {
+                NativeErrorBanner(message = error, onRetry = onRefresh)
+            }
+        }
+
+        if (watchHistory.isNotEmpty()) {
+            item(key = "section-continue-watching") {
+                Column {
+                    SectionHeader(
+                        title = "متابعة المشاهدة",
+                        subtitle = "استكمل من حيث توقفت",
+                        actionLabel = "السجل",
+                        onAction = { onSelectTab(Tab.PROFILE) }
+                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(
+                            count = minOf(watchHistory.size, 10),
+                            key = { idx ->
+                                val item = watchHistory[idx]
+                                "continue-${item.mediaType}-${item.id}"
+                            }
+                        ) { idx ->
+                            val entry = watchHistory[idx]
+                            MovyzaContinueWatchingCard(
+                                entry = entry,
+                                onResume = { onPlay(entry.toMovie(), entry.season, entry.episode) },
+                                onDetails = { onOpen(entry.toMovie()) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        item(key = "section-trending") {
+            FixedHorizontalSection(
+                sectionId = "trending",
+                title = "الأكثر رواجًا هذا الأسبوع",
+                subtitle = "عناوين تتصدر المشاهدات الآن",
+                movies = state.trending.drop(1),
+                loading = loading,
+                onOpen = onOpen
+            )
+        }
+
+        item(key = "section-movies") {
+            FixedHorizontalSection(
+                sectionId = "movies",
+                title = "أفلام شعبية",
+                subtitle = "اختيارات سينمائية جاهزة للمشاهدة",
+                movies = state.movies,
+                loading = loading,
+                actionLabel = "عرض الكل",
+                onAction = { onSelectTab(Tab.MOVIES) },
+                onOpen = onOpen
+            )
+        }
+
+        item(key = "section-top-rated") {
+            FixedHorizontalSection(
+                sectionId = "toprated",
+                title = "الأعلى تقييمًا",
+                subtitle = "أعمال خالدة بتقييمات استثنائية",
+                movies = state.topRated,
+                loading = loading,
+                actionLabel = "عرض الكل",
+                onAction = { onSelectTab(Tab.MOVIES) },
+                onOpen = onOpen
+            )
+        }
+
+        item(key = "section-series") {
+            FixedHorizontalSection(
+                sectionId = "series",
+                title = "مسلسلات رائجة",
+                subtitle = "حلقات ومواسم كاملة بانتظارك",
+                movies = state.series,
+                loading = loading,
+                actionLabel = "عرض الكل",
+                onAction = { onSelectTab(Tab.SERIES) },
+                onOpen = onOpen
+            )
+        }
+    }
+}
+
+/**
+ * Fixed-Slot Horizontal Row:
+ * Uses stable slot index keys (`"$sectionId-slot-$index"`) so Jetpack Compose
+ * NEVER throws duplicate key crashes during loading and updates existing card slots in-place.
+ */
+@Composable
+private fun FixedHorizontalSection(
+    sectionId: String,
+    title: String,
+    subtitle: String,
+    movies: List<Movie>,
+    loading: Boolean,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    onOpen: (Movie) -> Unit
+) {
+    val slotCount = if (movies.isEmpty() && loading) 6 else minOf(movies.size, 14)
+    if (slotCount == 0 && !loading) return
+
+    Column {
+        SectionHeader(
+            title = title,
+            subtitle = subtitle,
+            actionLabel = actionLabel,
+            onAction = onAction
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(
+                count = slotCount,
+                key = { index -> "$sectionId-slot-$index" }
+            ) { index ->
+                val movie = movies.getOrNull(index)
+                MovyzaPosterCardTemplate(
+                    movie = movie,
+                    onClick = if (movie != null) ({ onOpen(movie) }) else null,
+                    fixedWidth = 138.dp
+                )
+            }
+        }
     }
 }
 
@@ -325,192 +744,127 @@ private fun MovyzaHomeTemplateScreen(
 private fun MovyzaCatalogTemplateScreen(
     title: String,
     subtitle: String,
-    movies: List<Movie>,
+    popularItems: List<Movie>,
+    topRatedItems: List<Movie>,
     loading: Boolean,
+    loadingMore: Boolean,
+    onLoadMore: () -> Unit,
     onOpen: (Movie) -> Unit
 ) {
-    val gridItems: List<Movie?> = if (movies.isEmpty() && loading) List(8) { null } else movies
-    Column(Modifier.fillMaxSize().background(MovyzaColors.Bg)) {
-        Column(Modifier.padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 10.dp)) {
-            Text(title, color = MovyzaColors.Text, fontSize = 28.sp, fontWeight = FontWeight.Black)
-            Text(subtitle, color = MovyzaColors.Text3, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
+    var filterIndex by remember { mutableIntStateOf(0) }
+    var selectedGenreId by remember { mutableIntStateOf(0) }
+
+    val baseList = if (filterIndex == 0) popularItems else topRatedItems
+    val activeList = remember(baseList, selectedGenreId) {
+        if (selectedGenreId == 0) baseList
+        else baseList.filter { it.genreIds.contains(selectedGenreId) }
+    }
+    val slotCount = if (activeList.isEmpty() && loading) 8 else activeList.size
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MovyzaColors.Bg)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            Text(
+                text = title,
+                color = MovyzaColors.Text,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = subtitle,
+                color = MovyzaColors.Text3,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                GlassPill(
+                    text = "الأكثر شعبية",
+                    active = filterIndex == 0 && selectedGenreId == 0,
+                    onClick = {
+                        filterIndex = 0
+                        selectedGenreId = 0
+                    }
+                )
+                GlassPill(
+                    text = "الأعلى تقييمًا",
+                    active = filterIndex == 1 && selectedGenreId == 0,
+                    icon = Icons.Outlined.Star,
+                    onClick = {
+                        filterIndex = 1
+                        selectedGenreId = 0
+                    }
+                )
+                GlassPill(
+                    text = "أكشن وإثارة",
+                    active = selectedGenreId == 28 || selectedGenreId == 10759,
+                    onClick = {
+                        selectedGenreId = if (title == "المسلسلات") 10759 else 28
+                    }
+                )
+                GlassPill(
+                    text = "دراما",
+                    active = selectedGenreId == 18,
+                    onClick = { selectedGenreId = 18 }
+                )
+                GlassPill(
+                    text = "كوميديا",
+                    active = selectedGenreId == 35,
+                    onClick = { selectedGenreId = 35 }
+                )
+            }
         }
+
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 150.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 22.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 28.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(gridItems, key = { it?.mediaType + "-" + it?.id + "-" + (it?.title ?: "template") }) { movie ->
-                NativePosterTemplate(movie, movie?.let { { onOpen(it) } })
-            }
-        }
-    }
-}
-
-@Composable
-private fun MovyzaSearchTemplateScreen(
-    results: List<Movie>,
-    loading: Boolean,
-    onQuery: (String) -> Unit,
-    onOpen: (Movie) -> Unit
-) {
-    var query by remember { mutableStateOf("") }
-    LaunchedEffect(query) {
-        delay(420)
-        onQuery(query)
-    }
-    val searchItems: List<Movie?> = if (results.isEmpty() && loading) List(5) { null } else results.take(30)
-    LazyColumn(
-        Modifier.fillMaxSize().background(MovyzaColors.Bg),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 22.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        item {
-            Text("اكتشف", color = MovyzaColors.Text, fontSize = 29.sp, fontWeight = FontWeight.Black)
-            Text("فيلم، مسلسل أو عنوان في بالك.", color = MovyzaColors.Text3, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
-            Spacer(Modifier.height(12.dp))
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MovyzaColors.Glass,
-                border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
-            ) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("اكتب ما تبحث عنه…", color = MovyzaColors.Text3) },
-                    leadingIcon = { Icon(Icons.Outlined.Search, null, tint = MovyzaColors.Gold300) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MovyzaColors.Gold500.copy(alpha = .65f),
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent
-                    ),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
+            items(
+                count = slotCount,
+                key = { index -> "catalog-$title-$filterIndex-$selectedGenreId-slot-$index" }
+            ) { index ->
+                val movie = activeList.getOrNull(index)
+                MovyzaPosterCardTemplate(
+                    movie = movie,
+                    onClick = if (movie != null) ({ onOpen(movie) }) else null,
+                    fixedWidth = null
                 )
             }
-        }
-        items(searchItems, key = { it?.mediaType + "-" + it?.id + "-" + (it?.title ?: "template") }) { movie ->
-            NativeRowTemplate(movie, movie?.let { { onOpen(it) } })
-        }
-    }
-}
 
-@Composable
-private fun MovyzaProfileTemplateScreen(
-    session: UserSession?,
-    watchlist: List<Movie>,
-    onOpen: (Movie) -> Unit,
-    onLogin: () -> Unit,
-    onSignup: () -> Unit,
-    onLogout: () -> Unit
-) {
-    LazyColumn(
-        Modifier.fillMaxSize().background(MovyzaColors.Bg),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 22.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            Text("مساحتي", color = MovyzaColors.Text, fontSize = 29.sp, fontWeight = FontWeight.Black)
-            Text("حسابك وقائمتك وتجربتك في مكان واحد.", color = MovyzaColors.Text3, fontSize = 10.sp)
-        }
-        item { NativeProfileTemplate(session, onLogin, onSignup, onLogout) }
-        item {
-            Text("قائمتي", color = MovyzaColors.Text, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-            Text(watchlist.size.toString() + " عنوان محفوظ", color = MovyzaColors.Text3, fontSize = 9.sp, modifier = Modifier.padding(top = 2.dp))
-        }
-        if (watchlist.isEmpty()) {
-            item { NativeEmptyWatchlist() }
-        } else {
-            items(watchlist, key = { it.mediaType + "-" + it.id }) { movie ->
-                NativeRowTemplate(movie, onClick = { onOpen(movie) })
-            }
-        }
-    }
-}
-
-@Composable
-private fun MovyzaDetailsTemplateScreen(
-    movie: Movie,
-    details: TmdbDetails?,
-    watchlisted: Boolean,
-    onBack: () -> Unit,
-    onLoad: () -> Unit,
-    onWatch: () -> Unit,
-    onToggleWatchlist: () -> Unit
-) {
-    LaunchedEffect(movie.id, movie.mediaType) {
-        if (details == null) onLoad()
-    }
-    LazyColumn(
-        Modifier.fillMaxSize().background(MovyzaColors.Bg),
-        contentPadding = PaddingValues(bottom = 22.dp)
-    ) {
-        item { NativeDetailHero(movie, details, onBack) }
-        item {
-            Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
-                Text(
-                    movie.title.ifBlank { movie.originalTitle },
-                    color = MovyzaColors.Text,
-                    fontSize = 28.sp,
-                    lineHeight = 32.sp,
-                    fontWeight = FontWeight.Black,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    listOfNotNull(
-                        movie.releaseDate.takeIf { it.length >= 4 }?.take(4),
-                        if (movie.mediaType == "series") "مسلسل" else "فيلم",
-                        "★ " + String.format("%.1f", movie.rating),
-                        details?.runtime?.takeIf { it > 0 }?.let { "$it د" }
-                    ).joinToString("  •  "),
-                    color = MovyzaColors.Gold300,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                if (details == null) {
-                    NativeTextSkeleton()
-                } else {
-                    if (details.genres.isNotEmpty()) {
-                        Spacer(Modifier.height(10.dp))
-                        Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                            details.genres.take(4).forEach { genre ->
-                                Surface(shape = RoundedCornerShape(999.dp), color = MovyzaColors.Glass) {
-                                    Text(genre, color = MovyzaColors.Text2, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
-                                }
-                            }
-                        }
-                    }
-                    details.tagline?.takeIf { it.isNotBlank() }?.let {
-                        Spacer(Modifier.height(10.dp))
-                        Text(it, color = MovyzaColors.Gold500, fontSize = 11.sp)
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Text(details.movie.overview.ifBlank { movie.overview }, color = MovyzaColors.Text2, fontSize = 11.sp, lineHeight = 17.sp)
-                }
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Button(
-                        onClick = onWatch,
-                        modifier = Modifier.weight(1f).height(50.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MovyzaColors.Gold300, contentColor = MovyzaColors.Bg),
-                        shape = RoundedCornerShape(14.dp)
+            if (activeList.isNotEmpty() && selectedGenreId == 0) {
+                item(
+                    key = "catalog-load-more-$title",
+                    span = { GridItemSpan(maxLineSpan) }
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("مشاهدة", fontWeight = FontWeight.Black)
-                    }
-                    Surface(Modifier.size(50.dp), shape = RoundedCornerShape(14.dp), color = MovyzaColors.Glass, border = BorderStroke(1.dp, MovyzaColors.GlassBorder)) {
-                        IconButton(onClick = onToggleWatchlist) {
-                            Icon(
-                                if (watchlisted) Icons.Outlined.BookmarkAdded else Icons.Outlined.BookmarkAdd,
-                                contentDescription = "قائمتي",
-                                tint = if (watchlisted) MovyzaColors.Gold300 else MovyzaColors.Text
+                        if (loadingMore) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(26.dp),
+                                strokeWidth = 2.dp,
+                                color = MovyzaColors.Gold300
+                            )
+                        } else {
+                            GlassPill(
+                                text = "تحميل المزيد من $title",
+                                active = true,
+                                onClick = onLoadMore
                             )
                         }
                     }
@@ -521,321 +875,858 @@ private fun MovyzaDetailsTemplateScreen(
 }
 
 @Composable
-private fun NativeHeroTemplate(movie: Movie?, onClick: (() -> Unit)? = null) {
-    val clickable = if (movie != null && onClick != null) Modifier.clickable(onClick = onClick) else Modifier
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(394.dp)
-            .padding(horizontal = 12.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(MovyzaColors.Bg2)
-            .border(1.dp, MovyzaColors.GlassBorder, RoundedCornerShape(24.dp))
-            .then(clickable)
-    ) {
-        if (movie != null) {
-            AsyncImage(
-                model = movie.backdropUrl ?: movie.posterUrl,
-                contentDescription = movie.title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        .42f to Color.Transparent,
-                        .72f to MovyzaColors.Bg.copy(alpha = .70f),
-                        1f to MovyzaColors.Bg.copy(alpha = .98f)
-                    )
-                )
-            )
-            Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {
-                NativeBadge("مختار لك")
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    movie.title.ifBlank { movie.originalTitle },
-                    color = Color.White,
-                    fontSize = 27.sp,
-                    fontWeight = FontWeight.Black,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    listOfNotNull(
-                        movie.releaseDate.takeIf { it.length >= 4 }?.take(4),
-                        if (movie.mediaType == "series") "مسلسل" else "فيلم",
-                        "★ " + String.format("%.1f", movie.rating)
-                    ).joinToString("  •  "),
-                    color = MovyzaColors.Gold300,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        } else {
-            Column(Modifier.align(Alignment.BottomStart).padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                NativeSkeletonLine(78.dp, 18.dp)
-                NativeSkeletonLine(220.dp, 28.dp)
-                NativeSkeletonLine(160.dp, 11.dp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun NativePosterTemplate(movie: Movie?, onClick: (() -> Unit)? = null) {
-    val clickable = if (movie != null && onClick != null) Modifier.clickable(onClick = onClick) else Modifier
-    Column(Modifier.fillMaxWidth().then(clickable)) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(.67f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(MovyzaColors.Bg2)
-                .border(1.dp, MovyzaColors.GlassBorder, RoundedCornerShape(16.dp))
-        ) {
-            if (movie != null) {
-                AsyncImage(model = movie.posterUrl, contentDescription = movie.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                NativeBadge("★ " + String.format("%.1f", movie.rating), Modifier.align(Alignment.TopStart).padding(7.dp))
-            }
-        }
-        Text(
-            movie?.title?.ifBlank { movie.originalTitle } ?: "عنوان الفيلم",
-            color = if (movie == null) MovyzaColors.Text3 else MovyzaColors.Text,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 7.dp)
-        )
-        Text(
-            if (movie == null) "      " else if (movie.mediaType == "series") "مسلسل" else movie.releaseDate.take(4),
-            color = MovyzaColors.Text3,
-            fontSize = 9.sp,
-            modifier = Modifier.padding(top = 3.dp)
-        )
-    }
-}
-
-@Composable
-private fun NativeRowTemplate(movie: Movie?, onClick: (() -> Unit)? = null) {
-    val clickable = if (movie != null && onClick != null) Modifier.clickable(onClick = onClick) else Modifier
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .then(clickable)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MovyzaColors.Glass)
-            .border(1.dp, MovyzaColors.GlassBorder, RoundedCornerShape(16.dp))
-            .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(Modifier.size(68.dp, 96.dp).clip(RoundedCornerShape(11.dp)).background(MovyzaColors.Bg2)) {
-            if (movie != null) {
-                AsyncImage(model = movie.posterUrl, contentDescription = movie.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            }
-        }
-        Column(Modifier.padding(horizontal = 10.dp).weight(1f)) {
-            Text(
-                movie?.title?.ifBlank { movie.originalTitle } ?: "عنوان الفيلم",
-                color = if (movie == null) MovyzaColors.Text3 else MovyzaColors.Text,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                if (movie == null) "----  •  ----  •  ★ -" else listOfNotNull(
-                    movie.releaseDate.takeIf { it.length >= 4 }?.take(4),
-                    if (movie.mediaType == "series") "مسلسل" else "فيلم",
-                    "★ " + String.format("%.1f", movie.rating)
-                ).joinToString("  •  "),
-                color = MovyzaColors.Gold300,
-                fontSize = 9.sp,
-                modifier = Modifier.padding(top = 6.dp)
-            )
-            Text(
-                movie?.overview ?: "جارٍ ربط بيانات TMDB…",
-                color = MovyzaColors.Text3,
-                fontSize = 10.sp,
-                lineHeight = 14.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 6.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun NativeSectionTemplate(
-    title: String,
-    subtitle: String,
-    movies: List<Movie>,
+private fun MovyzaSearchTemplateScreen(
+    results: List<Movie>,
+    suggestions: List<Movie>,
     loading: Boolean,
+    onQuery: (String) -> Unit,
     onOpen: (Movie) -> Unit
 ) {
-    Column(Modifier.padding(top = 8.dp)) {
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            Text(title, color = MovyzaColors.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text(subtitle, color = MovyzaColors.Text3, fontSize = 9.sp)
-        }
-        val itemsToShow: List<Movie?> = if (movies.isEmpty() && loading) List(5) { null } else movies.take(12)
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(itemsToShow, key = { it?.mediaType + "-" + it?.id + "-" + (it?.title ?: "template") }) { movie ->
-                NativePosterTemplate(movie, movie?.let { { onOpen(it) } })
-            }
+    var query by remember { mutableStateOf("") }
+
+    LaunchedEffect(query) {
+        if (query.isBlank()) {
+            onQuery("")
+        } else {
+            delay(360)
+            onQuery(query)
         }
     }
-}
 
-@Composable
-private fun NativeProfileTemplate(session: UserSession?, onLogin: () -> Unit, onSignup: () -> Unit, onLogout: () -> Unit) {
-    Surface(
-        Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = MovyzaColors.Glass,
-        border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
+    val isSearching = query.isNotBlank()
+    val listItems = if (isSearching) results.take(30) else suggestions.take(15)
+    val slotCount = if (isSearching && listItems.isEmpty() && loading) 5 else listItems.size
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MovyzaColors.Bg),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column(Modifier.padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(54.dp).clip(CircleShape).background(MovyzaColors.Gold500), contentAlignment = Alignment.Center) {
-                    Text(if (session == null) "M" else session.email.take(1).uppercase(), color = MovyzaColors.Bg, fontSize = 22.sp, fontWeight = FontWeight.Black)
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(if (session == null) "أهلاً بك في Movyza" else session.email, color = MovyzaColors.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text(if (session == null) "سجّل الدخول لمزامنة قائمتك" else "حساب Movyza • Supabase", color = MovyzaColors.Text3, fontSize = 9.sp, modifier = Modifier.padding(top = 3.dp))
-                }
-            }
-            Spacer(Modifier.height(14.dp))
-            if (session == null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onLogin, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MovyzaColors.Gold300, contentColor = MovyzaColors.Bg), shape = RoundedCornerShape(13.dp)) { Text("تسجيل الدخول", fontWeight = FontWeight.Bold) }
-                    OutlinedButton(onClick = onSignup, modifier = Modifier.weight(1f), shape = RoundedCornerShape(13.dp)) { Text("إنشاء حساب") }
-                }
-            } else {
-                OutlinedButton(onClick = onLogout, shape = RoundedCornerShape(13.dp)) { Text("تسجيل الخروج") }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NativeEmptyWatchlist() {
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), color = MovyzaColors.Glass, border = BorderStroke(1.dp, MovyzaColors.GlassBorder)) {
-        Column(Modifier.padding(vertical = 30.dp, horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Outlined.BookmarkAdd, null, tint = MovyzaColors.Gold300, modifier = Modifier.size(28.dp))
-            Spacer(Modifier.height(8.dp))
-            Text("قائمتك جاهزة", color = MovyzaColors.Text, fontWeight = FontWeight.Bold)
-            Text("أضف أول فيلم أو مسلسل تريد الرجوع إليه.", color = MovyzaColors.Text3, fontSize = 10.sp)
-        }
-    }
-}
-
-@Composable
-private fun NativeDetailHero(movie: Movie, details: TmdbDetails?, onBack: () -> Unit) {
-    Box(
-        Modifier.fillMaxWidth().height(400.dp).background(MovyzaColors.Bg2)
-    ) {
-        AsyncImage(
-            model = details?.movie?.backdropUrl ?: movie.backdropUrl ?: movie.posterUrl,
-            contentDescription = movie.title,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    0f to Color.Transparent,
-                    .48f to Color.Transparent,
-                    .74f to MovyzaColors.Bg.copy(alpha = .78f),
-                    1f to MovyzaColors.Bg
-                )
+        item(key = "search-header") {
+            Text(
+                text = "البحث الذكي",
+                color = MovyzaColors.Text,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Black
             )
-        )
-        NativeIconButton(Icons.Outlined.ArrowBack, onBack, modifier = Modifier.padding(start = 12.dp, top = 12.dp))
-    }
-}
+            Text(
+                text = "ابحث عن أي فيلم أو مسلسل بالاسم العربي أو الأجنبي",
+                color = MovyzaColors.Text3,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Spacer(Modifier.height(14.dp))
+            GlassCard(
+                shape = MovyzaShapes.Md,
+                strong = true,
+                goldAccent = query.isNotBlank()
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = {
+                        Text("اكتب اسم الفيلم أو المسلسل...", color = MovyzaColors.Text3, fontSize = 13.sp)
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Outlined.Search, contentDescription = null, tint = MovyzaColors.Gold300)
+                    },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Outlined.Close, contentDescription = "مسح", tint = MovyzaColors.Text2)
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = MovyzaShapes.Md,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedTextColor = MovyzaColors.Text,
+                        unfocusedTextColor = MovyzaColors.Text
+                    ),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = if (isSearching) "نتائج البحث" else "اقتراحات شائعة الآن",
+                color = MovyzaColors.Gold300,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
 
-@Composable
-private fun NativePill(text: String, onClick: () -> Unit) {
-    Surface(
-        Modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(999.dp),
-        color = MovyzaColors.Glass,
-        border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
-    ) {
-        Text(text, color = MovyzaColors.Text2, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp))
-    }
-}
-
-@Composable
-private fun NativeBadge(text: String, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(999.dp),
-        color = Color.Black.copy(alpha = .52f),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = .10f))
-    ) {
-        Text(text, color = MovyzaColors.Gold300, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
-    }
-}
-
-@Composable
-private fun NativeIconButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.size(42.dp),
-        shape = CircleShape,
-        color = MovyzaColors.Glass,
-        border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
-    ) {
-        IconButton(onClick = onClick) {
-            Icon(icon, contentDescription = null, tint = MovyzaColors.Text)
+        if (isSearching && !loading && listItems.isEmpty()) {
+            item(key = "search-empty") {
+                GlassCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    shape = MovyzaShapes.Lg
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Outlined.Search,
+                            contentDescription = null,
+                            tint = MovyzaColors.Gold300,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "لم نعثر على نتائج مطابقة",
+                            color = MovyzaColors.Text,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "جرّب كتابة الاسم بطريقة أخرى أو باللغة الإنجليزية.",
+                            color = MovyzaColors.Text3,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                }
+            }
+        } else {
+            items(
+                count = slotCount,
+                key = { index -> "search-slot-$index" }
+            ) { index ->
+                val movie = listItems.getOrNull(index)
+                MovyzaHorizontalCardTemplate(
+                    movie = movie,
+                    onClick = if (movie != null) ({ onOpen(movie) }) else null
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun NativeTextSkeleton() {
-    Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        NativeSkeletonLine(0.96f, 11.dp)
-        NativeSkeletonLine(0.96f, 11.dp)
-        NativeSkeletonLine(0.78f, 11.dp)
-        NativeSkeletonLine(0.62f, 11.dp)
+private fun MovyzaProfileTemplateScreen(
+    session: UserSession?,
+    watchlist: List<Movie>,
+    watchHistory: List<WatchHistoryEntry>,
+    onOpen: (Movie) -> Unit,
+    onResumeHistory: (WatchHistoryEntry) -> Unit,
+    onClearHistory: () -> Unit,
+    onLogin: () -> Unit,
+    onSignup: () -> Unit,
+    onLogout: () -> Unit,
+    onBrowseCatalog: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MovyzaColors.Bg),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item(key = "profile-header") {
+            Text(
+                text = "مساحتي الخاصة",
+                color = MovyzaColors.Text,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = "إدارة حسابك وسجل المشاهدة وقائمتك المحفوظة",
+                color = MovyzaColors.Text3,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+
+        item(key = "profile-card") {
+            GlassCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MovyzaShapes.Lg,
+                strong = true,
+                goldAccent = session != null
+            ) {
+                Column(Modifier.padding(18.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(MovyzaColors.Gold300, MovyzaColors.Gold600)
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (session == null) "M" else session.email.take(1).uppercase(),
+                                color = MovyzaColors.Bg,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = session?.email ?: "مرحباً بك في Movyza",
+                                color = MovyzaColors.Text,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (session == null) {
+                                    "سجّل الدخول لحفظ ومزامنة قائمة المشاهدة عبر أجهزتك"
+                                } else {
+                                    "حساب موفيزا نشط • مزامنة سحابية فورية"
+                                },
+                                color = MovyzaColors.Text3,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(top = 3.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    if (session == null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            GoldButton(
+                                text = "تسجيل الدخول",
+                                icon = null,
+                                onClick = onLogin,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedButton(
+                                onClick = onSignup,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                shape = MovyzaShapes.Md,
+                                border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
+                            ) {
+                                Text("إنشاء حساب", color = MovyzaColors.Text, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = onLogout,
+                            modifier = Modifier.height(44.dp),
+                            shape = MovyzaShapes.Md,
+                            border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
+                        ) {
+                            Text("تسجيل الخروج", color = MovyzaColors.Text2, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (watchHistory.isNotEmpty()) {
+            item(key = "profile-history-section") {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "سجل المشاهدة الأخير",
+                                color = MovyzaColors.Text,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                text = "${watchHistory.size} عنصر تم تشغيله",
+                                color = MovyzaColors.Text3,
+                                fontSize = 11.sp
+                            )
+                        }
+                        TextButton(onClick = onClearHistory) {
+                            Icon(
+                                Icons.Outlined.DeleteOutline,
+                                contentDescription = null,
+                                tint = MovyzaColors.Text3,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("مسح السجل", color = MovyzaColors.Text3, fontSize = 11.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(
+                            count = minOf(watchHistory.size, 10),
+                            key = { idx ->
+                                val h = watchHistory[idx]
+                                "prof-history-${h.mediaType}-${h.id}"
+                            }
+                        ) { idx ->
+                            val entry = watchHistory[idx]
+                            MovyzaContinueWatchingCard(
+                                entry = entry,
+                                onResume = { onResumeHistory(entry) },
+                                onDetails = { onOpen(entry.toMovie()) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        item(key = "watchlist-header") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "قائمتي المحفوظة",
+                        color = MovyzaColors.Text,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "${watchlist.size} عنوان محفوظ",
+                        color = MovyzaColors.Text3,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+
+        if (watchlist.isEmpty()) {
+            item(key = "watchlist-empty") {
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MovyzaShapes.Lg
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp, horizontal = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Outlined.BookmarkAdd,
+                            contentDescription = null,
+                            tint = MovyzaColors.Gold300,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = "قائمتك فارغة حالياً",
+                            color = MovyzaColors.Text,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "أضف الأفلام والمسلسلات المفضلة لديك للوصول السريع إليها في أي وقت.",
+                            color = MovyzaColors.Text3,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        GlassPill(
+                            text = "استكشاف الكتالوج",
+                            active = true,
+                            onClick = onBrowseCatalog
+                        )
+                    }
+                }
+            }
+        } else {
+            items(
+                count = watchlist.size,
+                key = { index ->
+                    val item = watchlist[index]
+                    "watchlist-${item.mediaType}-${item.id}"
+                }
+            ) { index ->
+                val movie = watchlist[index]
+                MovyzaHorizontalCardTemplate(
+                    movie = movie,
+                    onClick = { onOpen(movie) }
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun NativeSkeletonLine(fraction: Float, height: Dp) {
-    Box(
-        Modifier.fillMaxWidth(fraction).height(height).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = .045f))
-    )
-}
+private fun MovyzaDetailsTemplateScreen(
+    movie: Movie,
+    details: TmdbDetails?,
+    detailsLoading: Boolean,
+    watchlisted: Boolean,
+    onBack: () -> Unit,
+    onRequestDetails: (Movie) -> Unit,
+    onRequestSeasonEpisodes: (Int, Int, (List<EpisodeItem>) -> Unit) -> Unit,
+    onWatch: (season: Int, episode: Int, episodeTitle: String?) -> Unit,
+    onToggleWatchlist: () -> Unit,
+    onSelectSimilar: (Movie) -> Unit
+) {
+    BackHandler(onBack = onBack)
 
-@Composable
-private fun NativeSkeletonLine(width: Dp, height: Dp) {
-    Box(
-        Modifier.width(width).height(height).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = .055f))
-    )
-}
+    var selectedSeason by remember(movie.id) { mutableIntStateOf(1) }
+    var selectedEpisode by remember(movie.id) { mutableIntStateOf(1) }
+    var episodes by remember(movie.id) { mutableStateOf<List<EpisodeItem>>(emptyList()) }
+    var episodesLoading by remember(movie.id) { mutableStateOf(false) }
 
-@Composable
-private fun NativeError(message: String) {
-    Surface(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = Color(0xFF1D1210)
+    LaunchedEffect(movie.id, movie.mediaType) {
+        onRequestDetails(movie)
+    }
+
+    val isSeries = movie.mediaType == "series"
+    val seasons = details?.seasons.orEmpty()
+
+    LaunchedEffect(movie.id, isSeries, seasons, selectedSeason) {
+        if (isSeries) {
+            val targetSeason = seasons.firstOrNull { it.seasonNumber == selectedSeason }?.seasonNumber
+                ?: seasons.firstOrNull()?.seasonNumber
+                ?: 1
+            if (targetSeason != selectedSeason) {
+                selectedSeason = targetSeason
+            }
+            episodesLoading = true
+            onRequestSeasonEpisodes(movie.id, targetSeason) { loadedEpisodes ->
+                episodes = loadedEpisodes
+                episodesLoading = false
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MovyzaColors.Bg)
     ) {
-        Text(message, color = Color(0xFFD9AAA3), fontSize = 10.sp, modifier = Modifier.padding(12.dp))
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding(),
+            contentPadding = PaddingValues(bottom = 36.dp)
+        ) {
+            item(key = "detail-hero") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(420.dp)
+                        .background(MovyzaColors.SurfaceElevated)
+                ) {
+                    AsyncImage(
+                        model = details?.movie?.backdropUrl ?: movie.backdropUrl ?: movie.posterUrl,
+                        contentDescription = movie.displayTitle,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    0.0f to Color(0x6604060D),
+                                    0.40f to Color.Transparent,
+                                    0.76f to Color(0xE604060D),
+                                    1.0f to MovyzaColors.Bg
+                                )
+                            )
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 96.dp, height = 140.dp)
+                                .clip(MovyzaShapes.Md)
+                                .background(MovyzaColors.Bg2)
+                                .border(1.dp, MovyzaColors.GlassBorder, MovyzaShapes.Md)
+                        ) {
+                            AsyncImage(
+                                model = movie.posterUrl,
+                                contentDescription = movie.displayTitle,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        Spacer(Modifier.width(14.dp))
+
+                        Column(Modifier.weight(1f)) {
+                            MovyzaBadge(
+                                text = if (isSeries) "مسلسل" else "فيلم سينمائي"
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = movie.displayTitle,
+                                color = MovyzaColors.Text,
+                                fontSize = 23.sp,
+                                lineHeight = 29.sp,
+                                fontWeight = FontWeight.Black,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            val metaParts = listOfNotNull(
+                                "★ " + String.format(Locale.US, "%.1f", movie.rating),
+                                movie.yearText.takeIf { it.isNotBlank() },
+                                details?.runtime?.takeIf { it > 0 }?.let { "$it دقيقة" },
+                                if (isSeries && seasons.isNotEmpty()) "${seasons.size} مواسم" else null
+                            )
+                            Text(
+                                text = metaParts.joinToString("  •  "),
+                                color = MovyzaColors.Gold300,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (!details?.director.isNullOrBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = (if (isSeries) "ابتكار: " else "إخراج: ") + details?.director.orEmpty(),
+                                    color = MovyzaColors.Text2,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item(key = "detail-actions-and-overview") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    val activeEpObj = episodes.firstOrNull { it.episodeNumber == selectedEpisode }
+                    val watchButtonLabel = if (isSeries) {
+                        "مشاهدة م$selectedSeason • ح$selectedEpisode"
+                    } else {
+                        "مشاهدة الفيلم الآن"
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        GoldButton(
+                            text = watchButtonLabel,
+                            onClick = {
+                                onWatch(selectedSeason, selectedEpisode, activeEpObj?.name)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        GlassIconButton(
+                            onClick = onToggleWatchlist,
+                            icon = if (watchlisted) Icons.Outlined.BookmarkAdded else Icons.Outlined.BookmarkAdd,
+                            contentDescription = "قائمتي",
+                            tint = if (watchlisted) MovyzaColors.Gold300 else MovyzaColors.Text,
+                            goldBorder = watchlisted,
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
+
+                    val genres = details?.genres.orEmpty()
+                    if (genres.isNotEmpty()) {
+                        Spacer(Modifier.height(14.dp))
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            genres.take(5).forEach { genre ->
+                                GlassPill(text = genre)
+                            }
+                        }
+                    }
+
+                    details?.tagline?.takeIf { it.isNotBlank() }?.let { tagline ->
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = "«$tagline»",
+                            color = MovyzaColors.Gold400,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    GlassCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MovyzaShapes.Md
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(
+                                text = "القصة",
+                                color = MovyzaColors.Gold300,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            val overviewText = details?.movie?.overview?.takeIf { it.isNotBlank() }
+                                ?: movie.overview.takeIf { it.isNotBlank() }
+                                ?: if (detailsLoading) "جارٍ تحميل تفاصيل القصة..." else "لا يتوفر ملخص عربي لهذا العمل حالياً."
+                            Text(
+                                text = overviewText,
+                                color = MovyzaColors.Text2,
+                                fontSize = 13.sp,
+                                lineHeight = 21.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            val castList = details?.cast.orEmpty()
+            if (castList.isNotEmpty()) {
+                item(key = "detail-cast") {
+                    Column(Modifier.padding(top = 6.dp)) {
+                        SectionHeader(
+                            title = "طاقم التمثيل",
+                            subtitle = "أبرز نجوم العمل"
+                        )
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(
+                                count = castList.size,
+                                key = { idx -> "cast-${movie.id}-${castList[idx].id}-$idx" }
+                            ) { idx ->
+                                MovyzaCastBubble(member = castList[idx])
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (isSeries) {
+                item(key = "detail-series-seasons") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                    ) {
+                        SectionHeader(
+                            title = "المواسم والحلقات",
+                            subtitle = "اختر الموسم والحلقة لبدء المشاهدة فوراً"
+                        )
+
+                        if (seasons.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                seasons.forEach { season ->
+                                    GlassPill(
+                                        text = "${season.name} (${season.episodeCount})",
+                                        active = season.seasonNumber == selectedSeason,
+                                        onClick = {
+                                            selectedSeason = season.seasonNumber
+                                            selectedEpisode = 1
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        if (episodesLoading) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 20.dp),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MovyzaColors.Gold300
+                                )
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                episodes.forEach { ep ->
+                                    val isSelectedEp = ep.episodeNumber == selectedEpisode
+                                    GlassCard(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = MovyzaShapes.Md,
+                                        goldAccent = isSelectedEp,
+                                        onClick = {
+                                            selectedEpisode = ep.episodeNumber
+                                            onWatch(selectedSeason, ep.episodeNumber, ep.name)
+                                        }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(width = 104.dp, height = 62.dp)
+                                                    .clip(MovyzaShapes.Sm)
+                                                    .background(MovyzaColors.SurfaceElevated),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                AsyncImage(
+                                                    model = ep.stillUrl ?: movie.backdropUrl ?: movie.posterUrl,
+                                                    contentDescription = ep.name,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(28.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xB304060D)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        Icons.Outlined.PlayArrow,
+                                                        contentDescription = null,
+                                                        tint = MovyzaColors.Gold300,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(Modifier.width(12.dp))
+
+                                            Column(Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "الحلقة ${ep.episodeNumber} • ${ep.name}",
+                                                    color = if (isSelectedEp) MovyzaColors.Gold300 else MovyzaColors.Text,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                if (ep.overview.isNotBlank()) {
+                                                    Spacer(Modifier.height(3.dp))
+                                                    Text(
+                                                        text = ep.overview,
+                                                        color = MovyzaColors.Text3,
+                                                        fontSize = 11.sp,
+                                                        lineHeight = 15.sp,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            val similarList = details?.similar.orEmpty()
+            if (similarList.isNotEmpty()) {
+                item(key = "detail-similar") {
+                    Spacer(Modifier.height(14.dp))
+                    FixedHorizontalSection(
+                        sectionId = "similar-${movie.id}",
+                        title = "أعمال مشابهة قد تعجبك",
+                        subtitle = "اقتراحات ذات صلة",
+                        movies = similarList,
+                        loading = false,
+                        onOpen = onSelectSimilar
+                    )
+                }
+            }
+        }
+
+        // Floating Glass Top Bar respecting Status Bar Insets
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            GlassIconButton(
+                onClick = onBack,
+                icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                contentDescription = "رجوع"
+            )
+            GlassIconButton(
+                onClick = onToggleWatchlist,
+                icon = if (watchlisted) Icons.Outlined.BookmarkAdded else Icons.Outlined.BookmarkAdd,
+                contentDescription = "قائمتي",
+                tint = if (watchlisted) MovyzaColors.Gold300 else MovyzaColors.Text,
+                goldBorder = watchlisted
+            )
+        }
+    }
+}
+
+@Composable
+private fun NativeErrorBanner(message: String, onRetry: () -> Unit) {
+    GlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = MovyzaShapes.Md
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = message,
+                color = Color(0xFFF2A59E),
+                fontSize = 12.sp,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onRetry) {
+                Icon(
+                    Icons.Outlined.Refresh,
+                    contentDescription = null,
+                    tint = MovyzaColors.Gold300,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("إعادة المحاولة", color = MovyzaColors.Gold300, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 
@@ -850,20 +1741,67 @@ private fun MovyzaAuthDialog(
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MovyzaColors.Bg2,
+        shape = MovyzaShapes.Lg,
         title = {
-            Text(if (login) "مرحبًا بعودتك" else "ابدأ مع Movyza", color = MovyzaColors.Text, fontWeight = FontWeight.Black)
+            Text(
+                text = if (login) "مرحباً بعودتك" else "انضم إلى Movyza",
+                color = MovyzaColors.Text,
+                fontWeight = FontWeight.Black,
+                fontSize = 20.sp
+            )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                if (!login) OutlinedTextField(name, { name = it }, label = { Text("الاسم") }, singleLine = true)
-                OutlinedTextField(email, { email = it }, label = { Text("البريد الإلكتروني") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
-                OutlinedTextField(password, { password = it }, label = { Text("كلمة المرور") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (!login) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("الاسم") },
+                        singleLine = true,
+                        shape = MovyzaShapes.Sm,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("البريد الإلكتروني") },
+                    singleLine = true,
+                    shape = MovyzaShapes.Sm,
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("كلمة المرور") },
+                    singleLine = true,
+                    shape = MovyzaShapes.Sm,
+                    modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { showPassword = !showPassword }) {
+                            Icon(
+                                imageVector = if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                contentDescription = "إظهار كلمة المرور",
+                                tint = MovyzaColors.Text3
+                            )
+                        }
+                    }
+                )
                 TextButton(onClick = onToggle) {
-                    Text(if (login) "ليس لديك حساب؟ إنشاء حساب" else "لديك حساب؟ تسجيل الدخول", color = MovyzaColors.Gold300)
+                    Text(
+                        text = if (login) "ليس لديك حساب؟ إنشاء حساب جديد" else "لديك حساب بالفعل؟ تسجيل الدخول",
+                        color = MovyzaColors.Gold300,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         },
@@ -871,14 +1809,27 @@ private fun MovyzaAuthDialog(
             Button(
                 enabled = !loading && email.isNotBlank() && password.length >= 6,
                 onClick = { onSubmit(name, email, password) },
-                colors = ButtonDefaults.buttonColors(containerColor = MovyzaColors.Gold300, contentColor = MovyzaColors.Bg),
-                shape = RoundedCornerShape(12.dp)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MovyzaColors.Gold400,
+                    contentColor = MovyzaColors.Bg
+                ),
+                shape = MovyzaShapes.Sm
             ) {
-                if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(if (login) "دخول" else "إنشاء", fontWeight = FontWeight.Bold)
+                if (loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MovyzaColors.Bg
+                    )
+                } else {
+                    Text(if (login) "دخول" else "إنشاء الحساب", fontWeight = FontWeight.Bold)
+                }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("إلغاء", color = MovyzaColors.Text3) }
+            TextButton(onClick = onDismiss) {
+                Text("إلغاء", color = MovyzaColors.Text3)
+            }
         }
     )
 }

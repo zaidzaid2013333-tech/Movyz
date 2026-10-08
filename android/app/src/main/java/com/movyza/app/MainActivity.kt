@@ -6,142 +6,70 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LocalMovies
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.compose.viewModel
-import coil3.compose.AsyncImage
+import com.movyza.app.data.EpisodeItem
 import com.movyza.app.data.Movie
 import com.movyza.app.data.MovyzaApi
 import com.movyza.app.data.TmdbDetails
 import com.movyza.app.data.UserSession
+import com.movyza.app.data.WatchHistoryEntry
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 
-private val MovyzaGold = Color(0xFFD6B15E)
-private val MovyzaGoldBright = Color(0xFFF1D58A)
-private val MovyzaBlack = Color(0xFF050505)
-private val MovyzaSurface = Color(0xFF0E0D0B)
-private val MovyzaSurfaceElevated = Color(0xFF15130F)
-private val MovyzaText = Color(0xFFF4F0E7)
-private val MovyzaMuted = Color(0xFFAAA49A)
-
-private val MovyzaDark = darkColorScheme(
-    primary = MovyzaGoldBright,
-    secondary = MovyzaGold,
-    background = MovyzaBlack,
-    surface = MovyzaSurface,
-    surfaceVariant = MovyzaSurfaceElevated,
-    onPrimary = Color(0xFF171108),
-    onBackground = MovyzaText,
-    onSurface = MovyzaText
+@Immutable
+data class HomeState(
+    val trending: List<Movie> = emptyList(),
+    val movies: List<Movie> = emptyList(),
+    val topRated: List<Movie> = emptyList(),
+    val series: List<Movie> = emptyList(),
+    val topRatedSeries: List<Movie> = emptyList()
 )
+
+enum class Tab(val label: String) {
+    HOME("الرئيسية"),
+    MOVIES("أفلام"),
+    SERIES("مسلسلات"),
+    SEARCH("بحث"),
+    PROFILE("حسابي")
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MaterialTheme(colorScheme = MovyzaDark) {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    MovyzaApp()
+            MovyzaTheme {
+                Surface(modifier = Modifier.fillMaxSize(), color = MovyzaColors.Bg) {
+                    MovyzaNativeApp()
                 }
             }
         }
     }
 }
 
-data class HomeState(
-    val trending: List<Movie> = emptyList(),
-    val movies: List<Movie> = emptyList(),
-    val topRated: List<Movie> = emptyList(),
-    val series: List<Movie> = emptyList()
-)
-
 class MainViewModel(app: Application) : AndroidViewModel(app) {
-    private val api = MovyzaApi()
+    companion object {
+        const val HISTORY_PREFS = "movyza_watch_history"
+        const val HISTORY_KEY = "entries_json"
+    }
+
+    private val api = MovyzaApi.instance
     private val prefs = app.getSharedPreferences("movyza_session", Context.MODE_PRIVATE)
+    private val historyPrefs = app.getSharedPreferences(HISTORY_PREFS, Context.MODE_PRIVATE)
 
     private val _home = MutableStateFlow(HomeState())
     val home: StateFlow<HomeState> = _home.asStateFlow()
@@ -152,55 +80,256 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _watchlist = MutableStateFlow<List<Movie>>(emptyList())
     val watchlist: StateFlow<List<Movie>> = _watchlist.asStateFlow()
 
-    var session by mutableStateOf<UserSession?>(restoreSession())
+    private val _watchHistory = MutableStateFlow<List<WatchHistoryEntry>>(emptyList())
+    val watchHistory: StateFlow<List<WatchHistoryEntry>> = _watchHistory.asStateFlow()
+
+    private val detailsCache = mutableMapOf<String, TmdbDetails>()
+    private val episodesCache = mutableMapOf<String, List<EpisodeItem>>()
+
+    var session by mutableStateOf(restoreSession())
         private set
     var loading by mutableStateOf(false)
         private set
+    var searchLoading by mutableStateOf(false)
+        private set
+    var moviesPage by mutableStateOf(1)
+        private set
+    var seriesPage by mutableStateOf(1)
+        private set
+    var loadingMoreMovies by mutableStateOf(false)
+        private set
+    var loadingMoreSeries by mutableStateOf(false)
+        private set
     var error by mutableStateOf<String?>(null)
         private set
+
+    private var lastSearchQuery: String = ""
     val config = api.configStatus()
 
-    init { refreshHome() }
+    init {
+        refreshWatchHistory()
+        refreshHome()
+        if (session != null) {
+            loadWatchlist()
+        }
+    }
+
+    fun refreshWatchHistory() {
+        val raw = historyPrefs.getString(HISTORY_KEY, null) ?: run {
+            _watchHistory.value = emptyList()
+            return
+        }
+        runCatching {
+            val arr = JSONArray(raw)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val id = o.optInt("id", 0)
+                    if (id == 0) continue
+                    add(
+                        WatchHistoryEntry(
+                            id = id,
+                            mediaType = o.optString("mediaType", "movie"),
+                            title = o.optString("title", "MOVYZA"),
+                            posterPath = o.optString("posterPath").ifBlank { null },
+                            backdropPath = o.optString("backdropPath").ifBlank { null },
+                            rating = o.optDouble("rating", 0.0),
+                            releaseDate = o.optString("releaseDate", ""),
+                            season = o.optInt("season", 1),
+                            episode = o.optInt("episode", 1),
+                            positionMs = o.optLong("positionMs", 0L),
+                            durationMs = o.optLong("durationMs", 0L),
+                            updatedAt = o.optLong("updatedAt", 0L)
+                        )
+                    )
+                }
+            }.sortedByDescending { it.updatedAt }
+        }.onSuccess {
+            _watchHistory.value = it
+        }
+    }
+
+    fun clearWatchHistory() {
+        historyPrefs.edit().remove(HISTORY_KEY).apply()
+        _watchHistory.value = emptyList()
+    }
+
+    fun recordMediaOpened(movie: Movie, season: Int, episode: Int) {
+        val current = _watchHistory.value.toMutableList()
+        val idx = current.indexOfFirst { it.id == movie.id && it.mediaType == movie.mediaType }
+        val existing = if (idx >= 0) current.removeAt(idx) else null
+        val updated = WatchHistoryEntry(
+            id = movie.id,
+            mediaType = movie.mediaType,
+            title = movie.displayTitle,
+            posterPath = movie.posterPath ?: existing?.posterPath,
+            backdropPath = movie.backdropPath ?: existing?.backdropPath,
+            rating = movie.rating,
+            releaseDate = movie.releaseDate,
+            season = season,
+            episode = episode,
+            positionMs = existing?.positionMs ?: 30_000L,
+            durationMs = existing?.durationMs ?: 1_200_000L,
+            updatedAt = System.currentTimeMillis()
+        )
+        current.add(0, updated)
+        val trimmed = current.take(20)
+        _watchHistory.value = trimmed
+        saveHistoryList(trimmed)
+    }
+
+    private fun saveHistoryList(list: List<WatchHistoryEntry>) {
+        val arr = JSONArray()
+        list.forEach { item ->
+            arr.put(
+                JSONObject().apply {
+                    put("id", item.id)
+                    put("mediaType", item.mediaType)
+                    put("title", item.title)
+                    put("posterPath", item.posterPath.orEmpty())
+                    put("backdropPath", item.backdropPath.orEmpty())
+                    put("rating", item.rating)
+                    put("releaseDate", item.releaseDate)
+                    put("season", item.season)
+                    put("episode", item.episode)
+                    put("positionMs", item.positionMs)
+                    put("durationMs", item.durationMs)
+                    put("updatedAt", item.updatedAt)
+                }
+            )
+        }
+        historyPrefs.edit().putString(HISTORY_KEY, arr.toString()).apply()
+    }
 
     fun refreshHome() {
         viewModelScope.launch {
             loading = true
             error = null
             runCatching {
-                kotlinx.coroutines.coroutineScope {
+                coroutineScope {
                     val trending = async { api.trending() }
-                    val movies = async { api.popularMovies() }
-                    val topRated = async { api.topRatedMovies() }
-                    val series = async { api.popularSeries() }
+                    val movies = async { api.popularMovies(1) }
+                    val topRated = async { api.topRatedMovies(1) }
+                    val series = async { api.popularSeries(1) }
+                    val topRatedSeries = async { runCatching { api.topRatedSeries(1) }.getOrDefault(emptyList()) }
                     HomeState(
                         trending = trending.await(),
                         movies = movies.await(),
                         topRated = topRated.await(),
-                        series = series.await()
+                        series = series.await(),
+                        topRatedSeries = topRatedSeries.await()
                     )
                 }
-            }.onSuccess { _home.value = it }
-                .onFailure { error = it.message ?: "تعذر تحميل الكتالوج" }
+            }.onSuccess {
+                moviesPage = 1
+                seriesPage = 1
+                _home.value = it
+            }.onFailure {
+                error = it.message ?: "تعذر تحميل الكتالوج، تحقق من الاتصال بالإنترنت."
+            }
             loading = false
-            loadWatchlist()
+        }
+    }
+
+    fun loadMoreMovies() {
+        if (loadingMoreMovies || loading || moviesPage >= 8) return
+        val nextPage = moviesPage + 1
+        viewModelScope.launch {
+            loadingMoreMovies = true
+            runCatching {
+                coroutineScope {
+                    val morePopular = async { api.popularMovies(nextPage) }
+                    val moreTop = async { runCatching { api.topRatedMovies(nextPage) }.getOrDefault(emptyList()) }
+                    morePopular.await() to moreTop.await()
+                }
+            }.onSuccess { (morePop, moreTop) ->
+                moviesPage = nextPage
+                val current = _home.value
+                _home.value = current.copy(
+                    movies = (current.movies + morePop).distinctBy { it.id },
+                    topRated = (current.topRated + moreTop).distinctBy { it.id }
+                )
+            }
+            loadingMoreMovies = false
+        }
+    }
+
+    fun loadMoreSeries() {
+        if (loadingMoreSeries || loading || seriesPage >= 8) return
+        val nextPage = seriesPage + 1
+        viewModelScope.launch {
+            loadingMoreSeries = true
+            runCatching {
+                coroutineScope {
+                    val morePopular = async { api.popularSeries(nextPage) }
+                    val moreTop = async { runCatching { api.topRatedSeries(nextPage) }.getOrDefault(emptyList()) }
+                    morePopular.await() to moreTop.await()
+                }
+            }.onSuccess { (morePop, moreTop) ->
+                seriesPage = nextPage
+                val current = _home.value
+                _home.value = current.copy(
+                    series = (current.series + morePop).distinctBy { it.id },
+                    topRatedSeries = (current.topRatedSeries + moreTop).distinctBy { it.id }
+                )
+            }
+            loadingMoreSeries = false
         }
     }
 
     fun search(query: String) {
+        val clean = query.trim()
+        if (clean.isBlank()) {
+            lastSearchQuery = ""
+            _search.value = emptyList()
+            searchLoading = false
+            return
+        }
+        if (clean == lastSearchQuery && _search.value.isNotEmpty()) return
+        lastSearchQuery = clean
+
         viewModelScope.launch {
-            if (query.isBlank()) { _search.value = emptyList(); return@launch }
-            loading = true
-            runCatching { api.search(query) }
+            searchLoading = true
+            runCatching { api.search(clean) }
                 .onSuccess { _search.value = it }
-                .onFailure { error = it.message ?: "تعذر البحث" }
-            loading = false
+                .onFailure { _search.value = emptyList() }
+            searchLoading = false
+        }
+    }
+
+    fun fetchDetails(movie: Movie, onResult: (TmdbDetails?) -> Unit) {
+        val key = "${movie.mediaType}:${movie.id}"
+        detailsCache[key]?.let {
+            onResult(it)
+            return
+        }
+        viewModelScope.launch {
+            val loaded = runCatching { api.details(movie.id, movie.mediaType) }
+                .getOrNull()
+                ?.also { detailsCache[key] = it }
+            onResult(loaded)
+        }
+    }
+
+    fun fetchSeasonEpisodes(seriesId: Int, seasonNumber: Int, onResult: (List<EpisodeItem>) -> Unit) {
+        val key = "$seriesId:$seasonNumber"
+        episodesCache[key]?.let {
+            onResult(it)
+            return
+        }
+        viewModelScope.launch {
+            val loaded = runCatching { api.seasonEpisodes(seriesId, seasonNumber) }
+                .getOrDefault(emptyList())
+                .also { if (it.isNotEmpty()) episodesCache[key] = it }
+            onResult(loaded)
         }
     }
 
     fun loadWatchlist() {
         val current = session ?: return
         viewModelScope.launch {
-            runCatching { api.watchlist(current) }.onSuccess { _watchlist.value = it }
+            runCatching { api.watchlist(current) }
+                .onSuccess { _watchlist.value = it }
         }
     }
 
@@ -211,7 +340,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 session = it
                 saveSession(it)
                 loadWatchlist()
-                onDone(true, "تم تسجيل الدخول")
+                onDone(true, "تم تسجيل الدخول بنجاح")
             }.onFailure {
                 onDone(false, it.message ?: "فشل تسجيل الدخول")
             }
@@ -239,16 +368,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleWatchlist(movie: Movie, onMessage: (String) -> Unit) {
         val current = session ?: run {
-            onMessage("سجّل الدخول أولًا")
+            onMessage("سجّل الدخول أولًا لحفظ العناوين في قائمتك")
             return
         }
+        val currentList = _watchlist.value
+        val exists = currentList.any { it.id == movie.id && it.mediaType == movie.mediaType }
+
+        _watchlist.value = if (exists) {
+            currentList.filterNot { it.id == movie.id && it.mediaType == movie.mediaType }
+        } else {
+            listOf(movie) + currentList
+        }
+
         viewModelScope.launch {
-            val exists = _watchlist.value.any { it.id == movie.id && it.mediaType == movie.mediaType }
-            val result = if (exists) api.removeFromWatchlist(current, movie) else api.addToWatchlist(current, movie)
+            val result = if (exists) {
+                api.removeFromWatchlist(current, movie)
+            } else {
+                api.addToWatchlist(current, movie)
+            }
             result.onSuccess {
-                loadWatchlist()
-                onMessage(if (exists) "أزيل من قائمتي" else "أضيف إلى قائمتي")
-            }.onFailure { onMessage(it.message ?: "تعذر تحديث القائمة") }
+                onMessage(if (exists) "تمت الإزالة من قائمتي" else "تمت الإضافة إلى قائمتي")
+            }.onFailure {
+                _watchlist.value = currentList
+                onMessage(it.message ?: "تعذر تحديث القائمة")
+            }
         }
     }
 
@@ -266,565 +409,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun saveSession(s: UserSession) {
-        prefs.edit().putString("token", s.accessToken).putString("id", s.userId).putString("email", s.email).apply()
-    }
-}
-
-enum class Tab(val label: String) { HOME("الرئيسية"), MOVIES("أفلام"), SERIES("مسلسلات"), SEARCH("بحث"), PROFILE("حسابي") }
-
-@Composable
-fun MovyzaApp(vm: MainViewModel = viewModel()) {
-    var tab by remember { mutableStateOf(Tab.HOME) }
-    var selected by remember { mutableStateOf<Movie?>(null) }
-    var detail by remember { mutableStateOf<TmdbDetails?>(null) }
-    var showAuth by remember { mutableStateOf(false) }
-    var loginMode by remember { mutableStateOf(true) }
-    val scope = rememberCoroutineScope()
-    val snackbar = remember { SnackbarHostState() }
-    val home by vm.home.collectAsStateWithLifecycle()
-    val search by vm.search.collectAsStateWithLifecycle()
-    val watchlist by vm.watchlist.collectAsStateWithLifecycle()
-
-    if (showAuth) {
-        AuthDialog(
-            login = loginMode,
-            loading = vm.loading,
-            onDismiss = { showAuth = false },
-            onToggle = { loginMode = !loginMode },
-            onSubmit = { name, email, password ->
-                if (loginMode) {
-                    vm.signIn(email, password) { ok, message ->
-                        scope.launch { snackbar.showSnackbar(message) }
-                        if (ok) showAuth = false
-                    }
-                } else {
-                    vm.signUp(name, email, password) { ok, message ->
-                        scope.launch { snackbar.showSnackbar(message) }
-                        if (ok && message == "تم إنشاء الحساب") showAuth = false
-                    }
-                }
-            }
-        )
-    }
-
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
-        bottomBar = {
-            NavigationBar(
-                containerColor = MovyzaBlack,
-                tonalElevation = 0.dp
-            ) {
-                Tab.values().forEach { item ->
-                    NavigationBarItem(
-                        selected = tab == item,
-                        onClick = { tab = item },
-                        icon = {
-                            Icon(
-                                when (item) {
-                                    Tab.HOME -> Icons.Filled.Home
-                                    Tab.MOVIES -> Icons.Filled.LocalMovies
-                                    Tab.SERIES -> Icons.Filled.Tv
-                                    Tab.SEARCH -> Icons.Filled.Search
-                                    Tab.PROFILE -> Icons.Filled.Person
-                                },
-                                contentDescription = item.label
-                            )
-                        },
-                        label = { Text(item.label, fontSize = 11.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MovyzaGoldBright,
-                            selectedTextColor = MovyzaGoldBright,
-                            indicatorColor = MovyzaGold.copy(alpha = 0.16f)
-                        )
-                    )
-                }
-            }
-        },
-        containerColor = MovyzaDark.background
-    ) { padding ->
-        AnimatedContent(
-            targetState = tab,
-            modifier = Modifier.padding(padding),
-            transitionSpec = {
-                fadeIn(animationSpec = androidx.compose.animation.core.tween(260)) togetherWith
-                    fadeOut(animationSpec = androidx.compose.animation.core.tween(180))
-            },
-            label = "tab"
-        ) { current ->
-            when (current) {
-                Tab.HOME -> HomeScreen(
-                    state = home,
-                    loading = vm.loading,
-                    error = vm.error,
-                    onOpen = { movie -> selected = movie },
-                    onRefresh = { vm.refreshHome() }
-                )
-                Tab.MOVIES -> CatalogScreen("أفلام", home.movies, vm.loading, onOpen = { selected = it })
-                Tab.SERIES -> CatalogScreen("مسلسلات", home.series, vm.loading, onOpen = { selected = it })
-                Tab.SEARCH -> SearchScreen(search, vm.loading, onQuery = vm::search, onOpen = { selected = it })
-                Tab.PROFILE -> ProfileScreen(
-                    session = vm.session,
-                    watchlist = watchlist,
-                    onOpen = { selected = it },
-                    onLogin = { loginMode = true; showAuth = true },
-                    onSignup = { loginMode = false; showAuth = true },
-                    onLogout = vm::signOut
-                )
-            }
-        }
-    }
-
-    selected?.let { movie ->
-        DetailScreen(
-            movie = movie,
-            details = detail,
-            watchlisted = watchlist.any { it.id == movie.id && it.mediaType == movie.mediaType },
-            onBack = { selected = null; detail = null },
-            onLoad = {
-                scope.launch {
-                    runCatching { vmDetails(vm, movie) }.onSuccess { detail = it }
-                }
-            },
-            onToggleWatchlist = {
-                vm.toggleWatchlist(movie) { msg -> scope.launch { snackbar.showSnackbar(msg) } }
-            }
-        )
-    }
-}
-
-suspend fun vmDetails(vm: MainViewModel, movie: Movie): TmdbDetails {
-    val api = MovyzaApi()
-    return api.details(movie.id, movie.mediaType)
-}
-
-@Composable
-fun HomeScreen(state: HomeState, loading: Boolean, error: String?, onOpen: (Movie) -> Unit, onRefresh: () -> Unit) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().background(MovyzaBlack),
-        contentPadding = PaddingValues(bottom = 34.dp)
-    ) {
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 18.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("MOVYZA", color = MovyzaGoldBright, fontSize = 27.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
-                    Text("قصص تستحق أن تُعاش.", color = MovyzaMuted, fontSize = 12.sp)
-                }
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MovyzaSurfaceElevated
-                ) {
-                    IconButton(onClick = onRefresh) {
-                        Icon(Icons.Filled.AccountCircle, "الحساب", tint = MovyzaGoldBright)
-                    }
-                }
-            }
-        }
-        item {
-            state.trending.firstOrNull()?.let { hero ->
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(520)) +
-                        androidx.compose.animation.expandVertically(animationSpec = androidx.compose.animation.core.tween(520))
-                ) {
-                    FeaturedCard(hero, onOpen)
-                }
-            }
-        }
-        if (error != null) {
-            item {
-                Spacer(Modifier.height(12.dp))
-                Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF201711)),
-                    modifier = Modifier.padding(horizontal = 18.dp)
-                ) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(error, color = Color(0xFFE5B7A0), modifier = Modifier.weight(1f), fontSize = 12.sp)
-                        TextButton(onClick = onRefresh) { Text("إعادة", color = MovyzaGoldBright) }
-                    }
-                }
-            }
-        }
-        if (loading) {
-            item {
-                Spacer(Modifier.height(10.dp))
-                LinearLoading()
-            }
-        }
-        item { Section("الأكثر رواجًا", state.trending.drop(1), onOpen) }
-        item { Section("أفلام شعبية", state.movies, onOpen) }
-        item { Section("الأعلى تقييمًا", state.topRated, onOpen) }
-        item { Section("مسلسلات شعبية", state.series, onOpen) }
-    }
-}
-
-@Composable
-fun FeaturedCard(movie: Movie, onOpen: (Movie) -> Unit) {
-    Box(
-        Modifier.fillMaxWidth()
-            .padding(horizontal = 18.dp)
-            .height(390.dp)
-            .clip(RoundedCornerShape(26.dp))
-            .clickable { onOpen(movie) }
-    ) {
-        AsyncImage(
-            model = movie.backdropUrl ?: movie.posterUrl,
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    0f to Color.Transparent,
-                    0.38f to Color.Transparent,
-                    0.72f to MovyzaBlack.copy(alpha = 0.82f),
-                    1f to MovyzaBlack
-                )
-            )
-        )
-        Box(
-            Modifier.align(Alignment.BottomStart)
-                .padding(start = 18.dp, end = 18.dp, bottom = 18.dp)
-        ) {
-            Column {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MovyzaGold.copy(alpha = 0.17f)
-                ) {
-                    Text(
-                        "مميّز الآن",
-                        color = MovyzaGoldBright,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                    )
-                }
-                Spacer(Modifier.height(9.dp))
-                Text(
-                    movie.title.ifBlank { movie.originalTitle },
-                    color = MovyzaText,
-                    fontSize = 29.sp,
-                    fontWeight = FontWeight.Black,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "★ " + String.format("%.1f", movie.rating) + "  •  " +
-                        (if (movie.mediaType == "series") "مسلسل" else "فيلم"),
-                    color = MovyzaGoldBright,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    if (movie.overview.isBlank()) "اضغط لمشاهدة التفاصيل." else movie.overview,
-                    color = MovyzaText.copy(alpha = 0.74f),
-                    fontSize = 12.sp,
-                    lineHeight = 18.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun Section(title: String, movies: List<Movie>, onOpen: (Movie) -> Unit) {
-    AnimatedVisibility(
-        visible = movies.isNotEmpty(),
-        enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(420)) +
-            androidx.compose.animation.expandVertically(animationSpec = androidx.compose.animation.core.tween(420))
-    ) {
-        Column(Modifier.padding(top = 26.dp)) {
-            Row(
-                Modifier.padding(horizontal = 18.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    Modifier.width(3.dp).height(19.dp).clip(RoundedCornerShape(99.dp)).background(MovyzaGold)
-                )
-                Spacer(Modifier.width(9.dp))
-                Text(title, color = MovyzaText, fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.weight(1f))
-                Text("المزيد", color = MovyzaMuted, fontSize = 12.sp)
-            }
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(movies.take(10), key = { "${it.mediaType}-${it.id}" }) { MovieCard(it, onOpen) }
-            }
-        }
-    }
-}
-
-@Composable
-fun MovieCard(movie: Movie, onOpen: (Movie) -> Unit) {
-    Column(
-        Modifier.width(136.dp).clickable { onOpen(movie) }
-    ) {
-        Box(
-            Modifier.fillMaxWidth()
-                .height(202.dp)
-                .clip(RoundedCornerShape(17.dp))
-                .background(MovyzaSurface)
-        ) {
-            AsyncImage(
-                model = movie.posterUrl,
-                contentDescription = movie.title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        0.72f to Color.Transparent,
-                        1f to MovyzaBlack.copy(alpha = 0.72f)
-                    )
-                )
-            )
-            Surface(
-                modifier = Modifier.padding(8.dp).align(Alignment.TopEnd),
-                shape = RoundedCornerShape(999.dp),
-                color = Color(0xDD080706)
-            ) {
-                Text(
-                    "★ " + String.format("%.1f", movie.rating),
-                    color = MovyzaGoldBright,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                )
-            }
-        }
-        Text(
-            movie.title.ifBlank { movie.originalTitle },
-            color = MovyzaText,
-            modifier = Modifier.padding(top = 8.dp),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp
-        )
-        Text(
-            if (movie.mediaType == "series") "مسلسل" else "فيلم",
-            color = MovyzaMuted,
-            fontSize = 10.sp
-        )
-    }
-}
-
-@Composable
-fun CatalogScreen(title: String, movies: List<Movie>, loading: Boolean, onOpen: (Movie) -> Unit) {
-    LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item {
-            Text(title, fontSize = 28.sp, fontWeight = FontWeight.Black)
-            if (loading) LinearLoading()
-        }
-        items(movies) { MovieListCard(it, onOpen) }
-    }
-}
-
-@Composable
-fun MovieListCard(movie: Movie, onOpen: (Movie) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color(0xFF0D1015)).clickable { onOpen(movie) }.padding(8.dp)
-    ) {
-        AsyncImage(model = movie.posterUrl, contentDescription = null, modifier = Modifier.size(88.dp, 124.dp).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Crop)
-        Column(Modifier.padding(start = 13.dp, end = 6.dp).weight(1f)) {
-            Text(movie.title, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(5.dp))
-            Text(movie.releaseDate.take(4), color = Color(0xFF8C949E), fontSize = 12.sp)
-            Text("★ " + String.format("%.1f", movie.rating), color = MovyzaDark.primary, fontSize = 12.sp)
-            Spacer(Modifier.height(8.dp))
-            Text(movie.overview, color = Color(0xFFAAB0B7), fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-@Composable
-fun SearchScreen(results: List<Movie>, loading: Boolean, onQuery: (String) -> Unit, onOpen: (Movie) -> Unit) {
-    var query by remember { mutableStateOf("") }
-    LaunchedEffect(query) {
-        kotlinx.coroutines.delay(420)
-        onQuery(query)
-    }
-    LazyColumn(
-        contentPadding = PaddingValues(18.dp, 20.dp, 18.dp, 30.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            Text("البحث", color = MovyzaText, fontSize = 29.sp, fontWeight = FontWeight.Black)
-            Text("ابحث عن فيلم أو مسلسل أو شخص.", color = MovyzaMuted, fontSize = 12.sp)
-            Spacer(Modifier.height(14.dp))
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("فيلم، مسلسل، ممثل…") },
-                leadingIcon = { Icon(Icons.Filled.Search, null, tint = MovyzaGoldBright) },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp)
-            )
-            if (loading) LinearLoading()
-        }
-        items(results.take(30), key = { "${it.mediaType}-${it.id}" }) { MovieListCard(it, onOpen) }
-    }
-}
-
-@Composable
-fun ProfileScreen(
-    session: UserSession?,
-    watchlist: List<Movie>,
-    onOpen: (Movie) -> Unit,
-    onLogin: () -> Unit,
-    onSignup: () -> Unit,
-    onLogout: () -> Unit
-) {
-    LazyColumn(contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        item {
-            Text("حسابي", fontSize = 30.sp, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(8.dp))
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF0E1116))) {
-                Column(Modifier.fillMaxWidth().padding(18.dp)) {
-                    Icon(Icons.Filled.Person, null, modifier = Modifier.size(40.dp), tint = MovyzaDark.primary)
-                    Spacer(Modifier.height(8.dp))
-                    if (session == null) {
-                        Text("أهلاً بك في Movyza", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        Text("سجّل الدخول لمزامنة قائمتك عبر Supabase.", color = Color(0xFF9AA2AC))
-                        Spacer(Modifier.height(14.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(onClick = onLogin) { Text("تسجيل الدخول") }
-                            OutlinedButton(onClick = onSignup) { Text("إنشاء حساب") }
-                        }
-                    } else {
-                        Text(session.email, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                        Text("حساب Movyza • Supabase", color = Color(0xFF9AA2AC))
-                        Spacer(Modifier.height(12.dp))
-                        OutlinedButton(onClick = onLogout) { Text("تسجيل الخروج") }
-                    }
-                }
-            }
-        }
-        item { Text("قائمتي", fontWeight = FontWeight.Bold, fontSize = 20.sp) }
-        if (watchlist.isEmpty()) {
-            item { Text("قائمتك فارغة حاليًا.", color = Color(0xFF8C949E)) }
-        } else {
-            items(watchlist) { MovieCard(it, onOpen) }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AuthDialog(
-    login: Boolean,
-    loading: Boolean,
-    onDismiss: () -> Unit,
-    onToggle: () -> Unit,
-    onSubmit: (String, String, String) -> Unit
-) {
-    var name by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (login) "تسجيل الدخول" else "إنشاء حساب") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (!login) OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("الاسم") }, singleLine = true)
-                OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("البريد الإلكتروني") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
-                OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("كلمة المرور") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
-                TextButton(onClick = onToggle) { Text(if (login) "ليس لديك حساب؟ إنشاء حساب" else "لديك حساب؟ تسجيل الدخول") }
-            }
-        },
-        confirmButton = {
-            Button(
-                enabled = !loading && email.isNotBlank() && password.length >= 6,
-                onClick = { onSubmit(name, email, password) }
-            ) { if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(if (login) "دخول" else "تسجيل") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } }
-    )
-}
-
-@Composable
-fun DetailScreen(
-    movie: Movie,
-    details: TmdbDetails?,
-    watchlisted: Boolean,
-    onBack: () -> Unit,
-    onLoad: () -> Unit,
-    onToggleWatchlist: () -> Unit
-) {
-    LaunchedEffect(movie.id, movie.mediaType) {
-        if (details == null) onLoad()
-    }
-    Box(Modifier.fillMaxSize().background(Color(0xFF06070A))) {
-        AsyncImage(model = details?.movie?.backdropUrl ?: movie.backdropUrl, contentDescription = null, modifier = Modifier.fillMaxWidth().height(350.dp), contentScale = ContentScale.Crop)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, 0.42f to Color(0xFF06070A), 0.72f to Color(0xFF06070A))))
-        Column(Modifier.fillMaxSize()) {
-            Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "رجوع") }
-                Text("تفاصيل", color = MovyzaText, fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.weight(1f))
-            Column(Modifier.padding(20.dp)) {
-                Text(movie.title, fontSize = 30.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(
-                    listOfNotNull(
-                        movie.releaseDate.take(4).ifBlank { null },
-                        "★ " + String.format("%.1f", movie.rating),
-                        if (movie.mediaType == "series") "مسلسل" else "فيلم"
-                    ).joinToString("  •  "),
-                    color = MovyzaDark.primary
-                )
-                if (details?.tagline.orEmpty().isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(details!!.tagline, color = Color(0xFFB1B8C1), fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
-                }
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    details?.movie?.overview ?: movie.overview.ifBlank { "تحميل التفاصيل..." },
-                    color = Color(0xFFD6DBE0),
-                    maxLines = 5,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Button(
-                        onClick = { },
-                        shape = RoundedCornerShape(14.dp),
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                            containerColor = MovyzaGoldBright,
-                            contentColor = MovyzaBlack
-                        )
-                    ) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("مشاهدة", fontWeight = FontWeight.Bold)
-                    }
-                    OutlinedButton(
-                        onClick = onToggleWatchlist,
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Text(if (watchlisted) "✓ قائمتي" else "+ قائمتي")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun LinearLoading() {
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.Center) {
-        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+        prefs.edit()
+            .putString("token", s.accessToken)
+            .putString("id", s.userId)
+            .putString("email", s.email)
+            .apply()
     }
 }
