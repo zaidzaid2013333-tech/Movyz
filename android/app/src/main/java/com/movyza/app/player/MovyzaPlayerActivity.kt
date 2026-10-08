@@ -579,41 +579,6 @@ class MovyzaPlayerActivity : ComponentActivity() {
         lifecycleScope.launch { resolveAndStart() }
     }
 
-    private fun subtitleStyleForCurrent(): CaptionStyleCompat = when (subtitleVisualStyle) {
-        SubtitleVisualStyle.CLASSIC -> CaptionStyleCompat(
-            android.graphics.Color.WHITE,
-            android.graphics.Color.argb(170, 0, 0, 0),
-            android.graphics.Color.TRANSPARENT,
-            CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-            android.graphics.Color.BLACK,
-            android.graphics.Typeface.DEFAULT
-        )
-        SubtitleVisualStyle.GOLD -> CaptionStyleCompat(
-            android.graphics.Color.rgb(245, 201, 76),
-            android.graphics.Color.argb(160, 0, 0, 0),
-            android.graphics.Color.TRANSPARENT,
-            CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-            android.graphics.Color.BLACK,
-            android.graphics.Typeface.DEFAULT_BOLD
-        )
-        SubtitleVisualStyle.HIGH_CONTRAST -> CaptionStyleCompat(
-            android.graphics.Color.WHITE,
-            android.graphics.Color.BLACK,
-            android.graphics.Color.TRANSPARENT,
-            CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
-            android.graphics.Color.BLACK,
-            android.graphics.Typeface.DEFAULT_BOLD
-        )
-    }
-
-    private fun applySubtitleStyle(playerView: PlayerView) {
-        playerView.subtitleView?.apply {
-            setApplyEmbeddedStyles(false)
-            setStyle(subtitleStyleForCurrent())
-            setFractionalTextSize(0.055f)
-        }
-    }
-
     private fun restoreSavedProgress() {
         val saved = getPreferences(MODE_PRIVATE).getLong(progressKey(), 0L)
         val length = player.duration.coerceAtLeast(0L)
@@ -676,6 +641,41 @@ class MovyzaPlayerActivity : ComponentActivity() {
 }
 
 @UnstableApi
+private fun subtitleStyleFor(style: SubtitleVisualStyle): CaptionStyleCompat = when (style) {
+    SubtitleVisualStyle.CLASSIC -> CaptionStyleCompat(
+        android.graphics.Color.WHITE,
+        android.graphics.Color.argb(170, 0, 0, 0),
+        android.graphics.Color.TRANSPARENT,
+        CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+        android.graphics.Color.BLACK,
+        android.graphics.Typeface.DEFAULT
+    )
+    SubtitleVisualStyle.GOLD -> CaptionStyleCompat(
+        android.graphics.Color.rgb(245, 201, 76),
+        android.graphics.Color.argb(160, 0, 0, 0),
+        android.graphics.Color.TRANSPARENT,
+        CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+        android.graphics.Color.BLACK,
+        android.graphics.Typeface.DEFAULT_BOLD
+    )
+    SubtitleVisualStyle.HIGH_CONTRAST -> CaptionStyleCompat(
+        android.graphics.Color.WHITE,
+        android.graphics.Color.BLACK,
+        android.graphics.Color.TRANSPARENT,
+        CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
+        android.graphics.Color.BLACK,
+        android.graphics.Typeface.DEFAULT_BOLD
+    )
+}
+
+private fun applySubtitleStyle(playerView: PlayerView, style: SubtitleVisualStyle) {
+    playerView.subtitleView?.apply {
+        setApplyEmbeddedStyles(false)
+        setStyle(subtitleStyleFor(style))
+        setFractionalTextSize(0.055f)
+    }
+}
+
 @Composable
 private fun MovyzaPlayerScreen(
     title: String,
@@ -753,7 +753,7 @@ private fun MovyzaPlayerScreen(
             },
             update = { view ->
                 view.resizeMode = resizeMode
-                applySubtitleStyle(view)
+                applySubtitleStyle(view, subtitleVisualStyle)
             },
             modifier = Modifier
                 .fillMaxSize()
