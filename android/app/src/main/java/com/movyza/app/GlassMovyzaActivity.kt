@@ -109,28 +109,6 @@ import com.movyza.app.data.UserSession
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val GlassBlack = Color(0xFF030303)
-private val GlassGold = Color(0xFFD9B65D)
-private val GlassGoldBright = Color(0xFFF4D88C)
-private val GlassGoldDark = Color(0xFF8F6828)
-private val GlassText = Color(0xFFF7F3EB)
-private val GlassMuted = Color(0xFFA29A8F)
-private val GlassFaint = Color(0xFF6E675D)
-private val GlassPanel = Color(0x8D171510)
-private val GlassPanelStrong = Color(0xD30C0B09)
-
-private val GlassScheme = darkColorScheme(
-    primary = GlassGoldBright,
-    secondary = GlassGold,
-    tertiary = GlassGoldDark,
-    background = GlassBlack,
-    surface = GlassPanelStrong,
-    surfaceVariant = Color(0xFF18150F),
-    onPrimary = GlassBlack,
-    onBackground = GlassText,
-    onSurface = GlassText
-)
-
 private val GlassBlack = MovyzaColors.Bg
 private val GlassGold = MovyzaColors.Gold600
 private val GlassGoldBright = MovyzaColors.Gold300
@@ -140,18 +118,6 @@ private val GlassMuted = MovyzaColors.Text2
 private val GlassFaint = MovyzaColors.Text3
 private val GlassPanel = MovyzaColors.Glass
 private val GlassPanelStrong = MovyzaColors.GlassStrong
-
-private val GlassScheme = androidx.compose.material3.darkColorScheme(
-    primary = MovyzaColors.Gold400,
-    secondary = MovyzaColors.Gold500,
-    tertiary = MovyzaColors.Navy500,
-    background = MovyzaColors.Bg,
-    surface = MovyzaColors.Bg2,
-    surfaceVariant = MovyzaColors.GlassStrong,
-    onPrimary = MovyzaColors.Bg,
-    onBackground = MovyzaColors.Text,
-    onSurface = MovyzaColors.Text
-)
 
 class GlassMovyzaActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
