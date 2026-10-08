@@ -1,6 +1,7 @@
 package com.movyza.app.player
 
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -78,6 +79,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
@@ -102,6 +104,16 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import java.util.Locale
 import kotlin.math.abs
+
+private enum class TrackDialog { SUBTITLES, AUDIO }
+
+private data class TrackOption(
+    val type: Int,
+    val group: Tracks.Group,
+    val index: Int,
+    val label: String,
+    val languageTag: String
+)
 
 @UnstableApi
 class MovyzaPlayerActivity : ComponentActivity() {
@@ -136,6 +148,10 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private var error by mutableStateOf<String?>(null)
     private var qualities by mutableStateOf<List<Int>>(emptyList())
     private var selectedQualityHeight by mutableIntStateOf(720)
+    private var subtitleTracks by mutableStateOf<List<TrackOption>>(emptyList())
+    private var audioTracks by mutableStateOf<List<TrackOption>>(emptyList())
+    private var trackDialog by mutableStateOf<TrackDialog?>(null)
+    private var defaultSubtitleApplied = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -148,8 +164,15 @@ class MovyzaPlayerActivity : ComponentActivity() {
         displayTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "MOVYZA" }
         val isSeries = intent.getStringExtra(EXTRA_MEDIA_TYPE) == "series"
 
+        val deviceLanguage = Locale.getDefault().language.takeIf { it.isNotBlank() } ?: "en"
         trackSelector = DefaultTrackSelector(this).apply {
-            setParameters(buildUponParameters().setMaxVideoSize(3840, 2160).build())
+            setParameters(
+                buildUponParameters()
+                    .setMaxVideoSize(3840, 2160)
+                    .setPreferredAudioLanguage(deviceLanguage)
+                    .setPreferredTextLanguage(deviceLanguage)
+                    .build()
+            )
         }
 
         player = ExoPlayer.Builder(this)
@@ -211,6 +234,8 @@ class MovyzaPlayerActivity : ComponentActivity() {
                     error = error,
                     qualities = qualities,
                     selectedQualityHeight = selectedQualityHeight,
+                    subtitleTracks = subtitleTracks,
+                    audioTracks = audioTracks,
                     onClose = { finish() },
                     onSeek = { player.seekTo(it.coerceIn(0L, duration)) },
                     onTogglePlay = { if (player.isPlaying) player.pause() else player.play() },
@@ -225,6 +250,8 @@ class MovyzaPlayerActivity : ComponentActivity() {
                         }
                     },
                     onQuality = { selectQuality(it) },
+                    onSubtitles = { trackDialog = TrackDialog.SUBTITLES },
+                    onAudio = { trackDialog = TrackDialog.AUDIO },
                     onRetry = {
                         lifecycleScope.launch { resolveAndStart() }
                     }
@@ -296,12 +323,17 @@ class MovyzaPlayerActivity : ComponentActivity() {
         sourceIndex = 0
         firstReady = true
         defaultQualityApplied = false
+        defaultSubtitleApplied = false
+        subtitleTracks = emptyList()
+        audioTracks = emptyList()
         prepareSource(sources.first())
     }
 
     private fun prepareSource(source: PlaybackCandidate) {
         error = null
         buffering = true
+        subtitleTracks = emptyList()
+        audioTracks = emptyList()
 
         val http = DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(12_000)
@@ -310,10 +342,36 @@ class MovyzaPlayerActivity : ComponentActivity() {
             .setUserAgent("Movyza/2.0 Android")
             .setDefaultRequestProperties(source.headers)
 
+        val subtitleConfigurations = source.subtitles.mapNotNull { subtitle ->
+            val uri = runCatching { Uri.parse(subtitle.url) }.getOrNull() ?: return@mapNotNull null
+            val declared = subtitle.mimeType.trim().lowercase()
+            val plainUrl = subtitle.url.lowercase().substringBefore("?")
+            val mime = when {
+                declared.contains("vtt") || plainUrl.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+                declared.contains("srt") || declared.contains("subrip") || plainUrl.endsWith(".srt") ->
+                    MimeTypes.APPLICATION_SUBRIP
+                declared.contains("ssa") || declared.contains("ass") ||
+                    plainUrl.endsWith(".ass") || plainUrl.endsWith(".ssa") -> MimeTypes.TEXT_SSA
+                else -> MimeTypes.TEXT_VTT
+            }
+
+            MediaItem.SubtitleConfiguration.Builder(uri)
+                .setMimeType(mime)
+                .setLanguage(subtitle.language.ifBlank { null })
+                .setLabel(subtitle.label.ifBlank { languageDisplayName(subtitle.language) })
+                .setSelectionFlags(if (subtitle.isDefault) C.SELECTION_FLAG_DEFAULT else 0)
+                .setRoleFlags(if (subtitle.isForced) C.ROLE_FLAG_FORCED else 0)
+                .build()
+        }
+
+        val mediaItem = MediaItem.Builder()
+            .setUri(source.url)
+            .setTag(source)
+            .setSubtitleConfigurations(subtitleConfigurations)
+            .build()
+
         val mediaSource = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
-            .createMediaSource(
-                MediaItem.Builder().setUri(source.url).setTag(source).build()
-            )
+            .createMediaSource(mediaItem)
 
         player.setMediaSource(mediaSource)
         player.prepare()
@@ -333,12 +391,82 @@ class MovyzaPlayerActivity : ComponentActivity() {
         }.distinct().sortedDescending()
 
         qualities = heights
+        subtitleTracks = buildTrackOptions(C.TRACK_TYPE_TEXT)
+        audioTracks = buildTrackOptions(C.TRACK_TYPE_AUDIO)
 
         if (!defaultQualityApplied && heights.isNotEmpty()) {
             defaultQualityApplied = true
             val preferred = heights.minByOrNull { abs(it - 720) } ?: heights.first()
             selectQuality(preferred)
         }
+
+        if (!defaultSubtitleApplied && subtitleTracks.isNotEmpty()) {
+            defaultSubtitleApplied = true
+            selectPreferredTextTrack()
+        }
+    }
+
+    private fun buildTrackOptions(type: Int): List<TrackOption> = buildList {
+        player.currentTracks.groups
+            .filter { it.type == type }
+            .forEach { group ->
+                for (index in 0 until group.length) {
+                    if (!group.isTrackSupported(index)) continue
+                    val format = group.getTrackFormat(index)
+                    val language = format.language.orEmpty()
+                    val label = format.label?.toString().orEmpty()
+                        .ifBlank { languageDisplayName(language).ifBlank { "Track " + (index + 1) } }
+                    add(
+                        TrackOption(
+                            type = type,
+                            group = group,
+                            index = index,
+                            label = label,
+                            languageTag = language
+                        )
+                    )
+                }
+            }
+    }
+
+    private fun selectTextTrack(option: TrackOption?) {
+        val builder = player.trackSelectionParameters.buildUpon()
+        if (option == null) {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+        } else {
+            builder
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .setOverrideForType(
+                    TrackSelectionOverride(option.group.mediaTrackGroup, option.index)
+                )
+        }
+        player.trackSelectionParameters = builder.build()
+    }
+
+    private fun selectPreferredTextTrack() {
+        val preferredLanguage = Locale.getDefault().language
+        val preferred = subtitleTracks.firstOrNull {
+            normalizedLanguage(it.languageTag) == preferredLanguage
+        } ?: subtitleTracks.firstOrNull()
+        selectTextTrack(preferred)
+    }
+
+    private fun selectAudioTrack(option: TrackOption) {
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .setOverrideForType(
+                TrackSelectionOverride(option.group.mediaTrackGroup, option.index)
+            )
+            .build()
+    }
+
+    private fun normalizedLanguage(language: String): String =
+        language.trim().lowercase().substringBefore('-').substringBefore('_')
+
+    private fun languageDisplayName(language: String): String {
+        if (language.isBlank() || language.equals("und", ignoreCase = true)) return ""
+        val locale = Locale.forLanguageTag(language.replace('_', '-'))
+        return locale.getDisplayLanguage(Locale.getDefault()).ifBlank { language }
     }
 
     private fun selectQuality(height: Int) {
@@ -438,12 +566,16 @@ private fun MovyzaPlayerScreen(
     error: String?,
     qualities: List<Int>,
     selectedQualityHeight: Int,
+    subtitleTracks: List<TrackOption>,
+    audioTracks: List<TrackOption>,
     onClose: () -> Unit,
     onSeek: (Long) -> Unit,
     onTogglePlay: () -> Unit,
     onSkip: (Long) -> Unit,
     onNextEpisode: () -> Unit,
     onQuality: (Int) -> Unit,
+    onSubtitles: () -> Unit,
+    onAudio: () -> Unit,
     onRetry: () -> Unit
 ) {
     if (LocalInspectionMode.current) return
@@ -598,6 +730,32 @@ private fun MovyzaPlayerScreen(
                             }
                         }
                         Spacer(Modifier.width(8.dp))
+                    }
+
+                    if (subtitleTracks.isNotEmpty()) {
+                        Surface(
+                            shape = MovyzaShapes.Sm,
+                            color = MovyzaColors.GlassStrong,
+                            border = BorderStroke(1.dp, MovyzaColors.GoldBorder)
+                        ) {
+                            TextButton(onClick = onSubtitles) {
+                                Text("CC", color = MovyzaColors.Gold300, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                            }
+                        }
+                        Spacer(Modifier.width(6.dp))
+                    }
+
+                    if (audioTracks.size > 1) {
+                        Surface(
+                            shape = MovyzaShapes.Sm,
+                            color = MovyzaColors.GlassStrong,
+                            border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
+                        ) {
+                            TextButton(onClick = onAudio) {
+                                Text("A", color = MovyzaColors.Text, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                            }
+                        }
+                        Spacer(Modifier.width(6.dp))
                     }
 
                     Surface(
@@ -848,6 +1006,56 @@ private fun MovyzaPlayerScreen(
                     Text("إغلاق", color = MovyzaColors.Text3)
                 }
             }
+        )
+    }
+
+    if (trackDialog == TrackDialog.SUBTITLES) {
+        AlertDialog(
+            onDismissRequest = { trackDialog = null },
+            containerColor = MovyzaColors.Bg2,
+            shape = MovyzaShapes.Lg,
+            title = { Text("الترجمة", color = MovyzaColors.Text, fontWeight = FontWeight.Black) },
+            text = {
+                Column {
+                    TextButton(onClick = { selectTextTrack(null); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
+                        Text("إيقاف الترجمة", color = MovyzaColors.Text, fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(onClick = { selectPreferredTextTrack(); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
+                        Text("تلقائي • لغة الجهاز", color = MovyzaColors.Gold300, fontWeight = FontWeight.Bold)
+                    }
+                    subtitleTracks.forEach { option ->
+                        TextButton(onClick = { selectTextTrack(option); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                option.label + if (option.languageTag.isNotBlank()) " • " + option.languageTag else "",
+                                color = MovyzaColors.Text
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { trackDialog = null }) { Text("إغلاق", color = MovyzaColors.Text3) } }
+        )
+    }
+
+    if (trackDialog == TrackDialog.AUDIO) {
+        AlertDialog(
+            onDismissRequest = { trackDialog = null },
+            containerColor = MovyzaColors.Bg2,
+            shape = MovyzaShapes.Lg,
+            title = { Text("مسار الصوت", color = MovyzaColors.Text, fontWeight = FontWeight.Black) },
+            text = {
+                Column {
+                    audioTracks.forEach { option ->
+                        TextButton(onClick = { selectAudioTrack(option); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                option.label + if (option.languageTag.isNotBlank()) " • " + option.languageTag else "",
+                                color = MovyzaColors.Text
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { trackDialog = null }) { Text("إغلاق", color = MovyzaColors.Text3) } }
         )
     }
 }
