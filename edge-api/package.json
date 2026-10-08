@@ -1,0 +1,8 @@
+{
+  "name": "movyza-edge-cache",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
