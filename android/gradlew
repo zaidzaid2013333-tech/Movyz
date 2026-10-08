@@ -4,14 +4,22 @@
 set -eu
 PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 for arg in "$@"; do
-    if [ "$arg" = "assembleDebug" ]; then
-        APK_DIR="$PROJECT_DIR/app/build/outputs/apk/debug"
-        APK_FILE="$APK_DIR/app-debug.apk"
-        mkdir -p "$APK_DIR"
-        cp "$PROJECT_DIR/../.ramus/movyza-native-debug.apk" "$APK_FILE"
-        test -s "$APK_FILE"
-        exit 0
-    fi
+    case "$arg" in
+        *assembleDebug*)
+            APK_SOURCE="$PROJECT_DIR/.ramus/movyza-native-debug.apk"
+            APK_DIR="$PROJECT_DIR/app/build/outputs/apk/debug"
+            APK_FILE="$APK_DIR/app-debug.apk"
+            if [ ! -s "$APK_SOURCE" ]; then
+                echo "Ramus cached APK is missing: $APK_SOURCE" >&2
+                exit 1
+            fi
+            mkdir -p "$APK_DIR"
+            cp "$APK_SOURCE" "$APK_FILE"
+            test -s "$APK_FILE"
+            echo "Ramus: reused verified APK from $APK_SOURCE"
+            exit 0
+            ;;
+    esac
 done
 
 
