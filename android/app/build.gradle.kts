@@ -6,7 +6,9 @@ plugins {
 val tmdbToken = providers.environmentVariable("TMDB_API_READ_ACCESS_TOKEN").orElse("").get()
 val supabaseUrl = providers.environmentVariable("SUPABASE_URL").orElse("").get()
 val supabaseAnonKey = providers.environmentVariable("SUPABASE_ANON_KEY").orElse("").get()
-val playbackApiBase = providers.environmentVariable("PLAYBACK_API_BASE").orElse("https://movyz-api.sameranede.workers.dev").get()
+val playbackApiBase = providers.environmentVariable("PLAYBACK_API_BASE")
+    .orElse("https://movyz-36.sameranede.deno.net")
+    .get()
 
 fun quoted(value: String): String =
     "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -19,8 +21,8 @@ android {
         applicationId = "com.movyza.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "2.0.2"
+        versionCode = 4
+        versionName = "2.0.3"
 
         buildConfigField("String", "TMDB_TOKEN", quoted(tmdbToken))
         buildConfigField("String", "SUPABASE_URL", quoted(supabaseUrl))
