@@ -157,9 +157,9 @@ object MovyzaPlaybackRepository {
         val endpoint = if (isSeries) {
             "https://vidlink.pro/api/b/tv/$encodedId/" +
                 request.season.coerceAtLeast(1) + "/" +
-                request.episode.coerceAtLeast(1) + "?multiLang=0"
+                request.episode.coerceAtLeast(1)
         } else {
-            "https://vidlink.pro/api/b/movie/$encodedId?multiLang=0"
+            "https://vidlink.pro/api/b/movie/$encodedId"
         }
 
         client.newCall(
