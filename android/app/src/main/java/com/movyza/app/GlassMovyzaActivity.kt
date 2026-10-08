@@ -457,12 +457,12 @@ private fun GlassHome(
     }
     val heroScale by animateFloatAsState(
         targetValue = if (heroIndex % 2 == 0) 1.012f else 1f,
-        animationSpec = tween(6200, easing = FastOutSlowInEasing),
+        animationSpec = tween(900, easing = FastOutSlowInEasing),
         label = "hero-scale"
     )
     val glow by animateFloatAsState(
         targetValue = if (heroIndex % 2 == 0) .15f else .10f,
-        animationSpec = tween(1800, easing = FastOutSlowInEasing),
+        animationSpec = tween(1100, easing = FastOutSlowInEasing),
         label = "hero-glow"
     )
 
