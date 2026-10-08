@@ -28,12 +28,15 @@ data class PlaybackSubtitle(
     val isForced: Boolean = false,
 )
 
+enum class PlaybackProvider { VIDLINK, BROKER, DIRECT }
+
 data class PlaybackCandidate(
     val url: String,
     val quality: Int = 0,
     val format: String = "",
     val headers: Map<String, String> = emptyMap(),
     val subtitles: List<PlaybackSubtitle> = emptyList(),
+    val provider: PlaybackProvider = PlaybackProvider.BROKER,
 )
 
 object MovyzaPlaybackRepository {
@@ -45,12 +48,41 @@ object MovyzaPlaybackRepository {
         .build()
 
     suspend fun resolve(request: PlaybackRequest): List<PlaybackCandidate> = withContext(Dispatchers.IO) {
+        if (request.tmdbId <= 0) throw IOException("A valid TMDB ID is required")
+
+        val vidLinkResult = runCatching { resolveFromVidLink(request) }
+        val vidLinkCandidates = vidLinkResult.getOrNull().orEmpty()
+        // Start playback as soon as VidLink resolves. Do not make the user wait
+        // for a second provider's timeout before opening a valid first source.
+        if (vidLinkCandidates.isNotEmpty()) return@withContext vidLinkCandidates
+
+        val brokerResult = runCatching { fetchCandidates(buildBrokerEndpoint(request)) }
+        val brokerCandidates = brokerResult.getOrNull().orEmpty()
+        if (brokerCandidates.isNotEmpty()) return@withContext brokerCandidates
+
+        val vidLinkReason = vidLinkResult.exceptionOrNull()?.message ?: "no playable stream returned"
+        val brokerReason = brokerResult.exceptionOrNull()?.message ?: "no playable stream returned"
+        throw IOException("VidLink: $vidLinkReason. Playback broker: $brokerReason")
+    }
+
+    suspend fun resolveBrokerFallback(
+        request: PlaybackRequest,
+        excludedUrls: Set<String> = emptySet(),
+    ): List<PlaybackCandidate> = withContext(Dispatchers.IO) {
+        val excluded = excludedUrls.map(::normalizeUrl).toSet()
+        val candidates = fetchCandidates(buildBrokerEndpoint(request))
+            .filterNot { normalizeUrl(it.url) in excluded }
+        if (candidates.isEmpty()) throw IOException("Playback broker returned no additional playable sources")
+        candidates
+    }
+
+    private fun buildBrokerEndpoint(request: PlaybackRequest): String {
         val base = BuildConfig.PLAYBACK_API_BASE.trim().trimEnd('/')
         if (base.isBlank()) throw IOException("Playback API is not configured")
 
         val isSeries = request.mediaType.equals("series", ignoreCase = true) ||
             request.mediaType.equals("tv", ignoreCase = true)
-        val endpoint = buildString {
+        return buildString {
             append(base)
             append("/api/v1/playback/resolve?tmdb_id=")
             append(request.tmdbId)
@@ -63,17 +95,6 @@ object MovyzaPlaybackRepository {
                 append(request.episode.coerceAtLeast(1))
             }
         }
-
-        // Preserve VidLink's quality order, but keep broker sources behind it as
-        // real failover candidates. This also lets the player recover when an
-        // API URL is returned but the upstream CDN refuses to serve it.
-        val vidLinkCandidates = runCatching { resolveFromVidLink(request) }.getOrNull().orEmpty()
-        val brokerCandidates = runCatching { fetchCandidates(endpoint) }.getOrNull().orEmpty()
-        val candidates = (vidLinkCandidates + brokerCandidates)
-            .distinctBy { normalizeUrl(it.url) }
-        if (candidates.isNotEmpty()) return@withContext candidates
-
-        throw IOException("VidLink and playback broker returned no playable source")
     }
 
     private fun fetchCandidates(endpoint: String): List<PlaybackCandidate> {
@@ -95,6 +116,14 @@ object MovyzaPlaybackRepository {
             collectCandidates(root, 0, emptyMap(), emptyList(), candidates)
 
             return candidates
+                .map { candidate ->
+                    val (cleanUrl, embeddedHeaders) = extractEmbeddedHeaders(candidate.url)
+                    candidate.copy(
+                        url = cleanUrl,
+                        headers = candidate.headers + embeddedHeaders,
+                        provider = PlaybackProvider.BROKER,
+                    )
+                }
                 .filter { isPlayableOrDeclaredFormat(it.url, it.format) }
                 .distinctBy { normalizeUrl(it.url) }
                 .sortedWith(compareBy<PlaybackCandidate> { qualityRank(it.quality) }.thenBy { it.url.length })
@@ -167,10 +196,9 @@ object MovyzaPlaybackRepository {
                     candidates += PlaybackCandidate(
                         url = url,
                         quality = parseQuality(qualityKey) ?: 0,
-                        format = declaredFormat.ifBlank {
-                            if (url.substringBefore("?").endsWith(".mp4", true)) "video/mp4"
-                            else "application/x-mpegURL"
-                        },
+                        // Never guess that an extensionless URL is HLS. Use
+                        // only the API-declared type or an identifiable path suffix.
+                        format = declaredFormat.ifBlank { inferFormatFromUrl(url) },
                         headers = mapOf(
                             "Referer" to "https://vidlink.pro/",
                             "Origin" to "https://vidlink.pro",
@@ -178,7 +206,8 @@ object MovyzaPlaybackRepository {
                         ) + embeddedHeaders,
                         subtitles = collectSubtitleTracks(entry).ifEmpty {
                             collectSubtitleTracks(stream)
-                        }
+                        },
+                        provider = PlaybackProvider.VIDLINK,
                     )
                 }
             }
@@ -202,7 +231,8 @@ object MovyzaPlaybackRepository {
                             "Origin" to "https://vidlink.pro",
                             "User-Agent" to VIDLINK_USER_AGENT
                         ) + embeddedHeaders,
-                        subtitles = collectSubtitleTracks(stream)
+                        subtitles = collectSubtitleTracks(stream),
+                        provider = PlaybackProvider.VIDLINK,
                     )
                 }
             }
@@ -448,6 +478,18 @@ object MovyzaPlaybackRepository {
             }.build().toString()
             cleanUrl to headers
         }.getOrElse { rawUrl to emptyMap() }
+    }
+
+    private fun inferFormatFromUrl(url: String): String {
+        val path = url.lowercase(Locale.US).substringBefore("?").substringBefore("#")
+        return when {
+            path.endsWith(".m3u8") -> "application/x-mpegURL"
+            path.endsWith(".mpd") -> "application/dash+xml"
+            path.endsWith(".mp4") || path.endsWith(".m4v") -> "video/mp4"
+            path.endsWith(".webm") -> "video/webm"
+            path.endsWith(".ts") -> "video/mp2t"
+            else -> ""
+        }
     }
 
     private fun isPlayable(url: String): Boolean {

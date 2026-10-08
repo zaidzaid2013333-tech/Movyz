@@ -100,7 +100,11 @@ import com.movyza.app.MainViewModel
 import com.movyza.app.MovyzaColors
 import com.movyza.app.MovyzaShapes
 import com.movyza.app.MovyzaTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -139,6 +143,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private lateinit var trackSelector: DefaultTrackSelector
     private var sources: List<PlaybackCandidate> = emptyList()
     private var sourceIndex = 0
+    private var brokerFallbackAttempted = false
     private var firstReady = true
     private var defaultQualityApplied = false
     private var progressJob: Job? = null
@@ -182,7 +187,9 @@ class MovyzaPlayerActivity : ComponentActivity() {
         activeSeason = intent.getIntExtra(EXTRA_SEASON, 1).coerceAtLeast(1)
         activeEpisode = intent.getIntExtra(EXTRA_EPISODE, 1).coerceAtLeast(1)
         displayTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "MOVYZA" }
-        val isSeries = intent.getStringExtra(EXTRA_MEDIA_TYPE) == "series"
+        val requestedMediaType = intent.getStringExtra(EXTRA_MEDIA_TYPE).orEmpty()
+        val isSeries = requestedMediaType.equals("series", ignoreCase = true) ||
+            requestedMediaType.equals("tv", ignoreCase = true)
 
         autoplayNext = playerPrefs.getBoolean("autoplay_next", true)
         playbackSpeed = playerPrefs.getFloat("playback_speed", 1f).coerceIn(0.5f, 2f)
@@ -244,13 +251,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
             }
 
             override fun onPlayerError(playerError: PlaybackException) {
-                buffering = false
-                if (sourceIndex + 1 < sources.size) {
-                    sourceIndex += 1
-                    lifecycleScope.launch { prepareSource(sources[sourceIndex]) }
-                } else {
-                    error = "تعذر تشغيل المصدر الحالي، يرجى المحاولة مجدداً."
-                }
+                lifecycleScope.launch { handlePlaybackError(playerError) }
             }
         })
 
@@ -342,20 +343,22 @@ class MovyzaPlayerActivity : ComponentActivity() {
         }
     }
 
+    private fun currentPlaybackRequest(): PlaybackRequest = PlaybackRequest(
+        tmdbId = intent.getIntExtra(EXTRA_TMDB_ID, 0),
+        mediaType = intent.getStringExtra(EXTRA_MEDIA_TYPE).orEmpty().ifBlank { "movie" },
+        season = activeSeason,
+        episode = activeEpisode
+    )
+
     private suspend fun resolveAndStart() {
         error = null
         buffering = true
+        brokerFallbackAttempted = false
         val directUrl = intent.getStringExtra(EXTRA_SOURCE_URL)?.trim().orEmpty()
         sources = if (directUrl.isNotBlank()) {
-            listOf(PlaybackCandidate(directUrl))
+            listOf(PlaybackCandidate(directUrl, provider = PlaybackProvider.DIRECT))
         } else {
-            val request = PlaybackRequest(
-                tmdbId = intent.getIntExtra(EXTRA_TMDB_ID, 0),
-                mediaType = intent.getStringExtra(EXTRA_MEDIA_TYPE).orEmpty().ifBlank { "movie" },
-                season = activeSeason,
-                episode = activeEpisode
-            )
-            runCatching { MovyzaPlaybackRepository.resolve(request) }
+            runCatching { MovyzaPlaybackRepository.resolve(currentPlaybackRequest()) }
                 .getOrElse {
                     buffering = false
                     error = it.message ?: "لم نتمكن من تجهيز مصدر البث المباشر."
@@ -369,31 +372,82 @@ class MovyzaPlayerActivity : ComponentActivity() {
         firstReady = true
         defaultQualityApplied = false
         defaultSubtitleApplied = false
+        qualities = emptyList()
         subtitleTracks = emptyList()
         audioTracks = emptyList()
         prepareSource(sources.first())
     }
 
-    private suspend fun prepareSource(source: PlaybackCandidate) {
+    private suspend fun handlePlaybackError(playerError: PlaybackException) {
+        buffering = false
+        val resumePosition = player.currentPosition.coerceAtLeast(0L)
+
+        if (sourceIndex + 1 < sources.size) {
+            sourceIndex += 1
+            prepareSource(sources[sourceIndex], resumePosition.takeIf { it > 0L })
+            return
+        }
+
+        val isExplicitDirectSource = !intent.getStringExtra(EXTRA_SOURCE_URL).isNullOrBlank()
+        val hasBrokerCandidates = sources.any { it.provider == PlaybackProvider.BROKER }
+        if (!isExplicitDirectSource && !hasBrokerCandidates && !brokerFallbackAttempted) {
+            brokerFallbackAttempted = true
+            buffering = true
+            val fallback = runCatching {
+                MovyzaPlaybackRepository.resolveBrokerFallback(
+                    currentPlaybackRequest(),
+                    sources.map { it.url }.toSet()
+                )
+            }.getOrElse {
+                buffering = false
+                error = "تعذر تشغيل مصادر VidLink (${playerError.errorCodeName}) ولم يتوفر بديل."
+                return
+            }
+
+            val firstFallbackIndex = sources.size
+            sources = sources + fallback
+            sourceIndex = firstFallbackIndex
+            prepareSource(sources[sourceIndex], resumePosition.takeIf { it > 0L })
+            return
+        }
+
+        error = "تعذر تشغيل الفيديو (${playerError.errorCodeName}). جرّب مصدرًا آخر أو أعد المحاولة."
+    }
+
+    private suspend fun prepareSource(source: PlaybackCandidate, resumePositionMs: Long? = null) {
         error = null
         buffering = true
         subtitleTracks = emptyList()
         audioTracks = emptyList()
 
+        val sourceUserAgent = source.headers.entries
+            .firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }
+            ?.value
+            ?.takeIf { it.isNotBlank() }
+            ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+        // ExoPlayer must manage Range for seek requests. Also, Factory.setUserAgent
+        // can override a User-Agent passed as a default request property.
+        val requestHeaders = source.headers.filterKeys {
+            !it.equals("User-Agent", ignoreCase = true) &&
+                !it.equals("Range", ignoreCase = true)
+        }
         val http = DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(12_000)
             .setReadTimeoutMs(20_000)
             .setAllowCrossProtocolRedirects(true)
-            .setUserAgent("Movyza/2.0 Android")
-            .setDefaultRequestProperties(source.headers)
+            .setUserAgent(sourceUserAgent)
+            .setDefaultRequestProperties(requestHeaders)
 
-        val subtitleConfigurations = buildList {
-            source.subtitles.forEachIndexed { index, subtitle ->
-                val config = runCatching {
-                    buildPreparedSubtitleConfiguration(source, subtitle, index)
-                }.getOrNull()
-                if (config != null) add(config)
-            }
+        // Subtitle URL fetches include network I/O, so run them concurrently off
+        // the main thread; avoid freezing the native player's UI during startup.
+        val subtitleConfigurations = coroutineScope {
+            source.subtitles.mapIndexed { index, subtitle ->
+                async(Dispatchers.IO) {
+                    runCatching {
+                        buildPreparedSubtitleConfiguration(source, subtitle, index)
+                    }.getOrNull()
+                }
+            }.awaitAll().filterNotNull()
         }
 
         val mediaItemBuilder = MediaItem.Builder()
@@ -406,7 +460,11 @@ class MovyzaPlayerActivity : ComponentActivity() {
         val mediaSource = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
             .createMediaSource(mediaItem)
 
-        player.setMediaSource(mediaSource)
+        if (resumePositionMs != null && resumePositionMs > 0L) {
+            player.setMediaSource(mediaSource, resumePositionMs)
+        } else {
+            player.setMediaSource(mediaSource)
+        }
         player.prepare()
         player.playWhenReady = true
     }
@@ -533,7 +591,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
     }
 
     private fun refreshTracks() {
-        val heights = buildList {
+        val trackHeights = buildList {
             player.currentTracks.groups
                 .filter { it.type == C.TRACK_TYPE_VIDEO }
                 .forEach { group ->
@@ -542,8 +600,12 @@ class MovyzaPlayerActivity : ComponentActivity() {
                         if (group.isTrackSupported(index) && format.height > 0) add(format.height)
                     }
                 }
-        }.distinct().sortedDescending()
+        }
+        val sourceHeights = sources.map { it.quality }.filter { it > 0 }
+        val heights = (trackHeights + sourceHeights).distinct().sortedDescending()
 
+        // VidLink may expose each quality as a separate URL rather than as
+        // variants in one HLS master playlist. Include both kinds in the menu.
         qualities = heights
         subtitleTracks = buildTrackOptions(C.TRACK_TYPE_TEXT)
         audioTracks = buildTrackOptions(C.TRACK_TYPE_AUDIO)
@@ -671,6 +733,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
             preferredQualityHeight = height
             playerPrefs.edit().putInt("preferred_quality", height).apply()
         }
+
         val tracks = mutableListOf<Pair<Tracks.Group, Int>>()
         player.currentTracks.groups
             .filter { it.type == C.TRACK_TYPE_VIDEO }
@@ -681,18 +744,51 @@ class MovyzaPlayerActivity : ComponentActivity() {
                 }
             }
 
-        val picked = tracks.minByOrNull {
+        // If the active source exposes this exact quality as an in-player
+        // variant, keep the URL and change only the track selector.
+        val exactTrack = tracks.firstOrNull {
+            it.first.getTrackFormat(it.second).height == height
+        }
+        if (exactTrack != null) {
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .setOverrideForType(
+                    TrackSelectionOverride(exactTrack.first.mediaTrackGroup, exactTrack.second)
+                )
+                .build()
+            return
+        }
+
+        // Some VidLink responses use one direct URL per quality. Switch URLs
+        // manually when the requested quality is not an available in-player track.
+        val sourceMatch = sources.indices.firstOrNull { sources[it].quality == height }
+        if (sourceMatch != null) {
+            if (sourceMatch != sourceIndex) {
+                val resumePosition = player.currentPosition.coerceAtLeast(0L)
+                sourceIndex = sourceMatch
+                lifecycleScope.launch {
+                    prepareSource(sources[sourceMatch], resumePosition.takeIf { it > 0L })
+                }
+            }
+            return
+        }
+
+        val closestTrack = tracks.minByOrNull {
             abs(it.first.getTrackFormat(it.second).height - height)
         } ?: return
-
         player.trackSelectionParameters = player.trackSelectionParameters
             .buildUpon()
-            .setOverrideForType(TrackSelectionOverride(picked.first.mediaTrackGroup, picked.second))
+            .setOverrideForType(
+                TrackSelectionOverride(closestTrack.first.mediaTrackGroup, closestTrack.second)
+            )
             .build()
     }
 
     private fun playNextEpisode() {
-        if (!intent.getStringExtra(EXTRA_MEDIA_TYPE).equals("series", ignoreCase = true)) return
+        val mediaType = intent.getStringExtra(EXTRA_MEDIA_TYPE).orEmpty()
+        if (!mediaType.equals("series", ignoreCase = true) &&
+            !mediaType.equals("tv", ignoreCase = true)
+        ) return
         saveProgress(true)
         activeEpisode += 1
         val baseName = displayTitle.substringBefore(" — ")
