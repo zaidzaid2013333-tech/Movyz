@@ -2,7 +2,7 @@ name: Movyza Native Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, ramus-preview-2]
     paths:
       - "android/**"
       - ".github/workflows/native-android.yml"
@@ -13,7 +13,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  actions: read
+  contents: write
 
 concurrency:
   group: movyza-native-android
@@ -74,3 +75,12 @@ jobs:
           path: android/movyza-native-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish stable Ramus APK
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/ramus-preview-2' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          gh release view ramus-prebuilt --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||             gh release create ramus-prebuilt               --repo "$GITHUB_REPOSITORY"               --title "Ramus prebuilt APK"               --notes "Stable debug APK used by the Ramus PR preview."               --target "$GITHUB_SHA"
+          gh release upload ramus-prebuilt movyza-native-debug.apk             --repo "$GITHUB_REPOSITORY"             --clobber
