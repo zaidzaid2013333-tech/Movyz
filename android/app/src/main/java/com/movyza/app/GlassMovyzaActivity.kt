@@ -1,5 +1,6 @@
 package com.movyza.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -92,6 +93,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -152,6 +154,7 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
     var loginMode by remember { mutableStateOf(true) }
 
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val snack = remember { SnackbarHostState() }
     val home by vm.home.collectAsStateWithLifecycle()
     val search by vm.search.collectAsStateWithLifecycle()
@@ -269,7 +272,15 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
                             .onSuccess { details = it }
                     }
                 },
-                onWatch = { scope.launch { snack.showSnackbar("المشغل جاهز كنقطة الربط التالية") } },
+                onWatch = {
+                    context.startActivity(
+                        Intent(context, com.movyza.app.player.MovyzaPlayerActivity::class.java).apply {
+                            putExtra(com.movyza.app.player.MovyzaPlayerActivity.EXTRA_TMDB_ID, movie.id)
+                            putExtra(com.movyza.app.player.MovyzaPlayerActivity.EXTRA_MEDIA_TYPE, movie.mediaType)
+                            putExtra(com.movyza.app.player.MovyzaPlayerActivity.EXTRA_TITLE, movie.title.ifBlank { movie.originalTitle })
+                        }
+                    )
+                },
                 onToggleWatchlist = {
                     vm.toggleWatchlist(movie) { message ->
                         scope.launch { snack.showSnackbar(message) }
