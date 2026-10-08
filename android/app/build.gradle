@@ -4,6 +4,10 @@ def tmdbToken = System.getenv("TMDB_API_READ_ACCESS_TOKEN") ?: ""
 def supabaseUrl = System.getenv("SUPABASE_URL") ?: ""
 def supabaseAnon = System.getenv("SUPABASE_ANON_KEY") ?: ""
 
+def quoteForBuildConfig = { String value ->
+    groovy.json.JsonOutput.toJson(value ?: "")
+}
+
 android {
     namespace 'sbs.movyza.app'
     compileSdk 35
@@ -14,15 +18,20 @@ android {
         targetSdk 35
         versionCode 2
         versionName '2.0.0'
-                buildConfigField "String", "TMDB_READ_TOKEN", "\"" + tmdbToken.replace("\\","\\\\").replace(""","\\"") + "\"""
-                buildConfigField "String", "SUPABASE_URL", "\"" + supabaseUrl.replace("\\","\\\\").replace(""","\\"") + "\"""
-                buildConfigField "String", "SUPABASE_ANON_KEY", "\"" + supabaseAnon.replace("\\","\\\\").replace(""","\\"") + "\"""
+
+        buildConfigField "String", "TMDB_READ_TOKEN", quoteForBuildConfig(tmdbToken)
+        buildConfigField "String", "SUPABASE_URL", quoteForBuildConfig(supabaseUrl)
+        buildConfigField "String", "SUPABASE_ANON_KEY", quoteForBuildConfig(supabaseAnon)
     }
 
     buildFeatures { buildConfig = true }
 
     buildTypes {
-        debug { applicationIdSuffix '.debug'; versionNameSuffix '-debug'; minifyEnabled false }
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+            minifyEnabled false
+        }
         release {
             minifyEnabled true
             shrinkResources true
