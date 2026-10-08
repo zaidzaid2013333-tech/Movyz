@@ -7,6 +7,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Movyza">
         <activity
+            android:name=".player.MovyzaPlayerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <activity
             android:name=".GlassMovyzaActivity"
             android:exported="true">
             <intent-filter>
