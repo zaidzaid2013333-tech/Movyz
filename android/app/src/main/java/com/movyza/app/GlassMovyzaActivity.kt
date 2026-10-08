@@ -11,10 +11,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
@@ -167,158 +163,56 @@ private fun launchPlayer(
 
 @Composable
 private fun MovyzaLaunchScreen() {
-    val transition = rememberInfiniteTransition(label = "movyza-launch")
-    val drift by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3200),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "launch-drift"
-    )
-    val pulse by transition.animateFloat(
-        initialValue = 0.78f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "launch-pulse"
-    )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF171107),
-                        MovyzaColors.Bg2,
-                        MovyzaColors.Bg
-                    ),
-                    radius = 950f
-                )
-            )
+            .background(MovyzaColors.Bg),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(280.dp)
-                .align(Alignment.TopEnd)
-                .graphicsLayer {
-                    translationX = drift * -90f
-                    translationY = drift * 70f
-                    alpha = 0.18f + pulse * 0.14f
-                }
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(MovyzaColors.Gold400, Color.Transparent)
-                    )
-                )
-        )
-
-        Box(
-            modifier = Modifier
-                .size(220.dp)
-                .align(Alignment.BottomStart)
-                .graphicsLayer {
-                    translationX = drift * 70f
-                    translationY = drift * -50f
-                    alpha = 0.10f + pulse * 0.10f
-                }
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(MovyzaColors.Gold600, Color.Transparent)
-                    )
-                )
-        )
-
-        Column(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 modifier = Modifier
-                    .size(94.dp)
+                    .size(78.dp)
                     .clip(MovyzaShapes.Xl)
                     .background(
                         Brush.linearGradient(
-                            listOf(MovyzaColors.Gold300, MovyzaColors.Gold500, MovyzaColors.Gold700)
+                            listOf(MovyzaColors.Gold300, MovyzaColors.Gold600)
                         )
-                    )
-                    .border(1.dp, MovyzaColors.Gold300.copy(alpha = 0.72f), MovyzaShapes.Xl),
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "M",
                     color = MovyzaColors.Bg,
-                    fontSize = 50.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = (-2).sp
+                    fontSize = 42.sp,
+                    fontWeight = FontWeight.Black
                 )
             }
-
-            Spacer(Modifier.height(22.dp))
-
+            Spacer(Modifier.height(16.dp))
             Text(
                 text = "MOVYZA",
                 color = MovyzaColors.Gold300,
-                fontSize = 32.sp,
+                fontSize = 26.sp,
                 fontWeight = FontWeight.Black,
-                letterSpacing = 6.sp
+                letterSpacing = 5.sp
             )
-
-            Spacer(Modifier.height(6.dp))
-
+            Spacer(Modifier.height(5.dp))
             Text(
                 text = "سينماك تبدأ هنا",
-                color = MovyzaColors.Text2,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
-            )
-
-            Spacer(Modifier.height(22.dp))
-
-            Box(
-                modifier = Modifier
-                    .width(132.dp)
-                    .height(3.dp)
-                    .clip(MovyzaShapes.Pill)
-                    .background(MovyzaColors.Glass2)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.34f + pulse * 0.34f)
-                        .fillMaxSize()
-                        .clip(MovyzaShapes.Pill)
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(Color.Transparent, MovyzaColors.Gold300, Color.Transparent)
-                            )
-                        )
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            Text(
-                text = "تهيئة التجربة…",
                 color = MovyzaColors.Text3,
                 fontSize = 10.sp
             )
         }
     }
 }
-
 @Composable
 fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
     var launchComplete by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        // Draw the lightweight launch surface first, then start network/model work.
+        // Let the launch surface draw once, then start data work without an artificial delay.
         withFrameNanos { }
         vm.startInitialLoad()
-        delay(420)
         launchComplete = true
     }
 
@@ -600,16 +494,16 @@ private fun MovyzaFixedBottomBar(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = 12.dp, vertical = 7.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(68.dp)
+                .height(62.dp)
                 .clip(MovyzaShapes.Xl)
-                .background(MovyzaColors.GlassStrong)
-                .border(1.dp, MovyzaColors.GlassBorder, MovyzaShapes.Xl)
-                .padding(horizontal = 6.dp, vertical = 6.dp),
+                .background(Color(0xEE111116))
+                .border(1.dp, MovyzaColors.GlassBorder.copy(alpha = 0.82f), MovyzaShapes.Xl)
+                .padding(horizontal = 5.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
@@ -621,7 +515,7 @@ private fun MovyzaFixedBottomBar(
                     label = "nav-tint"
                 )
                 val pillBg by animateColorAsState(
-                    targetValue = if (active) MovyzaColors.Gold500.copy(alpha = 0.18f) else Color.Transparent,
+                    targetValue = if (active) MovyzaColors.Gold500.copy(alpha = 0.16f) else Color.Transparent,
                     animationSpec = tween(180),
                     label = "nav-bg"
                 )
@@ -629,7 +523,7 @@ private fun MovyzaFixedBottomBar(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(54.dp)
+                        .height(50.dp)
                         .padding(horizontal = 2.dp)
                         .clip(MovyzaShapes.Lg)
                         .background(pillBg)
@@ -808,11 +702,11 @@ private fun MovyzaHomeTemplateScreen(
                         onAction = { onSelectTab(Tab.PROFILE) }
                     )
                     LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(
-                            count = minOf(watchHistory.size, 10),
+                            count = minOf(watchHistory.size, 6),
                             key = { idx ->
                                 val item = watchHistory[idx]
                                 "continue-${item.mediaType}-${item.id}"
@@ -899,7 +793,7 @@ private fun FixedHorizontalSection(
     onAction: (() -> Unit)? = null,
     onOpen: (Movie) -> Unit
 ) {
-    val slotCount = if (movies.isEmpty() && loading) 6 else minOf(movies.size, 10)
+    val slotCount = if (movies.isEmpty() && loading) 4 else minOf(movies.size, 8)
     if (slotCount == 0 && !loading) return
 
     Column {
@@ -925,36 +819,13 @@ private fun FixedHorizontalSection(
                     MovyzaPosterCardTemplate(
                         movie = movie,
                         onClick = if (movie != null) ({ onOpen(movie) }) else null,
-                        fixedWidth = 138.dp
+                        fixedWidth = 162.dp
                     )
                 }
             }
 
-            Box(
-                Modifier
-                    .align(Alignment.CenterStart)
-                    .height(250.dp)
-                    .width(22.dp)
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(MovyzaColors.Bg.copy(alpha = 0.98f), Color.Transparent)
-                        )
-                    )
-            )
-            Box(
-                Modifier
-                    .align(Alignment.CenterEnd)
-                    .height(250.dp)
-                    .width(22.dp)
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(Color.Transparent, MovyzaColors.Bg.copy(alpha = 0.98f))
-                        )
-                    )
-            )
         }
     }
-}
 
 @Composable
 private fun MovyzaCatalogTemplateScreen(
@@ -1042,7 +913,7 @@ private fun MovyzaCatalogTemplateScreen(
         }
 
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 150.dp),
+            columns = GridCells.Adaptive(minSize = 160.dp),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 28.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
