@@ -27,6 +27,7 @@ jobs:
       TMDB_API_READ_ACCESS_TOKEN: ${{ secrets.TMDB_API_READ_ACCESS_TOKEN }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      PLAYBACK_API_BASE: https://movyz-36.sameranede.deno.net
     defaults:
       run:
         working-directory: android
@@ -56,6 +57,7 @@ jobs:
           test -n "$TMDB_API_READ_ACCESS_TOKEN"
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_ANON_KEY"
+          test -n "$PLAYBACK_API_BASE"
 
       - name: Build debug APK
         run: gradle --no-daemon --stacktrace :app:assembleDebug
@@ -72,5 +74,3 @@ jobs:
           path: android/movyza-native-debug.apk
           if-no-files-found: error
           retention-days: 14
-# Retrigger native APK build for the latest Android changes.
-# Verify stable debug signing after keystore repair.
