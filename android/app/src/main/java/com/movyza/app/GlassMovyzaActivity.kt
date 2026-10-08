@@ -18,7 +18,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -41,10 +43,14 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -85,6 +91,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -140,6 +147,7 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
     var details by remember { mutableStateOf<TmdbDetails?>(null) }
     var authOpen by remember { mutableStateOf(false) }
     var loginMode by remember { mutableStateOf(true) }
+    var dockVisible by remember { mutableStateOf(true) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -191,7 +199,8 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
                     state = home,
                     loading = vm.loading,
                     error = vm.error,
-                    onOpen = { selected = it },
+                    onOpen = { dockVisible = false; selected = it },
+                    onDockVisibility = { dockVisible = it },
                     onSearch = { tab = Tab.SEARCH },
                     onProfile = { tab = Tab.PROFILE }
                 )
@@ -200,25 +209,29 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
                     subtitle = "اختيارات سينمائية لك",
                     movies = home.movies,
                     loading = vm.loading,
-                    onOpen = { selected = it }
+                    onOpen = { dockVisible = false; selected = it },
+                    onDockVisibility = { dockVisible = it }
                 )
                 Tab.SERIES -> GlassCatalog(
                     title = "مسلسلات",
                     subtitle = "اكتشف عناوينك القادمة",
                     movies = home.series,
                     loading = vm.loading,
-                    onOpen = { selected = it }
+                    onOpen = { dockVisible = false; selected = it },
+                    onDockVisibility = { dockVisible = it }
                 )
                 Tab.SEARCH -> GlassSearch(
                     results = search,
                     loading = vm.loading,
                     onQuery = vm::search,
-                    onOpen = { selected = it }
+                    onOpen = { dockVisible = false; selected = it },
+                    onDockVisibility = { dockVisible = it }
                 )
                 Tab.PROFILE -> GlassProfile(
                     session = vm.session,
                     watchlist = watchlist,
-                    onOpen = { selected = it },
+                    onOpen = { dockVisible = false; selected = it },
+                    onDockVisibility = { dockVisible = it },
                     onLogin = { loginMode = true; authOpen = true },
                     onSignup = { loginMode = false; authOpen = true },
                     onLogout = vm::signOut
@@ -226,14 +239,23 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
             }
         }
 
-        GlassDock(
-            selected = tab,
-            onSelect = { tab = it },
+        AnimatedVisibility(
+            visible = selected == null && dockVisible,
+            enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 3 },
+            exit = fadeOut(tween(120)) + slideOutVertically(tween(170)) { it / 3 },
+            label = "dock-visibility"
+        ) {
+            GlassDock(
+                selected = tab,
+                onSelect = { dockVisible = true; tab = it },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(start = 14.dp, end = 14.dp, bottom = 8.dp)
                 .navigationBarsPadding()
         )
+
+            )
+        }
 
         SnackbarHost(
             hostState = snack,
@@ -253,7 +275,7 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
                 movie = movie,
                 details = details,
                 watchlisted = watchlist.any { it.id == movie.id && it.mediaType == movie.mediaType },
-                onBack = { selected = null; details = null },
+                onBack = { selected = null; details = null; dockVisible = true },
                 onLoad = {
                     scope.launch {
                         runCatching { MovyzaApi().details(movie.id, movie.mediaType) }
@@ -280,6 +302,46 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
 }
 
 @Composable
+private fun ObserveDockScroll(state: LazyListState, onDockVisibility: (Boolean) -> Unit) {
+    LaunchedEffect(state) {
+        var previous = 0
+        var visible = true
+        snapshotFlow { state.firstVisibleItemIndex * 1000 + state.firstVisibleItemScrollOffset }
+            .collect { current ->
+                val delta = current - previous
+                previous = current
+                if (kotlin.math.abs(delta) >= 10) {
+                    val nextVisible = delta <= 0
+                    if (nextVisible != visible) {
+                        visible = nextVisible
+                        onDockVisibility(nextVisible)
+                    }
+                }
+            }
+    }
+}
+
+@Composable
+private fun ObserveDockScroll(state: LazyGridState, onDockVisibility: (Boolean) -> Unit) {
+    LaunchedEffect(state) {
+        var previous = 0
+        var visible = true
+        snapshotFlow { state.firstVisibleItemIndex * 1000 + state.firstVisibleItemScrollOffset }
+            .collect { current ->
+                val delta = current - previous
+                previous = current
+                if (kotlin.math.abs(delta) >= 10) {
+                    val nextVisible = delta <= 0
+                    if (nextVisible != visible) {
+                        visible = nextVisible
+                        onDockVisibility(nextVisible)
+                    }
+                }
+            }
+    }
+}
+
+@Composable
 private fun GlassDock(
     selected: Tab,
     onSelect: (Tab) -> Unit,
@@ -289,7 +351,7 @@ private fun GlassDock(
         modifier = modifier
             .fillMaxWidth()
             .height(68.dp)
-            .shadow(28.dp, RoundedCornerShape(30.dp)),
+            .shadow(16.dp, RoundedCornerShape(30.dp)),
         shape = RoundedCornerShape(30.dp),
         color = GlassPanelStrong,
         border = BorderStroke(1.dp, Color.White.copy(alpha = .10f)),
@@ -386,23 +448,23 @@ private fun GlassHome(
     error: String?,
     onOpen: (Movie) -> Unit,
     onSearch: () -> Unit,
-    onProfile: () -> Unit
+    onProfile: () -> Unit,
+    onDockVisibility: (Boolean) -> Unit
 ) {
+    val listState = rememberLazyListState()
+    ObserveDockScroll(listState, onDockVisibility)
     var heroIndex by remember { mutableStateOf(0) }
     val heroes = remember(state.trending) {
         state.trending.filter { !it.backdropUrl.isNullOrBlank() }.take(5)
     }
-    val transition = rememberInfiniteTransition(label = "home-motion")
-    val heroScale by transition.animateFloat(
-        1f,
-        1.028f,
-        infiniteRepeatable(tween(7000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+    val heroScale by animateFloatAsState(
+        targetValue = if (heroIndex % 2 == 0) 1.012f else 1f,
+        animationSpec = tween(6200, easing = FastOutSlowInEasing),
         label = "hero-scale"
     )
-    val glow by transition.animateFloat(
-        .10f,
-        .22f,
-        infiniteRepeatable(tween(2300), RepeatMode.Reverse),
+    val glow by animateFloatAsState(
+        targetValue = if (heroIndex % 2 == 0) .15f else .10f,
+        animationSpec = tween(1800, easing = FastOutSlowInEasing),
         label = "hero-glow"
     )
 
@@ -417,6 +479,7 @@ private fun GlassHome(
 
     LazyColumn(
         Modifier.fillMaxSize().background(GlassBlack),
+        state = listState,
         contentPadding = PaddingValues(bottom = 112.dp)
     ) {
         item {
@@ -457,7 +520,7 @@ private fun GlassHome(
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .height(500.dp)
+                            .height(470.dp)
                             .clip(RoundedCornerShape(0.dp))
                             .border(1.dp, Color.White.copy(alpha = .07f), RoundedCornerShape(29.dp))
                             .clickable { onOpen(hero) }
@@ -631,7 +694,7 @@ private fun GlassAction(text: String, onClick: () -> Unit) {
     Surface(
         Modifier.height(44.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
-        color = Color(0x66151210),
+        color = GlassPanelStrong,
         border = BorderStroke(1.dp, Color.White.copy(alpha = .17f))
     ) {
         Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
@@ -649,7 +712,7 @@ private fun GlassPill(
     Surface(
         Modifier.clip(RoundedCornerShape(999.dp)).clickable(onClick = onClick),
         shape = RoundedCornerShape(999.dp),
-        color = Color(0x7A17140F),
+        color = GlassPanel,
         border = BorderStroke(1.dp, Color.White.copy(alpha = .065f))
     ) {
         Row(
@@ -761,10 +824,14 @@ private fun GlassCatalog(
     subtitle: String,
     movies: List<Movie>,
     loading: Boolean,
-    onOpen: (Movie) -> Unit
+    onOpen: (Movie) -> Unit,
+    onDockVisibility: (Boolean) -> Unit
 ) {
+    val gridState = rememberLazyGridState()
+    ObserveDockScroll(gridState, onDockVisibility)
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
+        state = gridState,
         modifier = Modifier.fillMaxSize().background(GlassBlack),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 22.dp, bottom = 108.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -792,7 +859,7 @@ private fun GlassGridCard(movie: Movie, onOpen: (Movie) -> Unit) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(249.dp)
+                .aspectRatio(0.67f)
                 .clip(RoundedCornerShape(18.dp))
                 .border(1.dp, Color.White.copy(alpha = .06f), RoundedCornerShape(18.dp))
         ) {
@@ -844,8 +911,11 @@ private fun GlassSearch(
     results: List<Movie>,
     loading: Boolean,
     onQuery: (String) -> Unit,
-    onOpen: (Movie) -> Unit
+    onOpen: (Movie) -> Unit,
+    onDockVisibility: (Boolean) -> Unit
 ) {
+    val listState = rememberLazyListState()
+    ObserveDockScroll(listState, onDockVisibility)
     var query by remember { mutableStateOf("") }
 
     LaunchedEffect(query) {
@@ -854,7 +924,8 @@ private fun GlassSearch(
     }
 
     LazyColumn(
-        Modifier.fillMaxSize().background(GlassBlack),
+        state = listState,
+        modifier = Modifier.fillMaxSize().background(GlassBlack),
         contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 108.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
@@ -864,7 +935,7 @@ private fun GlassSearch(
             Spacer(Modifier.height(14.dp))
             Surface(
                 shape = RoundedCornerShape(18.dp),
-                color = Color(0x7A17140F),
+                color = GlassPanel,
                 border = BorderStroke(1.dp, Color.White.copy(alpha = .065f))
             ) {
                 OutlinedTextField(
@@ -949,10 +1020,14 @@ private fun GlassProfile(
     onOpen: (Movie) -> Unit,
     onLogin: () -> Unit,
     onSignup: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onDockVisibility: (Boolean) -> Unit
 ) {
+    val listState = rememberLazyListState()
+    ObserveDockScroll(listState, onDockVisibility)
     LazyColumn(
-        Modifier.fillMaxSize().background(GlassBlack),
+        state = listState,
+        modifier = Modifier.fillMaxSize().background(GlassBlack),
         contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 108.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -1068,7 +1143,7 @@ private fun GlassDetails(
             contentScale = ContentScale.Crop
         )
         Box(
-            Modifier.fillMaxWidth().height(585.dp).background(
+            Modifier.fillMaxWidth().height(565.dp).background(
                 Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = .03f),
                     .33f to Color.Transparent,
@@ -1122,7 +1197,7 @@ private fun GlassDetails(
                     details.genres.take(4).forEach { genre ->
                         Surface(
                             shape = RoundedCornerShape(999.dp),
-                            color = Color(0xA918150F),
+                            color = GlassPanel,
                             border = BorderStroke(1.dp, Color.White.copy(alpha = .05f))
                         ) {
                             Text(
@@ -1164,9 +1239,9 @@ private fun GlassDetails(
                     Text("مشاهدة", fontWeight = FontWeight.Black)
                 }
                 Surface(
-                    Modifier.size(50.dp).clip(RoundedCornerShape(15.dp)).clickable(onClick = onToggleWatchlist),
+                    Modifier.size(50.dp),
                     shape = RoundedCornerShape(15.dp),
-                    color = Color(0xA818150F),
+                    color = GlassPanelStrong,
                     border = BorderStroke(1.dp, Color.White.copy(alpha = .07f))
                 ) {
                     IconButton(onClick = onToggleWatchlist) {
@@ -1209,7 +1284,7 @@ private fun GlassAuthDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xF318150F),
+        containerColor = GlassPanelStrong,
         title = {
             Text(
                 if (login) "مرحبًا بعودتك" else "ابدأ مع Movyza",
@@ -1316,7 +1391,7 @@ private fun GlassSkeletons() {
                     .width(132.dp)
                     .height(17.dp)
                     .clip(RoundedCornerShape(9.dp))
-                    .background(Color(0xFF17140F).copy(alpha = alpha))
+                    .background(MovyzaColors.Bg2.copy(alpha = alpha))
             )
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
@@ -1328,7 +1403,7 @@ private fun GlassSkeletons() {
                             .width(122.dp)
                             .height(177.dp)
                             .clip(RoundedCornerShape(17.dp))
-                            .background(Color(0xFF12110E).copy(alpha = alpha))
+                            .background(MovyzaColors.Bg2.copy(alpha = alpha))
                     )
                 }
             }
