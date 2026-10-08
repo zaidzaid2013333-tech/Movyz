@@ -62,16 +62,15 @@ object MovyzaPlaybackRepository {
             }
         }
 
-        // Deno remains the primary playback broker. VidLink is a direct-source
-        // fallback only when Deno has no playable source; the native player never
-        // opens VidLink as a webpage/iframe.
-        val denoCandidates = runCatching { fetchCandidates(endpoint) }.getOrNull().orEmpty()
-        if (denoCandidates.isNotEmpty()) return@withContext denoCandidates
-
+        // VidLink is the configured native provider: prefer its signed direct
+        // media URLs. Use the Movyza broker only if VidLink yields no usable URL.
         val vidLinkCandidates = runCatching { resolveFromVidLink(request) }.getOrNull().orEmpty()
         if (vidLinkCandidates.isNotEmpty()) return@withContext vidLinkCandidates
 
-        throw IOException("No direct playback source was returned")
+        val denoCandidates = runCatching { fetchCandidates(endpoint) }.getOrNull().orEmpty()
+        if (denoCandidates.isNotEmpty()) return@withContext denoCandidates
+
+        throw IOException("VidLink and playback broker returned no playable source")
     }
 
     private fun fetchCandidates(endpoint: String): List<PlaybackCandidate> {
@@ -152,18 +151,27 @@ object MovyzaPlaybackRepository {
             while (keys.hasNext()) {
                 val qualityKey = keys.next()
                 val entry = qualities.optJSONObject(qualityKey) ?: continue
-                val url = entry.optString("url").trim()
+                val rawUrl = entry.optString("url").trim()
+                if (rawUrl.isBlank()) continue
+
+                // VidLink embeds the required media request headers in the URL
+                // as ?headers={...}. Strip that transport parameter before giving
+                // the URL to Media3, and apply its decoded values as HTTP headers.
+                val (url, embeddedHeaders) = extractEmbeddedHeaders(rawUrl)
                 if (!isPlayable(url)) continue
 
                 candidates += PlaybackCandidate(
                     url = url,
                     quality = parseQuality(qualityKey) ?: 0,
-                    format = entry.optString("type").ifBlank { "application/x-mpegURL" },
+                    format = entry.optString("type").ifBlank {
+                        if (url.substringBefore("?").endsWith(".mp4", true)) "video/mp4"
+                        else "application/x-mpegURL"
+                    },
                     headers = mapOf(
                         "Referer" to "https://vidlink.pro/",
                         "Origin" to "https://vidlink.pro",
                         "User-Agent" to VIDLINK_USER_AGENT
-                    ),
+                    ) + embeddedHeaders,
                     subtitles = collectSubtitleTracks(entry).ifEmpty {
                         collectSubtitleTracks(stream)
                     }
@@ -384,6 +392,32 @@ object MovyzaPlaybackRepository {
             }
         }
         return null
+    }
+
+    private fun extractEmbeddedHeaders(rawUrl: String): Pair<String, Map<String, String>> {
+        return runCatching {
+            val uri = android.net.Uri.parse(rawUrl)
+            val encodedHeaders = uri.getQueryParameter("headers")
+            if (encodedHeaders.isNullOrBlank()) return@runCatching rawUrl to emptyMap()
+
+            val parsed = runCatching { JSONObject(encodedHeaders) }
+                .getOrElse { JSONObject() }
+            val headers = linkedMapOf<String, String>()
+            val keys = parsed.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val value = parsed.optString(key).trim()
+                if (key.isNotBlank() && value.isNotBlank()) headers[key] = value
+            }
+            val cleanUrl = uri.buildUpon().clearQuery().apply {
+                uri.queryParameterNames
+                    .filterNot { it.equals("headers", ignoreCase = true) }
+                    .forEach { name ->
+                        uri.getQueryParameters(name).forEach { value -> appendQueryParameter(name, value) }
+                    }
+            }.build().toString()
+            cleanUrl to headers
+        }.getOrElse { rawUrl to emptyMap() }
     }
 
     private fun isPlayable(url: String): Boolean {
