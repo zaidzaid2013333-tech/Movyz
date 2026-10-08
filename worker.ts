@@ -365,6 +365,10 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   html = html.replace('</head>', injection + '</head>');
   const headers = new Headers(response.headers);
   headers.set('content-type', 'text/html; charset=UTF-8');
+  // HTML is deterministic for a locale + path and safe to cache at the Worker edge.
+  // This prevents crawlers and repeat navigation from executing the Worker repeatedly.
+  headers.set('cache-control', 'public, max-age=300, s-maxage=3600, stale-while-revalidate=300');
+  headers.set('cdn-cache-control', 'public, max-age=3600, stale-while-revalidate=300');
   return new Response(html, { status: response.status, statusText: response.statusText, headers });
 };
 
@@ -607,32 +611,31 @@ const escapeXml = (value: string) =>
     .replace(/'/g, '&apos;');
 
 const SITEMAP_DISCOVERY_PAGES = 20;
-const SITEMAP_EPISODE_PAGES = 20;
+// Keep the XML sitemap focused on the highest-value language surfaces.
+// All supported locales remain directly accessible and retain hreflang links,
+// but advertising every episode in every locale causes an unnecessary crawl storm.
+const SITEMAP_SEO_LOCALES: LocaleCode[] = ['en', 'ar', 'fr', 'es', 'de', 'pt', 'tr', 'hi'];
 const SITEMAP_CRAWL_ORIGIN = 'https://movyza.sbs';
 
 const buildSitemapIndex = (origin: string) => {
   const entries: string[] = [];
 
   // Static localized surfaces: home + public catalog landing pages.
-  for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
+  for (const locale of SITEMAP_SEO_LOCALES) {
     entries.push(`<sitemap><loc>${origin}/sitemap/${locale}/static.xml</loc></sitemap>`);
   }
 
-  // Localized movie/series detail pages and player pages are generated from TMDB discover.
-  for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
+  // Localized movie/series detail pages and movie watch pages are generated from TMDB discover.
+  // Episode URLs are intentionally not advertised here: one sitemap page can expand into
+  // thousands of episode URLs, multiplied again by every locale, which can exhaust the
+  // Workers Free request budget during crawler discovery.
+  for (const locale of SITEMAP_SEO_LOCALES) {
     for (const type of ['movies', 'series'] as const) {
       for (let page = 1; page <= SITEMAP_DISCOVERY_PAGES; page += 1) {
         entries.push(
           `<sitemap><loc>${origin}/sitemap/${locale}/${type}/${page}.xml</loc></sitemap>`
         );
       }
-    }
-    // Five popular TV series per sitemap segment; each segment expands all known
-    // seasons/episode counts into localized watch URLs for the top 1,000 series.
-    for (let page = 1; page <= SITEMAP_EPISODE_PAGES; page += 1) {
-      entries.push(
-        `<sitemap><loc>${origin}/sitemap/${locale}/episodes/${page}.xml</loc></sitemap>`
-      );
     }
   }
 
@@ -923,8 +926,8 @@ export default {
         return new Response('Application shell unavailable', { status: 503 });
       }
       const locale = localeFromPath(url.pathname);
-      if (locale) return noCache(await localizedHtml(request, env, localized, locale));
-      return noCache(localized);
+      if (locale) return await localizedHtml(request, env, localized, locale);
+      return new Response(localized.body, { status: localized.status, statusText: localized.statusText, headers: new Headers(localized.headers) });
     }
     return await env.ASSETS.fetch(request);
   },
