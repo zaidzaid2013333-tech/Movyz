@@ -623,7 +623,7 @@ fun DetailScreen(
     }
     Box(Modifier.fillMaxSize().background(Color(0xFF06070A))) {
         AsyncImage(model = details?.movie?.backdropUrl ?: movie.backdropUrl, contentDescription = null, modifier = Modifier.fillMaxWidth().height(350.dp), contentScale = ContentScale.Crop)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xFF06070A) at 0.42f, Color(0xFF06070A) at 0.72f))))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, 0.42f to Color(0xFF06070A), 0.72f to Color(0xFF06070A))))
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "رجوع") }
