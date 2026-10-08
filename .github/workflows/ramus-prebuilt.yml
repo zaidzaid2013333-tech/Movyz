@@ -1,0 +1,33 @@
+name: Publish Ramus prebuilt APK
+
+on:
+  push:
+    branches:
+      - ramus-preview-2
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download known-good native APK
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: "11582527157"
+          github-token: ${{ github.token }}
+          path: release
+
+      - name: Publish stable Ramus APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          mkdir -p release
+          APK="$(find release -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          gh release view ramus-prebuilt --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||             gh release create ramus-prebuilt               --repo "$GITHUB_REPOSITORY"               --title "Ramus prebuilt APK"               --notes "Stable APK used only by the Ramus PR preview build."               --target "$GITHUB_SHA"
+          gh release upload ramus-prebuilt "$APK"             --repo "$GITHUB_REPOSITORY"             --clobber
