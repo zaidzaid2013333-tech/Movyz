@@ -9,6 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
@@ -172,10 +173,69 @@ object MovyzaPlaybackRepository {
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw IOException("VidLink API " + response.code)
 
+            val responseUrl = response.request.url.toString()
+            val contentType = response.header("Content-Type").orEmpty().lowercase(Locale.US)
+            val bodyStart = body.trimStart()
+            val requestHeaders = mapOf(
+                "Referer" to "https://vidlink.pro/",
+                "Origin" to "https://vidlink.pro",
+                "User-Agent" to VIDLINK_USER_AGENT
+            )
+
+            // VidLink's public API has been observed to return the HLS playlist
+            // itself for some IDs, rather than the JSON shape below. Treat it as
+            // a Media3 manifest, not as JSON or an iframe.
+            if (contentType.contains("mpegurl") || bodyStart.startsWith("#EXTM3U")) {
+                return@use listOf(
+                    PlaybackCandidate(
+                        url = responseUrl,
+                        quality = 0,
+                        format = "application/x-mpegURL",
+                        headers = requestHeaders,
+                        provider = PlaybackProvider.VIDLINK,
+                    )
+                )
+            }
+            if (contentType.contains("dash+xml") ||
+                (contentType.contains("xml") && bodyStart.contains("<MPD", ignoreCase = true))
+            ) {
+                return@use listOf(
+                    PlaybackCandidate(
+                        url = responseUrl,
+                        quality = 0,
+                        format = "application/dash+xml",
+                        headers = requestHeaders,
+                        provider = PlaybackProvider.VIDLINK,
+                    )
+                )
+            }
+
+            // Some deployments return a direct media URL as plain text.
+            val plainUrl = bodyStart.lineSequence().firstOrNull()?.trim().orEmpty()
+            if (isHttpUrl(plainUrl) && plainUrl == bodyStart.trim()) {
+                val (cleanUrl, embeddedHeaders) = extractEmbeddedHeaders(plainUrl)
+                val inferredFormat = inferFormatFromUrl(cleanUrl)
+                if (isPlayableOrDeclaredFormat(cleanUrl, inferredFormat)) {
+                    return@use listOf(
+                        PlaybackCandidate(
+                            url = cleanUrl,
+                            format = inferredFormat,
+                            headers = requestHeaders + embeddedHeaders,
+                            provider = PlaybackProvider.VIDLINK,
+                        )
+                    )
+                }
+            }
+
             val root = runCatching { JSONObject(body) }.getOrElse {
-                throw IOException("VidLink API returned invalid JSON")
+                throw IOException(
+                    "VidLink API returned neither JSON nor a recognized media manifest " +
+                        "(content-type: ${contentType.ifBlank { "unknown" }})"
+                )
             }
             val stream = root.optJSONObject("stream")
+                ?: root.optJSONObject("data")?.optJSONObject("stream")
+                ?: root.optJSONObject("data")
                 ?: throw IOException("VidLink returned no stream object")
             val qualities = stream.optJSONObject("qualities")
             val candidates = mutableListOf<PlaybackCandidate>()
