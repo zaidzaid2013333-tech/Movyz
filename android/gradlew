@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+GRADLE_VERSION="9.6.0"
+GRADLE_HOME="${TMPDIR:-/tmp}/movyza-gradle-${GRADLE_VERSION}"
+GRADLE_ZIP="${TMPDIR:-/tmp}/gradle-${GRADLE_VERSION}-bin.zip"
+
+if [ ! -x "${GRADLE_HOME}/bin/gradle" ]; then
+  if [ ! -f "${GRADLE_ZIP}" ]; then
+    curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o "${GRADLE_ZIP}"
+  fi
+  rm -rf "${GRADLE_HOME}.extract"
+  mkdir -p "${GRADLE_HOME}.extract"
+  unzip -q "${GRADLE_ZIP}" -d "${GRADLE_HOME}.extract"
+  mv "${GRADLE_HOME}.extract/gradle-${GRADLE_VERSION}" "${GRADLE_HOME}"
+  rm -rf "${GRADLE_HOME}.extract"
+fi
+
+exec "${GRADLE_HOME}/bin/gradle" "$@"
