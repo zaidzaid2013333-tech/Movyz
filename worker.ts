@@ -284,7 +284,9 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     '/register',
     '/forgot-password',
   ]);
-  const isNoIndex = route === '/search' || route.startsWith('/search/') || noindexRoutes.has(route);
+  // Watch pages are intentionally excluded from search indexing. They remain
+  // fully accessible to users, but are not SEO landing pages.
+  const isNoIndex = isWatchPage || route === '/search' || route.startsWith('/search/') || noindexRoutes.has(route);
   const searchTitle = alternateTitle || contentTitle;
   const seoTitle = isWatchPage
     ? (locale === 'ar'
@@ -774,11 +776,8 @@ const buildSitemapSegment = async (
         `<url><loc>${escapeXml(`${origin}/${locale}/${type}/${id}`)}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`
       );
 
-      if (tmdbType === 'movie') {
-        urls.push(
-          `<url><loc>${escapeXml(`${origin}/${locale}/watch/movie/${id}`)}</loc><changefreq>monthly</changefreq><priority>0.65</priority></url>`
-        );
-      }
+      // Watch pages are intentionally not included in sitemaps.
+      // Detail pages remain the SEO entry points for each title.
     }
 
     const xml =
