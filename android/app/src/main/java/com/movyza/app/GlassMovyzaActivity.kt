@@ -240,7 +240,7 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
             onSelect = { tab = it },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(horizontal = 14.dp, bottom = 8.dp)
+                .padding(start = 14.dp, end = 14.dp, bottom = 8.dp)
                 .navigationBarsPadding()
         )
 
