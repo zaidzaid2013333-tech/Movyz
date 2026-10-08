@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalMovies
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.AlertDialog
@@ -650,21 +651,30 @@ fun MovieListCard(movie: Movie, onOpen: (Movie) -> Unit) {
 @Composable
 fun SearchScreen(results: List<Movie>, loading: Boolean, onQuery: (String) -> Unit, onOpen: (Movie) -> Unit) {
     var query by remember { mutableStateOf("") }
-    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    LaunchedEffect(query) {
+        kotlinx.coroutines.delay(420)
+        onQuery(query)
+    }
+    LazyColumn(
+        contentPadding = PaddingValues(18.dp, 20.dp, 18.dp, 30.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
         item {
-            Text("ابحث", fontSize = 28.sp, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(12.dp))
+            Text("البحث", color = MovyzaText, fontSize = 29.sp, fontWeight = FontWeight.Black)
+            Text("ابحث عن فيلم أو مسلسل أو شخص.", color = MovyzaMuted, fontSize = 12.sp)
+            Spacer(Modifier.height(14.dp))
             OutlinedTextField(
                 value = query,
-                onValueChange = { query = it; onQuery(it) },
+                onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("فيلم، مسلسل، ممثل...") },
-                leadingIcon = { Icon(Icons.Filled.Search, null) },
-                singleLine = true
+                placeholder = { Text("فيلم، مسلسل، ممثل…") },
+                leadingIcon = { Icon(Icons.Filled.Search, null, tint = MovyzaGoldBright) },
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp)
             )
             if (loading) LinearLoading()
         }
-        items(results) { MovieListCard(it, onOpen) }
+        items(results.take(30), key = { "${it.mediaType}-${it.id}" }) { MovieListCard(it, onOpen) }
     }
 }
 
@@ -762,7 +772,7 @@ fun DetailScreen(
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "رجوع") }
-                Text("تفاصيل", fontWeight = FontWeight.Bold)
+                Text("تفاصيل", color = MovyzaText, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.weight(1f))
             Column(Modifier.padding(20.dp)) {
@@ -787,11 +797,25 @@ fun DetailScreen(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = onToggleWatchlist) {
-                        Text(if (watchlisted) "✓ في قائمتي" else "+ قائمتي")
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = { },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = MovyzaGoldBright,
+                            contentColor = MovyzaBlack
+                        )
+                    ) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("مشاهدة", fontWeight = FontWeight.Bold)
                     }
-                    AssistChip(onClick = {}, label = { Text("Native Android") })
+                    OutlinedButton(
+                        onClick = onToggleWatchlist,
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text(if (watchlisted) "✓ قائمتي" else "+ قائمتي")
+                    }
                 }
             }
         }
