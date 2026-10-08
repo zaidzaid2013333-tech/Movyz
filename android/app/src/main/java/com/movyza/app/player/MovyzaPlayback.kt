@@ -236,20 +236,23 @@ object MovyzaPlaybackRepository {
             val stream = root.optJSONObject("stream")
                 ?: root.optJSONObject("data")?.optJSONObject("stream")
                 ?: root.optJSONObject("data")
-                ?: throw IOException("VidLink returned no stream object")
+                ?: root
             val qualities = stream.optJSONObject("qualities")
             val candidates = mutableListOf<PlaybackCandidate>()
             if (qualities != null) {
                 val keys = qualities.keys()
                 while (keys.hasNext()) {
                     val qualityKey = keys.next()
-                    val entry = qualities.optJSONObject(qualityKey) ?: continue
-                    val rawUrl = entry.optString("url").trim()
+                    val rawEntry = qualities.opt(qualityKey)
+                    val entry = rawEntry as? JSONObject
+                    val rawUrl = entry?.optString("url")?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: (rawEntry as? String).orEmpty().trim()
                     if (rawUrl.isBlank()) continue
 
                     // Some VidLink URLs have no extension and identify their
                     // container only through the API's type field.
-                    val declaredFormat = entry.optString("type")
+                    val declaredFormat = entry?.optString("type").orEmpty()
                     val (url, embeddedHeaders) = extractEmbeddedHeaders(rawUrl)
                     if (!isPlayableOrDeclaredFormat(url, declaredFormat)) continue
 
@@ -260,14 +263,11 @@ object MovyzaPlaybackRepository {
                         // only the API-declared type or an identifiable path suffix.
                         format = declaredFormat.ifBlank { inferFormatFromUrl(url) },
                         headers = mergeHeaders(
-                            mapOf(
-                                "Referer" to "https://vidlink.pro/",
-                                "Origin" to "https://vidlink.pro",
-                                "User-Agent" to VIDLINK_USER_AGENT
-                            ),
+                            requestHeaders,
+                            entry?.let { parseHeaders(it.opt("headers")) } ?: emptyMap(),
                             embeddedHeaders
                         ),
-                        subtitles = collectSubtitleTracks(entry).ifEmpty {
+                        subtitles = entry?.let { collectSubtitleTracks(it) }.orEmpty().ifEmpty {
                             collectSubtitleTracks(stream)
                         },
                         provider = PlaybackProvider.VIDLINK,
@@ -300,6 +300,26 @@ object MovyzaPlaybackRepository {
                         subtitles = collectSubtitleTracks(stream),
                         provider = PlaybackProvider.VIDLINK,
                     )
+                }
+            }
+
+            // Tolerate alternate JSON layouts (e.g. root.url or data.sources)
+            // instead of hard-failing when VidLink changes its response wrapper.
+            if (candidates.isEmpty()) {
+                val genericCandidates = mutableListOf<PlaybackCandidate>()
+                collectCandidates(root, 0, emptyMap(), emptyList(), genericCandidates)
+                genericCandidates.forEach { candidate ->
+                    val (cleanUrl, embeddedHeaders) = extractEmbeddedHeaders(candidate.url)
+                    val inferredFormat = candidate.format.ifBlank { inferFormatFromUrl(cleanUrl) }
+                    if (isPlayableOrDeclaredFormat(cleanUrl, inferredFormat)) {
+                        candidates += candidate.copy(
+                            url = cleanUrl,
+                            format = inferredFormat,
+                            headers = mergeHeaders(requestHeaders, candidate.headers, embeddedHeaders),
+                            subtitles = candidate.subtitles.ifEmpty { collectSubtitleTracks(stream) },
+                            provider = PlaybackProvider.VIDLINK,
+                        )
+                    }
                 }
             }
 

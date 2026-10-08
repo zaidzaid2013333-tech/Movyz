@@ -165,8 +165,9 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private var audioTracks by mutableStateOf<List<TrackOption>>(emptyList())
     private var defaultSubtitleApplied = false
     private val subtitleClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .callTimeout(6, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
@@ -417,6 +418,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private suspend fun prepareSource(source: PlaybackCandidate, resumePositionMs: Long? = null) {
         error = null
         buffering = true
+        if (source.quality > 0) selectedQualityHeight = source.quality
         subtitleTracks = emptyList()
         audioTracks = emptyList()
 
@@ -537,7 +539,9 @@ class MovyzaPlayerActivity : ComponentActivity() {
                 .setLanguage(subtitle.language.ifBlank { null })
                 .setLabel(subtitle.label.ifBlank { languageDisplayName(subtitle.language) })
                 .setSelectionFlags(
-                    C.SELECTION_FLAG_DEFAULT or C.SELECTION_FLAG_AUTOSELECT
+                    (if (subtitle.isDefault) C.SELECTION_FLAG_DEFAULT else 0) or
+                        (if (subtitle.language.isNotBlank()) C.SELECTION_FLAG_AUTOSELECT else 0) or
+                        (if (subtitle.isForced) C.SELECTION_FLAG_FORCED else 0)
                 )
                 .setRoleFlags(0)
                 .build()
