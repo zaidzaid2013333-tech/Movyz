@@ -131,13 +131,35 @@ private val GlassScheme = darkColorScheme(
     onSurface = GlassText
 )
 
+private val GlassBlack = MovyzaColors.Bg
+private val GlassGold = MovyzaColors.Gold600
+private val GlassGoldBright = MovyzaColors.Gold300
+private val GlassGoldDark = MovyzaColors.Gold700
+private val GlassText = MovyzaColors.Text
+private val GlassMuted = MovyzaColors.Text2
+private val GlassFaint = MovyzaColors.Text3
+private val GlassPanel = MovyzaColors.Glass
+private val GlassPanelStrong = MovyzaColors.GlassStrong
+
+private val GlassScheme = androidx.compose.material3.darkColorScheme(
+    primary = MovyzaColors.Gold400,
+    secondary = MovyzaColors.Gold500,
+    tertiary = MovyzaColors.Navy500,
+    background = MovyzaColors.Bg,
+    surface = MovyzaColors.Bg2,
+    surfaceVariant = MovyzaColors.GlassStrong,
+    onPrimary = MovyzaColors.Bg,
+    onBackground = MovyzaColors.Text,
+    onSurface = MovyzaColors.Text
+)
+
 class GlassMovyzaActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MaterialTheme(colorScheme = GlassScheme) {
-                Surface(Modifier.fillMaxSize(), color = GlassBlack) {
+            MovyzaTheme {
+                Surface(Modifier.fillMaxSize(), color = MovyzaColors.Bg) {
                     GlassMovyzaApp()
                 }
             }
@@ -300,9 +322,9 @@ private fun GlassDock(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(67.dp)
-            .shadow(28.dp, RoundedCornerShape(24.dp)),
-        shape = RoundedCornerShape(24.dp),
+            .height(68.dp)
+            .shadow(28.dp, RoundedCornerShape(30.dp)),
+        shape = RoundedCornerShape(30.dp),
         color = GlassPanelStrong,
         border = BorderStroke(1.dp, Color.White.copy(alpha = .10f)),
         tonalElevation = 0.dp
@@ -469,9 +491,8 @@ private fun GlassHome(
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .height(448.dp)
-                            .padding(horizontal = 12.dp)
-                            .clip(RoundedCornerShape(29.dp))
+                            .height(500.dp)
+                            .clip(RoundedCornerShape(0.dp))
                             .border(1.dp, Color.White.copy(alpha = .07f), RoundedCornerShape(29.dp))
                             .clickable { onOpen(hero) }
                     ) {
@@ -912,7 +933,7 @@ private fun GlassSearchRow(movie: Movie, onOpen: (Movie) -> Unit) {
     Surface(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { onOpen(movie) },
         shape = RoundedCornerShape(18.dp),
-        color = Color(0xA811100D),
+        color = GlassPanel,
         border = BorderStroke(1.dp, Color.White.copy(alpha = .05f))
     ) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -976,7 +997,7 @@ private fun GlassProfile(
         item {
             Surface(
                 shape = RoundedCornerShape(24.dp),
-                color = Color(0xA613120F),
+                color = GlassPanelStrong,
                 border = BorderStroke(1.dp, Color.White.copy(alpha = .065f))
             ) {
                 Column(Modifier.fillMaxWidth().padding(20.dp)) {
@@ -1033,7 +1054,7 @@ private fun GlassProfile(
             item {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = Color(0x84110F0C),
+                    color = GlassPanel,
                     border = BorderStroke(1.dp, Color.White.copy(alpha = .05f))
                 ) {
                     Column(
