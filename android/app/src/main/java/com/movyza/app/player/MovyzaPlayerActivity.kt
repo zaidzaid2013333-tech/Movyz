@@ -105,7 +105,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONArray
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 private enum class TrackDialog { SUBTITLES, AUDIO }
@@ -155,6 +159,12 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private var subtitleTracks by mutableStateOf<List<TrackOption>>(emptyList())
     private var audioTracks by mutableStateOf<List<TrackOption>>(emptyList())
     private var defaultSubtitleApplied = false
+    private val subtitleClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
     private val playerPrefs by lazy {
         getSharedPreferences("movyza_player_preferences", MODE_PRIVATE)
     }
@@ -237,7 +247,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
                 buffering = false
                 if (sourceIndex + 1 < sources.size) {
                     sourceIndex += 1
-                    prepareSource(sources[sourceIndex])
+                    lifecycleScope.launch { prepareSource(sources[sourceIndex]) }
                 } else {
                     error = "تعذر تشغيل المصدر الحالي، يرجى المحاولة مجدداً."
                 }
@@ -364,7 +374,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
         prepareSource(sources.first())
     }
 
-    private fun prepareSource(source: PlaybackCandidate) {
+    private suspend fun prepareSource(source: PlaybackCandidate) {
         error = null
         buffering = true
         subtitleTracks = emptyList()
@@ -377,26 +387,13 @@ class MovyzaPlayerActivity : ComponentActivity() {
             .setUserAgent("Movyza/2.0 Android")
             .setDefaultRequestProperties(source.headers)
 
-        val subtitleConfigurations = source.subtitles.mapNotNull { subtitle ->
-            val uri = runCatching { Uri.parse(subtitle.url) }.getOrNull() ?: return@mapNotNull null
-            val declared = subtitle.mimeType.trim().lowercase()
-            val plainUrl = subtitle.url.lowercase().substringBefore("?")
-            val mime = when {
-                declared.contains("vtt") || plainUrl.endsWith(".vtt") -> MimeTypes.TEXT_VTT
-                declared.contains("srt") || declared.contains("subrip") || plainUrl.endsWith(".srt") ->
-                    MimeTypes.APPLICATION_SUBRIP
-                declared.contains("ssa") || declared.contains("ass") ||
-                    plainUrl.endsWith(".ass") || plainUrl.endsWith(".ssa") -> MimeTypes.TEXT_SSA
-                else -> MimeTypes.TEXT_VTT
+        val subtitleConfigurations = buildList {
+            source.subtitles.forEachIndexed { index, subtitle ->
+                val config = runCatching {
+                    buildPreparedSubtitleConfiguration(source, subtitle, index)
+                }.getOrNull()
+                if (config != null) add(config)
             }
-
-            MediaItem.SubtitleConfiguration.Builder(uri)
-                .setMimeType(mime)
-                .setLanguage(subtitle.language.ifBlank { null })
-                .setLabel(subtitle.label.ifBlank { languageDisplayName(subtitle.language) })
-                .setSelectionFlags(if (subtitle.isDefault) C.SELECTION_FLAG_DEFAULT else 0)
-                .setRoleFlags(0)
-                .build()
         }
 
         val mediaItem = MediaItem.Builder()
@@ -411,6 +408,111 @@ class MovyzaPlayerActivity : ComponentActivity() {
         player.setMediaSource(mediaSource)
         player.prepare()
         player.playWhenReady = true
+    }
+
+    private suspend fun buildPreparedSubtitleConfiguration(
+        source: PlaybackCandidate,
+        subtitle: PlaybackSubtitle,
+        index: Int
+    ): MediaItem.SubtitleConfiguration? {
+        val declared = subtitle.mimeType.trim().lowercase()
+        val plainUrl = subtitle.url.lowercase().substringBefore("?")
+        val mime = when {
+            declared.contains("vtt") || plainUrl.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+            declared.contains("srt") || declared.contains("subrip") || plainUrl.endsWith(".srt") ->
+                MimeTypes.APPLICATION_SUBRIP
+            declared.contains("ssa") || declared.contains("ass") ||
+                plainUrl.endsWith(".ass") || plainUrl.endsWith(".ssa") -> MimeTypes.TEXT_SSA
+            else -> MimeTypes.TEXT_VTT
+        }
+
+        val cacheDir = File(cacheDir, "movyza_subtitles").apply { mkdirs() }
+        val extension = when (mime) {
+            MimeTypes.APPLICATION_SUBRIP -> "srt"
+            MimeTypes.TEXT_SSA -> "ass"
+            else -> "vtt"
+        }
+        val cacheFile = File(cacheDir, "subtitle_${kotlin.math.abs(subtitle.url.hashCode())}_$index.$extension")
+
+        val normalizedText = runCatching {
+            val requestBuilder = Request.Builder()
+                .url(subtitle.url)
+                .header("Accept", "text/vtt,text/plain,text/*,application/*;q=0.8")
+                .header("User-Agent", "Movyza/2.0 Android")
+            source.headers.forEach { (key, value) ->
+                if (key.equals("Range", ignoreCase = true)) return@forEach
+                requestBuilder.header(key, value)
+            }
+
+            subtitleClient.newCall(requestBuilder.build()).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val text = response.body?.string().orEmpty()
+                if (text.isBlank()) null else normalizeSubtitleForMovyza(text, mime)
+            }
+        }.getOrNull()
+
+        if (!normalizedText.isNullOrBlank()) {
+            cacheFile.writeText(normalizedText, Charsets.UTF_8)
+            Uri.fromFile(cacheFile)
+        } else {
+            runCatching { Uri.parse(subtitle.url) }.getOrNull()
+        }?.let { uri ->
+            return MediaItem.SubtitleConfiguration.Builder(uri)
+                .setMimeType(mime)
+                .setLanguage(subtitle.language.ifBlank { null })
+                .setLabel(subtitle.label.ifBlank { languageDisplayName(subtitle.language) })
+                .setSelectionFlags(
+                    C.SELECTION_FLAG_DEFAULT or C.SELECTION_FLAG_AUTOSELECT
+                )
+                .setRoleFlags(0)
+                .build()
+        }
+
+        return null
+    }
+
+    private fun normalizeSubtitleForMovyza(text: String, mime: String): String {
+        val normalized = text
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+
+        if (mime == MimeTypes.TEXT_SSA) {
+            return normalized
+                .replace("\\N", "\n")
+                .replace(Regex("(?<!\\n)\\s+-\\s+")) { "\n- " }
+        }
+
+        val lines = normalized.split("\n")
+        val out = StringBuilder(normalized.length + 64)
+        var insideCueText = false
+
+        lines.forEachIndexed { index, line ->
+            val trimmed = line.trim()
+            if (trimmed.isBlank()) {
+                insideCueText = false
+                out.append(line)
+            } else if (trimmed.contains("-->")) {
+                insideCueText = true
+                out.append(line)
+            } else if (insideCueText) {
+                out.append(normalizeDialogueLine(line))
+            } else {
+                out.append(line)
+            }
+
+            if (index != lines.lastIndex) out.append('\n')
+        }
+
+        return out.toString()
+    }
+
+    private fun normalizeDialogueLine(line: String): String {
+        val trimmed = line.trim()
+        if (trimmed.startsWith("- ")) {
+            val body = trimmed.removePrefix("- ")
+            return "- " + Regex("\\s+-\\s+").replace(body) { "\n- " }
+        }
+        return Regex("\\s+-\\s+").replace(line) { "\n- " }
     }
 
     private fun refreshTracks() {
@@ -646,11 +748,11 @@ class MovyzaPlayerActivity : ComponentActivity() {
 private fun subtitleStyleFor(style: SubtitleVisualStyle): CaptionStyleCompat = when (style) {
     SubtitleVisualStyle.CLASSIC -> CaptionStyleCompat(
         android.graphics.Color.WHITE,
-        android.graphics.Color.argb(170, 0, 0, 0),
+        android.graphics.Color.argb(235, 0, 0, 0),
         android.graphics.Color.TRANSPARENT,
         CaptionStyleCompat.EDGE_TYPE_OUTLINE,
         android.graphics.Color.BLACK,
-        android.graphics.Typeface.DEFAULT
+        android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
     )
     SubtitleVisualStyle.GOLD -> CaptionStyleCompat(
         android.graphics.Color.rgb(245, 201, 76),
@@ -674,7 +776,8 @@ private fun applySubtitleStyle(playerView: PlayerView, style: SubtitleVisualStyl
     playerView.subtitleView?.apply {
         setApplyEmbeddedStyles(false)
         setStyle(subtitleStyleFor(style))
-        setFractionalTextSize(0.055f)
+        setFractionalTextSize(0.052f)
+        setBottomPaddingFraction(0.075f)
     }
 }
 
