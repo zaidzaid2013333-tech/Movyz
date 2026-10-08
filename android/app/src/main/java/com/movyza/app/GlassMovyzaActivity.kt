@@ -248,12 +248,10 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
             GlassDock(
                 selected = tab,
                 onSelect = { dockVisible = true; tab = it },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(start = 14.dp, end = 14.dp, bottom = 8.dp)
-                .navigationBarsPadding()
-        )
-
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(start = 14.dp, end = 14.dp, bottom = 8.dp)
+                    .navigationBarsPadding()
             )
         }
 
@@ -766,9 +764,9 @@ private fun GlassPoster(movie: Movie, onOpen: (Movie) -> Unit) {
                 .fillMaxWidth()
                 .height(177.dp)
                 .clip(RoundedCornerShape(17.dp))
-                .shadow(12.dp, RoundedCornerShape(17.dp))
+                .shadow(5.dp, RoundedCornerShape(17.dp))
                 .border(1.dp, Color.White.copy(alpha = .055f), RoundedCornerShape(17.dp))
-                .background(Color(0xFF12110E))
+                .background(MovyzaColors.Bg2)
         ) {
             AsyncImage(
                 model = movie.posterUrl,
@@ -788,7 +786,7 @@ private fun GlassPoster(movie: Movie, onOpen: (Movie) -> Unit) {
             Surface(
                 Modifier.align(Alignment.TopEnd).padding(7.dp),
                 shape = RoundedCornerShape(8.dp),
-                color = Color.Black.copy(alpha = .52f)
+                color = MovyzaColors.Bg.copy(alpha = .68f)
             ) {
                 Text(
                     "★ " + String.format("%.1f", movie.rating),
@@ -1156,7 +1154,7 @@ private fun GlassDetails(
         Surface(
             Modifier.padding(top = 14.dp, start = 12.dp),
             shape = CircleShape,
-            color = Color.Black.copy(alpha = .36f),
+            color = MovyzaColors.Bg.copy(alpha = .62f),
             border = BorderStroke(1.dp, Color.White.copy(alpha = .08f))
         ) {
             IconButton(onClick = onBack) {
@@ -1258,7 +1256,7 @@ private fun GlassDetails(
             Surface(
                 Modifier.align(Alignment.Center).padding(bottom = 130.dp),
                 shape = CircleShape,
-                color = Color.Black.copy(alpha = .40f)
+                color = MovyzaColors.Bg.copy(alpha = .68f)
             ) {
                 CircularProgressIndicator(
                     Modifier.padding(11.dp).size(27.dp),
