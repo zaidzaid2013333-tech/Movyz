@@ -807,7 +807,7 @@ private fun FixedHorizontalSection(
         Box(Modifier.fillMaxWidth()) {
             LazyRow(
                 state = rememberLazyListState(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(
@@ -823,9 +823,9 @@ private fun FixedHorizontalSection(
                     )
                 }
             }
-
         }
     }
+}
 
 @Composable
 private fun MovyzaCatalogTemplateScreen(
