@@ -95,7 +95,7 @@ object MovyzaPlaybackRepository {
             collectCandidates(root, 0, emptyMap(), emptyList(), candidates)
 
             return candidates
-                .filter { isPlayable(it.url) }
+                .filter { isPlayableOrDeclaredFormat(it.url, it.format) }
                 .distinctBy { normalizeUrl(it.url) }
                 .sortedWith(compareBy<PlaybackCandidate> { qualityRank(it.quality) }.thenBy { it.url.length })
         }
