@@ -557,7 +557,6 @@ fun MovyzaPosterCardTemplate(
 
     Column(
         modifier = sizeMod
-            .clip(MovyzaShapes.Md)
             .then(clickMod)
     ) {
         Box(
@@ -764,8 +763,8 @@ fun MovyzaContinueWatchingCard(
     ) {
         Box(Modifier.fillMaxSize()) {
             AsyncImage(
-                model = entry.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }
-                    ?: entry.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" },
+                model = entry.backdropPath?.let { "https://image.tmdb.org/t/p/w500$it" }
+                    ?: entry.posterPath?.let { "https://image.tmdb.org/t/p/w342$it" },
                 contentDescription = entry.title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
