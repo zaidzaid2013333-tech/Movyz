@@ -13,7 +13,7 @@ fun quoted(value: String): String =
 
 android {
     namespace = "com.movyza.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.movyza.app"
