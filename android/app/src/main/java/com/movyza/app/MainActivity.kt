@@ -187,7 +187,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun search(query: String) {
         viewModelScope.launch {
-            kotlinx.coroutines.delay(320)
             if (query.isBlank()) { _search.value = emptyList(); return@launch }
             loading = true
             runCatching { api.search(query) }
