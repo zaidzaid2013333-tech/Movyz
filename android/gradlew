@@ -1,5 +1,11 @@
 #!/bin/sh
 
+# Prefer a preinstalled Gradle binary in hosted preview environments.
+if command -v gradle >/dev/null 2>&1; then
+    exec gradle "$@"
+fi
+
+
 #
 # Copyright © 2015 the original authors.
 #
