@@ -611,6 +611,8 @@ const escapeXml = (value: string) =>
     .replace(/'/g, '&apos;');
 
 const SITEMAP_DISCOVERY_PAGES = 20;
+// Retain the episode sitemap endpoint for direct requests, but keep it bounded.
+const SITEMAP_EPISODE_PAGES = 20;
 // Keep the XML sitemap focused on the highest-value language surfaces.
 // All supported locales remain directly accessible and retain hreflang links,
 // but advertising every episode in every locale causes an unnecessary crawl storm.
