@@ -110,7 +110,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         trackSelector = DefaultTrackSelector(this).apply {
-            setParameters(buildUponParameters().setMaxVideoSize(1280, 720).build())
+            setParameters(buildUponParameters().setMaxVideoSize(3840, 2160).build())
         }
 
         player = ExoPlayer.Builder(this)
