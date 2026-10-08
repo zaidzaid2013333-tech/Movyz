@@ -1,14 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Movyza" parent="android:style/Theme.DeviceDefault.NoActionBar">
-        <item name="android:fontFamily">sans-serif</item>
+    <style name="Theme.Movyza" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#FFFFFF</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
-        <item name="android:statusBarColor">#04060D</item>
-        <item name="android:navigationBarColor">#080E1E</item>
-        <item name="android:windowBackground">#04060D</item>
-        <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:colorAccent">#EEC972</item>
-        <item name="android:windowNoTitle">true</item>
+        <item name="android:statusBarColor">@color/movyza_bg</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowBackground">@color/movyza_bg</item>
     </style>
 </resources>
