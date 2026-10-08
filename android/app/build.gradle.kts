@@ -6,6 +6,7 @@ plugins {
 val tmdbToken = providers.environmentVariable("TMDB_API_READ_ACCESS_TOKEN").orElse("").get()
 val supabaseUrl = providers.environmentVariable("SUPABASE_URL").orElse("").get()
 val supabaseAnonKey = providers.environmentVariable("SUPABASE_ANON_KEY").orElse("").get()
+val playbackApiBase = providers.environmentVariable("PLAYBACK_API_BASE").orElse("https://movyz-api.sameranede.workers.dev").get()
 
 fun quoted(value: String): String =
     "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -24,6 +25,7 @@ android {
         buildConfigField("String", "TMDB_TOKEN", quoted(tmdbToken))
         buildConfigField("String", "SUPABASE_URL", quoted(supabaseUrl))
         buildConfigField("String", "SUPABASE_ANON_KEY", quoted(supabaseAnonKey))
+        buildConfigField("String", "PLAYBACK_API_BASE", quoted(playbackApiBase))
     }
 
     buildFeatures {
@@ -73,4 +75,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt.coil3:coil-compose:3.3.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
+
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
+    implementation("androidx.media3:media3-ui:1.11.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.11.1")
+    implementation("androidx.media3:media3-exoplayer-dash:1.11.1")
 }
