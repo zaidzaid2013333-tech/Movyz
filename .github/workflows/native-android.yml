@@ -2,7 +2,7 @@ name: Movyza Native Android APK
 
 on:
   push:
-    branches: [main, ramus-preview-2]
+    branches: [main]
     paths:
       - "android/**"
       - ".github/workflows/native-android.yml"
@@ -94,9 +94,17 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin ramus-preview-2
           git checkout -B ramus-preview-2 origin/ramus-preview-2
-          mkdir -p .ramus
-          cp /tmp/ramus-native-debug.apk .ramus/movyza-native-debug.apk
-          git add .ramus/movyza-native-debug.apk
+          git fetch origin "$GITHUB_HEAD_REF"
+          HEAD_SUBJECT="$(git log -1 --format=%s "origin/$GITHUB_HEAD_REF")"
+          if [ "$HEAD_SUBJECT" = "chore(ramus): refresh verified preview APK" ]; then
+            echo "Skipping APK refresh commit to prevent a preview-build loop."
+            exit 0
+          fi
+          mkdir -p ramus-prebuilt
+          cp /tmp/ramus-native-debug.apk ramus-prebuilt/movyza-native-debug.apk
+          git add ramus-prebuilt/movyza-native-debug.apk
+          git rm -f --ignore-unmatch .ramus/movyza-native-debug.apk || true
+          rmdir .ramus 2>/dev/null || true
           if git diff --cached --quiet; then
             exit 0
           fi

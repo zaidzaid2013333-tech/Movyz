@@ -6,7 +6,7 @@ PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 for arg in "$@"; do
     case "$arg" in
         *assembleDebug*)
-            APK_SOURCE="$PROJECT_DIR/.ramus/movyza-native-debug.apk"
+            APK_SOURCE="$PROJECT_DIR/ramus-prebuilt/movyza-native-debug.apk"
             APK_DIR="$PROJECT_DIR/app/build/outputs/apk/debug"
             APK_FILE="$APK_DIR/app-debug.apk"
             if [ ! -s "$APK_SOURCE" ]; then
