@@ -1,4 +1,4 @@
-package com.movyza.native.data
+package com.movyza.app.data
 
 data class Movie(
     val id: Int,
