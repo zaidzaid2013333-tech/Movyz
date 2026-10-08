@@ -549,8 +549,9 @@ object MovyzaPlaybackRepository {
             // Do not strip a source's header payload unless it was parsed.
             // On malformed/double-encoded JSON the raw URL may still be usable
             // by the upstream player, while silently deleting it breaks auth.
-            val parsed = runCatching { JSONObject(encodedHeaders) }
-                .getOrElse { return@runCatching rawUrl to emptyMap() }
+            val parsedResult = runCatching { JSONObject(encodedHeaders) }
+            if (parsedResult.isFailure) return@runCatching rawUrl to emptyMap()
+            val parsed = parsedResult.getOrThrow()
             val headers = linkedMapOf<String, String>()
             val keys = parsed.keys()
             while (keys.hasNext()) {
