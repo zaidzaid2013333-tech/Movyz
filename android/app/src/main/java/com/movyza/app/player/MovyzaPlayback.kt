@@ -8,6 +8,7 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
@@ -61,6 +62,19 @@ object MovyzaPlaybackRepository {
             }
         }
 
+        // Deno remains the primary playback broker. VidLink is a direct-source
+        // fallback only when Deno has no playable source; the native player never
+        // opens VidLink as a webpage/iframe.
+        val denoCandidates = runCatching { fetchCandidates(endpoint) }.getOrNull().orEmpty()
+        if (denoCandidates.isNotEmpty()) return@withContext denoCandidates
+
+        val vidLinkCandidates = runCatching { resolveFromVidLink(request) }.getOrNull().orEmpty()
+        if (vidLinkCandidates.isNotEmpty()) return@withContext vidLinkCandidates
+
+        throw IOException("No direct playback source was returned")
+    }
+
+    private fun fetchCandidates(endpoint: String): List<PlaybackCandidate> {
         client.newCall(
             Request.Builder()
                 .url(endpoint)
@@ -78,13 +92,87 @@ object MovyzaPlaybackRepository {
             val candidates = mutableListOf<PlaybackCandidate>()
             collectCandidates(root, 0, emptyMap(), emptyList(), candidates)
 
-            val unique = candidates
+            return candidates
                 .filter { isPlayable(it.url) }
                 .distinctBy { normalizeUrl(it.url) }
                 .sortedWith(compareBy<PlaybackCandidate> { qualityRank(it.quality) }.thenBy { it.url.length })
+        }
+    }
 
-            if (unique.isEmpty()) throw IOException("No direct playback source was returned")
-            unique
+    private fun resolveFromVidLink(request: PlaybackRequest): List<PlaybackCandidate> {
+        val encodedRequest = "https://enc-dec.app/api/enc-vidlink?text=" +
+            URLEncoder.encode(request.tmdbId.toString(), "UTF-8")
+
+        val encodedId = client.newCall(
+            Request.Builder()
+                .url(encodedRequest)
+                .header("Accept", "application/json")
+                .header("User-Agent", VIDLINK_USER_AGENT)
+                .build()
+        ).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IOException("VidLink encode " + response.code)
+            runCatching { JSONObject(body).optString("result") }
+                .getOrElse { throw IOException("VidLink encode returned invalid JSON") }
+                .trim()
+        }
+
+        if (encodedId.isBlank()) throw IOException("VidLink encode returned no ID")
+
+        val endpoint = if (request.mediaType == "series") {
+            "https://vidlink.pro/api/b/tv/$encodedId/" +
+                request.season.coerceAtLeast(1) + "/" +
+                request.episode.coerceAtLeast(1) + "?multiLang=0"
+        } else {
+            "https://vidlink.pro/api/b/movie/$encodedId?multiLang=0"
+        }
+
+        client.newCall(
+            Request.Builder()
+                .url(endpoint)
+                .header("Accept", "application/json")
+                .header("Referer", "https://vidlink.pro/")
+                .header("Origin", "https://vidlink.pro")
+                .header("User-Agent", VIDLINK_USER_AGENT)
+                .build()
+        ).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IOException("VidLink API " + response.code)
+
+            val root = runCatching { JSONObject(body) }.getOrElse {
+                throw IOException("VidLink API returned invalid JSON")
+            }
+            val stream = root.optJSONObject("stream")
+                ?: throw IOException("VidLink returned no stream object")
+            val qualities = stream.optJSONObject("qualities")
+                ?: throw IOException("VidLink returned no quality streams")
+
+            val candidates = mutableListOf<PlaybackCandidate>()
+            val keys = qualities.keys()
+            while (keys.hasNext()) {
+                val qualityKey = keys.next()
+                val entry = qualities.optJSONObject(qualityKey) ?: continue
+                val url = entry.optString("url").trim()
+                if (!isPlayable(url)) continue
+
+                candidates += PlaybackCandidate(
+                    url = url,
+                    quality = parseQuality(qualityKey) ?: 0,
+                    format = entry.optString("type").ifBlank { "application/x-mpegURL" },
+                    headers = mapOf(
+                        "Referer" to "https://vidlink.pro/",
+                        "Origin" to "https://vidlink.pro",
+                        "User-Agent" to VIDLINK_USER_AGENT
+                    ),
+                    subtitles = collectSubtitleTracks(entry).ifEmpty {
+                        collectSubtitleTracks(stream)
+                    }
+                )
+            }
+
+            return candidates
+                .distinctBy { normalizeUrl(it.url) }
+                .sortedWith(compareBy<PlaybackCandidate> { qualityRank(it.quality) }.thenBy { it.url.length })
         }
     }
 
@@ -286,6 +374,7 @@ object MovyzaPlaybackRepository {
         when (value) {
             is Number -> return value.toInt().takeIf { it > 0 }
             is String -> {
+                if (value.equals("4k", ignoreCase = true)) return 2160
                 Regex("(2160|1440|1080|720|576|480|360|240)")
                     .find(value)
                     ?.groupValues
@@ -328,6 +417,10 @@ object MovyzaPlaybackRepository {
 
     private fun looksLikeLanguageCode(value: String): Boolean =
         value.length in 2..5 && value.all { it.isLetter() || it == '-' || it == '_' }
+
+    private const val VIDLINK_USER_AGENT =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 
     private val SUBTITLE_KEYS = setOf(
         "subtitles", "subtitle_tracks", "subtitleTracks",
