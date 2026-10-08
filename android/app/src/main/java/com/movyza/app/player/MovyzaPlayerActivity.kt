@@ -150,7 +150,6 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private var selectedQualityHeight by mutableIntStateOf(720)
     private var subtitleTracks by mutableStateOf<List<TrackOption>>(emptyList())
     private var audioTracks by mutableStateOf<List<TrackOption>>(emptyList())
-    private var trackDialog by mutableStateOf<TrackDialog?>(null)
     private var defaultSubtitleApplied = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -250,8 +249,9 @@ class MovyzaPlayerActivity : ComponentActivity() {
                         }
                     },
                     onQuality = { selectQuality(it) },
-                    onSubtitles = { trackDialog = TrackDialog.SUBTITLES },
-                    onAudio = { trackDialog = TrackDialog.AUDIO },
+                    onSelectSubtitle = { selectTextTrack(it) },
+                    onSelectPreferredSubtitle = { selectPreferredTextTrack() },
+                    onSelectAudio = { selectAudioTrack(it) },
                     onRetry = {
                         lifecycleScope.launch { resolveAndStart() }
                     }
@@ -360,7 +360,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
                 .setLanguage(subtitle.language.ifBlank { null })
                 .setLabel(subtitle.label.ifBlank { languageDisplayName(subtitle.language) })
                 .setSelectionFlags(if (subtitle.isDefault) C.SELECTION_FLAG_DEFAULT else 0)
-                .setRoleFlags(if (subtitle.isForced) C.ROLE_FLAG_FORCED else 0)
+                .setRoleFlags(0)
                 .build()
         }
 
@@ -614,14 +614,16 @@ private fun MovyzaPlayerScreen(
     onSkip: (Long) -> Unit,
     onNextEpisode: () -> Unit,
     onQuality: (Int) -> Unit,
-    onSubtitles: () -> Unit,
-    onAudio: () -> Unit,
+    onSelectSubtitle: (TrackOption?) -> Unit,
+    onSelectPreferredSubtitle: () -> Unit,
+    onSelectAudio: (TrackOption) -> Unit,
     onRetry: () -> Unit
 ) {
     if (LocalInspectionMode.current) return
 
     var controls by remember { mutableStateOf(true) }
     var showQuality by remember { mutableStateOf(false) }
+    var trackDialog by remember { mutableStateOf<TrackDialog?>(null) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
 
@@ -778,7 +780,7 @@ private fun MovyzaPlayerScreen(
                             color = MovyzaColors.GlassStrong,
                             border = BorderStroke(1.dp, MovyzaColors.GoldBorder)
                         ) {
-                            TextButton(onClick = onSubtitles) {
+                            TextButton(onClick = { trackDialog = TrackDialog.SUBTITLES }) {
                                 Text("CC", color = MovyzaColors.Gold300, fontSize = 11.sp, fontWeight = FontWeight.Black)
                             }
                         }
@@ -791,7 +793,7 @@ private fun MovyzaPlayerScreen(
                             color = MovyzaColors.GlassStrong,
                             border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
                         ) {
-                            TextButton(onClick = onAudio) {
+                            TextButton(onClick = { trackDialog = TrackDialog.AUDIO }) {
                                 Text("A", color = MovyzaColors.Text, fontSize = 11.sp, fontWeight = FontWeight.Black)
                             }
                         }
@@ -1057,14 +1059,14 @@ private fun MovyzaPlayerScreen(
             title = { Text("الترجمة", color = MovyzaColors.Text, fontWeight = FontWeight.Black) },
             text = {
                 Column {
-                    TextButton(onClick = { selectTextTrack(null); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(onClick = { onSelectSubtitle(null); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
                         Text("إيقاف الترجمة", color = MovyzaColors.Text, fontWeight = FontWeight.Bold)
                     }
-                    TextButton(onClick = { selectPreferredTextTrack(); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(onClick = { onSelectPreferredSubtitle(); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
                         Text("تلقائي • لغة الجهاز", color = MovyzaColors.Gold300, fontWeight = FontWeight.Bold)
                     }
                     subtitleTracks.forEach { option ->
-                        TextButton(onClick = { selectTextTrack(option); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { onSelectSubtitle(option); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
                             Text(
                                 option.label + if (option.languageTag.isNotBlank()) " • " + option.languageTag else "",
                                 color = MovyzaColors.Text
@@ -1086,7 +1088,7 @@ private fun MovyzaPlayerScreen(
             text = {
                 Column {
                     audioTracks.forEach { option ->
-                        TextButton(onClick = { selectAudioTrack(option); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { onSelectAudio(option); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
                             Text(
                                 option.label + if (option.languageTag.isNotBlank()) " • " + option.languageTag else "",
                                 color = MovyzaColors.Text
