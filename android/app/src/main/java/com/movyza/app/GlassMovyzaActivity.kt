@@ -599,15 +599,17 @@ private fun MovyzaFixedBottomBar(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MovyzaColors.GlassStrong)
             .navigationBarsPadding()
+            .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
-        HorizontalDivider(thickness = 1.dp, color = MovyzaColors.GlassBorder)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .height(68.dp)
+                .clip(MovyzaShapes.Xl)
+                .background(MovyzaColors.GlassStrong)
+                .border(1.dp, MovyzaColors.GlassBorder, MovyzaShapes.Xl)
+                .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
@@ -615,25 +617,28 @@ private fun MovyzaFixedBottomBar(
                 val active = selected == item
                 val tint by animateColorAsState(
                     targetValue = if (active) MovyzaColors.Gold300 else MovyzaColors.Text3,
-                    animationSpec = tween(160),
+                    animationSpec = tween(180),
                     label = "nav-tint"
                 )
                 val pillBg by animateColorAsState(
-                    targetValue = if (active) MovyzaColors.Gold500.copy(alpha = 0.16f) else Color.Transparent,
-                    animationSpec = tween(160),
+                    targetValue = if (active) MovyzaColors.Gold500.copy(alpha = 0.18f) else Color.Transparent,
+                    animationSpec = tween(180),
                     label = "nav-bg"
                 )
 
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(52.dp)
-                        .padding(horizontal = 3.dp)
-                        .clip(MovyzaShapes.Md)
+                        .height(54.dp)
+                        .padding(horizontal = 2.dp)
+                        .clip(MovyzaShapes.Lg)
                         .background(pillBg)
                         .then(
-                            if (active) Modifier.border(1.dp, MovyzaColors.GoldBorder, MovyzaShapes.Md)
-                            else Modifier
+                            if (active) Modifier.border(
+                                1.dp,
+                                MovyzaColors.Gold300.copy(alpha = 0.46f),
+                                MovyzaShapes.Lg
+                            ) else Modifier
                         )
                         .clickable { onSelect(item) },
                     contentAlignment = Alignment.Center
@@ -652,13 +657,13 @@ private fun MovyzaFixedBottomBar(
                             },
                             contentDescription = item.label,
                             tint = tint,
-                            modifier = Modifier.size(21.dp)
+                            modifier = Modifier.size(if (active) 22.dp else 21.dp)
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
                             text = item.label,
                             color = tint,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
                             maxLines = 1
                         )
@@ -928,7 +933,7 @@ private fun FixedHorizontalSection(
             Box(
                 Modifier
                     .align(Alignment.CenterStart)
-                    .fillMaxHeight()
+                    .height(250.dp)
                     .width(22.dp)
                     .background(
                         Brush.horizontalGradient(
@@ -939,7 +944,7 @@ private fun FixedHorizontalSection(
             Box(
                 Modifier
                     .align(Alignment.CenterEnd)
-                    .fillMaxHeight()
+                    .height(250.dp)
                     .width(22.dp)
                     .background(
                         Brush.horizontalGradient(
