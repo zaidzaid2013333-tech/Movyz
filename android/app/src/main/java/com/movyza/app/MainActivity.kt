@@ -96,15 +96,23 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+private val MovyzaGold = Color(0xFFD6B15E)
+private val MovyzaGoldBright = Color(0xFFF1D58A)
+private val MovyzaBlack = Color(0xFF050505)
+private val MovyzaSurface = Color(0xFF0E0D0B)
+private val MovyzaSurfaceElevated = Color(0xFF15130F)
+private val MovyzaText = Color(0xFFF4F0E7)
+private val MovyzaMuted = Color(0xFFAAA49A)
+
 private val MovyzaDark = darkColorScheme(
-    primary = Color(0xFFB7FF3C),
-    secondary = Color(0xFF8BD0FF),
-    background = Color(0xFF06070A),
-    surface = Color(0xFF0D1015),
-    surfaceVariant = Color(0xFF171B22),
-    onPrimary = Color(0xFF101500),
-    onBackground = Color(0xFFF2F5F7),
-    onSurface = Color(0xFFF2F5F7)
+    primary = MovyzaGoldBright,
+    secondary = MovyzaGold,
+    background = MovyzaBlack,
+    surface = MovyzaSurface,
+    surfaceVariant = MovyzaSurfaceElevated,
+    onPrimary = Color(0xFF171108),
+    onBackground = MovyzaText,
+    onSurface = MovyzaText
 )
 
 class MainActivity : ComponentActivity() {
@@ -156,12 +164,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             loading = true
             error = null
             runCatching {
-                HomeState(
-                    trending = api.trending(),
-                    movies = api.popularMovies(),
-                    topRated = api.topRatedMovies(),
-                    series = api.popularSeries()
-                )
+                kotlinx.coroutines.coroutineScope {
+                    val trending = async { api.trending() }
+                    val movies = async { api.popularMovies() }
+                    val topRated = async { api.topRatedMovies() }
+                    val series = async { api.popularSeries() }
+                    HomeState(
+                        trending = trending.await(),
+                        movies = movies.await(),
+                        topRated = topRated.await(),
+                        series = series.await()
+                    )
+                }
             }.onSuccess { _home.value = it }
                 .onFailure { error = it.message ?: "تعذر تحميل الكتالوج" }
             loading = false
@@ -171,6 +185,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun search(query: String) {
         viewModelScope.launch {
+            kotlinx.coroutines.delay(320)
             if (query.isBlank()) { _search.value = emptyList(); return@launch }
             loading = true
             runCatching { api.search(query) }
