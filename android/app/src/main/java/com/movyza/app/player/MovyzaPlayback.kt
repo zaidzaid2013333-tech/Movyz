@@ -425,7 +425,7 @@ object MovyzaPlaybackRepository {
     }
 
     private fun extractEmbeddedHeaders(rawUrl: String): Pair<String, Map<String, String>> {
-        return runCatching {
+        return runCatching<Pair<String, Map<String, String>>> {
             val uri = android.net.Uri.parse(rawUrl)
             val encodedHeaders = uri.getQueryParameter("headers")
             if (encodedHeaders.isNullOrBlank()) return@runCatching rawUrl to emptyMap()

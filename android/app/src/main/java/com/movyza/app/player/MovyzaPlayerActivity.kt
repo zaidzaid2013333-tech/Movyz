@@ -416,7 +416,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
         val path = source.url.lowercase(Locale.US).substringBefore("?").substringBefore("#")
         return when {
             declared in setOf("hls", "m3u8", "mpegurl") ||
-                declared.contains("mpegurl") || declared.contains("mpegurl") ||
+                declared.contains("mpegurl") ||
                 path.endsWith(".m3u8") -> MimeTypes.APPLICATION_M3U8
             declared in setOf("dash", "mpd") || declared.contains("dash") ||
                 declared.contains("dash+xml") || path.endsWith(".mpd") -> MimeTypes.APPLICATION_MPD
