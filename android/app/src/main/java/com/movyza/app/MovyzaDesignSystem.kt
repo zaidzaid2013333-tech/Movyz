@@ -73,11 +73,12 @@ object MovyzaColors {
     val Navy500 = Color(0xFF142A66)
 
     // Royal Gold accents
-    val Gold300 = Color(0xFFF6DE9C)
-    val Gold400 = Color(0xFFEEC972)
-    val Gold500 = Color(0xFFE0B354)
-    val Gold600 = Color(0xFFC89636)
-    val Gold700 = Color(0xFF9B7122)
+    // Signature Movyza gold: crisp, luminous and high-contrast against Obsidian.
+    val Gold300 = Color(0xFFFFD54A)
+    val Gold400 = Color(0xFFFFC107)
+    val Gold500 = Color(0xFFFFB300)
+    val Gold600 = Color(0xFFD99000)
+    val Gold700 = Color(0xFF8C5A00)
 
     // Arabic-optimized warm-white & silver-slate typography
     val Text = Color(0xFFF7F4EC)
@@ -96,11 +97,11 @@ object MovyzaColors {
 }
 
 object MovyzaShapes {
-    val Xs = RoundedCornerShape(8.dp)
-    val Sm = RoundedCornerShape(12.dp)
-    val Md = RoundedCornerShape(16.dp)
-    val Lg = RoundedCornerShape(20.dp)
-    val Xl = RoundedCornerShape(26.dp)
+    val Xs = RoundedCornerShape(10.dp)
+    val Sm = RoundedCornerShape(14.dp)
+    val Md = RoundedCornerShape(18.dp)
+    val Lg = RoundedCornerShape(22.dp)
+    val Xl = RoundedCornerShape(28.dp)
     val Pill = RoundedCornerShape(999.dp)
 }
 
@@ -229,11 +230,11 @@ fun GlassPill(
     onClick: (() -> Unit)? = null
 ) {
     val bg by animateColorAsState(
-        targetValue = if (active) MovyzaColors.Gold500.copy(alpha = 0.22f) else MovyzaColors.GlassCardBg,
+        targetValue = if (active) MovyzaColors.Gold500.copy(alpha = 0.24f) else MovyzaColors.GlassCardBg,
         animationSpec = tween(160),
         label = "pill-bg"
     )
-    val border = if (active) MovyzaColors.GoldBorder else MovyzaColors.GlassBorder
+    val border = if (active) MovyzaColors.Gold300.copy(alpha = 0.52f) else MovyzaColors.GlassBorder
     val textColor = if (active) MovyzaColors.Gold300 else MovyzaColors.Text2
     val clickMod = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
 
