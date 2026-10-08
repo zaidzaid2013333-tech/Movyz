@@ -254,6 +254,9 @@ object MovyzaPlaybackRepository {
                     // Some VidLink URLs have no extension and identify their
                     // container only through the API's type field.
                     val declaredFormat = entry?.optString("type").orEmpty()
+                        .ifBlank {
+                            firstString(stream, "type", "format", "mime", "mime_type").orEmpty()
+                        }
                     val (url, embeddedHeaders) = extractEmbeddedHeaders(rawUrl)
                     if (!isPlayableOrDeclaredFormat(url, declaredFormat)) continue
 
