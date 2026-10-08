@@ -80,8 +80,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -154,7 +156,57 @@ private fun launchPlayer(
 }
 
 @Composable
+private fun MovyzaLaunchScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MovyzaColors.Bg),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = "MOVYZA",
+                color = MovyzaColors.Gold300,
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 5.sp
+            )
+            Text(
+                text = "سينماك تبدأ هنا",
+                color = MovyzaColors.Text3,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.height(4.dp))
+            CircularProgressIndicator(
+                modifier = Modifier.size(22.dp),
+                strokeWidth = 2.dp,
+                color = MovyzaColors.Gold300
+            )
+        }
+    }
+}
+
+@Composable
 fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
+    var launchComplete by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        // Draw the lightweight launch surface first, then start network/model work.
+        withFrameNanos { }
+        vm.startInitialLoad()
+        delay(650)
+        launchComplete = true
+    }
+
+    if (!launchComplete) {
+        MovyzaLaunchScreen()
+        return
+    }
+
     var tab by remember { mutableStateOf(Tab.HOME) }
     var selected by remember { mutableStateOf<Movie?>(null) }
     var details by remember { mutableStateOf<TmdbDetails?>(null) }

@@ -19,13 +19,28 @@ android {
         applicationId = "com.movyza.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "2.0.0"
+        versionCode = 2
+        versionName = "2.0.1"
 
         buildConfigField("String", "TMDB_TOKEN", quoted(tmdbToken))
         buildConfigField("String", "SUPABASE_URL", quoted(supabaseUrl))
         buildConfigField("String", "SUPABASE_ANON_KEY", quoted(supabaseAnonKey))
         buildConfigField("String", "PLAYBACK_API_BASE", quoted(playbackApiBase))
+    }
+
+    signingConfigs {
+        create("movyzaTest") {
+            storeFile = rootProject.file("keystore/movyza-test.jks")
+            storePassword = "movyza-debug"
+            keyAlias = "movyza-test"
+            keyPassword = "movyza-debug"
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("movyzaTest")
+        }
     }
 
     buildFeatures {

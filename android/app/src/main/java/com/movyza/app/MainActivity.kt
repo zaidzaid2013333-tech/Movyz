@@ -106,8 +106,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var lastSearchQuery: String = ""
     val config = api.configStatus()
 
+    private var initialLoadStarted = false
+
     init {
         refreshWatchHistory()
+    }
+
+    fun startInitialLoad() {
+        if (initialLoadStarted) return
+        initialLoadStarted = true
         refreshHome()
         if (session != null) {
             loadWatchlist()
@@ -205,28 +212,48 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             loading = true
             error = null
-            runCatching {
+
+            val coreResult = runCatching {
                 coroutineScope {
                     val trending = async { api.trending() }
                     val movies = async { api.popularMovies(1) }
-                    val topRated = async { api.topRatedMovies(1) }
-                    val series = async { api.popularSeries(1) }
-                    val topRatedSeries = async { runCatching { api.topRatedSeries(1) }.getOrDefault(emptyList()) }
-                    HomeState(
-                        trending = trending.await(),
-                        movies = movies.await(),
-                        topRated = topRated.await(),
-                        series = series.await(),
-                        topRatedSeries = topRatedSeries.await()
-                    )
+                    trending.await() to movies.await()
                 }
-            }.onSuccess {
+            }
+
+            coreResult.onSuccess { (trending, movies) ->
                 moviesPage = 1
-                seriesPage = 1
-                _home.value = it
+                _home.value = _home.value.copy(
+                    trending = trending,
+                    movies = movies
+                )
             }.onFailure {
                 error = it.message ?: "تعذر تحميل الكتالوج، تحقق من الاتصال بالإنترنت."
+                loading = false
+                return@launch
             }
+
+            runCatching {
+                coroutineScope {
+                    val topRated = async { api.topRatedMovies(1) }
+                    val series = async { api.popularSeries(1) }
+                    val topRatedSeries = async {
+                        runCatching { api.topRatedSeries(1) }.getOrDefault(emptyList())
+                    }
+                    Triple(topRated.await(), series.await(), topRatedSeries.await())
+                }
+            }.onSuccess { (topRated, series, topRatedSeries) ->
+                moviesPage = 1
+                seriesPage = 1
+                _home.value = _home.value.copy(
+                    topRated = topRated,
+                    series = series,
+                    topRatedSeries = topRatedSeries
+                )
+            }.onFailure {
+                error = it.message ?: "تعذر إكمال تحميل بعض الأقسام."
+            }
+
             loading = false
         }
     }
