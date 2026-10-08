@@ -77,6 +77,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
@@ -148,7 +152,6 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
     var details by remember { mutableStateOf<TmdbDetails?>(null) }
     var authOpen by remember { mutableStateOf(false) }
     var loginMode by remember { mutableStateOf(true) }
-    var dockVisible by remember { mutableStateOf(true) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -179,102 +182,83 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
         )
     }
 
-    Box(Modifier.fillMaxSize().background(GlassBlack)) {
-        AnimatedContent(
-            targetState = tab,
-            modifier = Modifier.fillMaxSize(),
-            transitionSpec = {
-                val dir = if (targetState.ordinal >= initialState.ordinal) 1 else -1
-                (
-                    slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { dir * it / 12 } +
-                        fadeIn(tween(180))
-                ) togetherWith (
-                    slideOutHorizontally(tween(220)) { -dir * it / 14 } +
-                        fadeOut(tween(120))
-                )
-            },
-            label = "glass-pages"
-        ) { current ->
-            when (current) {
-                Tab.HOME -> GlassHome(
-                    state = home,
-                    loading = vm.loading,
-                    error = vm.error,
-                    onOpen = { dockVisible = false; selected = it },
-                    onDockVisibility = { dockVisible = it },
-                    onSearch = { tab = Tab.SEARCH },
-                    onProfile = { tab = Tab.PROFILE }
-                )
-                Tab.MOVIES -> GlassCatalog(
-                    title = "أفلام",
-                    subtitle = "اختيارات سينمائية لك",
-                    movies = home.movies,
-                    loading = vm.loading,
-                    onOpen = { dockVisible = false; selected = it },
-                    onDockVisibility = { dockVisible = it }
-                )
-                Tab.SERIES -> GlassCatalog(
-                    title = "مسلسلات",
-                    subtitle = "اكتشف عناوينك القادمة",
-                    movies = home.series,
-                    loading = vm.loading,
-                    onOpen = { dockVisible = false; selected = it },
-                    onDockVisibility = { dockVisible = it }
-                )
-                Tab.SEARCH -> GlassSearch(
-                    results = search,
-                    loading = vm.loading,
-                    onQuery = vm::search,
-                    onOpen = { dockVisible = false; selected = it },
-                    onDockVisibility = { dockVisible = it }
-                )
-                Tab.PROFILE -> GlassProfile(
-                    session = vm.session,
-                    watchlist = watchlist,
-                    onOpen = { dockVisible = false; selected = it },
-                    onDockVisibility = { dockVisible = it },
-                    onLogin = { loginMode = true; authOpen = true },
-                    onSignup = { loginMode = false; authOpen = true },
-                    onLogout = vm::signOut
-                )
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        containerColor = MovyzaColors.Bg,
+        snackbarHost = { SnackbarHost(snack) },
+        bottomBar = {
+            if (selected == null) {
+                MovyzaBottomBar(selected = tab, onSelect = { tab = it })
             }
         }
-
-        AnimatedVisibility(
-            visible = selected == null && dockVisible,
-            enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 3 },
-            exit = fadeOut(tween(120)) + slideOutVertically(tween(170)) { it / 3 },
-            label = "dock-visibility"
+    ) { innerPadding ->
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(MovyzaColors.Bg)
         ) {
-            GlassDock(
-                selected = tab,
-                onSelect = { dockVisible = true; tab = it },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 14.dp, end = 14.dp, bottom = 8.dp)
-                    .navigationBarsPadding()
-            )
+            AnimatedContent(
+                targetState = tab,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    fadeIn(tween(120)) togetherWith fadeOut(tween(90))
+                },
+                label = "native-pages"
+            ) { current ->
+                when (current) {
+                    Tab.HOME -> GlassHome(
+                        state = home,
+                        loading = vm.loading,
+                        error = vm.error,
+                        onOpen = { selected = it },
+                        onSearch = { tab = Tab.SEARCH },
+                        onProfile = { tab = Tab.PROFILE }
+                    )
+                    Tab.MOVIES -> GlassCatalog(
+                        title = "أفلام",
+                        subtitle = "اختيارات سينمائية لك",
+                        movies = home.movies,
+                        loading = vm.loading,
+                        onOpen = { selected = it }
+                    )
+                    Tab.SERIES -> GlassCatalog(
+                        title = "مسلسلات",
+                        subtitle = "اكتشف عناوينك القادمة",
+                        movies = home.series,
+                        loading = vm.loading,
+                        onOpen = { selected = it }
+                    )
+                    Tab.SEARCH -> GlassSearch(
+                        results = search,
+                        loading = vm.loading,
+                        onQuery = vm::search,
+                        onOpen = { selected = it }
+                    )
+                    Tab.PROFILE -> GlassProfile(
+                        session = vm.session,
+                        watchlist = watchlist,
+                        onOpen = { selected = it },
+                        onLogin = { loginMode = true; authOpen = true },
+                        onSignup = { loginMode = false; authOpen = true },
+                        onLogout = vm::signOut
+                    )
+                }
+            }
         }
-
-        SnackbarHost(
-            hostState = snack,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 92.dp)
-        )
     }
 
     AnimatedVisibility(
         visible = selected != null,
-        enter = fadeIn(tween(180)),
-        exit = fadeOut(tween(120))
+        enter = fadeIn(tween(140)),
+        exit = fadeOut(tween(100))
     ) {
         selected?.let { movie ->
             GlassDetails(
                 movie = movie,
                 details = details,
                 watchlisted = watchlist.any { it.id == movie.id && it.mediaType == movie.mediaType },
-                onBack = { selected = null; details = null; dockVisible = true },
+                onBack = { selected = null; details = null },
                 onLoad = {
                     scope.launch {
                         runCatching { MovyzaApi().details(movie.id, movie.mediaType) }
@@ -301,143 +285,43 @@ private fun GlassMovyzaApp(vm: MainViewModel = androidx.lifecycle.viewmodel.comp
 }
 
 @Composable
-private fun ObserveDockScroll(state: LazyListState, onDockVisibility: (Boolean) -> Unit) {
-    LaunchedEffect(state) {
-        var previous = 0
-        var visible = true
-        snapshotFlow { state.firstVisibleItemIndex * 1000 + state.firstVisibleItemScrollOffset }
-            .collect { current ->
-                val delta = current - previous
-                previous = current
-                if (kotlin.math.abs(delta) >= 10) {
-                    val nextVisible = delta <= 0
-                    if (nextVisible != visible) {
-                        visible = nextVisible
-                        onDockVisibility(nextVisible)
-                    }
-                }
-            }
-    }
-}
-
-@Composable
-private fun ObserveDockScroll(state: LazyGridState, onDockVisibility: (Boolean) -> Unit) {
-    LaunchedEffect(state) {
-        var previous = 0
-        var visible = true
-        snapshotFlow { state.firstVisibleItemIndex * 1000 + state.firstVisibleItemScrollOffset }
-            .collect { current ->
-                val delta = current - previous
-                previous = current
-                if (kotlin.math.abs(delta) >= 10) {
-                    val nextVisible = delta <= 0
-                    if (nextVisible != visible) {
-                        visible = nextVisible
-                        onDockVisibility(nextVisible)
-                    }
-                }
-            }
-    }
-}
-
-@Composable
-private fun GlassDock(
+private fun MovyzaBottomBar(
     selected: Tab,
-    onSelect: (Tab) -> Unit,
-    modifier: Modifier
+    onSelect: (Tab) -> Unit
 ) {
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(68.dp)
-            .shadow(16.dp, RoundedCornerShape(30.dp)),
-        shape = RoundedCornerShape(30.dp),
-        color = GlassPanelStrong,
-        border = BorderStroke(1.dp, Color.White.copy(alpha = .10f)),
-        tonalElevation = 0.dp
+    NavigationBar(
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = MovyzaColors.Bg2,
+        tonalElevation = 0.dp,
+        windowInsets = androidx.compose.foundation.layout.WindowInsets.navigationBars
     ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            Color.White.copy(alpha = .045f),
-                            Color.Transparent,
-                            GlassGold.copy(alpha = .028f),
-                            Color.Transparent
-                        )
+        Tab.values().forEach { item ->
+            NavigationBarItem(
+                selected = selected == item,
+                onClick = { onSelect(item) },
+                icon = {
+                    Icon(
+                        when (item) {
+                            Tab.HOME -> Icons.Outlined.Home
+                            Tab.MOVIES -> Icons.Outlined.LocalMovies
+                            Tab.SERIES -> Icons.Outlined.Tv
+                            Tab.SEARCH -> Icons.Outlined.Search
+                            Tab.PROFILE -> Icons.Outlined.Person
+                        },
+                        contentDescription = item.label
                     )
+                },
+                label = { Text(item.label, fontSize = 10.sp, maxLines = 1) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MovyzaColors.Gold300,
+                    selectedTextColor = MovyzaColors.Gold300,
+                    unselectedIconColor = MovyzaColors.Text3,
+                    unselectedTextColor = MovyzaColors.Text3,
+                    indicatorColor = MovyzaColors.Gold500.copy(alpha = .12f)
                 )
-                .padding(horizontal = 5.dp, vertical = 5.dp)
-        ) {
-            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                Tab.values().forEach { item ->
-                    val active = item == selected
-                    val tint by animateColorAsState(
-                        if (active) GlassGoldBright else GlassMuted.copy(alpha = .72f),
-                        tween(230),
-                        label = "dock-color"
-                    )
-                    val iconScale by animateFloatAsState(
-                        if (active) 1f else .92f,
-                        tween(230, easing = FastOutSlowInEasing),
-                        label = "dock-scale"
-                    )
-
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxSize()
-                            .padding(horizontal = 2.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(
-                                if (active) {
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            GlassGold.copy(alpha = .18f),
-                                            GlassGold.copy(alpha = .045f)
-                                        )
-                                    )
-                                } else {
-                                    Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
-                                }
-                            )
-                            .clickable { onSelect(item) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = when (item) {
-                                    Tab.HOME -> Icons.Outlined.Home
-                                    Tab.MOVIES -> Icons.Outlined.LocalMovies
-                                    Tab.SERIES -> Icons.Outlined.Tv
-                                    Tab.SEARCH -> Icons.Outlined.Search
-                                    Tab.PROFILE -> Icons.Outlined.Person
-                                },
-                                contentDescription = item.label,
-                                tint = tint,
-                                modifier = Modifier.size((21f * iconScale).dp)
-                            )
-                            AnimatedVisibility(
-                                visible = active,
-                                enter = fadeIn(tween(160)),
-                                exit = fadeOut(tween(100))
-                            ) {
-                                Text(
-                                    item.label,
-                                    color = tint,
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Black,
-                                    modifier = Modifier.padding(top = 1.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            )
         }
-    }
+    )
 }
 
 @Composable
@@ -447,209 +331,48 @@ private fun GlassHome(
     error: String?,
     onOpen: (Movie) -> Unit,
     onSearch: () -> Unit,
-    onProfile: () -> Unit,
-    onDockVisibility: (Boolean) -> Unit
+    onProfile: () -> Unit
 ) {
-    val listState = rememberLazyListState()
-    ObserveDockScroll(listState, onDockVisibility)
-    var heroIndex by remember { mutableStateOf(0) }
-    val heroes = remember(state.trending) {
-        state.trending.filter { !it.backdropUrl.isNullOrBlank() }.take(5)
-    }
-    val heroScale by animateFloatAsState(
-        targetValue = if (heroIndex % 2 == 0) 1.012f else 1f,
-        animationSpec = tween(900, easing = FastOutSlowInEasing),
-        label = "hero-scale"
-    )
-    val glow by animateFloatAsState(
-        targetValue = if (heroIndex % 2 == 0) .15f else .10f,
-        animationSpec = tween(1100, easing = FastOutSlowInEasing),
-        label = "hero-glow"
-    )
-
-    LaunchedEffect(heroes.size) {
-        if (heroes.isNotEmpty()) {
-            while (true) {
-                delay(6200)
-                heroIndex = (heroIndex + 1) % heroes.size
-            }
-        }
-    }
-
     LazyColumn(
-        Modifier.fillMaxSize().background(GlassBlack),
-        state = listState,
-        contentPadding = PaddingValues(bottom = 112.dp)
+        Modifier.fillMaxSize().background(MovyzaColors.Bg),
+        contentPadding = PaddingValues(bottom = 22.dp)
     ) {
         item {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(start = 18.dp, end = 14.dp, top = 16.dp, bottom = 10.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 17.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        "MOVYZA",
-                        color = GlassGoldBright,
-                        fontSize = 23.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 4.sp
-                    )
-                    Text(
-                        "Cinema, reimagined.",
-                        color = GlassGold.copy(alpha = .52f),
-                        fontSize = 9.sp,
-                        letterSpacing = 1.5.sp
-                    )
+                    Text("MOVYZA", color = MovyzaColors.Gold300, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
+                    Text("Cinema, reimagined.", color = MovyzaColors.Text3, fontSize = 9.sp, letterSpacing = 1.sp)
                 }
                 GlassCircleButton(Icons.Outlined.Search, onSearch)
-                Spacer(Modifier.width(5.dp))
+                Spacer(Modifier.width(7.dp))
                 GlassCircleButton(Icons.Outlined.AccountCircle, onProfile)
             }
         }
-
         item {
-            if (heroes.isNotEmpty()) {
-                AnimatedContent(
-                    targetState = heroes[heroIndex.coerceIn(0, heroes.lastIndex)],
-                    transitionSpec = { fadeIn(tween(540)) togetherWith fadeOut(tween(330)) },
-                    label = "hero-swap"
-                ) { hero ->
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(470.dp)
-                            .clip(RoundedCornerShape(0.dp))
-                            .border(1.dp, Color.White.copy(alpha = .07f), RoundedCornerShape(29.dp))
-                            .clickable { onOpen(hero) }
-                    ) {
-                        AsyncImage(
-                            model = hero.backdropUrl ?: hero.posterUrl,
-                            contentDescription = hero.title,
-                            modifier = Modifier.fillMaxSize().scale(heroScale),
-                            contentScale = ContentScale.Crop
-                        )
-                        Box(
-                            Modifier.fillMaxSize().background(
-                                Brush.verticalGradient(
-                                    0f to Color.Transparent,
-                                    .36f to Color.Transparent,
-                                    .59f to GlassBlack.copy(alpha = .11f),
-                                    .77f to GlassBlack.copy(alpha = .76f),
-                                    1f to GlassBlack.copy(alpha = .99f)
-                                )
-                            )
-                        )
-                        Box(
-                            Modifier.fillMaxSize().background(
-                                Brush.radialGradient(
-                                    listOf(GlassGold.copy(alpha = glow), Color.Transparent),
-                                    radius = 820f
-                                )
-                            )
-                        )
-
-                        Column(
-                            Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(21.dp)
-                        ) {
-                            GlassTag("FEATURED")
-                            Spacer(Modifier.height(10.dp))
-                            Text(
-                                hero.title.ifBlank { hero.originalTitle },
-                                color = Color.White,
-                                fontSize = 31.sp,
-                                lineHeight = 34.sp,
-                                fontWeight = FontWeight.Black,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    "★ " + String.format("%.1f", hero.rating),
-                                    color = GlassGoldBright,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                                GlassDot()
-                                Text(hero.releaseDate.take(4), color = Color.White.copy(alpha = .76f), fontSize = 11.sp)
-                                GlassDot()
-                                Text(
-                                    if (hero.mediaType == "series") "مسلسل" else "فيلم",
-                                    color = Color.White.copy(alpha = .76f),
-                                    fontSize = 11.sp
-                                )
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                hero.overview.ifBlank { "عنوان مختار ضمن تجربة Movyza السينمائية." },
-                                color = Color.White.copy(alpha = .74f),
-                                fontSize = 11.sp,
-                                lineHeight = 17.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(Modifier.height(14.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
-                                    onClick = { onOpen(hero) },
-                                    modifier = Modifier.height(44.dp),
-                                    shape = RoundedCornerShape(14.dp),
-                                    contentPadding = PaddingValues(horizontal = 15.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = GlassGoldBright,
-                                        contentColor = GlassBlack
-                                    )
-                                ) {
-                                    Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("التفاصيل", fontWeight = FontWeight.Black)
-                                }
-                                GlassAction("＋ قائمتي") { onOpen(hero) }
-                            }
-                        }
-                    }
-                }
-            } else {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(448.dp)
-                        .padding(horizontal = 12.dp)
-                        .clip(RoundedCornerShape(29.dp))
-                        .background(MovyzaColors.Bg2)
-                )
-            }
+            NativeHeroTemplate(
+                movie = state.trending.firstOrNull(),
+                onClick = state.trending.firstOrNull()?.let { { onOpen(it) } }
+            )
         }
-
         item {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 13.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 GlassPill("أفلام", Icons.Outlined.LocalMovies, onSearch)
                 GlassPill("مسلسلات", Icons.Outlined.Tv, onSearch)
-                GlassPill("تقييمات", Icons.Outlined.Tune, onSearch)
+                GlassPill("بحث", Icons.Outlined.Search, onSearch)
                 GlassPill("قائمتي", Icons.Outlined.BookmarkAdded, onProfile)
             }
         }
-
         if (error != null) item { GlassError(error) }
-
-        if (loading && state.movies.isEmpty()) {
-            item { GlassSkeletons() }
-        } else {
-            item { GlassSection("الآن", state.trending.drop(1), "رائج الآن", onOpen) }
-            item { GlassSection("اختيارات لك", state.movies, "أفلام", onOpen) }
-            item { GlassSection("الأعلى تقييمًا", state.topRated, "موثوق", onOpen) }
-            item { GlassSection("جلسة مسلسلات", state.series, "مسلسلات", onOpen) }
-        }
+        item { NativeTemplateSection("الأكثر رواجًا", "عناوين تتصدر Movyza", state.trending.drop(1), loading, onOpen) }
+        item { NativeTemplateSection("أفلام شعبية", "اختيارات جاهزة للمشاهدة", state.movies, loading, onOpen) }
+        item { NativeTemplateSection("الأعلى تقييمًا", "أقوى التقييمات", state.topRated, loading, onOpen) }
+        item { NativeTemplateSection("مسلسلات شعبية", "جلسة مشاهدة جديدة", state.series, loading, onOpen) }
     }
 }
 
@@ -823,85 +546,31 @@ private fun GlassCatalog(
     subtitle: String,
     movies: List<Movie>,
     loading: Boolean,
-    onOpen: (Movie) -> Unit,
-    onDockVisibility: (Boolean) -> Unit
+    onOpen: (Movie) -> Unit
 ) {
-    val gridState = rememberLazyGridState()
-    ObserveDockScroll(gridState, onDockVisibility)
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        state = gridState,
-        modifier = Modifier.fillMaxSize().background(GlassBlack),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 22.dp, bottom = 108.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(15.dp)
-    ) {
-        item(span = { GridItemSpan(2) }) {
-            Column {
-                Text(title, color = GlassText, fontSize = 29.sp, fontWeight = FontWeight.Black)
-                Text(subtitle, color = GlassFaint, fontSize = 10.sp)
-                if (loading) {
-                    Spacer(Modifier.height(9.dp))
-                    GlassLoading()
-                }
-            }
+    Column(Modifier.fillMaxSize().background(MovyzaColors.Bg)) {
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 18.dp)) {
+            Text(title, color = MovyzaColors.Text, fontSize = 28.sp, fontWeight = FontWeight.Black)
+            Text(subtitle, color = MovyzaColors.Text3, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
         }
-        items(movies, key = { it.mediaType + "-" + it.id }) { movie ->
-            GlassGridCard(movie, onOpen)
+        val gridItems: List<Movie?> = if (movies.isEmpty() && loading) {
+            List(8) { null }
+        } else {
+            movies
         }
-    }
-}
-
-@Composable
-private fun GlassGridCard(movie: Movie, onOpen: (Movie) -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable { onOpen(movie) }) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(0.67f)
-                .clip(RoundedCornerShape(18.dp))
-                .border(1.dp, Color.White.copy(alpha = .06f), RoundedCornerShape(18.dp))
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 150.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 22.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            AsyncImage(
-                model = movie.posterUrl,
-                contentDescription = movie.title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-            Box(
-                Modifier.fillMaxWidth().height(85.dp).align(Alignment.BottomCenter).background(
-                    Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .90f)))
-                )
-            )
-            Surface(
-                Modifier.align(Alignment.TopStart).padding(8.dp),
-                shape = RoundedCornerShape(8.dp),
-                color = Color.Black.copy(alpha = .50f)
-            ) {
-                Text(
-                    "★ " + String.format("%.1f", movie.rating),
-                    color = GlassGoldBright,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)
-                )
+            items(
+                items = gridItems,
+                key = { it?.mediaType + "-" + it?.id + "-" + (it?.title ?: "template") }
+            ) { movie ->
+                NativePosterTemplate(movie = movie, onClick = movie?.let { { onOpen(it) } })
             }
         }
-        Spacer(Modifier.height(7.dp))
-        Text(
-            movie.title.ifBlank { movie.originalTitle },
-            color = GlassText,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            if (movie.mediaType == "series") "مسلسل" else "فيلم",
-            color = GlassFaint,
-            fontSize = 9.sp,
-            modifier = Modifier.padding(top = 3.dp)
-        )
     }
 }
 
@@ -910,11 +579,8 @@ private fun GlassSearch(
     results: List<Movie>,
     loading: Boolean,
     onQuery: (String) -> Unit,
-    onOpen: (Movie) -> Unit,
-    onDockVisibility: (Boolean) -> Unit
+    onOpen: (Movie) -> Unit
 ) {
-    val listState = rememberLazyListState()
-    ObserveDockScroll(listState, onDockVisibility)
     var query by remember { mutableStateOf("") }
 
     LaunchedEffect(query) {
@@ -923,90 +589,42 @@ private fun GlassSearch(
     }
 
     LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize().background(GlassBlack),
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 108.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
+        Modifier.fillMaxSize().background(MovyzaColors.Bg),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Text("اكتشف", color = GlassText, fontSize = 31.sp, fontWeight = FontWeight.Black)
-            Text("فيلم، مسلسل، ممثل أو عنوان في بالك.", color = GlassFaint, fontSize = 10.sp)
-            Spacer(Modifier.height(14.dp))
+            Text("اكتشف", color = MovyzaColors.Text, fontSize = 29.sp, fontWeight = FontWeight.Black)
+            Text("ابحث عن فيلم، مسلسل أو عنوان.", color = MovyzaColors.Text3, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
+            Spacer(Modifier.height(12.dp))
             Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = GlassPanel,
-                border = BorderStroke(1.dp, Color.White.copy(alpha = .065f))
+                shape = RoundedCornerShape(16.dp),
+                color = MovyzaColors.Glass,
+                border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
             ) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("اكتب ما تبحث عنه…", color = GlassFaint) },
-                    leadingIcon = { Icon(Icons.Outlined.Search, null, tint = GlassGoldBright) },
+                    placeholder = { Text("اكتب ما تبحث عنه…", color = MovyzaColors.Text3) },
+                    leadingIcon = { Icon(Icons.Outlined.Search, null, tint = MovyzaColors.Gold300) },
                     singleLine = true,
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(16.dp),
                     colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = GlassGold.copy(alpha = .72f),
+                        focusedBorderColor = MovyzaColors.Gold500.copy(alpha = .65f),
                         unfocusedBorderColor = Color.Transparent,
                         focusedContainerColor = Color.Transparent,
                         unfocusedContainerColor = Color.Transparent
-                    )
+                    ),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
                 )
             }
-            if (loading) {
-                Spacer(Modifier.height(10.dp))
-                GlassLoading()
-            }
         }
-        items(results.take(30), key = { it.mediaType + "-" + it.id }) { movie ->
-            GlassSearchRow(movie, onOpen)
-        }
-    }
-}
-
-@Composable
-private fun GlassSearchRow(movie: Movie, onOpen: (Movie) -> Unit) {
-    Surface(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { onOpen(movie) },
-        shape = RoundedCornerShape(18.dp),
-        color = GlassPanel,
-        border = BorderStroke(1.dp, Color.White.copy(alpha = .05f))
-    ) {
-        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            AsyncImage(
-                model = movie.posterUrl,
-                contentDescription = movie.title,
-                modifier = Modifier.size(74.dp, 102.dp).clip(RoundedCornerShape(13.dp)),
-                contentScale = ContentScale.Crop
-            )
-            Column(Modifier.padding(start = 12.dp, end = 8.dp).weight(1f)) {
-                Text(
-                    movie.title.ifBlank { movie.originalTitle },
-                    color = GlassText,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    listOfNotNull(
-                        movie.releaseDate.takeIf { it.length >= 4 }?.take(4),
-                        if (movie.mediaType == "series") "مسلسل" else "فيلم",
-                        "★ " + String.format("%.1f", movie.rating)
-                    ).joinToString("  •  "),
-                    color = GlassGoldBright,
-                    fontSize = 10.sp
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    movie.overview,
-                    color = GlassMuted,
-                    fontSize = 10.sp,
-                    lineHeight = 14.sp,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
-                )
+        if (results.isEmpty() && loading) {
+            items(List(5) { it }) { NativeRowTemplate(null) }
+        } else {
+            items(results.take(30), key = { it.mediaType + "-" + it.id }) { movie ->
+                NativeRowTemplate(movie, onClick = { onOpen(movie) })
             }
         }
     }
@@ -1019,102 +637,29 @@ private fun GlassProfile(
     onOpen: (Movie) -> Unit,
     onLogin: () -> Unit,
     onSignup: () -> Unit,
-    onLogout: () -> Unit,
-    onDockVisibility: (Boolean) -> Unit
+    onLogout: () -> Unit
 ) {
-    val listState = rememberLazyListState()
-    ObserveDockScroll(listState, onDockVisibility)
     LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize().background(GlassBlack),
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 108.dp),
+        Modifier.fillMaxSize().background(MovyzaColors.Bg),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Text("مساحتي", color = GlassText, fontSize = 31.sp, fontWeight = FontWeight.Black)
-            Text("حسابك وقائمتك وتجربتك في مكان واحد.", color = GlassFaint, fontSize = 10.sp)
+            Text("مساحتي", color = MovyzaColors.Text, fontSize = 29.sp, fontWeight = FontWeight.Black)
+            Text("حسابك وقائمتك وتجربتك في مكان واحد.", color = MovyzaColors.Text3, fontSize = 10.sp)
         }
-        item {
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = GlassPanelStrong,
-                border = BorderStroke(1.dp, Color.White.copy(alpha = .065f))
-            ) {
-                Column(Modifier.fillMaxWidth().padding(20.dp)) {
-                    Box(
-                        Modifier.size(58.dp).clip(CircleShape).background(
-                            Brush.linearGradient(listOf(GlassGoldBright, GlassGoldDark))
-                        ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            if (session == null) "M" else session.email.take(1).uppercase(),
-                            color = GlassBlack,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                    Spacer(Modifier.height(13.dp))
-                    if (session == null) {
-                        Text("أهلاً بك في Movyza", color = GlassText, fontSize = 20.sp, fontWeight = FontWeight.Black)
-                        Spacer(Modifier.height(4.dp))
-                        Text("سجّل الدخول لمزامنة قائمتك عبر Supabase.", color = GlassMuted, fontSize = 10.sp)
-                        Spacer(Modifier.height(15.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = onLogin,
-                                shape = RoundedCornerShape(13.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = GlassGoldBright,
-                                    contentColor = GlassBlack
-                                )
-                            ) { Text("تسجيل الدخول", fontWeight = FontWeight.Bold) }
-                            OutlinedButton(onClick = onSignup, shape = RoundedCornerShape(13.dp)) {
-                                Text("إنشاء حساب")
-                            }
-                        }
-                    } else {
-                        Text(session.email, color = GlassText, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                        Text("حساب Movyza • Supabase", color = GlassMuted, fontSize = 10.sp)
-                        Spacer(Modifier.height(12.dp))
-                        OutlinedButton(onClick = onLogout, shape = RoundedCornerShape(13.dp)) {
-                            Text("تسجيل الخروج")
-                        }
-                    }
-                }
-            }
-        }
+        item { NativeProfileTemplate(session, onLogin, onSignup, onLogout) }
         item {
             Column {
-                Text("قائمتي", color = GlassText, fontSize = 21.sp, fontWeight = FontWeight.Black)
-                Text(watchlist.size.toString() + " عنوان محفوظ", color = GlassFaint, fontSize = 9.sp)
+                Text("قائمتي", color = MovyzaColors.Text, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text(watchlist.size.toString() + " عنوان محفوظ", color = MovyzaColors.Text3, fontSize = 9.sp)
             }
         }
         if (watchlist.isEmpty()) {
-            item {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = GlassPanel,
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = .05f))
-                ) {
-                    Column(
-                        Modifier.fillMaxWidth().padding(vertical = 34.dp, horizontal = 18.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(Icons.Outlined.BookmarkAdd, null, tint = GlassGoldBright, modifier = Modifier.size(30.dp))
-                        Spacer(Modifier.height(9.dp))
-                        Text("قائمتك جاهزة", color = GlassText, fontWeight = FontWeight.Bold)
-                        Text(
-                            "أضف أول فيلم أو مسلسل تريد الرجوع إليه لاحقًا.",
-                            color = GlassFaint,
-                            fontSize = 10.sp
-                        )
-                    }
-                }
-            }
+            item { NativeEmptyWatchlist() }
         } else {
             items(watchlist, key = { it.mediaType + "-" + it.id }) { movie ->
-                GlassSearchRow(movie, onOpen)
+                NativeRowTemplate(movie, onClick = { onOpen(movie) })
             }
         }
     }
@@ -1133,139 +678,12 @@ private fun GlassDetails(
     LaunchedEffect(movie.id, movie.mediaType) {
         if (details == null) onLoad()
     }
-
-    Box(Modifier.fillMaxSize().background(GlassBlack)) {
-        AsyncImage(
-            model = details?.movie?.backdropUrl ?: movie.backdropUrl ?: movie.posterUrl,
-            contentDescription = movie.title,
-            modifier = Modifier.fillMaxWidth().height(485.dp),
-            contentScale = ContentScale.Crop
-        )
-        Box(
-            Modifier.fillMaxWidth().height(565.dp).background(
-                Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = .03f),
-                    .33f to Color.Transparent,
-                    .58f to GlassBlack.copy(alpha = .72f),
-                    .82f to GlassBlack.copy(alpha = .98f),
-                    1f to GlassBlack
-                )
-            )
-        )
-        Surface(
-            Modifier.padding(top = 14.dp, start = 12.dp),
-            shape = CircleShape,
-            color = MovyzaColors.Bg.copy(alpha = .62f),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = .08f))
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Outlined.ArrowBack, "رجوع", tint = Color.White)
-            }
-        }
-        Column(
-            Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, bottom = 24.dp)
-        ) {
-            Spacer(Modifier.weight(1f))
-            Text(
-                movie.title.ifBlank { movie.originalTitle },
-                color = Color.White,
-                fontSize = 31.sp,
-                lineHeight = 34.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(9.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("★ " + String.format("%.1f", movie.rating), color = GlassGoldBright, fontSize = 11.sp, fontWeight = FontWeight.Black)
-                GlassDot()
-                Text(movie.releaseDate.take(4), color = GlassMuted, fontSize = 11.sp)
-                GlassDot()
-                Text(if (movie.mediaType == "series") "مسلسل" else "فيلم", color = GlassMuted, fontSize = 11.sp)
-                if (details?.runtime ?: 0 > 0 && movie.mediaType != "series") {
-                    GlassDot()
-                    Text(details!!.runtime.toString() + " دقيقة", color = GlassMuted, fontSize = 11.sp)
-                }
-            }
-            if (details?.genres?.isNotEmpty() == true) {
-                Spacer(Modifier.height(9.dp))
-                Row(
-                    Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp)
-                ) {
-                    details.genres.take(4).forEach { genre ->
-                        Surface(
-                            shape = RoundedCornerShape(999.dp),
-                            color = GlassPanel,
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = .05f))
-                        ) {
-                            Text(
-                                genre,
-                                color = GlassMuted,
-                                fontSize = 9.sp,
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
-                            )
-                        }
-                    }
-                }
-            }
-            details?.tagline?.takeIf { it.isNotBlank() }?.let {
-                Spacer(Modifier.height(9.dp))
-                Text(it, color = GlassGold, fontSize = 11.sp, fontStyle = FontStyle.Italic)
-            }
-            Spacer(Modifier.height(11.dp))
-            Text(
-                details?.movie?.overview ?: movie.overview.ifBlank { "تحميل تفاصيل العنوان…" },
-                color = Color.White.copy(alpha = .76f),
-                fontSize = 11.sp,
-                lineHeight = 17.sp,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                Button(
-                    onClick = onWatch,
-                    modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = GlassGoldBright,
-                        contentColor = GlassBlack
-                    ),
-                    shape = RoundedCornerShape(15.dp)
-                ) {
-                    Icon(Icons.Outlined.PlayArrow, null, Modifier.size(19.dp))
-                    Spacer(Modifier.width(7.dp))
-                    Text("مشاهدة", fontWeight = FontWeight.Black)
-                }
-                Surface(
-                    Modifier.size(50.dp),
-                    shape = RoundedCornerShape(15.dp),
-                    color = GlassPanelStrong,
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = .07f))
-                ) {
-                    IconButton(onClick = onToggleWatchlist) {
-                        Icon(
-                            if (watchlisted) Icons.Outlined.BookmarkAdded else Icons.Outlined.BookmarkAdd,
-                            contentDescription = "قائمتي",
-                            tint = if (watchlisted) GlassGoldBright else GlassText
-                        )
-                    }
-                }
-            }
-        }
-        if (details == null) {
-            Surface(
-                Modifier.align(Alignment.Center).padding(bottom = 130.dp),
-                shape = CircleShape,
-                color = MovyzaColors.Bg.copy(alpha = .68f)
-            ) {
-                CircularProgressIndicator(
-                    Modifier.padding(11.dp).size(27.dp),
-                    strokeWidth = 2.dp,
-                    color = GlassGoldBright
-                )
-            }
-        }
+    LazyColumn(
+        Modifier.fillMaxSize().background(MovyzaColors.Bg),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item { NativeDetailHero(movie, details, onBack) }
+        item { NativeDetailBody(movie, details, watchlisted, onWatch, onToggleWatchlist) }
     }
 }
 
@@ -1409,3 +827,319 @@ private fun GlassSkeletons() {
         }
     }
 }
+
+
+@Composable
+private fun NativeHeroTemplate(
+    movie: Movie?,
+    onClick: (() -> Unit)? = null
+) {
+    val clickable = if (movie != null && onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    Box(
+        Modifier.fillMaxWidth().height(398.dp).padding(horizontal = 12.dp)
+            .clip(RoundedCornerShape(24.dp)).background(MovyzaColors.Bg2)
+            .border(1.dp, MovyzaColors.GlassBorder, RoundedCornerShape(24.dp))
+            .then(clickable)
+    ) {
+        if (movie != null) {
+            AsyncImage(
+                model = movie.backdropUrl ?: movie.posterUrl,
+                contentDescription = movie.title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        .42f to Color.Transparent,
+                        .72f to MovyzaColors.Bg.copy(alpha = .72f),
+                        1f to MovyzaColors.Bg.copy(alpha = .98f)
+                    )
+                )
+            )
+            Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {
+                MovyzaTemplateBadge("مختار لك")
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    movie.title.ifBlank { movie.originalTitle },
+                    color = Color.White,
+                    fontSize = 27.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    listOfNotNull(
+                        movie.releaseDate.takeIf { it.length >= 4 }?.take(4),
+                        if (movie.mediaType == "series") "مسلسل" else "فيلم",
+                        "★ " + String.format("%.1f", movie.rating)
+                    ).joinToString("  •  "),
+                    color = MovyzaColors.Gold300,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    movie.overview.ifBlank { "استكشف هذا العنوان في Movyza." },
+                    color = Color.White.copy(alpha = .72f),
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        } else {
+            Column(Modifier.align(Alignment.BottomStart).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.width(76.dp).height(20.dp).clip(RoundedCornerShape(99.dp)).background(Color.White.copy(alpha = .055f)))
+                Box(Modifier.width(220.dp).height(28.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = .06f)))
+                Box(Modifier.width(160.dp).height(12.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = .045f)))
+            }
+        }
+    }
+}
+
+@Composable
+private fun NativePosterTemplate(movie: Movie?, onClick: (() -> Unit)? = null) {
+    val clickable = if (movie != null && onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    Column(Modifier.fillMaxWidth().then(clickable)) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(.67f).clip(RoundedCornerShape(16.dp))
+                .background(MovyzaColors.Bg2).border(1.dp, MovyzaColors.GlassBorder, RoundedCornerShape(16.dp))
+        ) {
+            if (movie != null) {
+                AsyncImage(model = movie.posterUrl, contentDescription = movie.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                MovyzaTemplateBadge("★ " + String.format("%.1f", movie.rating), Modifier.align(Alignment.TopStart).padding(7.dp))
+            }
+        }
+        Text(
+            movie?.title?.ifBlank { movie.originalTitle } ?: "عنوان الفيلم",
+            color = if (movie == null) MovyzaColors.Text3 else MovyzaColors.Text,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 7.dp, start = 1.dp, end = 1.dp)
+        )
+        Text(
+            if (movie == null) "      " else if (movie.mediaType == "series") "مسلسل" else movie.releaseDate.take(4),
+            color = MovyzaColors.Text3,
+            fontSize = 9.sp,
+            modifier = Modifier.padding(top = 3.dp, start = 1.dp)
+        )
+    }
+}
+
+@Composable
+private fun NativeRowTemplate(movie: Movie?, onClick: (() -> Unit)? = null) {
+    val clickable = if (movie != null && onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    Row(
+        Modifier.fillMaxWidth().then(clickable).clip(RoundedCornerShape(16.dp))
+            .background(MovyzaColors.Glass).border(1.dp, MovyzaColors.GlassBorder, RoundedCornerShape(16.dp)).padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(68.dp, 96.dp).clip(RoundedCornerShape(11.dp)).background(MovyzaColors.Bg2)) {
+            if (movie != null) {
+                AsyncImage(model = movie.posterUrl, contentDescription = movie.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            }
+        }
+        Column(Modifier.padding(horizontal = 10.dp).weight(1f)) {
+            Text(
+                movie?.title?.ifBlank { movie.originalTitle } ?: "عنوان الفيلم",
+                color = if (movie == null) MovyzaColors.Text3 else MovyzaColors.Text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                if (movie == null) "----  •  ----  •  ★ -" else listOfNotNull(
+                    movie.releaseDate.takeIf { it.length >= 4 }?.take(4),
+                    if (movie.mediaType == "series") "مسلسل" else "فيلم",
+                    "★ " + String.format("%.1f", movie.rating)
+                ).joinToString("  •  "),
+                color = MovyzaColors.Gold300,
+                fontSize = 9.sp,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+            Text(
+                movie?.overview ?: "جارٍ ربط بيانات TMDB…",
+                color = MovyzaColors.Text3,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun NativeTemplateSection(
+    title: String,
+    subtitle: String,
+    movies: List<Movie>,
+    loading: Boolean,
+    onOpen: (Movie) -> Unit
+) {
+    Column(Modifier.padding(top = 8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = MovyzaColors.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(subtitle, color = MovyzaColors.Text3, fontSize = 9.sp)
+            }
+        }
+        val items = if (movies.isEmpty() && loading) List<Movie?>(5) { null } else movies.take(12).map { it }
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(items, key = { it?.mediaType + "-" + it?.id + "-" + (it?.title ?: "template") }) { movie ->
+                NativePosterTemplate(movie, movie?.let { { onOpen(it) } })
+            }
+        }
+    }
+}
+
+@Composable
+private fun NativeProfileTemplate(
+    session: UserSession?,
+    onLogin: () -> Unit,
+    onSignup: () -> Unit,
+    onLogout: () -> Unit
+) {
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = MovyzaColors.Glass, border = BorderStroke(1.dp, MovyzaColors.GlassBorder)) {
+        Column(Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(54.dp).clip(CircleShape).background(MovyzaColors.Gold500), contentAlignment = Alignment.Center) {
+                    Text(if (session == null) "M" else session.email.take(1).uppercase(), color = MovyzaColors.Bg, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(if (session == null) "أهلاً بك في Movyza" else session.email, color = MovyzaColors.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(if (session == null) "سجّل الدخول لمزامنة قائمتك" else "حساب Movyza • Supabase", color = MovyzaColors.Text3, fontSize = 9.sp, modifier = Modifier.padding(top = 3.dp))
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            if (session == null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onLogin, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MovyzaColors.Gold300, contentColor = MovyzaColors.Bg), shape = RoundedCornerShape(13.dp)) {
+                        Text("تسجيل الدخول", fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(onClick = onSignup, modifier = Modifier.weight(1f), shape = RoundedCornerShape(13.dp)) {
+                        Text("إنشاء حساب")
+                    }
+                }
+            } else {
+                OutlinedButton(onClick = onLogout, shape = RoundedCornerShape(13.dp)) { Text("تسجيل الخروج") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NativeEmptyWatchlist() {
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), color = MovyzaColors.Glass, border = BorderStroke(1.dp, MovyzaColors.GlassBorder)) {
+        Column(Modifier.padding(vertical = 30.dp, horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Outlined.BookmarkAdd, null, tint = MovyzaColors.Gold300, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.height(8.dp))
+            Text("قائمتك جاهزة", color = MovyzaColors.Text, fontWeight = FontWeight.Bold)
+            Text("أضف أول فيلم أو مسلسل تريد الرجوع إليه.", color = MovyzaColors.Text3, fontSize = 10.sp)
+        }
+    }
+}
+
+@Composable
+private fun NativeDetailHero(movie: Movie, details: TmdbDetails?, onBack: () -> Unit) {
+    Box(Modifier.fillMaxWidth().height(405.dp).background(MovyzaColors.Bg2)) {
+        AsyncImage(model = details?.movie?.backdropUrl ?: movie.backdropUrl ?: movie.posterUrl, contentDescription = movie.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .44f to Color.Transparent, .72f to MovyzaColors.Bg.copy(alpha = .68f), 1f to MovyzaColors.Bg)))
+        GlassCircleButton(Icons.Outlined.ArrowBack, onBack)
+    }
+}
+
+@Composable
+private fun NativeDetailBody(
+    movie: Movie,
+    details: TmdbDetails?,
+    watchlisted: Boolean,
+    onWatch: () -> Unit,
+    onToggleWatchlist: () -> Unit
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp)) {
+        Text(movie.title.ifBlank { movie.originalTitle }, color = MovyzaColors.Text, fontSize = 28.sp, lineHeight = 32.sp, fontWeight = FontWeight.Black, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            listOfNotNull(
+                movie.releaseDate.takeIf { it.length >= 4 }?.take(4),
+                if (movie.mediaType == "series") "مسلسل" else "فيلم",
+                "★ " + String.format("%.1f", movie.rating),
+                details?.runtime?.takeIf { it > 0 }?.let { "$it د" }
+            ).joinToString("  •  "),
+            color = MovyzaColors.Gold300,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold
+        )
+        if (details == null) {
+            NativeTextSkeleton()
+        } else {
+            if (details.genres.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    details.genres.take(4).forEach { genre ->
+                        Surface(shape = RoundedCornerShape(999.dp), color = MovyzaColors.Glass) {
+                            Text(genre, color = MovyzaColors.Text2, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
+                        }
+                    }
+                }
+            }
+            details.tagline?.takeIf { it.isNotBlank() }?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(it, color = MovyzaColors.Gold500, fontSize = 11.sp)
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(details.movie.overview.ifBlank { movie.overview }, color = MovyzaColors.Text2, fontSize = 11.sp, lineHeight = 17.sp)
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            Button(
+                onClick = onWatch,
+                modifier = Modifier.weight(1f).height(50.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MovyzaColors.Gold300, contentColor = MovyzaColors.Bg),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("مشاهدة", fontWeight = FontWeight.Black)
+            }
+            Surface(Modifier.size(50.dp), shape = RoundedCornerShape(14.dp), color = MovyzaColors.Glass, border = BorderStroke(1.dp, MovyzaColors.GlassBorder)) {
+                IconButton(onClick = onToggleWatchlist) {
+                    Icon(if (watchlisted) Icons.Outlined.BookmarkAdded else Icons.Outlined.BookmarkAdd, contentDescription = "قائمتي", tint = if (watchlisted) MovyzaColors.Gold300 else MovyzaColors.Text)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NativeTextSkeleton() {
+    Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        repeat(4) { index ->
+            Box(
+                Modifier.fillMaxWidth(if (index < 2) .94f else .76f)
+                    .height(11.dp).clip(RoundedCornerShape(8.dp))
+                    .background(Color.White.copy(alpha = .045f))
+            )
+        }
+    }
+}
+
+@Composable
+private fun MovyzaTemplateBadge(text: String, modifier: Modifier = Modifier) {
+    Surface(modifier = modifier, shape = RoundedCornerShape(999.dp), color = Color.Black.copy(alpha = .50f), border = BorderStroke(1.dp, Color.White.copy(alpha = .10f))) {
+        Text(text, color = MovyzaColors.Gold300, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+    }
+}
+
