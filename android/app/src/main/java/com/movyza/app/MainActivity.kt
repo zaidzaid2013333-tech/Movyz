@@ -213,6 +213,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             loading = true
             error = null
 
+            // Critical path: fetch only what is needed to paint the first home screen.
             val coreResult = runCatching {
                 coroutineScope {
                     val trending = async { api.trending() }
@@ -227,34 +228,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     trending = trending,
                     movies = movies
                 )
+
+                // The first screen is usable now. Fetch secondary shelves in the background
+                // so startup is not blocked by five simultaneous TMDB calls.
+                loading = false
+                launch {
+                    runCatching {
+                        coroutineScope {
+                            val topRated = async { api.topRatedMovies(1) }
+                            val series = async { api.popularSeries(1) }
+                            val topRatedSeries = async {
+                                runCatching { api.topRatedSeries(1) }.getOrDefault(emptyList())
+                            }
+                            Triple(topRated.await(), series.await(), topRatedSeries.await())
+                        }
+                    }.onSuccess { (topRated, series, topRatedSeries) ->
+                        moviesPage = 1
+                        seriesPage = 1
+                        _home.value = _home.value.copy(
+                            topRated = topRated,
+                            series = series,
+                            topRatedSeries = topRatedSeries
+                        )
+                    }.onFailure {
+                        // Secondary shelves are optional; keep the already-rendered home usable.
+                    }
+                }
             }.onFailure {
                 error = it.message ?: "تعذر تحميل الكتالوج، تحقق من الاتصال بالإنترنت."
                 loading = false
                 return@launch
             }
-
-            runCatching {
-                coroutineScope {
-                    val topRated = async { api.topRatedMovies(1) }
-                    val series = async { api.popularSeries(1) }
-                    val topRatedSeries = async {
-                        runCatching { api.topRatedSeries(1) }.getOrDefault(emptyList())
-                    }
-                    Triple(topRated.await(), series.await(), topRatedSeries.await())
-                }
-            }.onSuccess { (topRated, series, topRatedSeries) ->
-                moviesPage = 1
-                seriesPage = 1
-                _home.value = _home.value.copy(
-                    topRated = topRated,
-                    series = series,
-                    topRatedSeries = topRatedSeries
-                )
-            }.onFailure {
-                error = it.message ?: "تعذر إكمال تحميل بعض الأقسام."
-            }
-
-            loading = false
         }
     }
 
