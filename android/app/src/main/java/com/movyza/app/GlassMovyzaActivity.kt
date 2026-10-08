@@ -619,7 +619,7 @@ private fun GlassHome(
                         .height(448.dp)
                         .padding(horizontal = 12.dp)
                         .clip(RoundedCornerShape(29.dp))
-                        .background(Color(0xFF14120E))
+                        .background(MovyzaColors.Bg2)
                 )
             }
         }
