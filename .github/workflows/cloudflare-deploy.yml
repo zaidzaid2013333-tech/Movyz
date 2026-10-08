@@ -44,6 +44,8 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           VITE_VIDSRC_BASE_URL: ${{ secrets.VITE_VIDSRC_BASE_URL }}
+          VITE_TMDB_PROXY_URL: https://api.movyza.sbs/tmdb
+          VITE_MOVYZ_EDGE_API_URL: https://api.movyza.sbs
         run: npm run build
       - name: Validate Cloudflare
         run: npx wrangler deploy --dry-run
