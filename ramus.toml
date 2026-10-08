@@ -1,2 +1,2 @@
-app_dir = "android"
+app_dir = "."
 shape = "gradle"
