@@ -821,7 +821,7 @@ private fun GlassGridCard(movie: Movie, onOpen: (Movie) -> Unit) {
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)
                 )
-            )
+            }
         }
         Spacer(Modifier.height(7.dp))
         Text(
