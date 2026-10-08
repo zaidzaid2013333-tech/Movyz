@@ -30,21 +30,6 @@ android {
         buildConfigField("String", "PLAYBACK_API_BASE", quoted(playbackApiBase))
     }
 
-    signingConfigs {
-        create("movyzaTest") {
-            storeFile = rootProject.file("keystore/movyza-test.jks")
-            storePassword = "movyza-debug"
-            keyAlias = "movyza-test"
-            keyPassword = "movyza-debug"
-        }
-    }
-
-    buildTypes {
-        getByName("debug") {
-            signingConfig = signingConfigs.getByName("movyzaTest")
-        }
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -58,7 +43,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
 }
 
 configurations.configureEach {
