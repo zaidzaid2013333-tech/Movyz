@@ -9,11 +9,11 @@ val supabaseUrl = providers.environmentVariable("SUPABASE_URL").orElse("").get()
 val supabaseAnonKey = providers.environmentVariable("SUPABASE_ANON_KEY").orElse("").get()
 
 android {
-    namespace = "com.movyza.native"
+    namespace = "com.movyza.app"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.movyza.native"
+        applicationId = "com.movyza.app"
         minSdk = 26
         targetSdk = 37
         versionCode = 1
