@@ -21,8 +21,8 @@ android {
         applicationId = "com.movyza.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "2.0.3"
+        versionCode = 5
+        versionName = "2.0.4"
 
         buildConfigField("String", "TMDB_TOKEN", quoted(tmdbToken))
         buildConfigField("String", "SUPABASE_URL", quoted(supabaseUrl))
