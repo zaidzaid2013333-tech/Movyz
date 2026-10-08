@@ -8,6 +8,10 @@ val tmdbToken = providers.environmentVariable("TMDB_API_READ_ACCESS_TOKEN").orEl
 val supabaseUrl = providers.environmentVariable("SUPABASE_URL").orElse("").get()
 val supabaseAnonKey = providers.environmentVariable("SUPABASE_ANON_KEY").orElse("").get()
 
+fun quoted(value: String): String =
+    "\" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+
 android {
     namespace = "com.movyza.app"
     compileSdk = 37
@@ -19,9 +23,9 @@ android {
         versionCode = 1
         versionName = "2.0.0"
 
-        buildConfigField("String", "TMDB_TOKEN", "\\\"$tmdbToken\\\"")
-        buildConfigField("String", "SUPABASE_URL", "\\\"$supabaseUrl\\\"")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\\\"$supabaseAnonKey\\\"")
+        buildConfigField("String", "TMDB_TOKEN", quoted(tmdbToken))
+        buildConfigField("String", "SUPABASE_URL", quoted(supabaseUrl))
+        buildConfigField("String", "SUPABASE_ANON_KEY", quoted(supabaseAnonKey))
     }
 
     buildFeatures {
