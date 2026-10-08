@@ -121,7 +121,7 @@ object MovyzaPlaybackRepository {
                     val (cleanUrl, embeddedHeaders) = extractEmbeddedHeaders(candidate.url)
                     candidate.copy(
                         url = cleanUrl,
-                        headers = candidate.headers + embeddedHeaders,
+                        headers = mergeHeaders(candidate.headers, embeddedHeaders),
                         provider = PlaybackProvider.BROKER,
                     )
                 }
@@ -164,7 +164,7 @@ object MovyzaPlaybackRepository {
         client.newCall(
             Request.Builder()
                 .url(endpoint)
-                .header("Accept", "application/json")
+                .header("Accept", "application/json, application/vnd.apple.mpegurl, application/dash+xml;q=0.9, */*;q=0.8")
                 .header("Referer", "https://vidlink.pro/")
                 .header("Origin", "https://vidlink.pro")
                 .header("User-Agent", VIDLINK_USER_AGENT)
@@ -175,7 +175,7 @@ object MovyzaPlaybackRepository {
 
             val responseUrl = response.request.url.toString()
             val contentType = response.header("Content-Type").orEmpty().lowercase(Locale.US)
-            val bodyStart = body.trimStart()
+            val bodyStart = body.removePrefix("\uFEFF").trimStart()
             val requestHeaders = mapOf(
                 "Referer" to "https://vidlink.pro/",
                 "Origin" to "https://vidlink.pro",
@@ -186,7 +186,7 @@ object MovyzaPlaybackRepository {
             // itself for some IDs, rather than the JSON shape below. Treat it as
             // a Media3 manifest, not as JSON or an iframe.
             if (contentType.contains("mpegurl") || bodyStart.startsWith("#EXTM3U")) {
-                return@use listOf(
+                return listOf(
                     PlaybackCandidate(
                         url = responseUrl,
                         quality = 0,
@@ -199,7 +199,7 @@ object MovyzaPlaybackRepository {
             if (contentType.contains("dash+xml") ||
                 (contentType.contains("xml") && bodyStart.contains("<MPD", ignoreCase = true))
             ) {
-                return@use listOf(
+                return listOf(
                     PlaybackCandidate(
                         url = responseUrl,
                         quality = 0,
@@ -216,7 +216,7 @@ object MovyzaPlaybackRepository {
                 val (cleanUrl, embeddedHeaders) = extractEmbeddedHeaders(plainUrl)
                 val inferredFormat = inferFormatFromUrl(cleanUrl)
                 if (isPlayableOrDeclaredFormat(cleanUrl, inferredFormat)) {
-                    return@use listOf(
+                    return listOf(
                         PlaybackCandidate(
                             url = cleanUrl,
                             format = inferredFormat,
@@ -259,11 +259,14 @@ object MovyzaPlaybackRepository {
                         // Never guess that an extensionless URL is HLS. Use
                         // only the API-declared type or an identifiable path suffix.
                         format = declaredFormat.ifBlank { inferFormatFromUrl(url) },
-                        headers = mapOf(
-                            "Referer" to "https://vidlink.pro/",
-                            "Origin" to "https://vidlink.pro",
-                            "User-Agent" to VIDLINK_USER_AGENT
-                        ) + embeddedHeaders,
+                        headers = mergeHeaders(
+                            mapOf(
+                                "Referer" to "https://vidlink.pro/",
+                                "Origin" to "https://vidlink.pro",
+                                "User-Agent" to VIDLINK_USER_AGENT
+                            ),
+                            embeddedHeaders
+                        ),
                         subtitles = collectSubtitleTracks(entry).ifEmpty {
                             collectSubtitleTracks(stream)
                         },
@@ -286,11 +289,14 @@ object MovyzaPlaybackRepository {
                         url = playlist,
                         quality = 0,
                         format = "application/x-mpegURL",
-                        headers = mapOf(
-                            "Referer" to "https://vidlink.pro/",
-                            "Origin" to "https://vidlink.pro",
-                            "User-Agent" to VIDLINK_USER_AGENT
-                        ) + embeddedHeaders,
+                        headers = mergeHeaders(
+                            mapOf(
+                                "Referer" to "https://vidlink.pro/",
+                                "Origin" to "https://vidlink.pro",
+                                "User-Agent" to VIDLINK_USER_AGENT
+                            ),
+                            embeddedHeaders
+                        ),
                         subtitles = collectSubtitleTracks(stream),
                         provider = PlaybackProvider.VIDLINK,
                     )
@@ -538,6 +544,19 @@ object MovyzaPlaybackRepository {
             }.build().toString()
             cleanUrl to headers
         }.getOrElse { rawUrl to emptyMap() }
+    }
+
+    private fun mergeHeaders(vararg sources: Map<String, String>): Map<String, String> {
+        val merged = linkedMapOf<String, String>()
+        sources.forEach { source ->
+            source.forEach { (key, value) ->
+                if (key.isBlank() || value.isBlank()) return@forEach
+                val oldKey = merged.keys.firstOrNull { it.equals(key, ignoreCase = true) }
+                if (oldKey != null) merged.remove(oldKey)
+                merged[key] = value
+            }
+        }
+        return merged
     }
 
     private fun inferFormatFromUrl(url: String): String {
