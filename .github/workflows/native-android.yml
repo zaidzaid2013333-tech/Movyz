@@ -68,3 +68,4 @@ jobs:
           path: android/movyza-native-debug.apk
           if-no-files-found: error
           retention-days: 14
+# Retrigger native APK build for the latest Android changes.
