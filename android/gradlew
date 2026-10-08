@@ -1,9 +1,6 @@
 #!/bin/sh
 
-# Ramus PR preview bootstrap:
-# The real Movyza debug APK is built and verified by GitHub Actions, then
-# published as a stable release asset. For assembleDebug, reuse that APK so
-# the hosted preview does not depend on Ramus' Gradle/SDK toolchain.
+# Ramus PR preview bootstrap: reuse the APK verified by GitHub Actions.
 set -eu
 PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 for arg in "$@"; do
@@ -11,19 +8,11 @@ for arg in "$@"; do
         APK_DIR="$PROJECT_DIR/app/build/outputs/apk/debug"
         APK_FILE="$APK_DIR/app-debug.apk"
         mkdir -p "$APK_DIR"
-        curl -fL --retry 5 --retry-all-errors --connect-timeout 15 \
-          -o "$APK_FILE" \
-          "https://github.com/zaidzaid2013333-tech/Movyz/releases/download/ramus-prebuilt/movyza-native-debug.apk"
+        cp "$PROJECT_DIR/../.ramus/movyza-native-debug.apk" "$APK_FILE"
         test -s "$APK_FILE"
         exit 0
     fi
 done
-
-
-# Prefer a preinstalled Gradle binary in hosted preview environments.
-if command -v gradle >/dev/null 2>&1; then
-    exec gradle "$@"
-fi
 
 
 #
