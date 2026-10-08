@@ -681,7 +681,8 @@ private fun MovyzaHomeTemplateScreen(
                             key = { idx ->
                                 val item = watchHistory[idx]
                                 "continue-${item.mediaType}-${item.id}"
-                            }
+                            },
+                            contentType = { "continue" }
                         ) { idx ->
                             val entry = watchHistory[idx]
                             MovyzaContinueWatchingCard(
@@ -763,7 +764,7 @@ private fun FixedHorizontalSection(
     onAction: (() -> Unit)? = null,
     onOpen: (Movie) -> Unit
 ) {
-    val slotCount = if (movies.isEmpty() && loading) 6 else minOf(movies.size, 14)
+    val slotCount = if (movies.isEmpty() && loading) 6 else minOf(movies.size, 10)
     if (slotCount == 0 && !loading) return
 
     Column {
@@ -1225,7 +1226,8 @@ private fun MovyzaProfileTemplateScreen(
                             key = { idx ->
                                 val h = watchHistory[idx]
                                 "prof-history-${h.mediaType}-${h.id}"
-                            }
+                            },
+                            contentType = { "continue" }
                         ) { idx ->
                             val entry = watchHistory[idx]
                             MovyzaContinueWatchingCard(
