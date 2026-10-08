@@ -465,24 +465,26 @@ class MovyzaPlayerActivity : ComponentActivity() {
     }
 
     private fun selectTextTrack(option: TrackOption?) {
-        val builder = player.trackSelectionParameters.buildUpon()
-        if (option == null) {
-            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-        } else {
-            builder
-                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                .setOverrideForType(
-                    TrackSelectionOverride(option.group.mediaTrackGroup, option.index)
-                )
-        }
-        player.trackSelectionParameters = builder.build()
+        val preferred = option ?: subtitleTracks.firstOrNull()
+        if (preferred == null) return
+
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(
+                TrackSelectionOverride(preferred.group.mediaTrackGroup, preferred.index)
+            )
+            .build()
     }
 
     private fun selectPreferredTextTrack() {
+        if (subtitleTracks.isEmpty()) return
         val preferredLanguage = Locale.getDefault().language
         val preferred = subtitleTracks.firstOrNull {
             normalizedLanguage(it.languageTag) == preferredLanguage
-        } ?: subtitleTracks.firstOrNull()
+        } ?: subtitleTracks.firstOrNull {
+            it.languageTag.isBlank()
+        } ?: subtitleTracks.first()
         selectTextTrack(preferred)
     }
 
@@ -1240,12 +1242,9 @@ private fun MovyzaPlayerScreen(
             onDismissRequest = { trackDialog = null },
             containerColor = MovyzaColors.Bg2,
             shape = MovyzaShapes.Lg,
-            title = { Text("الترجمة", color = MovyzaColors.Text, fontWeight = FontWeight.Black) },
+            title = { Text("الترجمة • مفعّلة افتراضيًا", color = MovyzaColors.Text, fontWeight = FontWeight.Black) },
             text = {
                 Column {
-                    TextButton(onClick = { onSelectSubtitle(null); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
-                        Text("إيقاف الترجمة", color = MovyzaColors.Text, fontWeight = FontWeight.Bold)
-                    }
                     TextButton(onClick = { onSelectPreferredSubtitle(); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
                         Text("تلقائي • لغة الجهاز", color = MovyzaColors.Gold300, fontWeight = FontWeight.Bold)
                     }
