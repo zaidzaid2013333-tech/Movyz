@@ -6,6 +6,7 @@ import {
 } from '../types';
 
 const TMDB_BASE = (import.meta.env.VITE_TMDB_PROXY_URL || '/tmdb').replace(/\/$/, '');
+const EDGE_API_BASE = (import.meta.env.VITE_MOVYZ_EDGE_API_URL || '').replace(/\/$/, '');
 
 const ok = <T,>(data: T, meta?: ApiResponse<T>['meta']): ApiResponse<T> => ({
   success: true,
@@ -289,7 +290,8 @@ export const MovyzaApi = {
 
   getTop1000Catalog: async () => {
     const language = getRequestLanguage();
-    const response = await fetch('/catalog/top1000?locale=' + encodeURIComponent(language));
+    const catalogBase = EDGE_API_BASE ? EDGE_API_BASE + '/catalog/top1000' : '/catalog/top1000';
+    const response = await fetch(catalogBase + '?locale=' + encodeURIComponent(language));
     const payload = await response.json().catch(() => null) as any;
     if (!response.ok) {
       throw new Error(payload?.message || payload?.status_message || 'Catalog request failed');
