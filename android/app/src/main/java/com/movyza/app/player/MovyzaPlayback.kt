@@ -344,7 +344,7 @@ object MovyzaPlaybackRepository {
                     ?: node.optInt("height", 0).takeIf { it > 0 }
                     ?: inheritedQuality
 
-                val headers = inheritedHeaders + parseHeaders(node.opt("headers"))
+                val headers = mergeHeaders(inheritedHeaders, parseHeaders(node.opt("headers")))
                 val localSubtitles = collectSubtitleTracks(node)
                 val subtitles = if (localSubtitles.isNotEmpty()) localSubtitles else inheritedSubtitles
 
@@ -546,8 +546,11 @@ object MovyzaPlaybackRepository {
             val encodedHeaders = uri.getQueryParameter("headers")
             if (encodedHeaders.isNullOrBlank()) return@runCatching rawUrl to emptyMap()
 
+            // Do not strip a source's header payload unless it was parsed.
+            // On malformed/double-encoded JSON the raw URL may still be usable
+            // by the upstream player, while silently deleting it breaks auth.
             val parsed = runCatching { JSONObject(encodedHeaders) }
-                .getOrElse { JSONObject() }
+                .getOrElse { return@runCatching rawUrl to emptyMap() }
             val headers = linkedMapOf<String, String>()
             val keys = parsed.keys()
             while (keys.hasNext()) {

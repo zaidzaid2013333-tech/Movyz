@@ -144,6 +144,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private var sources: List<PlaybackCandidate> = emptyList()
     private var sourceIndex = 0
     private var brokerFallbackAttempted = false
+    private var handlingPlaybackError = false
     private var firstReady = true
     private var defaultQualityApplied = false
     private var progressJob: Job? = null
@@ -230,6 +231,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
                 when (state) {
                     Player.STATE_READY -> {
                         buffering = false
+                        handlingPlaybackError = false
                         if (firstReady) {
                             firstReady = false
                             restoreSavedProgress()
@@ -252,6 +254,11 @@ class MovyzaPlayerActivity : ComponentActivity() {
             }
 
             override fun onPlayerError(playerError: PlaybackException) {
+                // ExoPlayer can emit more than one callback for a failing
+                // timeline. Serialize recovery so two coroutines cannot advance
+                // sourceIndex twice or launch duplicate broker fallbacks.
+                if (handlingPlaybackError) return
+                handlingPlaybackError = true
                 lifecycleScope.launch { handlePlaybackError(playerError) }
             }
         })
@@ -354,6 +361,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private suspend fun resolveAndStart() {
         error = null
         buffering = true
+        handlingPlaybackError = false
         brokerFallbackAttempted = false
         val directUrl = intent.getStringExtra(EXTRA_SOURCE_URL)?.trim().orEmpty()
         sources = if (directUrl.isNotBlank()) {
@@ -462,6 +470,9 @@ class MovyzaPlayerActivity : ComponentActivity() {
         val mediaSource = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
             .createMediaSource(mediaItem)
 
+        // Recovery is now committed to a new MediaSource; allow a future
+        // error from this new attempt to start the next failover transition.
+        handlingPlaybackError = false
         if (resumePositionMs != null && resumePositionMs > 0L) {
             player.setMediaSource(mediaSource, resumePositionMs)
         } else {
