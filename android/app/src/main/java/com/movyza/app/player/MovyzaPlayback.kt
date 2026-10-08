@@ -44,6 +44,7 @@ object MovyzaPlaybackRepository {
     private val client = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(18, TimeUnit.SECONDS)
+        .callTimeout(22, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
@@ -336,6 +337,7 @@ object MovyzaPlaybackRepository {
         inheritedHeaders: Map<String, String>,
         inheritedSubtitles: List<PlaybackSubtitle>,
         out: MutableList<PlaybackCandidate>,
+        inheritedFormat: String = "",
     ) {
         when (node) {
             is JSONObject -> {
@@ -345,6 +347,9 @@ object MovyzaPlaybackRepository {
                     ?: inheritedQuality
 
                 val headers = mergeHeaders(inheritedHeaders, parseHeaders(node.opt("headers")))
+                val localFormat = firstString(node, "format", "mime", "mime_type", "type")
+                    .orEmpty()
+                    .ifBlank { inheritedFormat }
                 val localSubtitles = collectSubtitleTracks(node)
                 val subtitles = if (localSubtitles.isNotEmpty()) localSubtitles else inheritedSubtitles
 
@@ -360,7 +365,7 @@ object MovyzaPlaybackRepository {
                     out += PlaybackCandidate(
                         url = url.trim(),
                         quality = quality,
-                        format = firstString(node, "format", "mime", "mime_type", "type").orEmpty(),
+                        format = localFormat,
                         headers = headers,
                         subtitles = subtitles
                     )
@@ -375,7 +380,8 @@ object MovyzaPlaybackRepository {
                         quality,
                         headers,
                         subtitles,
-                        out
+                        out,
+                        localFormat,
                     )
                 }
             }
@@ -387,7 +393,8 @@ object MovyzaPlaybackRepository {
                         inheritedQuality,
                         inheritedHeaders,
                         inheritedSubtitles,
-                        out
+                        out,
+                        inheritedFormat,
                     )
                 }
             }
@@ -513,12 +520,16 @@ object MovyzaPlaybackRepository {
     }
 
     private fun parseHeaders(value: Any?): Map<String, String> {
-        if (value !is JSONObject) return emptyMap()
+        val parsed = when (value) {
+            is JSONObject -> value
+            is String -> runCatching { JSONObject(value) }.getOrNull() ?: return emptyMap()
+            else -> return emptyMap()
+        }
         val result = linkedMapOf<String, String>()
-        val keys = value.keys()
+        val keys = parsed.keys()
         while (keys.hasNext()) {
             val key = keys.next()
-            val valueText = value.optString(key)
+            val valueText = parsed.optString(key)
             if (valueText.isNotBlank()) result[key] = valueText
         }
         return result
