@@ -66,34 +66,34 @@ import com.movyza.app.data.WatchHistoryEntry
 import java.util.Locale
 
 object MovyzaColors {
-    // Core Obsidian Black & Deep Navy surfaces
-    val Bg = Color(0xFF04060D)
-    val Bg2 = Color(0xFF080E1E)
-    val SurfaceElevated = Color(0xFF0E162B)
-    val Navy500 = Color(0xFF142A66)
+    // Shared Movyza website palette: carbon black, warm gold and restrained glass.
+    val Bg = Color(0xFF040507)
+    val Bg2 = Color(0xFF0A0B10)
+    val SurfaceElevated = Color(0xFF11131A)
+    // Kept for compatibility with existing theme references; no blue surface is used.
+    val Navy500 = Color(0xFF1A1710)
 
-    // Royal Gold accents
-    // Signature Movyza gold: crisp, luminous and high-contrast against Obsidian.
-    val Gold300 = Color(0xFFFFD54A)
-    val Gold400 = Color(0xFFFFC107)
-    val Gold500 = Color(0xFFFFB300)
-    val Gold600 = Color(0xFFD99000)
-    val Gold700 = Color(0xFF8C5A00)
+    // Exact warm-gold hierarchy from the website design tokens.
+    val Gold300 = Color(0xFFFFD071)
+    val Gold400 = Color(0xFFF2B84B)
+    val Gold500 = Color(0xFFE5A950)
+    val Gold600 = Color(0xFFB87920)
+    val Gold700 = Color(0xFF7D5218)
 
-    // Arabic-optimized warm-white & silver-slate typography
-    val Text = Color(0xFFF7F4EC)
-    val Text2 = Color(0xFFBAC4DC)
-    val Text3 = Color(0xFF7D88A6)
+    // Warm white and neutral slate typography, as on movyza.sbs.
+    val Text = Color(0xFFF8FAFC)
+    val Text2 = Color(0xFFCBD5E1)
+    val Text3 = Color(0xFF687386)
 
-    // Lightweight translucent glass tokens
-    val Glass = Color(0x14FFFFFF)
-    val Glass2 = Color(0x1FFFFFFF)
-    val GlassStrong = Color(0xEB080E1E)
-    val GlassCardBg = Color(0xCC0A1124)
-    val GlassBorder = Color(0x24FFFFFF)
-    val GoldBorder = Color(0x47E0B354)
-    val SkeletonFill = Color(0xFF111A30)
-    val SkeletonHighlight = Color(0xFF182442)
+    // Lightweight translucent glass tokens on near-black surfaces.
+    val Glass = Color(0x0FFFFFFF)
+    val Glass2 = Color(0x14FFFFFF)
+    val GlassStrong = Color(0xF20A0B10)
+    val GlassCardBg = Color(0xCC0A0B10)
+    val GlassBorder = Color(0x12FFFFFF)
+    val GoldBorder = Color(0x29E5A950)
+    val SkeletonFill = Color(0xFF11141A)
+    val SkeletonHighlight = Color(0xFF1B1E27)
 }
 
 object MovyzaShapes {
@@ -359,7 +359,7 @@ fun MovyzaHeroTemplate(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(422.dp)
+            .height(500.dp)
             .padding(horizontal = 16.dp)
             .clip(MovyzaShapes.Xl)
             .background(MovyzaColors.SurfaceElevated)
@@ -378,9 +378,9 @@ fun MovyzaHeroTemplate(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0.0f to Color(0x3304060D),
+                        0.0f to Color(0x44040507),
                         0.36f to Color.Transparent,
-                        0.68f to Color(0xCC04060D),
+                        0.68f to Color(0xD9040507),
                         1.0f to MovyzaColors.Bg
                     )
                 )
@@ -395,7 +395,7 @@ fun MovyzaHeroTemplate(
             verticalAlignment = Alignment.CenterVertically
         ) {
             MovyzaBadge(
-                text = if (hasData) "مختار الليلة" else "جارٍ التحميل"
+                text = if (hasData) "اختيار Movyza" else "جارٍ التحميل"
             )
 
             if (heroCount > 1) {
@@ -432,8 +432,8 @@ fun MovyzaHeroTemplate(
             Text(
                 text = movie?.displayTitle ?: "٠٠٠٠٠٠٠٠٠٠٠٠٠٠",
                 color = if (hasData) MovyzaColors.Text else Color.Transparent,
-                fontSize = 25.sp,
-                lineHeight = 31.sp,
+                fontSize = 29.sp,
+                lineHeight = 35.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -477,8 +477,8 @@ fun MovyzaHeroTemplate(
                 text = movie?.overview?.takeIf { it.isNotBlank() }
                     ?: "اكتشف التفاصيل الكاملة وشاهد بجودة عالية على منصة موفيزا.",
                 color = if (hasData) MovyzaColors.Text2 else Color.Transparent,
-                fontSize = 12.sp,
-                lineHeight = 18.sp,
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = if (!hasData) {
@@ -551,14 +551,15 @@ fun MovyzaPosterCardTemplate(
     movie: Movie?,
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
-    fixedWidth: Dp? = 138.dp
+    fixedWidth: Dp? = 150.dp
 ) {
+    // Poster cards now follow the web catalogue pattern: artwork first, title below,
+    // and compact rating/year metadata outside the poster (not oversized overlay badges).
     val sizeMod = if (fixedWidth != null) modifier.width(fixedWidth) else modifier.fillMaxWidth()
     val clickMod = if (movie != null && onClick != null) Modifier.clickable(onClick = onClick) else Modifier
 
     Column(
-        modifier = sizeMod
-            .then(clickMod)
+        modifier = sizeMod.then(clickMod)
     ) {
         Box(
             modifier = Modifier
@@ -581,36 +582,40 @@ fun MovyzaPosterCardTemplate(
                     .background(
                         Brush.verticalGradient(
                             0.0f to Color.Transparent,
-                            0.68f to Color.Transparent,
-                            1.0f to Color(0xCC04060D)
+                            0.64f to Color.Transparent,
+                            1.0f to Color(0xD9040507)
                         )
                     )
             )
 
-            MovyzaBadge(
-                text = if (movie != null) "★ " + String.format(Locale.US, "%.1f", movie.rating) else "★ --",
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(8.dp)
-            )
-
-            MovyzaBadge(
-                text = if (movie?.mediaType == "series") "مسلسل" else "فيلم",
-                gold = false,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp)
-            )
+            if (movie != null) {
+                MovyzaBadge(
+                    text = if (movie.mediaType == "series") "مسلسل" else "فيلم",
+                    gold = false,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .size(width = 42.dp, height = 18.dp)
+                        .clip(MovyzaShapes.Pill)
+                        .background(MovyzaColors.SkeletonHighlight)
+                )
+            }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
 
         Text(
             text = movie?.displayTitle ?: "٠٠٠٠٠٠٠٠٠٠",
             color = if (movie != null) MovyzaColors.Text else Color.Transparent,
             fontSize = 13.sp,
             lineHeight = 18.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = if (movie == null) {
@@ -621,21 +626,46 @@ fun MovyzaPosterCardTemplate(
             } else Modifier.fillMaxWidth()
         )
 
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(4.dp))
 
-        Text(
-            text = movie?.yearText?.ifBlank { "2026" } ?: "2026",
-            color = if (movie != null) MovyzaColors.Text3 else Color.Transparent,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            modifier = if (movie == null) {
-                Modifier
-                    .width(46.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = if (movie != null) "★" else " ",
+                color = if (movie != null) MovyzaColors.Gold300 else Color.Transparent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = movie?.let { String.format(Locale.US, "%.1f", it.rating) } ?: "0.0",
+                color = if (movie != null) MovyzaColors.Gold300 else Color.Transparent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = if (movie == null) Modifier
+                    .width(24.dp)
                     .clip(MovyzaShapes.Xs)
-                    .background(MovyzaColors.SkeletonFill)
-            } else Modifier
-        )
+                    .background(MovyzaColors.SkeletonFill) else Modifier
+            )
+            Text(
+                text = "·",
+                color = MovyzaColors.Text3,
+                fontSize = 11.sp
+            )
+            Text(
+                text = movie?.yearText?.ifBlank { "—" } ?: "2026",
+                color = if (movie != null) MovyzaColors.Text3 else Color.Transparent,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
+                modifier = if (movie == null) Modifier
+                    .width(42.dp)
+                    .clip(MovyzaShapes.Xs)
+                    .background(MovyzaColors.SkeletonFill) else Modifier
+            )
+        }
     }
 }
 
