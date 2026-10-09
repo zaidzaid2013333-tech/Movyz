@@ -70,7 +70,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -607,8 +606,7 @@ fun MovyzaHeroTemplate(
                 fontWeight = FontWeight.Black,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.headlineLarge.copy(textDirection = TextDirection.Content),
-                modifier = if (!hasData) {
+                                modifier = if (!hasData) {
                     Modifier
                         .fillMaxWidth(0.68f)
                         .clip(MovyzaShapes.Xs)
@@ -781,8 +779,7 @@ fun MovyzaPosterCardTemplate(
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            style = TextStyle(textDirection = TextDirection.Content),
-            modifier = if (movie == null) {
+                        modifier = if (movie == null) {
                 Modifier
                     .fillMaxWidth(0.82f)
                     .clip(MovyzaShapes.Xs)
@@ -885,8 +882,7 @@ fun MovyzaHorizontalCardTemplate(
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(textDirection = TextDirection.Content),
-                    modifier = if (movie == null) {
+                                        modifier = if (movie == null) {
                         Modifier
                             .fillMaxWidth(0.65f)
                             .clip(MovyzaShapes.Xs)
