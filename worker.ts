@@ -795,20 +795,19 @@ const SITEMAP_EPISODE_PAGES = 20;
 // URLs out of the submitted sitemap so Google is first directed to the language entry pages.
 const SITEMAP_CRAWL_ORIGIN = 'https://movyza.sbs';
 
-const buildSitemapIndex = (origin: string) => {
-  // Include localized entry/category pages and indexable movie/series detail pages.
-  // Watch/episode URLs remain excluded because the page templates mark them noindex.
-  const entries = [`<sitemap><loc>${origin}/sitemap-gsc.xml</loc></sitemap>`];
+const buildHomepagesSitemap = (origin: string) => {
+  // The submitted root sitemap intentionally contains only the public homepages:
+  // the default entry point and one stable entry point for every supported locale.
+  const urls: string[] = [
+    `<url><loc>${escapeXml(origin + "/")}</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
+  ];
   for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
-    entries.push(`<sitemap><loc>${origin}/sitemap/${locale}/static.xml</loc></sitemap>`);
-    for (const type of ['movies', 'series'] as const) {
-      for (let page = 1; page <= SITEMAP_DISCOVERY_PAGES; page += 1) {
-        entries.push(`<sitemap><loc>${origin}/sitemap/${locale}/${type}/${page}.xml</loc></sitemap>`);
-      }
-    }
+    urls.push(
+      `<url><loc>${escapeXml(`${origin}/${locale}/`)}</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
+    );
   }
   return `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries.join('')}</sitemapindex>`;
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join("")}</urlset>`;
 };
 
 const buildStaticSitemapSegment = (request: Request, locale: LocaleCode) => {
@@ -977,7 +976,7 @@ const buildGscSitemap = () => {
     `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`;
 };
 
-const buildRootSitemap = () => buildSitemapIndex(SITEMAP_CRAWL_ORIGIN);
+const buildRootSitemap = () => buildHomepagesSitemap(SITEMAP_CRAWL_ORIGIN);
 
 const buildRobotsTxt = () => [
   '# Movyza crawler policy',
