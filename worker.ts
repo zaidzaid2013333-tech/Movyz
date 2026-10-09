@@ -679,10 +679,18 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
 
   const headers = new Headers(response.headers);
   headers.set('content-type', 'text/html; charset=UTF-8');
-  // HTML is deterministic for a locale + path and safe to cache at the Worker edge.
-  // This prevents crawlers and repeat navigation from executing the Worker repeatedly.
-  headers.set('cache-control', 'public, max-age=300, s-maxage=3600, stale-while-revalidate=300');
-  headers.set('cdn-cache-control', 'public, max-age=3600, stale-while-revalidate=300');
+  if (url.pathname === '/') {
+    // The unprefixed homepage depends on Cloudflare visitor country/language.
+    // Never cache it: an old cached redirect or another visitor's localized HTML
+    // must not be replayed at the root URL.
+    headers.set('cache-control', 'no-store');
+    headers.delete('cdn-cache-control');
+    headers.delete('cloudflare-cdn-cache-control');
+  } else {
+    // Locale-prefixed pages are deterministic for their path and can be cached.
+    headers.set('cache-control', 'public, max-age=300, s-maxage=3600, stale-while-revalidate=300');
+    headers.set('cdn-cache-control', 'public, max-age=3600, stale-while-revalidate=300');
+  }
   return new Response(html, { status: response.status, statusText: response.statusText, headers });
 };
 
@@ -1182,7 +1190,7 @@ export default {
         status: 301,
         headers: {
           Location: secureUrl.toString(),
-          'Cache-Control': 'public, max-age=3600',
+          'Cache-Control': 'no-store',
         },
       });
     }
@@ -1227,7 +1235,7 @@ export default {
         status: 302,
         headers: {
           Location: target.toString(),
-          'Cache-Control': 'public, max-age=300',
+          'Cache-Control': 'no-store',
         },
       });
     }
