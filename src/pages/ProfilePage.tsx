@@ -39,7 +39,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate, watchlistC
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-6 animate-in fade-in duration-300">
       {/* User Profile Card */}
-      <div className="rounded-2xl p-6 sm:p-8 bg-[#090b10] border border-white/10 shadow-xl">
+      <div className="movyza-glass-panel rounded-2xl p-6 sm:p-8 bg-[#090b10] border border-white/10 shadow-xl">
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
           <img
             src={user.avatarUrl}
@@ -100,7 +100,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate, watchlistC
       )}
 
       {/* Language Preferences */}
-      <div className="space-y-3 p-6 rounded-2xl bg-[#090b10] border border-white/10">
+      <div className="movyza-glass-panel space-y-3 p-6 rounded-2xl bg-[#090b10] border border-white/10">
         <h2 className="text-sm sm:text-base font-cinema-title font-bold text-white flex items-center gap-2">
           <Globe className="w-4 h-4 text-amber-400" />
           <span>{t('appLanguage')}</span>
@@ -133,7 +133,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate, watchlistC
       </div>
 
       {/* Display & Battery Mode (OLED Pure Black) */}
-      <div className="space-y-3 p-6 rounded-2xl bg-[#090b10] border border-white/10">
+      <div className="movyza-glass-panel space-y-3 p-6 rounded-2xl bg-[#090b10] border border-white/10">
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <h2 className="text-sm sm:text-base font-cinema-title font-bold text-white flex items-center gap-2">
@@ -161,7 +161,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate, watchlistC
       </div>
 
       {/* PWA Phone Installation */}
-      <div className="space-y-3 p-6 rounded-2xl bg-[#090b10] border border-white/10">
+      <div className="movyza-glass-panel space-y-3 p-6 rounded-2xl bg-[#090b10] border border-white/10">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
