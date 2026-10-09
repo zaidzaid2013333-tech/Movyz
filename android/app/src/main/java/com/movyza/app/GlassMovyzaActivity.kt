@@ -104,6 +104,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -227,6 +228,7 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
         return
     }
 
+    val reducedMotion = rememberReducedMotion()
     var tab by remember { mutableStateOf(Tab.HOME) }
     var selected by remember { mutableStateOf<Movie?>(null) }
     var details by remember { mutableStateOf<TmdbDetails?>(null) }
@@ -303,17 +305,21 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
                     targetState = tab,
                     modifier = Modifier.fillMaxSize(),
                     transitionSpec = {
-                        (
-                            slideInHorizontally(
-                                animationSpec = tween(260),
-                                initialOffsetX = { it / 7 }
-                            ) + fadeIn(tween(220))
-                        ) togetherWith (
-                            slideOutHorizontally(
-                                animationSpec = tween(220),
-                                targetOffsetX = { -it / 10 }
-                            ) + fadeOut(tween(150))
-                        )
+                        if (reducedMotion) {
+                            fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                        } else {
+                            (
+                                slideInHorizontally(
+                                    animationSpec = tween(280, easing = FastOutSlowInEasing),
+                                    initialOffsetX = { it / 7 }
+                                ) + fadeIn(tween(220))
+                            ) togetherWith (
+                                slideOutHorizontally(
+                                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                    targetOffsetX = { -it / 10 }
+                                ) + fadeOut(tween(150))
+                            )
+                        }
                     },
                     label = "movyza-tab"
                 ) { current ->
@@ -438,8 +444,10 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
         // Full-Screen Details Overlay
         AnimatedVisibility(
             visible = selected != null,
-            enter = slideInVertically(tween(260)) { it / 8 } + fadeIn(tween(220)),
-            exit = slideOutVertically(tween(200)) { it / 10 } + fadeOut(tween(150))
+            enter = if (reducedMotion) fadeIn(tween(0))
+                else slideInVertically(tween(280, easing = FastOutSlowInEasing)) { it / 8 } + fadeIn(tween(220)),
+            exit = if (reducedMotion) fadeOut(tween(0))
+                else slideOutVertically(tween(200, easing = FastOutSlowInEasing)) { it / 10 } + fadeOut(tween(150))
         ) {
             val currentMovie = selected
             if (currentMovie != null) {
@@ -1222,7 +1230,7 @@ private fun MovyzaProfileTemplateScreen(
                                 shape = MovyzaShapes.Md,
                                 border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
                             ) {
-                                Text("إنشاء حساب", color = MovyzaColors.Text, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.btn_signup), color = MovyzaColors.Text, fontWeight = FontWeight.Bold)
                             }
                         }
                     } else {
@@ -1232,7 +1240,7 @@ private fun MovyzaProfileTemplateScreen(
                             shape = MovyzaShapes.Md,
                             border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
                         ) {
-                            Text("تسجيل الخروج", color = MovyzaColors.Text2, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.btn_logout), color = MovyzaColors.Text2, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -1303,7 +1311,7 @@ private fun MovyzaProfileTemplateScreen(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = stringResource(R.string.quick_list),
+                        text = stringResource(R.string.watchlist_title),
                         color = MovyzaColors.Text,
                         fontSize = 19.sp,
                         fontWeight = FontWeight.ExtraBold
