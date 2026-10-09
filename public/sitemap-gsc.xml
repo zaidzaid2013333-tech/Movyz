@@ -1,195 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://movyza.sbs/ar/</loc></url>
-  <url><loc>https://movyza.sbs/ar/movies</loc></url>
-  <url><loc>https://movyza.sbs/ar/series</loc></url>
-  <url><loc>https://movyza.sbs/ar/discover</loc></url>
-  <url><loc>https://movyza.sbs/ar/catalog</loc></url>
-  <url><loc>https://movyza.sbs/ar/legal</loc></url>
   <url><loc>https://movyza.sbs/en/</loc></url>
-  <url><loc>https://movyza.sbs/en/movies</loc></url>
-  <url><loc>https://movyza.sbs/en/series</loc></url>
-  <url><loc>https://movyza.sbs/en/discover</loc></url>
-  <url><loc>https://movyza.sbs/en/catalog</loc></url>
-  <url><loc>https://movyza.sbs/en/legal</loc></url>
   <url><loc>https://movyza.sbs/fr/</loc></url>
-  <url><loc>https://movyza.sbs/fr/movies</loc></url>
-  <url><loc>https://movyza.sbs/fr/series</loc></url>
-  <url><loc>https://movyza.sbs/fr/discover</loc></url>
-  <url><loc>https://movyza.sbs/fr/catalog</loc></url>
-  <url><loc>https://movyza.sbs/fr/legal</loc></url>
   <url><loc>https://movyza.sbs/de/</loc></url>
-  <url><loc>https://movyza.sbs/de/movies</loc></url>
-  <url><loc>https://movyza.sbs/de/series</loc></url>
-  <url><loc>https://movyza.sbs/de/discover</loc></url>
-  <url><loc>https://movyza.sbs/de/catalog</loc></url>
-  <url><loc>https://movyza.sbs/de/legal</loc></url>
   <url><loc>https://movyza.sbs/es/</loc></url>
-  <url><loc>https://movyza.sbs/es/movies</loc></url>
-  <url><loc>https://movyza.sbs/es/series</loc></url>
-  <url><loc>https://movyza.sbs/es/discover</loc></url>
-  <url><loc>https://movyza.sbs/es/catalog</loc></url>
-  <url><loc>https://movyza.sbs/es/legal</loc></url>
   <url><loc>https://movyza.sbs/it/</loc></url>
-  <url><loc>https://movyza.sbs/it/movies</loc></url>
-  <url><loc>https://movyza.sbs/it/series</loc></url>
-  <url><loc>https://movyza.sbs/it/discover</loc></url>
-  <url><loc>https://movyza.sbs/it/catalog</loc></url>
-  <url><loc>https://movyza.sbs/it/legal</loc></url>
   <url><loc>https://movyza.sbs/pt/</loc></url>
-  <url><loc>https://movyza.sbs/pt/movies</loc></url>
-  <url><loc>https://movyza.sbs/pt/series</loc></url>
-  <url><loc>https://movyza.sbs/pt/discover</loc></url>
-  <url><loc>https://movyza.sbs/pt/catalog</loc></url>
-  <url><loc>https://movyza.sbs/pt/legal</loc></url>
   <url><loc>https://movyza.sbs/ru/</loc></url>
-  <url><loc>https://movyza.sbs/ru/movies</loc></url>
-  <url><loc>https://movyza.sbs/ru/series</loc></url>
-  <url><loc>https://movyza.sbs/ru/discover</loc></url>
-  <url><loc>https://movyza.sbs/ru/catalog</loc></url>
-  <url><loc>https://movyza.sbs/ru/legal</loc></url>
   <url><loc>https://movyza.sbs/tr/</loc></url>
-  <url><loc>https://movyza.sbs/tr/movies</loc></url>
-  <url><loc>https://movyza.sbs/tr/series</loc></url>
-  <url><loc>https://movyza.sbs/tr/discover</loc></url>
-  <url><loc>https://movyza.sbs/tr/catalog</loc></url>
-  <url><loc>https://movyza.sbs/tr/legal</loc></url>
   <url><loc>https://movyza.sbs/hi/</loc></url>
-  <url><loc>https://movyza.sbs/hi/movies</loc></url>
-  <url><loc>https://movyza.sbs/hi/series</loc></url>
-  <url><loc>https://movyza.sbs/hi/discover</loc></url>
-  <url><loc>https://movyza.sbs/hi/catalog</loc></url>
-  <url><loc>https://movyza.sbs/hi/legal</loc></url>
   <url><loc>https://movyza.sbs/ja/</loc></url>
-  <url><loc>https://movyza.sbs/ja/movies</loc></url>
-  <url><loc>https://movyza.sbs/ja/series</loc></url>
-  <url><loc>https://movyza.sbs/ja/discover</loc></url>
-  <url><loc>https://movyza.sbs/ja/catalog</loc></url>
-  <url><loc>https://movyza.sbs/ja/legal</loc></url>
   <url><loc>https://movyza.sbs/ko/</loc></url>
-  <url><loc>https://movyza.sbs/ko/movies</loc></url>
-  <url><loc>https://movyza.sbs/ko/series</loc></url>
-  <url><loc>https://movyza.sbs/ko/discover</loc></url>
-  <url><loc>https://movyza.sbs/ko/catalog</loc></url>
-  <url><loc>https://movyza.sbs/ko/legal</loc></url>
   <url><loc>https://movyza.sbs/zh/</loc></url>
-  <url><loc>https://movyza.sbs/zh/movies</loc></url>
-  <url><loc>https://movyza.sbs/zh/series</loc></url>
-  <url><loc>https://movyza.sbs/zh/discover</loc></url>
-  <url><loc>https://movyza.sbs/zh/catalog</loc></url>
-  <url><loc>https://movyza.sbs/zh/legal</loc></url>
   <url><loc>https://movyza.sbs/nl/</loc></url>
-  <url><loc>https://movyza.sbs/nl/movies</loc></url>
-  <url><loc>https://movyza.sbs/nl/series</loc></url>
-  <url><loc>https://movyza.sbs/nl/discover</loc></url>
-  <url><loc>https://movyza.sbs/nl/catalog</loc></url>
-  <url><loc>https://movyza.sbs/nl/legal</loc></url>
   <url><loc>https://movyza.sbs/sv/</loc></url>
-  <url><loc>https://movyza.sbs/sv/movies</loc></url>
-  <url><loc>https://movyza.sbs/sv/series</loc></url>
-  <url><loc>https://movyza.sbs/sv/discover</loc></url>
-  <url><loc>https://movyza.sbs/sv/catalog</loc></url>
-  <url><loc>https://movyza.sbs/sv/legal</loc></url>
   <url><loc>https://movyza.sbs/da/</loc></url>
-  <url><loc>https://movyza.sbs/da/movies</loc></url>
-  <url><loc>https://movyza.sbs/da/series</loc></url>
-  <url><loc>https://movyza.sbs/da/discover</loc></url>
-  <url><loc>https://movyza.sbs/da/catalog</loc></url>
-  <url><loc>https://movyza.sbs/da/legal</loc></url>
   <url><loc>https://movyza.sbs/no/</loc></url>
-  <url><loc>https://movyza.sbs/no/movies</loc></url>
-  <url><loc>https://movyza.sbs/no/series</loc></url>
-  <url><loc>https://movyza.sbs/no/discover</loc></url>
-  <url><loc>https://movyza.sbs/no/catalog</loc></url>
-  <url><loc>https://movyza.sbs/no/legal</loc></url>
   <url><loc>https://movyza.sbs/fi/</loc></url>
-  <url><loc>https://movyza.sbs/fi/movies</loc></url>
-  <url><loc>https://movyza.sbs/fi/series</loc></url>
-  <url><loc>https://movyza.sbs/fi/discover</loc></url>
-  <url><loc>https://movyza.sbs/fi/catalog</loc></url>
-  <url><loc>https://movyza.sbs/fi/legal</loc></url>
   <url><loc>https://movyza.sbs/pl/</loc></url>
-  <url><loc>https://movyza.sbs/pl/movies</loc></url>
-  <url><loc>https://movyza.sbs/pl/series</loc></url>
-  <url><loc>https://movyza.sbs/pl/discover</loc></url>
-  <url><loc>https://movyza.sbs/pl/catalog</loc></url>
-  <url><loc>https://movyza.sbs/pl/legal</loc></url>
   <url><loc>https://movyza.sbs/cs/</loc></url>
-  <url><loc>https://movyza.sbs/cs/movies</loc></url>
-  <url><loc>https://movyza.sbs/cs/series</loc></url>
-  <url><loc>https://movyza.sbs/cs/discover</loc></url>
-  <url><loc>https://movyza.sbs/cs/catalog</loc></url>
-  <url><loc>https://movyza.sbs/cs/legal</loc></url>
   <url><loc>https://movyza.sbs/uk/</loc></url>
-  <url><loc>https://movyza.sbs/uk/movies</loc></url>
-  <url><loc>https://movyza.sbs/uk/series</loc></url>
-  <url><loc>https://movyza.sbs/uk/discover</loc></url>
-  <url><loc>https://movyza.sbs/uk/catalog</loc></url>
-  <url><loc>https://movyza.sbs/uk/legal</loc></url>
   <url><loc>https://movyza.sbs/he/</loc></url>
-  <url><loc>https://movyza.sbs/he/movies</loc></url>
-  <url><loc>https://movyza.sbs/he/series</loc></url>
-  <url><loc>https://movyza.sbs/he/discover</loc></url>
-  <url><loc>https://movyza.sbs/he/catalog</loc></url>
-  <url><loc>https://movyza.sbs/he/legal</loc></url>
   <url><loc>https://movyza.sbs/vi/</loc></url>
-  <url><loc>https://movyza.sbs/vi/movies</loc></url>
-  <url><loc>https://movyza.sbs/vi/series</loc></url>
-  <url><loc>https://movyza.sbs/vi/discover</loc></url>
-  <url><loc>https://movyza.sbs/vi/catalog</loc></url>
-  <url><loc>https://movyza.sbs/vi/legal</loc></url>
   <url><loc>https://movyza.sbs/id/</loc></url>
-  <url><loc>https://movyza.sbs/id/movies</loc></url>
-  <url><loc>https://movyza.sbs/id/series</loc></url>
-  <url><loc>https://movyza.sbs/id/discover</loc></url>
-  <url><loc>https://movyza.sbs/id/catalog</loc></url>
-  <url><loc>https://movyza.sbs/id/legal</loc></url>
   <url><loc>https://movyza.sbs/ms/</loc></url>
-  <url><loc>https://movyza.sbs/ms/movies</loc></url>
-  <url><loc>https://movyza.sbs/ms/series</loc></url>
-  <url><loc>https://movyza.sbs/ms/discover</loc></url>
-  <url><loc>https://movyza.sbs/ms/catalog</loc></url>
-  <url><loc>https://movyza.sbs/ms/legal</loc></url>
   <url><loc>https://movyza.sbs/th/</loc></url>
-  <url><loc>https://movyza.sbs/th/movies</loc></url>
-  <url><loc>https://movyza.sbs/th/series</loc></url>
-  <url><loc>https://movyza.sbs/th/discover</loc></url>
-  <url><loc>https://movyza.sbs/th/catalog</loc></url>
-  <url><loc>https://movyza.sbs/th/legal</loc></url>
   <url><loc>https://movyza.sbs/ro/</loc></url>
-  <url><loc>https://movyza.sbs/ro/movies</loc></url>
-  <url><loc>https://movyza.sbs/ro/series</loc></url>
-  <url><loc>https://movyza.sbs/ro/discover</loc></url>
-  <url><loc>https://movyza.sbs/ro/catalog</loc></url>
-  <url><loc>https://movyza.sbs/ro/legal</loc></url>
   <url><loc>https://movyza.sbs/hu/</loc></url>
-  <url><loc>https://movyza.sbs/hu/movies</loc></url>
-  <url><loc>https://movyza.sbs/hu/series</loc></url>
-  <url><loc>https://movyza.sbs/hu/discover</loc></url>
-  <url><loc>https://movyza.sbs/hu/catalog</loc></url>
-  <url><loc>https://movyza.sbs/hu/legal</loc></url>
   <url><loc>https://movyza.sbs/el/</loc></url>
-  <url><loc>https://movyza.sbs/el/movies</loc></url>
-  <url><loc>https://movyza.sbs/el/series</loc></url>
-  <url><loc>https://movyza.sbs/el/discover</loc></url>
-  <url><loc>https://movyza.sbs/el/catalog</loc></url>
-  <url><loc>https://movyza.sbs/el/legal</loc></url>
   <url><loc>https://movyza.sbs/bn/</loc></url>
-  <url><loc>https://movyza.sbs/bn/movies</loc></url>
-  <url><loc>https://movyza.sbs/bn/series</loc></url>
-  <url><loc>https://movyza.sbs/bn/discover</loc></url>
-  <url><loc>https://movyza.sbs/bn/catalog</loc></url>
-  <url><loc>https://movyza.sbs/bn/legal</loc></url>
   <url><loc>https://movyza.sbs/ur/</loc></url>
-  <url><loc>https://movyza.sbs/ur/movies</loc></url>
-  <url><loc>https://movyza.sbs/ur/series</loc></url>
-  <url><loc>https://movyza.sbs/ur/discover</loc></url>
-  <url><loc>https://movyza.sbs/ur/catalog</loc></url>
-  <url><loc>https://movyza.sbs/ur/legal</loc></url>
   <url><loc>https://movyza.sbs/fa/</loc></url>
-  <url><loc>https://movyza.sbs/fa/movies</loc></url>
-  <url><loc>https://movyza.sbs/fa/series</loc></url>
-  <url><loc>https://movyza.sbs/fa/discover</loc></url>
-  <url><loc>https://movyza.sbs/fa/catalog</loc></url>
-  <url><loc>https://movyza.sbs/fa/legal</loc></url>
 </urlset>
