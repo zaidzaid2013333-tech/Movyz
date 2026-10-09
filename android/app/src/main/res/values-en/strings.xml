@@ -92,4 +92,6 @@
     <string name="auth_created_success">Account created</string>
     <string name="hero_overview_placeholder">Explore the title details and start watching on Movyza.</string>
     <string name="detail_episode_format">Episode %1$d • %2$s</string>
+    <string name="type_movie">Movie</string>
+    <string name="poster_overview_placeholder">Tap to open details and start watching.</string>
 </resources>
