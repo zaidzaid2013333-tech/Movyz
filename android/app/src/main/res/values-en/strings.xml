@@ -94,4 +94,6 @@
     <string name="detail_episode_format">Episode %1$d • %2$s</string>
     <string name="type_movie">Movie</string>
     <string name="poster_overview_placeholder">Tap to open details and start watching.</string>
+    <string name="continue_movie">Continue movie</string>
+    <string name="btn_resume">Resume</string>
 </resources>
