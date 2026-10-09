@@ -39,12 +39,12 @@ data class HomeState(
     val topRatedSeries: List<Movie> = emptyList()
 )
 
-enum class Tab(val label: String) {
-    HOME("الرئيسية"),
-    MOVIES("أفلام"),
-    SERIES("مسلسلات"),
-    SEARCH("بحث"),
-    PROFILE("حسابي")
+enum class Tab(val labelRes: Int) {
+    HOME(R.string.tab_home),
+    MOVIES(R.string.tab_movies),
+    SERIES(R.string.tab_series),
+    SEARCH(R.string.tab_search),
+    PROFILE(R.string.tab_profile)
 }
 
 class MainActivity : ComponentActivity() {
