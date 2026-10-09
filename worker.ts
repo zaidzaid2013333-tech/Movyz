@@ -619,36 +619,14 @@ const escapeXml = (value: string) =>
 const SITEMAP_DISCOVERY_PAGES = 20;
 // Retain the episode sitemap endpoint for direct requests, but keep it bounded.
 const SITEMAP_EPISODE_PAGES = 20;
-// Keep the XML sitemap focused on the highest-value language surfaces.
-// All supported locales remain directly accessible and retain hreflang links,
-// but advertising every episode in every locale causes an unnecessary crawl storm.
-const SITEMAP_SEO_LOCALES: LocaleCode[] = ['en', 'ar', 'fr', 'es', 'de', 'pt', 'tr', 'hi'];
+// The root sitemap advertises only the localized homepages. Keep catalog/detail
+// URLs out of the submitted sitemap so Google is first directed to the language entry pages.
 const SITEMAP_CRAWL_ORIGIN = 'https://movyza.sbs';
 
 const buildSitemapIndex = (origin: string) => {
-  const entries: string[] = [];
-
-  // Static localized surfaces: home + public catalog landing pages.
-  for (const locale of SITEMAP_SEO_LOCALES) {
-    entries.push(`<sitemap><loc>${origin}/sitemap/${locale}/static.xml</loc></sitemap>`);
-  }
-
-  // Localized movie/series detail pages and movie watch pages are generated from TMDB discover.
-  // Episode URLs are intentionally not advertised here: one sitemap page can expand into
-  // thousands of episode URLs, multiplied again by every locale, which can exhaust the
-  // Workers Free request budget during crawler discovery.
-  for (const locale of SITEMAP_SEO_LOCALES) {
-    for (const type of ['movies', 'series'] as const) {
-      for (let page = 1; page <= SITEMAP_DISCOVERY_PAGES; page += 1) {
-        entries.push(
-          `<sitemap><loc>${origin}/sitemap/${locale}/${type}/${page}.xml</loc></sitemap>`
-        );
-      }
-    }
-  }
-
+  const entry = `<sitemap><loc>${origin}/sitemap-gsc.xml</loc></sitemap>`;
   return `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries.join('')}</sitemapindex>`;
+    `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entry}</sitemapindex>`;
 };
 
 const buildStaticSitemapSegment = (request: Request, locale: LocaleCode) => {
@@ -801,17 +779,14 @@ const buildSitemapSegment = async (
   }
 };
 
-const ROOT_SITEMAP_ROUTES = ['/', '/movies', '/series', '/discover', '/catalog', '/legal'] as const;
 const SITEMAP_PUBLIC_ORIGIN = 'https://movyza.sbs';
 
 const buildGscSitemap = () => {
   const urls: string[] = [];
   for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
-    for (const route of ROOT_SITEMAP_ROUTES) {
-      urls.push(
-        `<url><loc>${escapeXml(`${SITEMAP_PUBLIC_ORIGIN}/${locale}${route === '/' ? '/' : route}`)}</loc></url>`,
-      );
-    }
+    urls.push(
+      `<url><loc>${escapeXml(`${SITEMAP_PUBLIC_ORIGIN}/${locale}/`)}</loc></url>`,
+    );
   }
 
   return `<?xml version="1.0" encoding="UTF-8"?>` +
