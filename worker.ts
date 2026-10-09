@@ -335,11 +335,15 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     : {
         '@context': 'https://schema.org',
         '@type': schemaType,
-        name: contentTitle,
+        // Use one stable brand name for every localized homepage. Site names
+        // are domain-level in Google Search, not separate per-locale brands.
+        name: route === '/' ? 'Movyza' : contentTitle,
         description,
-        alternateName: alternateTitle || undefined,
+        alternateName: route === '/'
+          ? ['موفيزا', 'movyza.sbs']
+          : alternateTitle || undefined,
         image: imageUrl ? [imageUrl] : undefined,
-        url: origin + canonicalPath,
+        url: route === '/' ? 'https://movyza.sbs/' : origin + canonicalPath,
       };
   const subtitleLocale = detectSubtitleLocale(request);
   const injection = `<!-- movyz-seo -->` +
@@ -866,6 +870,22 @@ const handleSitemap = async (request: Request, env: MovyzEnvironment) => {
 export default {
   async fetch(request: Request, env: MovyzEnvironment, _ctx: ExecutionContextLike): Promise<Response> {
     const url = new URL(request.url);
+    // Canonicalize every public request to HTTPS before locale redirects or HTML
+    // generation. Otherwise an HTTP root request can redirect to an HTTP locale
+    // URL and expose duplicate insecure URLs to crawlers.
+    const localHost = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
+    if (url.protocol === 'http:' && !localHost) {
+      const secureUrl = new URL(request.url);
+      secureUrl.protocol = 'https:';
+      if (secureUrl.port === '80') secureUrl.port = '';
+      return new Response(null, {
+        status: 301,
+        headers: {
+          Location: secureUrl.toString(),
+          'Cache-Control': 'public, max-age=3600',
+        },
+      });
+    }
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: {
         'Access-Control-Allow-Origin': '*',
