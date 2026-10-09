@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  AlertCircle, ArrowLeft, CheckCircle2, Eye, EyeOff, Film, KeyRound,
+  AlertCircle, ArrowLeft, CheckCircle2, Eye, EyeOff, KeyRound,
   LoaderCircle, Mail, ShieldCheck, Sparkles, UserRound,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -188,7 +188,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ mode, onNavigate }) => {
       setError(mapped);
       if (mode === 'login' && mapped.includes('لم يُؤكَّد')) {
         setStep('verify-signup');
-        startCooldown();
+        setCooldown(0);
       }
       if (/حد إرسال الرسائل|إرسال الرسائل مؤقتًا/.test(mapped)) {
         startCooldown(300);
@@ -223,7 +223,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ mode, onNavigate }) => {
 
   const isVerification = step === 'verify-signup' || step === 'verify-recovery';
   const isSignup = step === 'verify-signup';
-  const isRecovery = mode === 'forgot' || step === 'verify-recovery';
   const isResetLink = mode === 'reset';
   const title = mode === 'callback'
     ? 'تأكيد حساب Movyza'
