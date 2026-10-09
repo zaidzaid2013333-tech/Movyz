@@ -68,6 +68,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private val api = MovyzaApi.instance
+    private val authClient = NativeAuthClient()
     private val prefs = app.getSharedPreferences("movyza_session", Context.MODE_PRIVATE)
     private val historyPrefs = app.getSharedPreferences(HISTORY_PREFS, Context.MODE_PRIVATE)
 
@@ -367,13 +368,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun signIn(email: String, password: String, onDone: (Boolean, String) -> Unit) {
         viewModelScope.launch {
             loading = true
-            api.signIn(email, password).onSuccess {
+            api.signIn(email.trim(), password).onSuccess {
                 session = it
                 saveSession(it)
                 loadWatchlist()
                 onDone(true, "تم تسجيل الدخول بنجاح")
             }.onFailure {
-                onDone(false, it.message ?: "فشل تسجيل الدخول")
+                onDone(false, authFriendlyMessage(it))
             }
             loading = false
         }
@@ -382,18 +383,97 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun signUp(name: String, email: String, password: String, onDone: (Boolean, String) -> Unit) {
         viewModelScope.launch {
             loading = true
-            api.signUp(name, email, password).onSuccess { created ->
+            api.signUp(name.trim(), email.trim().lowercase(), password).onSuccess { created ->
                 if (created != null) {
                     session = created
                     saveSession(created)
+                    loadWatchlist()
                     onDone(true, "تم إنشاء الحساب")
                 } else {
-                    onDone(true, "تم إنشاء الحساب. تحقق من بريدك ثم سجّل الدخول.")
+                    // Email confirmation is enabled: hold the user in the app's
+                    // verification step instead of inviting repeated signup calls.
+                    onDone(true, "تم إنشاء الحساب. أدخل رمز التأكيد الذي وصلك إلى بريدك.")
                 }
             }.onFailure {
-                onDone(false, it.message ?: "فشل إنشاء الحساب")
+                onDone(false, authFriendlyMessage(it))
             }
             loading = false
+        }
+    }
+
+    fun verifySignupCode(email: String, token: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            loading = true
+            runCatching { authClient.verifySignupCode(email, token) }
+                .onSuccess { verifiedSession ->
+                    session = verifiedSession
+                    saveSession(verifiedSession)
+                    loadWatchlist()
+                    onDone(true, "تم تأكيد البريد وتسجيل الدخول بنجاح")
+                }
+                .onFailure { onDone(false, authFriendlyMessage(it)) }
+            loading = false
+        }
+    }
+
+    fun resendSignupCode(email: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            loading = true
+            runCatching { authClient.resendSignupCode(email) }
+                .onSuccess { onDone(true, "تم طلب رسالة تأكيد جديدة. استخدم أحدث رمز وصلك.") }
+                .onFailure { onDone(false, authFriendlyMessage(it)) }
+            loading = false
+        }
+    }
+
+    fun requestPasswordReset(email: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            loading = true
+            runCatching { authClient.requestPasswordReset(email) }
+                .onSuccess {
+                    // Do not reveal whether an account exists for the email.
+                    onDone(true, "إذا كان البريد مرتبطًا بحساب، فستصلك رسالة استعادة.")
+                }
+                .onFailure { onDone(false, authFriendlyMessage(it)) }
+            loading = false
+        }
+    }
+
+    fun resetPasswordWithCode(
+        email: String,
+        token: String,
+        newPassword: String,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            loading = true
+            runCatching { authClient.resetPasswordWithCode(email, token, newPassword) }
+                .onSuccess { onDone(true, "تم تحديث كلمة المرور. يمكنك الآن تسجيل الدخول.") }
+                .onFailure { onDone(false, authFriendlyMessage(it)) }
+            loading = false
+        }
+    }
+
+    private fun authFriendlyMessage(error: Throwable): String {
+        val raw = error.message.orEmpty().lowercase()
+        return when {
+            "email_not_confirmed" in raw || "email not confirmed" in raw ->
+                "البريد الإلكتروني غير مؤكد. أدخل رمز التأكيد أو أعد إرساله من هنا."
+            "over_email_send_rate_limit" in raw || "email rate limit" in raw ||
+                "too many emails" in raw || "429" in raw ->
+                "تم بلوغ حد إرسال الرسائل مؤقتًا. انتظر قبل إعادة الإرسال؛ مزود البريد الافتراضي محدود."
+            "invalid_credentials" in raw || "invalid login credentials" in raw ->
+                "البريد الإلكتروني أو كلمة المرور غير صحيحة."
+            "otp_expired" in raw || "invalid otp" in raw || "invalid token" in raw ->
+                "رمز غير صحيح أو منتهي الصلاحية. اطلب رمزًا جديدًا."
+            "weak_password" in raw || "password should be" in raw ->
+                "اختر كلمة مرور من 8 أحرف على الأقل."
+            "user_already_exists" in raw || "user already registered" in raw || "email_exists" in raw ->
+                "تعذّر إنشاء حساب بهذا البريد. جرّب تسجيل الدخول أو استعادة كلمة المرور."
+            "auth_not_configured" in raw ->
+                "خدمة الحسابات غير مهيأة في هذه النسخة."
+            else -> error.message?.takeIf { it.isNotBlank() }
+                ?: "تعذر إكمال الطلب. تحقق من الإنترنت وحاول مرة أخرى."
         }
     }
 
