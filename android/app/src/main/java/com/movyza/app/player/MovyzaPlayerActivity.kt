@@ -469,6 +469,9 @@ class MovyzaPlayerActivity : ComponentActivity() {
 
     private suspend fun prepareSource(source: PlaybackCandidate, resumePositionMs: Long? = null) {
         val preparationGeneration = ++sourcePreparationGeneration
+        // While a new source's subtitle metadata is being prepared, ignore errors
+        // from the previous timeline; the new attempt owns recovery from this point.
+        handlingPlaybackError = true
         startupWatchdogJob?.cancel()
         startupWatchdogJob = null
         error = null
