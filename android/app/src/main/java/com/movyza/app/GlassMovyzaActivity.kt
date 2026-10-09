@@ -501,7 +501,7 @@ private fun MovyzaFixedBottomBar(
                 .fillMaxWidth()
                 .height(62.dp)
                 .clip(MovyzaShapes.Xl)
-                .background(Color(0xEE111116))
+                .background(Color(0xF20A0B10))
                 .border(1.dp, MovyzaColors.GlassBorder.copy(alpha = 0.82f), MovyzaShapes.Xl)
                 .padding(horizontal = 5.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -611,19 +611,42 @@ private fun MovyzaHomeTemplateScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(MovyzaShapes.Sm)
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(MovyzaColors.Gold300, MovyzaColors.Gold400, MovyzaColors.Gold600)
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.LocalMovies,
+                                contentDescription = null,
+                                tint = MovyzaColors.Bg,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                        Text(
+                            text = "MOVYZA",
+                            color = MovyzaColors.Text,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 2.4.sp
+                        )
+                    }
                     Text(
-                        text = "MOVYZA",
-                        color = MovyzaColors.Gold300,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 2.sp
-                    )
-                    Text(
-                        text = "منصة السينما والدراما العربية",
+                        text = "سينماك تبدأ هنا",
                         color = MovyzaColors.Text3,
                         fontSize = 11.sp
                     )
@@ -1408,6 +1431,7 @@ private fun MovyzaDetailsTemplateScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .navigationBarsPadding(),
             contentPadding = PaddingValues(bottom = 36.dp)
         ) {
@@ -1415,7 +1439,9 @@ private fun MovyzaDetailsTemplateScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(420.dp)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .height(500.dp)
+                        .clip(MovyzaShapes.Xl)
                         .background(MovyzaColors.SurfaceElevated)
                 ) {
                     AsyncImage(
@@ -1424,80 +1450,90 @@ private fun MovyzaDetailsTemplateScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
+
+                    // Layered black gradients mirror the cinematic website detail hero.
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
-                                    0.0f to Color(0x6604060D),
-                                    0.40f to Color.Transparent,
-                                    0.76f to Color(0xE604060D),
-                                    1.0f to MovyzaColors.Bg
+                                    0.0f to Color(0x55040507),
+                                    0.34f to Color(0x22040507),
+                                    0.62f to Color(0x88040507),
+                                    1.0f to Color(0xFF040507)
+                                )
+                            )
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        Color.Transparent,
+                                        Color(0x44040507),
+                                        Color(0xAA040507)
+                                    )
                                 )
                             )
                     )
 
-                    Row(
+                    GlassIconButton(
+                        onClick = onBack,
+                        icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = "رجوع",
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(14.dp)
+                    )
+
+                    MovyzaBadge(
+                        text = if (isSeries) "مسلسل" else "فيلم سينمائي",
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(16.dp)
+                    )
+
+                    Column(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.Bottom
+                            .padding(horizontal = 20.dp, vertical = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(width = 96.dp, height = 140.dp)
-                                .clip(MovyzaShapes.Md)
-                                .background(MovyzaColors.Bg2)
-                                .border(1.dp, MovyzaColors.GlassBorder, MovyzaShapes.Md)
-                        ) {
-                            AsyncImage(
-                                model = movie.posterUrl,
-                                contentDescription = movie.displayTitle,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        }
+                        Text(
+                            text = movie.displayTitle,
+                            color = MovyzaColors.Text,
+                            fontSize = 29.sp,
+                            lineHeight = 36.sp,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
 
-                        Spacer(Modifier.width(14.dp))
+                        val metaParts = listOfNotNull(
+                            "★ " + String.format(Locale.US, "%.1f", movie.rating),
+                            movie.yearText.takeIf { it.isNotBlank() },
+                            details?.runtime?.takeIf { it > 0 }?.let { "$it دقيقة" },
+                            if (isSeries && seasons.isNotEmpty()) "${seasons.size} مواسم" else null
+                        )
+                        Text(
+                            text = metaParts.joinToString("  •  "),
+                            color = MovyzaColors.Gold300,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
 
-                        Column(Modifier.weight(1f)) {
-                            MovyzaBadge(
-                                text = if (isSeries) "مسلسل" else "فيلم سينمائي"
-                            )
-                            Spacer(Modifier.height(8.dp))
+                        if (!details?.director.isNullOrBlank()) {
                             Text(
-                                text = movie.displayTitle,
-                                color = MovyzaColors.Text,
-                                fontSize = 23.sp,
-                                lineHeight = 29.sp,
-                                fontWeight = FontWeight.Black,
-                                maxLines = 2,
+                                text = (if (isSeries) "ابتكار: " else "إخراج: ") + details?.director.orEmpty(),
+                                color = MovyzaColors.Text2,
+                                fontSize = 12.sp,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            Spacer(Modifier.height(6.dp))
-                            val metaParts = listOfNotNull(
-                                "★ " + String.format(Locale.US, "%.1f", movie.rating),
-                                movie.yearText.takeIf { it.isNotBlank() },
-                                details?.runtime?.takeIf { it > 0 }?.let { "$it دقيقة" },
-                                if (isSeries && seasons.isNotEmpty()) "${seasons.size} مواسم" else null
-                            )
-                            Text(
-                                text = metaParts.joinToString("  •  "),
-                                color = MovyzaColors.Gold300,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (!details?.director.isNullOrBlank()) {
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = (if (isSeries) "ابتكار: " else "إخراج: ") + details?.director.orEmpty(),
-                                    color = MovyzaColors.Text2,
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
                         }
                     }
                 }
