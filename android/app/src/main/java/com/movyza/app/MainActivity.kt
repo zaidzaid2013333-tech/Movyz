@@ -88,6 +88,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     var session by mutableStateOf(restoreSession())
         private set
+    private var pendingRecoverySession: UserSession? = null
     var loading by mutableStateOf(false)
         private set
     var searchLoading by mutableStateOf(false)
@@ -379,19 +380,103 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun signUp(name: String, email: String, password: String, onDone: (Boolean, String) -> Unit) {
+    fun signUp(
+        name: String,
+        email: String,
+        password: String,
+        onDone: (Boolean, String, Boolean) -> Unit
+    ) {
         viewModelScope.launch {
             loading = true
             api.signUp(name, email, password).onSuccess { created ->
                 if (created != null) {
                     session = created
                     saveSession(created)
-                    onDone(true, "تم إنشاء الحساب")
+                    loadWatchlist()
+                    onDone(true, "تم إنشاء الحساب وتسجيل الدخول بنجاح.", false)
                 } else {
-                    onDone(true, "تم إنشاء الحساب. تحقق من بريدك ثم سجّل الدخول.")
+                    onDone(true, "أرسلنا رمز تحقق إلى بريدك الإلكتروني لإكمال إنشاء الحساب.", true)
                 }
             }.onFailure {
-                onDone(false, it.message ?: "فشل إنشاء الحساب")
+                onDone(false, it.message ?: "تعذر إنشاء الحساب. حاول مجددًا.", false)
+            }
+            loading = false
+        }
+    }
+
+    fun verifySignupOtp(email: String, code: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            loading = true
+            api.verifyEmailOtp(email, code, "signup").onSuccess { verified ->
+                session = verified
+                saveSession(verified)
+                loadWatchlist()
+                onDone(true, "تم تأكيد البريد الإلكتروني وتفعيل حسابك.")
+            }.onFailure {
+                onDone(false, it.message ?: "رمز التحقق غير صحيح أو انتهت صلاحيته.")
+            }
+            loading = false
+        }
+    }
+
+    fun resendSignupOtp(email: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            loading = true
+            api.resendSignupOtp(email).onSuccess {
+                onDone(true, "تم طلب رمز تحقق جديد. تحقق من صندوق الوارد والرسائل غير المرغوب فيها.")
+            }.onFailure {
+                onDone(false, it.message ?: "تعذر إرسال رمز جديد. حاول بعد قليل.")
+            }
+            loading = false
+        }
+    }
+
+    fun requestPasswordRecovery(email: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            loading = true
+            pendingRecoverySession = null
+            api.requestPasswordRecovery(email).onSuccess {
+                onDone(
+                    true,
+                    "إذا كان البريد مرتبطًا بحساب، فستصلك رسالة برمز استعادة كلمة المرور."
+                )
+            }.onFailure {
+                onDone(false, it.message ?: "تعذر طلب استعادة كلمة المرور. حاول مجددًا.")
+            }
+            loading = false
+        }
+    }
+
+    fun verifyRecoveryOtp(email: String, code: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            loading = true
+            api.verifyEmailOtp(email, code, "recovery").onSuccess { verified ->
+                pendingRecoverySession = verified
+                onDone(true, "تم التحقق من الرمز. اختر الآن كلمة مرور جديدة.")
+            }.onFailure {
+                pendingRecoverySession = null
+                onDone(false, it.message ?: "رمز الاستعادة غير صحيح أو انتهت صلاحيته.")
+            }
+            loading = false
+        }
+    }
+
+    fun updateRecoveredPassword(password: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val recovery = pendingRecoverySession
+            if (recovery == null) {
+                onDone(false, "انتهت جلسة الاستعادة. اطلب رمزًا جديدًا.")
+                return@launch
+            }
+            loading = true
+            api.updatePassword(recovery, password).onSuccess {
+                session = recovery
+                saveSession(recovery)
+                pendingRecoverySession = null
+                loadWatchlist()
+                onDone(true, "تم تحديث كلمة المرور بنجاح.")
+            }.onFailure {
+                onDone(false, it.message ?: "تعذر تحديث كلمة المرور. حاول مجددًا.")
             }
             loading = false
         }
