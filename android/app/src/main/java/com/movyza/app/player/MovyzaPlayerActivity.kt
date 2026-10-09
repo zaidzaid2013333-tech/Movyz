@@ -16,6 +16,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -58,6 +60,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -73,8 +76,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -183,6 +188,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private var autoplayNext by mutableStateOf(true)
     private var playbackSpeed by mutableFloatStateOf(1f)
     private var subtitleVisualStyle by mutableStateOf(SubtitleVisualStyle.CLASSIC)
+    private var subtitleScale by mutableFloatStateOf(0.078f)
     private var preferredQualityHeight by mutableIntStateOf(720)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -207,6 +213,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
                     ?: SubtitleVisualStyle.CLASSIC.name
             )
         }.getOrDefault(SubtitleVisualStyle.CLASSIC)
+        subtitleScale = playerPrefs.getFloat("subtitle_scale", 0.078f).coerceIn(0.06f, 0.10f)
 
         val deviceLanguage = Locale.getDefault().language.takeIf { it.isNotBlank() } ?: "en"
         trackSelector = DefaultTrackSelector(this).apply {
@@ -295,6 +302,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
                     playbackSpeed = playbackSpeed,
                     autoplayNext = autoplayNext,
                     subtitleVisualStyle = subtitleVisualStyle,
+                    subtitleScale = subtitleScale,
                     onClose = { finish() },
                     onSeek = { player.seekTo(it.coerceIn(0L, duration)) },
                     onTogglePlay = { if (player.isPlaying) player.pause() else player.play() },
@@ -315,6 +323,10 @@ class MovyzaPlayerActivity : ComponentActivity() {
                     onSubtitleStyle = { style ->
                         subtitleVisualStyle = style
                         playerPrefs.edit().putString("subtitle_style", style.name).apply()
+                    },
+                    onSubtitleScale = { scale ->
+                        subtitleScale = scale.coerceIn(0.06f, 0.10f)
+                        playerPrefs.edit().putFloat("subtitle_scale", subtitleScale).apply()
                     },
                     onSelectSubtitle = { selectTextTrack(it) },
                     onSelectPreferredSubtitle = { selectPreferredTextTrack() },
@@ -1031,13 +1043,13 @@ private fun subtitleStyleFor(style: SubtitleVisualStyle): CaptionStyleCompat = w
     )
 }
 
-private fun applySubtitleStyle(playerView: PlayerView, style: SubtitleVisualStyle) {
+private fun applySubtitleStyle(playerView: PlayerView, style: SubtitleVisualStyle, textScale: Float) {
     playerView.subtitleView?.apply {
         setApplyEmbeddedStyles(false)
         setStyle(subtitleStyleFor(style))
         // Approximate the common hard-sub look: readable bold text, black outline,
         // no subtitle rectangle, and a small safe margin at the bottom of the video.
-        setFractionalTextSize(0.052f)
+        setFractionalTextSize(textScale.coerceIn(0.06f, 0.10f))
         setBottomPaddingFraction(0.045f)
     }
 }
@@ -1060,6 +1072,7 @@ private fun MovyzaPlayerScreen(
     playbackSpeed: Float,
     autoplayNext: Boolean,
     subtitleVisualStyle: SubtitleVisualStyle,
+    subtitleScale: Float,
     onClose: () -> Unit,
     onSeek: (Long) -> Unit,
     onTogglePlay: () -> Unit,
@@ -1072,6 +1085,7 @@ private fun MovyzaPlayerScreen(
     onSpeed: (Float) -> Unit,
     onAutoplayNext: (Boolean) -> Unit,
     onSubtitleStyle: (SubtitleVisualStyle) -> Unit,
+    onSubtitleScale: (Float) -> Unit,
     onRetry: () -> Unit
 ) {
     if (LocalInspectionMode.current) return
@@ -1081,7 +1095,10 @@ private fun MovyzaPlayerScreen(
     var trackDialog by remember { mutableStateOf<TrackDialog?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var zoom by remember { mutableFloatStateOf(1f) }
+    // FIT displays the full original frame. Cropping/stretching modes are never selected automatically.
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    var skipFeedback by remember { mutableStateOf<Long?>(null) }
+    var skipFeedbackCounter by remember { mutableIntStateOf(0) }
 
     BackHandler(onBack = onClose)
 
@@ -1092,16 +1109,32 @@ private fun MovyzaPlayerScreen(
         }
     }
 
+    fun seekWithFeedback(delta: Long) {
+        if (buffering || error != null || duration <= 0L) return
+        onSkip(delta.coerceIn(-duration, duration))
+        skipFeedback = if (delta < 0L) -10_000L else 10_000L
+        skipFeedbackCounter++
+    }
+
+    LaunchedEffect(skipFeedbackCounter) {
+        if (skipFeedback != null) {
+            delay(750)
+            skipFeedback = null
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(Unit) {
+            .pointerInput(buffering, error, duration) {
                 detectTapGestures(
-                    onTap = { controls = !controls },
+                    onTap = { if (!buffering && error == null && duration > 0L) controls = !controls },
                     onDoubleTap = { offset ->
-                        val halfWidth = size.width / 2f
-                        onSkip(if (offset.x < halfWidth) -10_000L else 10_000L)
+                        if (!buffering && error == null && duration > 0L) {
+                            val halfWidth = size.width / 2f
+                            seekWithFeedback(if (offset.x < halfWidth) -10_000L else 10_000L)
+                        }
                     }
                 )
             }
@@ -1114,12 +1147,12 @@ private fun MovyzaPlayerScreen(
                     setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                     this.player = player
                     setBackgroundColor(android.graphics.Color.BLACK)
-                    applySubtitleStyle(this, subtitleVisualStyle)
+                    applySubtitleStyle(this, subtitleVisualStyle, subtitleScale)
                 }
             },
             update = { view ->
                 view.resizeMode = resizeMode
-                applySubtitleStyle(view, subtitleVisualStyle)
+                applySubtitleStyle(view, subtitleVisualStyle, subtitleScale)
             },
             modifier = Modifier
                 .fillMaxSize()
@@ -1133,6 +1166,45 @@ private fun MovyzaPlayerScreen(
                     }
                 }
         )
+
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Box(Modifier.fillMaxSize()) {
+                AnimatedVisibility(
+                    visible = skipFeedback != null && !buffering && error == null,
+                    modifier = Modifier
+                        .align(if ((skipFeedback ?: 0L) < 0L) Alignment.CenterStart else Alignment.CenterEnd)
+                        .padding(horizontal = 30.dp),
+                    enter = fadeIn(tween(140)) + scaleIn(animationSpec = tween(140), initialScale = 0.86f),
+                    exit = fadeOut(tween(220)) + scaleOut(animationSpec = tween(220), targetScale = 0.94f)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MovyzaColors.GlassStrong,
+                        border = BorderStroke(1.dp, MovyzaColors.GoldBorder)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = if ((skipFeedback ?: 0L) < 0L) Icons.Default.FastRewind else Icons.Default.FastForward,
+                                contentDescription = null,
+                                tint = MovyzaColors.Gold300,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = if ((skipFeedback ?: 0L) < 0L) "−10s" else "+10s",
+                                color = MovyzaColors.Text,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         if (buffering && error == null) {
             Surface(
@@ -1152,7 +1224,7 @@ private fun MovyzaPlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = controls && error == null,
+            visible = controls && error == null && !buffering && duration > 0L,
             enter = fadeIn(tween(150)),
             exit = fadeOut(tween(150))
         ) {
@@ -1282,16 +1354,14 @@ private fun MovyzaPlayerScreen(
                     ) {
                         IconButton(
                             onClick = {
-                                resizeMode = when (resizeMode) {
-                                    AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                }
+                                // Refit to the full source frame: no cropping and no stretch.
+                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                zoom = 1f
                             }
                         ) {
                             Icon(
                                 Icons.Outlined.AspectRatio,
-                                contentDescription = "أبعاد الشاشة",
+                                contentDescription = "إعادة ملاءمة الصورة للشاشة",
                                 tint = MovyzaColors.Text,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -1342,7 +1412,7 @@ private fun MovyzaPlayerScreen(
                         border = BorderStroke(1.dp, MovyzaColors.GlassBorder),
                         modifier = Modifier.size(50.dp)
                     ) {
-                        IconButton(onClick = { onSkip(-10_000L) }) {
+                        IconButton(onClick = { seekWithFeedback(-10_000L) }) {
                             Icon(
                                 Icons.Default.FastRewind,
                                 contentDescription = "تأخير 10 ثوان",
@@ -1377,7 +1447,7 @@ private fun MovyzaPlayerScreen(
                         border = BorderStroke(1.dp, MovyzaColors.GlassBorder),
                         modifier = Modifier.size(50.dp)
                     ) {
-                        IconButton(onClick = { onSkip(10_000L) }) {
+                        IconButton(onClick = { seekWithFeedback(10_000L) }) {
                             Icon(
                                 Icons.Default.FastForward,
                                 contentDescription = "تقديم 10 ثوان",
@@ -1416,23 +1486,26 @@ private fun MovyzaPlayerScreen(
                             Spacer(Modifier.width(12.dp))
                         }
                         Text(
-                            text = formatTime(duration),
+                            text = if (duration > 0L) formatTime(duration) else "—:—",
                             color = MovyzaColors.Text2,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
 
-                    Slider(
-                        value = position.toFloat().coerceIn(0f, duration.coerceAtLeast(1L).toFloat()),
-                        onValueChange = { onSeek(it.toLong()) },
-                        valueRange = 0f..duration.coerceAtLeast(1L).toFloat(),
-                        colors = SliderDefaults.colors(
-                            thumbColor = MovyzaColors.Gold300,
-                            activeTrackColor = MovyzaColors.Gold400,
-                            inactiveTrackColor = MovyzaColors.GlassBorder
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        Slider(
+                            enabled = duration > 0L && !buffering,
+                            value = position.toFloat().coerceIn(0f, duration.coerceAtLeast(1L).toFloat()),
+                            onValueChange = { if (duration > 0L && !buffering) onSeek(it.toLong()) },
+                            valueRange = 0f..duration.coerceAtLeast(1L).toFloat(),
+                            colors = SliderDefaults.colors(
+                                thumbColor = MovyzaColors.Gold300,
+                                activeTrackColor = MovyzaColors.Gold400,
+                                inactiveTrackColor = MovyzaColors.GlassBorder
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
@@ -1527,6 +1600,33 @@ private fun MovyzaPlayerScreen(
                         }
                         Switch(checked = autoplayNext, onCheckedChange = onAutoplayNext)
                     }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("حجم الترجمة", color = MovyzaColors.Text2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "${(subtitleScale * 100f + 0.5f).toInt()}%",
+                            color = MovyzaColors.Gold300,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        Slider(
+                            value = subtitleScale,
+                            onValueChange = onSubtitleScale,
+                            valueRange = 0.06f..0.10f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = MovyzaColors.Gold300,
+                                activeTrackColor = MovyzaColors.Gold400,
+                                inactiveTrackColor = MovyzaColors.GlassBorder
+                            )
+                        )
+                    }
+                    Text("يتغير حجم الترجمة مباشرة أثناء المشاهدة.", color = MovyzaColors.Text3, fontSize = 11.sp)
 
                     Text("شكل الترجمة", color = MovyzaColors.Text2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     listOf(

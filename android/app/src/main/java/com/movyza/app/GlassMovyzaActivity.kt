@@ -501,8 +501,11 @@ private fun MovyzaFixedBottomBar(
                 .fillMaxWidth()
                 .height(62.dp)
                 .clip(MovyzaShapes.Xl)
-                .background(Color(0xF20A0B10))
-                .border(1.dp, MovyzaColors.GlassBorder.copy(alpha = 0.82f), MovyzaShapes.Xl)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color(0xF2131314), Color(0xE8060607))
+                    )
+                )
                 .padding(horizontal = 5.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly
@@ -1457,10 +1460,10 @@ private fun MovyzaDetailsTemplateScreen(
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
-                                    0.0f to Color(0x55040507),
-                                    0.34f to Color(0x22040507),
-                                    0.62f to Color(0x88040507),
-                                    1.0f to Color(0xFF040507)
+                                    0.0f to Color(0x55030303),
+                                    0.34f to Color(0x22030303),
+                                    0.62f to Color(0x88030303),
+                                    1.0f to Color(0xFF030303)
                                 )
                             )
                     )
@@ -1471,8 +1474,8 @@ private fun MovyzaDetailsTemplateScreen(
                                 Brush.horizontalGradient(
                                     listOf(
                                         Color.Transparent,
-                                        Color(0x44040507),
-                                        Color(0xAA040507)
+                                        Color(0x44030303),
+                                        Color(0xAA030303)
                                     )
                                 )
                             )
@@ -1736,7 +1739,7 @@ private fun MovyzaDetailsTemplateScreen(
                                                     modifier = Modifier
                                                         .size(28.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color(0xB304060D)),
+                                                        .background(Color(0xB3030303)),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Icon(
