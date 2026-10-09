@@ -189,7 +189,9 @@ jobs:
           echo "CHECK 9/10: movie deep link"
           fight_club="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies/550")"
           printf '%s' "$fight_club" | grep -q 'Fight Club'
-          printf '%s' "$fight_club" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
+          # Only localized homepages are indexable by design; catalog/detail
+          # routes remain noindex so they are not treated as SEO landing pages.
+          printf '%s' "$fight_club" | grep -q 'name="robots" content="noindex,follow"'
           printf '%s' "$fight_club" | grep -q 'rel="canonical"'
           printf '%s' "$fight_club" | grep -q '"@type":"Movie"'
 
