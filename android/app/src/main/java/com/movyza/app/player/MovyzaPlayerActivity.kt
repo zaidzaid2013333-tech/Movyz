@@ -1,6 +1,7 @@
 package com.movyza.app.player
 
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -13,6 +14,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -58,6 +63,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -67,14 +73,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -188,6 +198,9 @@ class MovyzaPlayerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Launch the player in landscape so widescreen video uses the full
+        // display area instead of appearing letterboxed and tiny in portrait.
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
 
@@ -993,7 +1006,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
 private fun subtitleStyleFor(style: SubtitleVisualStyle): CaptionStyleCompat = when (style) {
     SubtitleVisualStyle.CLASSIC -> CaptionStyleCompat(
         android.graphics.Color.WHITE,
-        android.graphics.Color.argb(235, 0, 0, 0),
+        android.graphics.Color.TRANSPARENT,
         android.graphics.Color.TRANSPARENT,
         CaptionStyleCompat.EDGE_TYPE_OUTLINE,
         android.graphics.Color.BLACK,
@@ -1001,7 +1014,7 @@ private fun subtitleStyleFor(style: SubtitleVisualStyle): CaptionStyleCompat = w
     )
     SubtitleVisualStyle.GOLD -> CaptionStyleCompat(
         android.graphics.Color.rgb(245, 201, 76),
-        android.graphics.Color.argb(160, 0, 0, 0),
+        android.graphics.Color.TRANSPARENT,
         android.graphics.Color.TRANSPARENT,
         CaptionStyleCompat.EDGE_TYPE_OUTLINE,
         android.graphics.Color.BLACK,
@@ -1009,7 +1022,7 @@ private fun subtitleStyleFor(style: SubtitleVisualStyle): CaptionStyleCompat = w
     )
     SubtitleVisualStyle.HIGH_CONTRAST -> CaptionStyleCompat(
         android.graphics.Color.WHITE,
-        android.graphics.Color.BLACK,
+        android.graphics.Color.TRANSPARENT,
         android.graphics.Color.TRANSPARENT,
         CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
         android.graphics.Color.BLACK,
@@ -1021,8 +1034,10 @@ private fun applySubtitleStyle(playerView: PlayerView, style: SubtitleVisualStyl
     playerView.subtitleView?.apply {
         setApplyEmbeddedStyles(false)
         setStyle(subtitleStyleFor(style))
-        setFractionalTextSize(0.052f)
-        setBottomPaddingFraction(0.075f)
+        // Hard-sub inspired: larger, bold white text with a crisp black outline
+        // and no rectangular background behind the dialogue.
+        setFractionalTextSize(0.068f)
+        setBottomPaddingFraction(0.045f)
     }
 }
 
@@ -1065,7 +1080,8 @@ private fun MovyzaPlayerScreen(
     var trackDialog by remember { mutableStateOf<TrackDialog?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var zoom by remember { mutableFloatStateOf(1f) }
-    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    // Zoom preserves the source ratio while using the full landscape viewport by default.
+    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_ZOOM) }
 
     BackHandler(onBack = onClose)
 
@@ -1119,24 +1135,107 @@ private fun MovyzaPlayerScreen(
         )
 
         if (buffering && error == null) {
-            Surface(
-                modifier = Modifier.align(Alignment.Center),
-                shape = CircleShape,
-                color = MovyzaColors.GlassStrong,
-                border = BorderStroke(1.dp, MovyzaColors.GoldBorder)
+            val loadingMotion = rememberInfiniteTransition(label = "player-loading")
+            val logoPulse by loadingMotion.animateFloat(
+                initialValue = 0.96f,
+                targetValue = 1.04f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1200),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "player-logo-pulse"
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            listOf(Color(0xFF19130A), Color(0xFF07080D), Color.Black)
+                        )
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(
+                Box(
                     modifier = Modifier
-                        .padding(14.dp)
-                        .size(30.dp),
-                    strokeWidth = 2.5.dp,
-                    color = MovyzaColors.Gold300
+                        .size(264.dp)
+                        .graphicsLayer {
+                            scaleX = logoPulse
+                            scaleY = logoPulse
+                            alpha = 0.15f
+                        }
+                        .background(
+                            Brush.radialGradient(
+                                listOf(MovyzaColors.Gold400, Color.Transparent)
+                            ),
+                            CircleShape
+                        )
                 )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 26.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(104.dp)
+                            .clip(RoundedCornerShape(26.dp))
+                            .background(Color.Black)
+                            .border(1.dp, MovyzaColors.GoldBorder, RoundedCornerShape(26.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "M",
+                            color = MovyzaColors.Gold300,
+                            fontSize = 72.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.graphicsLayer {
+                                scaleX = logoPulse
+                                scaleY = logoPulse
+                            }
+                        )
+                    }
+                    Spacer(Modifier.height(18.dp))
+                    Text(
+                        text = "MOVYZA",
+                        color = MovyzaColors.Gold300,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 4.sp
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = if (isSeries) "جارٍ تحميل الحلقة" else "جارٍ تحميل الفيلم",
+                        color = MovyzaColors.Text,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        text = title,
+                        color = MovyzaColors.Text3,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(18.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(26.dp),
+                        strokeWidth = 2.3.dp,
+                        color = MovyzaColors.Gold300
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "نجهّز لك المشاهدة…",
+                        color = MovyzaColors.Text3,
+                        fontSize = 11.sp
+                    )
+                }
             }
         }
 
         AnimatedVisibility(
-            visible = controls && error == null,
+            visible = controls && error == null && !buffering,
             enter = fadeIn(tween(150)),
             exit = fadeOut(tween(150))
         ) {
@@ -1374,53 +1473,55 @@ private fun MovyzaPlayerScreen(
 
                 Spacer(Modifier.weight(1f))
 
-                // Bottom Timeline & Scrubber
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                // Keep a conventional left-to-right media timeline in every UI language.
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp)
                     ) {
-                        Text(
-                            text = formatTime(position),
-                            color = MovyzaColors.Gold300,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.weight(1f))
-                        if (buffered > position && duration > 0L) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = "محمّل ${(100 * buffered.toFloat() / duration.toFloat()).toInt().coerceIn(0, 100)}%",
-                                color = MovyzaColors.Text3,
-                                fontSize = 11.sp
+                                text = formatTime(position),
+                                color = MovyzaColors.Gold300,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
                             )
-                            Spacer(Modifier.width(12.dp))
+                            Spacer(Modifier.weight(1f))
+                            if (buffered > position && duration > 0L) {
+                                Text(
+                                    text = "محمّل ${(100 * buffered.toFloat() / duration.toFloat()).toInt().coerceIn(0, 100)}%",
+                                    color = MovyzaColors.Text3,
+                                    fontSize = 11.sp
+                                )
+                                Spacer(Modifier.width(12.dp))
+                            }
+                            Text(
+                                text = if (duration > 0L) formatTime(duration) else "—:—",
+                                color = MovyzaColors.Text2,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
-                        Text(
-                            text = formatTime(duration),
-                            color = MovyzaColors.Text2,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+
+                        Slider(
+                            enabled = duration > 0L,
+                            value = position.toFloat().coerceIn(0f, duration.coerceAtLeast(1L).toFloat()),
+                            onValueChange = { onSeek(it.toLong()) },
+                            valueRange = 0f..duration.coerceAtLeast(1L).toFloat(),
+                            colors = SliderDefaults.colors(
+                                thumbColor = MovyzaColors.Gold300,
+                                activeTrackColor = MovyzaColors.Gold400,
+                                inactiveTrackColor = MovyzaColors.GlassBorder
+                            )
                         )
                     }
-
-                    Slider(
-                        value = position.toFloat().coerceIn(0f, duration.coerceAtLeast(1L).toFloat()),
-                        onValueChange = { onSeek(it.toLong()) },
-                        valueRange = 0f..duration.coerceAtLeast(1L).toFloat(),
-                        colors = SliderDefaults.colors(
-                            thumbColor = MovyzaColors.Gold300,
-                            activeTrackColor = MovyzaColors.Gold400,
-                            inactiveTrackColor = MovyzaColors.GlassBorder
-                        )
-                    )
                 }
             }
         }
-
         if (error != null) {
             Surface(
                 modifier = Modifier

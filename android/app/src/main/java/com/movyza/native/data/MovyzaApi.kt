@@ -220,18 +220,22 @@ class MovyzaApi {
 
     suspend fun signIn(email: String, password: String): Result<UserSession> = withContext(Dispatchers.IO) {
         runCatching {
+            validateEmail(email)
+            if (password.isBlank()) throw IOException("أدخل كلمة المرور.")
             val body = JSONObject().apply {
                 put("email", email.trim())
                 put("password", password)
             }
             val obj = supabaseRequest("POST", "/auth/v1/token?grant_type=password", body)
-            val user = obj.getJSONObject("user")
-            UserSession(obj.getString("access_token"), user.getString("id"), user.optString("email", email))
+            sessionFromAuthResponse(obj, email)
         }
     }
 
     suspend fun signUp(displayName: String, email: String, password: String): Result<UserSession?> = withContext(Dispatchers.IO) {
         runCatching {
+            validateEmail(email)
+            if (displayName.trim().isBlank()) throw IOException("أدخل الاسم الذي سيظهر في حسابك.")
+            if (password.length < 8) throw IOException("كلمة المرور يجب أن تحتوي على 8 أحرف على الأقل.")
             val body = JSONObject().apply {
                 put("email", email.trim())
                 put("password", password)
@@ -239,10 +243,88 @@ class MovyzaApi {
             }
             val obj = supabaseRequest("POST", "/auth/v1/signup", body)
             val accessToken = obj.optString("access_token")
-            if (accessToken.isBlank()) null else {
-                val user = obj.getJSONObject("user")
-                UserSession(accessToken, user.getString("id"), user.optString("email", email))
+            if (accessToken.isBlank()) null else sessionFromAuthResponse(obj, email)
+        }
+    }
+
+    suspend fun verifyEmailOtp(email: String, token: String, type: String): Result<UserSession> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                validateEmail(email)
+                // Arabic keyboards may insert Arabic-Indic digits (١٢٣٤٥٦).
+                // Supabase OTP expects the ASCII form, so normalize decimal digits
+                // before validating/sending while still rejecting any other character.
+                val cleanToken = token.trim()
+                    .filterNot { it.isWhitespace() }
+                    .map { character ->
+                        if (character.isDigit()) character.digitToInt().toChar() else character
+                    }
+                    .joinToString("")
+                if (cleanToken.length != 6 || cleanToken.any { it !in '0'..'9' }) {
+                    throw IOException("أدخل رمز التحقق المكوّن من 6 أرقام.")
+                }
+                val cleanType = type.trim().lowercase()
+                if (cleanType !in setOf("signup", "recovery")) {
+                    throw IOException("نوع التحقق غير صالح. أعد المحاولة.")
+                }
+                val payload = JSONObject()
+                    .put("email", email.trim())
+                    .put("token", cleanToken)
+                    .put("type", cleanType)
+                val response = supabaseRequest("POST", "/auth/v1/verify", payload)
+                sessionFromAuthResponse(response, email)
             }
+        }
+
+    suspend fun resendSignupOtp(email: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            validateEmail(email)
+            supabaseRequest(
+                "POST",
+                "/auth/v1/resend",
+                JSONObject().put("email", email.trim()).put("type", "signup")
+            )
+        }.map { Unit }
+    }
+
+    suspend fun requestPasswordRecovery(email: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            validateEmail(email)
+            supabaseRequest("POST", "/auth/v1/recover", JSONObject().put("email", email.trim()))
+        }.map { Unit }
+    }
+
+    suspend fun updatePassword(session: UserSession, newPassword: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                if (newPassword.length < 8) {
+                    throw IOException("كلمة المرور يجب أن تحتوي على 8 أحرف على الأقل.")
+                }
+                supabaseRequest(
+                    "PUT",
+                    "/auth/v1/user",
+                    JSONObject().put("password", newPassword),
+                    session.accessToken
+                )
+            }.map { Unit }
+        }
+
+    private fun sessionFromAuthResponse(obj: JSONObject, fallbackEmail: String): UserSession {
+        val accessToken = obj.optString("access_token").trim()
+        val user = obj.optJSONObject("user")
+        if (accessToken.isBlank() || user == null || user.optString("id").isBlank()) {
+            throw IOException("لم تُكتمل جلسة الحساب. تأكد من الرمز أو أعد المحاولة.")
+        }
+        return UserSession(
+            accessToken = accessToken,
+            userId = user.getString("id"),
+            email = user.optString("email", fallbackEmail).ifBlank { fallbackEmail }
+        )
+    }
+
+    private fun validateEmail(email: String) {
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()) {
+            throw IOException("أدخل عنوان بريد إلكتروني صحيحًا.")
         }
     }
 
@@ -325,13 +407,56 @@ class MovyzaApi {
         val requestBody = (body ?: JSONObject()).toString().toRequestBody("application/json".toMediaType())
         val request = when (method) {
             "POST" -> requestBuilder.post(requestBody).build()
+            "PUT" -> requestBuilder.put(requestBody).build()
             "DELETE" -> requestBuilder.delete().build()
             else -> requestBuilder.get().build()
         }
         client.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw IOException("Supabase ${response.code}: $text")
+            if (!response.isSuccessful) {
+                val detail = if (path.startsWith("/auth/v1/")) {
+                    friendlyAuthError(response.code, text)
+                } else {
+                    text.ifBlank { "تعذر إتمام الطلب." }
+                }
+                throw IOException("Supabase ${response.code}: $detail")
+            }
             return if (text.isBlank()) JSONObject() else JSONObject(text)
+        }
+    }
+
+    private fun friendlyAuthError(status: Int, body: String): String {
+        val json = runCatching { JSONObject(body) }.getOrNull()
+        val raw = listOf("message", "msg", "error_description", "error", "code")
+            .mapNotNull { key -> json?.optString(key)?.trim()?.takeIf { it.isNotBlank() && it != "null" } }
+            .firstOrNull()
+            .orEmpty()
+        val message = raw.lowercase()
+
+        return when {
+            status == 429 || "rate limit" in message || "too many" in message ->
+                "وصلنا إلى حدّ المحاولات المؤقت. انتظر قليلًا ثم حاول مجددًا."
+            "already registered" in message || "already exists" in message || "user already" in message ->
+                "هذا البريد الإلكتروني مسجّل بالفعل. جرّب تسجيل الدخول بدلًا من إنشاء حساب جديد."
+            "invalid login credentials" in message || "invalid credentials" in message ->
+                "البريد الإلكتروني أو كلمة المرور غير صحيحة."
+            "email not confirmed" in message ->
+                "يجب تأكيد البريد الإلكتروني أولًا. اطلب رمز تحقق جديدًا."
+            ("otp" in message || "token" in message) &&
+                ("invalid" in message || "expired" in message || "incorrect" in message || "bad" in message) ->
+                "رمز التحقق غير صحيح أو انتهت صلاحيته. اطلب رمزًا جديدًا."
+            "invalid email" in message || "email address" in message && "invalid" in message ->
+                "أدخل عنوان بريد إلكتروني صحيحًا."
+            "password" in message && ("weak" in message || "short" in message || "minimum" in message) ->
+                "كلمة المرور ضعيفة أو قصيرة. استخدم كلمة مرور أقوى."
+            status >= 500 ->
+                "خدمة الحسابات تواجه مشكلة مؤقتة. حاول مجددًا بعد قليل."
+            status == 400 || status == 422 ->
+                "تعذر إتمام الطلب. تحقّق من البيانات أو رمز التحقق ثم حاول مجددًا."
+            status == 401 || status == 403 ->
+                "تعذّر التحقق من الحساب. أعد المحاولة أو راجع إعدادات تسجيل الدخول."
+            else ->
+                "تعذّر إتمام طلب الحساب (HTTP $status). حاول مجددًا."
         }
     }
 
