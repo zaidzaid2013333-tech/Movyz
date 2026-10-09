@@ -64,23 +64,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Verify the fix directly against the Worker first. Cloudflare security
-          # can challenge requests from hosted CI runners on the custom domain.
-          worker_status="$(curl --silent --show-error --max-redirs 0 -o /dev/null -D /tmp/worker-redirect.headers -w '%{http_code}' 'http://movyz-api.sameranede.workers.dev:2052/')"
-          worker_location="$(awk 'BEGIN { IGNORECASE=1 } /^location:/ { sub(/\r$/, ""); sub(/^[^:]*:[[:space:]]*/, ""); print }' /tmp/worker-redirect.headers | tail -n 1)"
-          echo "Worker HTTP status: $worker_status"
-          echo "Worker Location: $worker_location"
-          test "$worker_status" = "301"
-          test "$worker_location" = "https://movyz-api.sameranede.workers.dev/"
-
-          # Then check the public host. Treat a WAF/bot challenge as inconclusive
-          # (not a redirect failure), since the Worker-origin check above is authoritative.
+          # Test the real custom domain. Cloudflare may challenge hosted CI
+          # runners, so only accept a 403/1020 as inconclusive; do not test
+          # the workers.dev hostname because Cloudflare normalizes its scheme
+          # and alternate-port behavior differs from a routed custom hostname.
           public_status="$(curl --silent --show-error --max-redirs 0 -o /dev/null -D /tmp/movyza-redirect.headers -w '%{http_code}' 'http://movyza.sbs:2052/')"
           public_location="$(awk 'BEGIN { IGNORECASE=1 } /^location:/ { sub(/\r$/, ""); sub(/^[^:]*:[[:space:]]*/, ""); print }' /tmp/movyza-redirect.headers | tail -n 1)"
           echo "Public-domain HTTP status: $public_status"
           echo "Public-domain Location: $public_location"
           if [ "$public_status" = "403" ] || [ "$public_status" = "1020" ]; then
-            echo "WARNING: Cloudflare security challenged this hosted runner on movyza.sbs; the Worker-origin redirect test passed."
+            echo "::warning::Cloudflare security challenged this hosted runner on movyza.sbs; redirect behavior must be verified in a normal browser."
           else
             test "$public_status" = "301"
             test "$public_location" = "https://movyza.sbs/"
