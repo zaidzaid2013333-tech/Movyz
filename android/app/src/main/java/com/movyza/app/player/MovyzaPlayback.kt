@@ -145,12 +145,19 @@ object MovyzaPlaybackRepository {
         ).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw IOException("VidLink encode " + response.code)
-            runCatching { JSONObject(body).optString("result") }
+            val encodePayload = runCatching { JSONObject(body) }
                 .getOrElse { throw IOException("VidLink encode returned invalid JSON") }
-                .trim()
+            val encodeStatus = encodePayload.optInt("status", 200)
+            if (encodeStatus !in 200..299) {
+                throw IOException("VidLink encode service status $encodeStatus")
+            }
+            encodePayload.optString("result").trim()
         }
 
-        if (encodedId.isBlank()) throw IOException("VidLink encode returned no ID")
+        if (encodedId.isBlank() ||
+            encodedId.equals("null", ignoreCase = true) ||
+            encodedId.equals("undefined", ignoreCase = true)
+        ) throw IOException("VidLink encode returned no valid ID")
 
         val isSeries = request.mediaType.equals("series", ignoreCase = true) ||
             request.mediaType.equals("tv", ignoreCase = true)
@@ -198,7 +205,7 @@ object MovyzaPlaybackRepository {
                 )
             }
             if (contentType.contains("dash+xml") ||
-                (contentType.contains("xml") && bodyStart.contains("<MPD", ignoreCase = true))
+                (bodyStart.startsWith("<") && bodyStart.contains("<MPD", ignoreCase = true))
             ) {
                 return listOf(
                     PlaybackCandidate(
