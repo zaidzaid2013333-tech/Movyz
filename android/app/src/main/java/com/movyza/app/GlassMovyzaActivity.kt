@@ -787,6 +787,19 @@ private fun MovyzaHomeTemplateScreen(
             )
         }
 
+        item(key = "section-top-rated") {
+            FixedHorizontalSection(
+                sectionId = "toprated",
+                title = stringResource(R.string.section_top_rated),
+                subtitle = stringResource(R.string.section_top_rated_subtitle),
+                movies = state.topRated,
+                loading = loading,
+                actionLabel = stringResource(R.string.view_all),
+                onAction = { onSelectTab(Tab.MOVIES) },
+                onOpen = onOpen
+            )
+        }
+
         item(key = "section-series") {
             FixedHorizontalSection(
                 sectionId = "series",
