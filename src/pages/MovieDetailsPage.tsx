@@ -241,7 +241,7 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({
           <div className="min-w-0">
             <span className="text-[10px] text-slate-500 block">{t('director')}</span>
             <span className="font-bold text-white font-cinema-title break-words">
-              {language === 'ar' ? movie.director : movie.directorEn}
+              {movie.director || movie.directorEn}
             </span>
           </div>
           <div>
@@ -281,10 +281,10 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({
                 />
                 <div className="truncate">
                   <h4 className="text-xs font-bold font-cinema-title text-white truncate">
-                    {language === 'ar' ? actor.name : actor.nameEn}
+                    {actor.name || actor.nameEn}
                   </h4>
                   <p className="text-[10px] text-amber-400 truncate">
-                    {language === 'ar' ? actor.character : actor.characterEn}
+                    {actor.character || actor.characterEn}
                   </p>
                 </div>
               </div>
