@@ -201,6 +201,7 @@ private val MOVYZA_SPLASH_POSTER_COLUMNS = listOf(
 
 @Composable
 private fun MovyzaLaunchScreen() {
+    val density = LocalDensity.current
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -213,7 +214,7 @@ private fun MovyzaLaunchScreen() {
                     rotationZ = -12f
                     scaleX = 1.12f
                     scaleY = 1.10f
-                    translationX = -28.dp.toPx()
+                    translationX = with(density) { -28.dp.toPx() }
                 },
             horizontalArrangement = Arrangement.spacedBy(9.dp)
         ) {
@@ -316,7 +317,7 @@ private fun MovyzaLaunchScreen() {
                 modifier = Modifier
                     .fillMaxWidth(0.38f)
                     .height(3.dp)
-                    .graphicsLayer { translationX = progress * 148.dp.toPx() }
+                    .graphicsLayer { translationX = with(density) { progress * 148.dp.toPx() } }
                     .background(
                         Brush.horizontalGradient(
                             listOf(
