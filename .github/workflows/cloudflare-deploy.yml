@@ -119,13 +119,14 @@ jobs:
           printf '%s' "$ar_home" | grep -q 'hreflang="en-us"'
           printf '%s' "$en_home" | grep -q 'hreflang="ar-sa"'
 
-          echo "CHECK 4/10: root sitemap index"
+          echo "CHECK 4/10: root sitemap lists only localized homepages"
           sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
           printf '%s' "$sitemap_headers" | grep -Eiq '^content-type: *application/xml'
           sitemap="$(cat /tmp/sitemap.xml)"
           printf '%s' "$sitemap" | grep -q '^<?xml version="1.0" encoding="UTF-8"?>'
-          printf '%s' "$sitemap" | grep -q '<sitemapindex'
-          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/movies/1.xml'
+          printf '%s' "$sitemap" | grep -q '<urlset'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/ar/'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/en/'
           printf '%s' "$sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
           echo "CHECK 4A/10: Cloudflare bot configuration diagnostics"
