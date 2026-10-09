@@ -118,7 +118,16 @@ const titleKeywords = (locale: LocaleCode, title: string) => {
 const localizedHtml = async (request: Request, env: MovyzEnvironment, response: Response, locale: LocaleCode) => {
   if (!response.headers.get('content-type')?.includes('text/html')) return response;
   const url = new URL(request.url);
-  const route = stripLocale(url.pathname).pathname;
+  const normalizedPath = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : '/';
+  const localizedPrefix = '/' + locale;
+  const isLocalizedHomepage = normalizedPath === localizedPrefix;
+  // Derive the route directly from the incoming locale-prefixed URL. This keeps
+  // /ar/movies, /ar/series/123, and /ar/watch/... from ever being treated as home.
+  const route = isLocalizedHomepage
+    ? '/'
+    : normalizedPath.startsWith(localizedPrefix + '/')
+      ? normalizedPath.slice(localizedPrefix.length) || '/'
+      : stripLocale(url.pathname).pathname;
   const config = LOCALES[locale];
 
   let contentTitle = '';
@@ -288,7 +297,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   // fully accessible to users, but are not SEO landing pages.
   // The SEO scope is intentionally limited to each language homepage.
   // Every subroute remains functional but is excluded from search indexing.
-  const isNoIndex = route !== '/' || isWatchPage || noindexRoutes.has(route);
+  const isNoIndex = !isLocalizedHomepage || isWatchPage || noindexRoutes.has(route);
   const searchTitle = alternateTitle || contentTitle;
   const seoTitle = isWatchPage
     ? (locale === 'ar'
@@ -301,12 +310,12 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
       : contentTitle;
   const canonicalPath = `/${locale}${route === '/' ? '/' : route}`;
   const origin = url.origin;
-  const hreflangLinks = route === '/'
+  const hreflangLinks = isLocalizedHomepage
     ? Object.entries(LOCALES)
         .map(([code, item]) => `<link rel="alternate" hreflang="${item.tmdb.toLowerCase()}" href="${origin}/${code}/" />`)
         .join('')
     : '';
-  const xDefault = route === '/'
+  const xDefault = isLocalizedHomepage
     ? `<link rel="alternate" hreflang="x-default" href="${origin}/en/" />`
     : '';
   const keywords = titleKeywords(locale, contentTitle + (alternateTitle && alternateTitle !== contentTitle ? `, ${alternateTitle}` : ''));
@@ -377,10 +386,11 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   html = html.replace('</head>', injection + '</head>');
   const headers = new Headers(response.headers);
   headers.set('content-type', 'text/html; charset=UTF-8');
-  // HTML is deterministic for a locale + path and safe to cache at the Worker edge.
-  // This prevents crawlers and repeat navigation from executing the Worker repeatedly.
-  headers.set('cache-control', 'public, max-age=300, s-maxage=3600, stale-while-revalidate=300');
-  headers.set('cdn-cache-control', 'public, max-age=3600, stale-while-revalidate=300');
+  headers.set('X-Robots-Tag', isNoIndex ? 'noindex, follow' : 'index, follow, max-image-preview:large');
+  // Cache localized HTML briefly. The explicit X-Robots-Tag mirrors the meta directive
+  // so crawler policy is enforced from both response headers and the document head.
+  headers.set('cache-control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=60');
+  headers.set('cdn-cache-control', 'public, max-age=300, stale-while-revalidate=60');
   return new Response(html, { status: response.status, statusText: response.statusText, headers });
 };
 
