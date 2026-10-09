@@ -337,7 +337,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   <div className="text-[11px] font-bold text-amber-300">S{safeSeason} · E{safeEpisode}</div>
                   <h2 className="mt-1 text-sm font-bold text-white">{activeEpisode.title || activeEpisode.titleEn}</h2>
                   <p className="mt-2 text-[11px] text-slate-400 leading-5 line-clamp-4">
-                    {language === 'ar' ? activeEpisode.overview : activeEpisode.overviewEn}
+                    {activeEpisode.overview || activeEpisode.overviewEn || ''}
                   </p>
                 </div>
               )}
@@ -366,7 +366,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                   {language === 'ar' ? 'الحلقات' : 'Episodes'}
                 </div>
                 <h2 className="mt-1 text-base sm:text-lg font-bold">
-                  {language === 'ar' ? 'الموسم ' + activeSeason.seasonNumber : (activeSeason.nameEn || 'Season ' + activeSeason.seasonNumber)}
+                  {activeSeason.name || (language === 'ar' ? 'الموسم ' + activeSeason.seasonNumber : 'Season ' + activeSeason.seasonNumber)}
                 </h2>
               </div>
               <div className="flex gap-1.5 overflow-x-auto touch-scroll-x max-w-full">
@@ -417,7 +417,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                           <div className="w-7 h-7 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center shrink-0">
                             <Play className="w-3 h-3 fill-slate-950" />
                           </div>
-                          <h3 className="text-xs font-bold text-white truncate">{episode.titleEn || episode.title || 'Episode ' + episode.episodeNumber}</h3>
+                          <h3 className="text-xs font-bold text-white truncate">{episode.title || episode.titleEn || 'Episode ' + episode.episodeNumber}</h3>
                         </div>
                         <p className="mt-2 text-[10px] text-slate-500">
                           {(episode.airDate || '') + (episode.duration ? ' · ' + episode.duration + ' ' + t('minutes') : '')}
@@ -458,8 +458,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 <div key={actor.id} className="w-20 shrink-0 text-center">
                   <img src={actor.avatarUrl} alt={actor.nameEn || actor.name} referrerPolicy="no-referrer" loading="lazy"
                     className="w-16 h-16 rounded-2xl mx-auto object-cover border border-white/10" />
-                  <p className="mt-2 text-[10px] font-semibold text-slate-200 line-clamp-2">{language === 'ar' ? actor.name : actor.nameEn}</p>
-                  <p className="mt-1 text-[9px] text-amber-300/70 line-clamp-1">{language === 'ar' ? actor.character : actor.characterEn}</p>
+                  <p className="mt-2 text-[10px] font-semibold text-slate-200 line-clamp-2">{actor.name || actor.nameEn}</p>
+                  <p className="mt-1 text-[9px] text-amber-300/70 line-clamp-1">{actor.character || actor.characterEn}</p>
                 </div>
               ))}
             </div>
