@@ -164,9 +164,9 @@ object MovyzaPlaybackRepository {
         val endpoint = if (isSeries) {
             "https://vidlink.pro/api/b/tv/$encodedId/" +
                 request.season.coerceAtLeast(1) + "/" +
-                request.episode.coerceAtLeast(1)
+                request.episode.coerceAtLeast(1) + "?multiLang=1"
         } else {
-            "https://vidlink.pro/api/b/movie/$encodedId"
+            "https://vidlink.pro/api/b/movie/$encodedId?multiLang=1"
         }
 
         client.newCall(
@@ -352,6 +352,25 @@ object MovyzaPlaybackRepository {
         inheritedFormat: String = "",
     ) {
         when (node) {
+            is String -> {
+                // Some brokers expose a sources/qualities array as raw URL
+                // strings rather than { url, type, quality } objects.
+                val rawUrl = node.trim()
+                if (isHttpUrl(rawUrl)) {
+                    val (url, embeddedHeaders) = extractEmbeddedHeaders(rawUrl)
+                    val format = inheritedFormat.ifBlank { inferFormatFromUrl(url) }
+                    if (isPlayableOrDeclaredFormat(url, format)) {
+                        out += PlaybackCandidate(
+                            url = url,
+                            quality = inheritedQuality,
+                            format = format,
+                            headers = mergeHeaders(inheritedHeaders, embeddedHeaders),
+                            subtitles = inheritedSubtitles,
+                        )
+                    }
+                }
+            }
+
             is JSONObject -> {
                 val quality = parseQuality(node.opt("quality"))
                     ?: parseQuality(node.opt("resolution"))
