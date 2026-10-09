@@ -60,6 +60,15 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --var MOVYZ_BUILD_ID:${{ github.sha }}
+      - name: Verify HTTP alternate-port redirects to standard HTTPS
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --max-redirs 0 -o /dev/null -D /tmp/movyza-redirect.headers -w '%{http_code}' 'http://movyza.sbs:2052/')"
+          location="$(awk 'BEGIN { IGNORECASE=1 } /^location:/ { sub(/\r$/, ""); sub(/^[^:]*:[[:space:]]*/, ""); print }' /tmp/movyza-redirect.headers | tail -n 1)"
+          echo "HTTP status: $status"
+          echo "Location: $location"
+          test "$status" = "301"
+          test "$location" = "https://movyza.sbs/"
       - name: Live health check
         run: |
           set -euo pipefail
@@ -90,12 +99,16 @@ jobs:
           echo "CHECK 2/10: Arabic movies"
           ar_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies")"
           printf '%s' "$ar_html" | grep -q '<html lang="ar" dir="rtl"'
-          printf '%s' "$ar_html" | grep -q 'hreflang="en-us"'
 
           echo "CHECK 3/10: English movies"
           en_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/en/movies")"
           printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'
-          printf '%s' "$en_html" | grep -q 'hreflang="ar-sa"'
+
+          echo "CHECK 3A/11: localized homepage hreflang"
+          ar_home="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/")"
+          en_home="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/en/")"
+          printf '%s' "$ar_home" | grep -q 'hreflang="en-us"'
+          printf '%s' "$en_home" | grep -q 'hreflang="ar-sa"'
 
           echo "CHECK 4/10: root sitemap index"
           sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
