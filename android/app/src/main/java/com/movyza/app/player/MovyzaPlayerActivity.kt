@@ -1400,7 +1400,9 @@ private fun MovyzaPlayerScreen(
                             Spacer(Modifier.width(12.dp))
                         }
                         Text(
-                            text = formatTime(duration),
+                            // Zero means Media3 has not reported a known duration yet.
+                            // Showing 00:00 here makes a resolving/live source look broken.
+                            text = if (duration > 0L) formatTime(duration) else "—:—",
                             color = MovyzaColors.Text2,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
@@ -1408,6 +1410,7 @@ private fun MovyzaPlayerScreen(
                     }
 
                     Slider(
+                        enabled = duration > 0L,
                         value = position.toFloat().coerceIn(0f, duration.coerceAtLeast(1L).toFloat()),
                         onValueChange = { onSeek(it.toLong()) },
                         valueRange = 0f..duration.coerceAtLeast(1L).toFloat(),
