@@ -4,7 +4,6 @@ import { useLanguage } from '../context/LanguageContext';
 import { MovyzaApi } from '../services/api';
 import { Movie, Series, Episode, Season } from '../types';
 import { MovieCard } from '../components/ui/MovieCard';
-import { HilltopBanner } from '../components/ads/HilltopBanner';
 import { SeriesCard } from '../components/ui/SeriesCard';
 
 const VIDSRC_BASE_URL = 'https://player.movyza.sbs';
@@ -68,6 +67,14 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   }, [contentId, isSeries, safeSeason, safeEpisode, subtitlePriority]);
 
   const subtitleLabel = subtitlePriority[0] ? subtitlePriority[0].toUpperCase() + ' subtitles' : 'Subtitles';
+
+  // Third-party iframe failures do not reliably fire onError. Bound the
+  // loading state so users get a recovery action instead of an endless spinner.
+  useEffect(() => {
+    if (loading || iframeLoaded || iframeFailed || !embedUrl) return;
+    const timeout = window.setTimeout(() => setIframeFailed(true), 20_000);
+    return () => window.clearTimeout(timeout);
+  }, [embedUrl, iframeFailed, iframeLoaded, loading]);
 
   useEffect(() => {
     let mounted = true;
@@ -217,13 +224,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                 {subtitleHint}
               </div>
 
-              <div className="mb-3 rounded-2xl border border-white/[0.06] bg-black/20 py-1">
-                <HilltopBanner
-                  slotKey={`watch-top-${isSeries ? 'tv' : 'movie'}-${contentId}`}
-                  allowImmediatePair
-                />
-              </div>
-
               <div className="relative aspect-video w-full overflow-hidden rounded-2xl sm:rounded-3xl bg-black border border-white/[0.09] shadow-2xl">
                 {!iframeLoaded && !iframeFailed && (
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#030405]">
@@ -262,13 +262,6 @@ export const WatchPage: React.FC<WatchPageProps> = ({
                     onError={() => setIframeFailed(true)}
                   />
                 )}
-              </div>
-
-              <div className="mt-3 rounded-2xl border border-white/[0.06] bg-black/20 py-1">
-                <HilltopBanner
-                  slotKey={`watch-bottom-${isSeries ? 'tv' : 'movie'}-${contentId}`}
-                  allowImmediatePair
-                />
               </div>
 
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3 px-1">
