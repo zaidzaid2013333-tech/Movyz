@@ -295,7 +295,17 @@ fun GlassIconButton(
         modifier = modifier.size(48.dp),
         shape = CircleShape,
         color = MovyzaColors.Bg2.copy(alpha = 0.72f),
-        border = BorderStroke(0.8.dp, if (goldBorder) MovyzaColors.GoldBorder else MovyzaColors.GlassStroke)
+        border = BorderStroke(
+            0.8.dp,
+            if (goldBorder) {
+                Brush.verticalGradient(
+                    listOf(
+                        MovyzaColors.Gold400.copy(alpha = 0.62f),
+                        MovyzaColors.Gold600.copy(alpha = 0.20f)
+                    )
+                )
+            } else MovyzaColors.GlassStroke
+        )
     ) {
         IconButton(onClick = onClick) {
             Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(20.dp))
@@ -377,7 +387,18 @@ fun GlassPill(
         modifier = modifier
             .clip(shape)
             .background(fillBrush, shape)
-            .border(0.8.dp, if (active) MovyzaColors.GoldBorder else MovyzaColors.GlassStroke, shape)
+            .border(
+                0.8.dp,
+                if (active) {
+                    Brush.verticalGradient(
+                        listOf(
+                            MovyzaColors.Gold400.copy(alpha = 0.62f),
+                            MovyzaColors.Gold600.copy(alpha = 0.20f)
+                        )
+                    )
+                } else MovyzaColors.GlassStroke,
+                shape
+            )
             .then(clickMod)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
