@@ -96,7 +96,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigate }) => {
                   <div className="relative w-28 sm:w-36 aspect-[16/9] rounded-xl overflow-hidden bg-slate-900 shrink-0 border border-amber-500/20">
                     <img
                       src={item.backdropUrl}
-                      alt={item.titleEn || item.title}
+                      alt={item.title || item.title}
                       referrerPolicy="no-referrer"
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     />
@@ -119,7 +119,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigate }) => {
                       )}
                     </div>
                     <h3 className="font-cinema-title font-bold text-white text-sm sm:text-base group-hover:text-amber-300 transition-colors">
-                      {item.titleEn || item.title}
+                      {item.title || item.title}
                     </h3>
                     <p className="text-xs text-slate-400 font-mono">
                       {Math.floor(item.positionSeconds / 60)} / {Math.floor(item.durationSeconds / 60)} {t('minutes')}
