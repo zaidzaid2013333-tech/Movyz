@@ -19,30 +19,37 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({ currentPath,
   ];
 
   return (
-    <nav className="movyza-mobile-bottom md:hidden fixed bottom-2 inset-x-2 z-40" aria-label="Mobile Navigation">
+    <nav className="movyza-mobile-bottom md:hidden fixed bottom-2 inset-x-2 z-40" aria-label={language === 'ar' ? 'التنقل الرئيسي' : 'Main navigation'}>
       <div
-        className="max-w-md mx-auto rounded-[22px] bg-[#090c12]/92 backdrop-blur-2xl border border-white/[0.08] shadow-[0_18px_50px_rgba(0,0,0,0.55)] px-1.5 pt-1.5 grid grid-cols-5 items-center"
+        className="max-w-md mx-auto rounded-full bg-[#090c12]/92 backdrop-blur-2xl border border-white/[0.08] shadow-[0_18px_50px_rgba(0,0,0,0.55)] px-1.5 py-1.5 flex items-center justify-between gap-1"
         style={{ paddingBottom: 'calc(6px + env(safe-area-inset-bottom))' }}
       >
         {tabs.map((tab) => {
           const Icon = tab.icon;
-          const isActive = tab.path === '/' ? currentPath === '/' : currentPath.startsWith(tab.path);
+          const isActive = tab.path === '/'
+            ? currentPath === '/'
+            : currentPath === tab.path || currentPath.startsWith(tab.path + '/');
 
           return (
             <button
               key={tab.id}
               onClick={() => onNavigate(tab.path)}
-              className="min-h-[50px] min-w-[44px] flex flex-col items-center justify-center relative rounded-2xl focus:outline-none transition-all active:scale-90 cursor-pointer"
+              className={
+                'movyza-mobile-tab min-w-0 min-h-[48px] rounded-full inline-flex items-center justify-center gap-2 px-3 focus:outline-none cursor-pointer active:scale-[0.96] ' +
+                (isActive ? 'is-active flex-1' : 'flex-none w-[46px] sm:w-[50px]')
+              }
               aria-label={tab.label}
               aria-current={isActive ? 'page' : undefined}
+              title={tab.label}
             >
-              <div className={
-                'w-10 h-7 rounded-xl flex items-center justify-center transition-all ' +
-                (isActive ? 'bg-amber-400/12' : '')
+              <Icon
+                className={isActive ? 'w-5 h-5 shrink-0 text-amber-300 stroke-[2.5]' : 'w-5 h-5 shrink-0 text-slate-500'}
+                aria-hidden="true"
+              />
+              <span className={
+                'movyza-mobile-tab-label text-[11px] font-bold font-cinema-title ' +
+                (isActive ? 'text-amber-300' : 'text-slate-500')
               }>
-                <Icon className={isActive ? 'w-5 h-5 text-amber-300 stroke-[2.5]' : 'w-5 h-5 text-slate-500'} />
-              </div>
-              <span className={isActive ? 'text-[10px] font-bold font-cinema-title text-amber-300' : 'text-[10px] font-normal font-cinema-title text-slate-500'}>
                 {tab.label}
               </span>
             </button>
