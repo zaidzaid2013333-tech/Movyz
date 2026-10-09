@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextDirection
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -494,7 +495,7 @@ fun MovyzaHeroTemplate(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            MovyzaBadge(text = if (hasData) "اختيار Movyza" else "جارٍ التحميل")
+            MovyzaBadge(text = if (hasData) stringResource(R.string.hero_pick) else stringResource(R.string.app_loading))
             if (heroCount > 1) {
                 Row(
                     modifier = Modifier
@@ -550,7 +551,7 @@ fun MovyzaHeroTemplate(
             val metadata = movie?.let {
                 listOfNotNull(
                     it.yearText.takeIf { year -> year.isNotBlank() },
-                    if (it.mediaType == "series") "مسلسل" else "فيلم",
+                    if (it.mediaType == "series") stringResource(R.string.type_series) else stringResource(R.string.type_movie),
                     "★ " + String.format(Locale.US, "%.1f", it.rating)
                 ).joinToString("  ·  ")
             } ?: "فيلم  ·  ★ —"
@@ -586,7 +587,7 @@ fun MovyzaHeroTemplate(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 GoldButton(
-                    text = "مشاهدة الآن",
+                    text = stringResource(R.string.btn_watch_now),
                     onClick = onPlay,
                     enabled = hasData,
                     modifier = Modifier.weight(1f)
@@ -603,13 +604,13 @@ fun MovyzaHeroTemplate(
                     ) {
                         Icon(
                             Icons.Outlined.Info,
-                            contentDescription = "التفاصيل",
+                            contentDescription = stringResource(R.string.btn_details),
                             tint = MovyzaColors.Text,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "التفاصيل",
+                            stringResource(R.string.btn_details),
                             color = MovyzaColors.Text,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
@@ -619,7 +620,7 @@ fun MovyzaHeroTemplate(
                 GlassIconButton(
                     onClick = { if (hasData) onToggleWatchlist() },
                     icon = if (watchlisted) Icons.Outlined.BookmarkAdded else Icons.Outlined.BookmarkAdd,
-                    contentDescription = "قائمتي",
+                    contentDescription = stringResource(R.string.btn_save),
                     tint = if (watchlisted) MovyzaColors.Gold300 else MovyzaColors.Text,
                     goldBorder = watchlisted,
                     modifier = Modifier.size(48.dp)
@@ -678,7 +679,7 @@ fun MovyzaPosterCardTemplate(
 
             if (movie != null) {
                 MovyzaBadge(
-                    text = if (movie.mediaType == "series") "مسلسل" else "فيلم",
+                    text = if (movie.mediaType == "series") stringResource(R.string.type_series) else stringResource(R.string.type_movie),
                     gold = false,
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -846,7 +847,7 @@ fun MovyzaHorizontalCardTemplate(
                 Spacer(Modifier.height(5.dp))
 
                 Text(
-                    text = movie?.overview?.ifBlank { "اضغط لعرض التفاصيل والمشاهدة المباشرة." }
+                    text = movie?.overview?.ifBlank { stringResource(R.string.poster_overview_placeholder) }
                         ?: "٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠",
                     color = if (movie != null) MovyzaColors.Text3 else Color.Transparent,
                     fontSize = 12.sp,
