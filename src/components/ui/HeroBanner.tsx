@@ -20,7 +20,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
 }) => {
   const { language, t } = useLanguage();
   const titlePrimary = item.title || item.titleEn;
-  const titleSecondary = item.originalTitle;
+  const titleSecondary = item.originalTitle !== titlePrimary ? item.originalTitle : '';
   const overview = item.overview || item.overviewEn;
   const year = item.type === 'movie' ? item.year : item.startYear;
   const durationLabel = item.type === 'movie'
