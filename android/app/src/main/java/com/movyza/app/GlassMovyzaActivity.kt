@@ -11,6 +11,10 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
@@ -164,44 +168,138 @@ private fun launchPlayer(
 
 @Composable
 private fun MovyzaLaunchScreen() {
+    val motion = rememberInfiniteTransition(label = "movyza-launch")
+    val pulse by motion.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1700),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "logo-pulse"
+    )
+    val rotation by motion.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(8500),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "orbit-rotation"
+    )
+    val progress by motion.animateFloat(
+        initialValue = 0.22f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "loading-progress"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MovyzaColors.Bg),
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF000000), Color(0xFF07080D), Color(0xFF000000))
+                )
+            ),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                modifier = Modifier
-                    .size(78.dp)
-                    .clip(MovyzaShapes.Xl)
-                    .background(
-                        Brush.linearGradient(
-                            listOf(MovyzaColors.Gold300, MovyzaColors.Gold600)
-                        )
+        Box(
+            modifier = Modifier
+                .size(300.dp)
+                .graphicsLayer {
+                    scaleX = pulse
+                    scaleY = pulse
+                    alpha = 0.16f
+                }
+                .background(
+                    Brush.radialGradient(
+                        listOf(MovyzaColors.Gold400.copy(alpha = 0.85f), Color.Transparent)
                     ),
+                    CircleShape
+                )
+        )
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier.size(174.dp),
                 contentAlignment = Alignment.Center
             ) {
+                Box(
+                    modifier = Modifier
+                        .size(166.dp)
+                        .graphicsLayer {
+                            rotationZ = rotation
+                            alpha = 0.52f
+                        }
+                        .border(1.dp, MovyzaColors.GoldBorder, CircleShape)
+                )
+                Box(
+                    modifier = Modifier
+                        .size(132.dp)
+                        .graphicsLayer {
+                            rotationZ = -rotation * 0.58f
+                            alpha = 0.44f
+                        }
+                        .border(1.dp, MovyzaColors.Gold400.copy(alpha = 0.55f), CircleShape)
+                )
                 Text(
                     text = "M",
-                    color = MovyzaColors.Bg,
-                    fontSize = 42.sp,
-                    fontWeight = FontWeight.Black
+                    color = MovyzaColors.Gold300,
+                    fontSize = 108.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = (-7).sp,
+                    modifier = Modifier.graphicsLayer {
+                        scaleX = pulse
+                        scaleY = pulse
+                    }
                 )
             }
-            Spacer(Modifier.height(16.dp))
+
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = "MOVYZA",
                 color = MovyzaColors.Gold300,
-                fontSize = 26.sp,
+                fontSize = 28.sp,
                 fontWeight = FontWeight.Black,
                 letterSpacing = 5.sp
             )
-            Spacer(Modifier.height(5.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
                 text = "سينماك تبدأ هنا",
-                color = MovyzaColors.Text3,
-                fontSize = 10.sp
+                color = Color(0xFF9A9BA2),
+                fontSize = 12.sp
+            )
+            Spacer(Modifier.height(34.dp))
+            Box(
+                modifier = Modifier
+                    .width(132.dp)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF25252A))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress)
+                        .height(3.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(MovyzaColors.Gold600, MovyzaColors.Gold300, MovyzaColors.Gold600)
+                            )
+                        )
+                )
+            }
+            Spacer(Modifier.height(13.dp))
+            Text(
+                text = "نجهّز تجربتك السينمائية…",
+                color = Color(0xFF73747C),
+                fontSize = 11.sp
             )
         }
     }
@@ -211,9 +309,11 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
     var launchComplete by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        // Let the launch surface draw once, then start data work without an artificial delay.
+        // Draw the branded launch screen first, then start data work while the
+        // short cinematic intro is playing instead of blocking the UI thread.
         withFrameNanos { }
         vm.startInitialLoad()
+        delay(950L)
         launchComplete = true
     }
 
