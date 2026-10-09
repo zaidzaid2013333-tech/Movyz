@@ -679,9 +679,11 @@ class MovyzaPlayerActivity : ComponentActivity() {
             .replace("\r", "\n")
 
         if (mime == MimeTypes.TEXT_SSA) {
+            // ASS/SSA Dialogue records are structured records, not plain cue text.
+            // In particular, \N is a format-level line-break control. Replacing it
+            // with a real newline can split/corrupt the Dialogue record before the
+            // SSA decoder parses it, so preserve the original event structure.
             return normalized
-                .replace("\\N", "\n")
-                .replace(Regex("(?<!\\n)\\s+-\\s+")) { "\n- " }
         }
 
         val lines = normalized.split("\n")
@@ -710,11 +712,23 @@ class MovyzaPlayerActivity : ComponentActivity() {
 
     private fun normalizeDialogueLine(line: String): String {
         val trimmed = line.trim()
-        if (trimmed.startsWith("- ")) {
-            val body = trimmed.removePrefix("- ")
-            return "- " + Regex("\\s+-\\s+").replace(body) { "\n- " }
+        if (trimmed.isBlank()) return line
+
+        // Common subtitle convention: multiple speakers in one cue are separated
+        // by a spaced hyphen/en dash/em dash. Render each speaker as its own line
+        // and make the dialogue markers consistent with hard-sub styling.
+        val withoutLeadingMarker = trimmed.replaceFirst(Regex("^[-–—]\\s+"), "")
+        val hasLeadingMarker = withoutLeadingMarker != trimmed
+        val segments = Regex("\\s+[-–—]\\s+")
+            .split(withoutLeadingMarker)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+        if (segments.size > 1) {
+            return segments.joinToString("\n") { "- $it" }
         }
-        return Regex("\\s+-\\s+").replace(line) { "\n- " }
+
+        return if (hasLeadingMarker) "- $withoutLeadingMarker" else line
     }
 
     private fun refreshTracks() {
@@ -993,7 +1007,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
 private fun subtitleStyleFor(style: SubtitleVisualStyle): CaptionStyleCompat = when (style) {
     SubtitleVisualStyle.CLASSIC -> CaptionStyleCompat(
         android.graphics.Color.WHITE,
-        android.graphics.Color.argb(235, 0, 0, 0),
+        android.graphics.Color.TRANSPARENT,
         android.graphics.Color.TRANSPARENT,
         CaptionStyleCompat.EDGE_TYPE_OUTLINE,
         android.graphics.Color.BLACK,
@@ -1001,7 +1015,7 @@ private fun subtitleStyleFor(style: SubtitleVisualStyle): CaptionStyleCompat = w
     )
     SubtitleVisualStyle.GOLD -> CaptionStyleCompat(
         android.graphics.Color.rgb(245, 201, 76),
-        android.graphics.Color.argb(160, 0, 0, 0),
+        android.graphics.Color.TRANSPARENT,
         android.graphics.Color.TRANSPARENT,
         CaptionStyleCompat.EDGE_TYPE_OUTLINE,
         android.graphics.Color.BLACK,
@@ -1009,11 +1023,11 @@ private fun subtitleStyleFor(style: SubtitleVisualStyle): CaptionStyleCompat = w
     )
     SubtitleVisualStyle.HIGH_CONTRAST -> CaptionStyleCompat(
         android.graphics.Color.WHITE,
-        android.graphics.Color.BLACK,
         android.graphics.Color.TRANSPARENT,
-        CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
+        android.graphics.Color.TRANSPARENT,
+        CaptionStyleCompat.EDGE_TYPE_OUTLINE,
         android.graphics.Color.BLACK,
-        android.graphics.Typeface.DEFAULT_BOLD
+        android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
     )
 }
 
@@ -1021,8 +1035,10 @@ private fun applySubtitleStyle(playerView: PlayerView, style: SubtitleVisualStyl
     playerView.subtitleView?.apply {
         setApplyEmbeddedStyles(false)
         setStyle(subtitleStyleFor(style))
+        // Approximate the common hard-sub look: readable bold text, black outline,
+        // no subtitle rectangle, and a small safe margin at the bottom of the video.
         setFractionalTextSize(0.052f)
-        setBottomPaddingFraction(0.075f)
+        setBottomPaddingFraction(0.045f)
     }
 }
 
