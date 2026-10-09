@@ -89,17 +89,36 @@ jobs:
 
           echo "CHECK 2/10: Arabic subpages are noindex"
           ar_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies")"
-          printf '%s' "$ar_html" | grep -q '<html lang="ar" dir="rtl"'
-          printf '%s' "$ar_html" | grep -q 'name="robots" content="noindex,follow"'
+          if ! printf '%s' "$ar_html" | grep -q '<html lang="ar" dir="rtl"'; then
+            echo "Arabic HTML lang/dir marker missing:"
+            printf '%s' "$ar_html" | grep -oE '<html[^>]*>' | head -n 1 || true
+            printf '%s' "$ar_html" | head -c 500 || true
+            exit 1
+          fi
+          if ! printf '%s' "$ar_html" | grep -q 'name="robots" content="noindex,follow"'; then
+            echo "Arabic robots meta marker missing:"
+            printf '%s' "$ar_html" | grep -oiE '<meta[^>]*robots[^>]*>' || true
+            printf '%s' "$ar_html" | grep -oE '<html[^>]*>' | head -n 1 || true
+            exit 1
+          fi
           if printf '%s' "$ar_html" | grep -q 'rel="alternate" hreflang='; then
             echo "Non-homepage routes must not advertise hreflang alternates"
+            printf '%s' "$ar_html" | grep -oE '<link[^>]*hreflang[^>]*>' | head -n 4 || true
             exit 1
           fi
 
           echo "CHECK 3/10: English subpages are noindex"
           en_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/en/movies")"
-          printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'
-          printf '%s' "$en_html" | grep -q 'name="robots" content="noindex,follow"'
+          if ! printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'; then
+            echo "English HTML lang/dir marker missing:"
+            printf '%s' "$en_html" | grep -oE '<html[^>]*>' | head -n 1 || true
+            exit 1
+          fi
+          if ! printf '%s' "$en_html" | grep -q 'name="robots" content="noindex,follow"'; then
+            echo "English robots meta marker missing:"
+            printf '%s' "$en_html" | grep -oiE '<meta[^>]*robots[^>]*>' || true
+            exit 1
+          fi
 
           echo "CHECK 4/10: homepage-only sitemap (32 locales)"
           sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
