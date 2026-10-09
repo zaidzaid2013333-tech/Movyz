@@ -69,4 +69,27 @@
     <string name="app_loading">جارٍ التحميل</string>
     <string name="hero_pick">اختيار Movyza</string>
     <string name="app_tagline">سينماك تبدأ هنا</string>
+    <string name="history_short">السجل</string>
+    <string name="message_history_cleared">تم مسح سجل المشاهدة</string>
+    <string name="message_signed_out">تم تسجيل الخروج</string>
+    <string name="genre_series">مسلسل</string>
+    <string name="genre_movie_cinematic">فيلم سينمائي</string>
+    <string name="search_clear">مسح</string>
+    <string name="detail_similar_title">أعمال مشابهة قد تعجبك</string>
+    <string name="detail_similar_subtitle">اقتراحات ذات صلة</string>
+    <string name="retry">إعادة المحاولة</string>
+    <string name="auth_welcome_back">مرحباً بعودتك</string>
+    <string name="auth_join">انضم إلى Movyza</string>
+    <string name="auth_name">الاسم</string>
+    <string name="auth_email">البريد الإلكتروني</string>
+    <string name="auth_password">كلمة المرور</string>
+    <string name="auth_show_password">إظهار كلمة المرور</string>
+    <string name="auth_switch_to_signup">ليس لديك حساب؟ إنشاء حساب جديد</string>
+    <string name="auth_switch_to_login">لديك حساب بالفعل؟ تسجيل الدخول</string>
+    <string name="auth_submit_login">دخول</string>
+    <string name="auth_submit_signup">إنشاء الحساب</string>
+    <string name="auth_cancel">إلغاء</string>
+    <string name="auth_created_success">تم إنشاء الحساب</string>
+    <string name="hero_overview_placeholder">اكتشف تفاصيل العمل وابدأ المشاهدة على Movyza.</string>
+    <string name="detail_episode_format">الحلقة %1$d • %2$s</string>
 </resources>
