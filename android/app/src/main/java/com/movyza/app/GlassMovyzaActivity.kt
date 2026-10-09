@@ -45,6 +45,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -255,23 +256,16 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
 
     if (authOpen) {
         MovyzaAuthDialog(
+            vm = vm,
             login = loginMode,
             loading = vm.loading,
             onDismiss = { authOpen = false },
             onToggle = { loginMode = !loginMode },
-            onSubmit = { name, email, password ->
-                if (loginMode) {
-                    vm.signIn(email, password) { ok, message ->
-                        scope.launch { snackbar.showSnackbar(message) }
-                        if (ok) authOpen = false
-                    }
-                } else {
-                    vm.signUp(name, email, password) { ok, message ->
-                        scope.launch { snackbar.showSnackbar(message) }
-                        if (ok && message == "تم إنشاء الحساب") authOpen = false
-                    }
-                }
-            }
+            onAuthComplete = {
+                authOpen = false
+                loginMode = true
+            },
+            onMessage = { message -> scope.launch { snackbar.showSnackbar(message) } }
         )
     }
 
@@ -1855,18 +1849,67 @@ private fun NativeErrorBanner(message: String, onRetry: () -> Unit) {
     }
 }
 
+private enum class MovyzaAuthStage {
+    LOGIN, SIGNUP, VERIFY_SIGNUP, RECOVERY_EMAIL, VERIFY_RECOVERY, NEW_PASSWORD
+}
+
 @Composable
 private fun MovyzaAuthDialog(
+    vm: MainViewModel,
     login: Boolean,
     loading: Boolean,
     onDismiss: () -> Unit,
     onToggle: () -> Unit,
-    onSubmit: (String, String, String) -> Unit
+    onAuthComplete: () -> Unit,
+    onMessage: (String) -> Unit
 ) {
+    var stage by remember(login) {
+        mutableStateOf(if (login) MovyzaAuthStage.LOGIN else MovyzaAuthStage.SIGNUP)
+    }
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
+
+    val emailValid = android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()
+    val lockedEmail = stage == MovyzaAuthStage.VERIFY_SIGNUP ||
+        stage == MovyzaAuthStage.VERIFY_RECOVERY ||
+        stage == MovyzaAuthStage.NEW_PASSWORD
+    val title = when (stage) {
+        MovyzaAuthStage.LOGIN -> "مرحباً بعودتك"
+        MovyzaAuthStage.SIGNUP -> "أنشئ حساب Movyza"
+        MovyzaAuthStage.VERIFY_SIGNUP -> "تأكيد بريدك الإلكتروني"
+        MovyzaAuthStage.RECOVERY_EMAIL -> "استعادة كلمة المرور"
+        MovyzaAuthStage.VERIFY_RECOVERY -> "رمز استعادة الحساب"
+        MovyzaAuthStage.NEW_PASSWORD -> "اختر كلمة مرور جديدة"
+    }
+    val helper = when (stage) {
+        MovyzaAuthStage.LOGIN -> "سجّل الدخول لمزامنة قائمتك وسجل المشاهدة."
+        MovyzaAuthStage.SIGNUP -> "سنرسل رمز تحقق إلى بريدك لإكمال إنشاء الحساب."
+        MovyzaAuthStage.VERIFY_SIGNUP -> "أدخل الرمز المكوّن من 6 أرقام الذي وصلك من Movyza."
+        MovyzaAuthStage.RECOVERY_EMAIL -> "أدخل بريد حسابك. إذا كان مسجّلًا، سنرسل لك رمز الاستعادة."
+        MovyzaAuthStage.VERIFY_RECOVERY -> "أدخل رمز الاستعادة الذي وصلك إلى بريدك الإلكتروني."
+        MovyzaAuthStage.NEW_PASSWORD -> "استخدم 8 أحرف على الأقل واختر كلمة مرور لا تستخدمها في مكان آخر."
+    }
+    val submitEnabled = !loading && when (stage) {
+        MovyzaAuthStage.LOGIN -> emailValid && password.length >= 6
+        MovyzaAuthStage.SIGNUP -> name.trim().isNotBlank() && emailValid && password.length >= 8
+        MovyzaAuthStage.VERIFY_SIGNUP, MovyzaAuthStage.VERIFY_RECOVERY ->
+            emailValid && code.length == 6
+        MovyzaAuthStage.RECOVERY_EMAIL -> emailValid
+        MovyzaAuthStage.NEW_PASSWORD ->
+            emailValid && password.length >= 8 && password == confirmPassword
+    }
+    val submitLabel = when (stage) {
+        MovyzaAuthStage.LOGIN -> "دخول"
+        MovyzaAuthStage.SIGNUP -> "إنشاء الحساب"
+        MovyzaAuthStage.VERIFY_SIGNUP -> "تأكيد البريد"
+        MovyzaAuthStage.RECOVERY_EMAIL -> "إرسال رمز الاستعادة"
+        MovyzaAuthStage.VERIFY_RECOVERY -> "التحقق من الرمز"
+        MovyzaAuthStage.NEW_PASSWORD -> "حفظ كلمة المرور الجديدة"
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1874,66 +1917,291 @@ private fun MovyzaAuthDialog(
         shape = MovyzaShapes.Lg,
         title = {
             Text(
-                text = if (login) "مرحباً بعودتك" else "انضم إلى Movyza",
+                text = title,
                 color = MovyzaColors.Text,
                 fontWeight = FontWeight.Black,
                 fontSize = 20.sp
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (!login) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = helper,
+                    color = MovyzaColors.Text3,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp
+                )
+
+                if (stage == MovyzaAuthStage.SIGNUP) {
                     OutlinedTextField(
                         value = name,
-                        onValueChange = { name = it },
+                        onValueChange = { name = it.take(80) },
                         label = { Text("الاسم") },
                         singleLine = true,
                         shape = MovyzaShapes.Sm,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("البريد الإلكتروني") },
-                    singleLine = true,
-                    shape = MovyzaShapes.Sm,
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
-                )
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("كلمة المرور") },
-                    singleLine = true,
-                    shape = MovyzaShapes.Sm,
-                    modifier = Modifier.fillMaxWidth(),
-                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    trailingIcon = {
-                        IconButton(onClick = { showPassword = !showPassword }) {
-                            Icon(
-                                imageVector = if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                contentDescription = "إظهار كلمة المرور",
-                                tint = MovyzaColors.Text3
-                            )
-                        }
-                    }
-                )
-                TextButton(onClick = onToggle) {
-                    Text(
-                        text = if (login) "ليس لديك حساب؟ إنشاء حساب جديد" else "لديك حساب بالفعل؟ تسجيل الدخول",
-                        color = MovyzaColors.Gold300,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
+
+                if (stage != MovyzaAuthStage.NEW_PASSWORD) {
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it.trimStart() },
+                        label = { Text("البريد الإلكتروني") },
+                        singleLine = true,
+                        readOnly = lockedEmail,
+                        shape = MovyzaShapes.Sm,
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
                     )
+                } else {
+                    Text(
+                        text = email.trim(),
+                        color = MovyzaColors.Text2,
+                        fontSize = 13.sp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                if (stage == MovyzaAuthStage.LOGIN ||
+                    stage == MovyzaAuthStage.SIGNUP ||
+                    stage == MovyzaAuthStage.NEW_PASSWORD
+                ) {
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = {
+                            Text(
+                                if (stage == MovyzaAuthStage.NEW_PASSWORD) {
+                                    "كلمة المرور الجديدة"
+                                } else {
+                                    "كلمة المرور"
+                                }
+                            )
+                        },
+                        singleLine = true,
+                        shape = MovyzaShapes.Sm,
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = if (showPassword) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        trailingIcon = {
+                            IconButton(onClick = { showPassword = !showPassword }) {
+                                Icon(
+                                    imageVector = if (showPassword) {
+                                        Icons.Outlined.VisibilityOff
+                                    } else {
+                                        Icons.Outlined.Visibility
+                                    },
+                                    contentDescription = "إظهار كلمة المرور",
+                                    tint = MovyzaColors.Text3
+                                )
+                            }
+                        }
+                    )
+                }
+
+                if (stage == MovyzaAuthStage.NEW_PASSWORD) {
+                    OutlinedTextField(
+                        value = confirmPassword,
+                        onValueChange = { confirmPassword = it },
+                        label = { Text("تأكيد كلمة المرور الجديدة") },
+                        singleLine = true,
+                        shape = MovyzaShapes.Sm,
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = if (showPassword) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                    )
+                    if (confirmPassword.isNotEmpty() && password != confirmPassword) {
+                        Text(
+                            text = "كلمتا المرور غير متطابقتين.",
+                            color = Color(0xFFF2A59E),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                if (stage == MovyzaAuthStage.VERIFY_SIGNUP ||
+                    stage == MovyzaAuthStage.VERIFY_RECOVERY
+                ) {
+                    OutlinedTextField(
+                        value = code,
+                        onValueChange = { code = it.filter(Char::isDigit).take(6) },
+                        label = { Text("رمز التحقق (6 أرقام)") },
+                        singleLine = true,
+                        shape = MovyzaShapes.Sm,
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    TextButton(
+                        enabled = !loading,
+                        onClick = {
+                            if (stage == MovyzaAuthStage.VERIFY_SIGNUP) {
+                                vm.resendSignupOtp(email.trim()) { ok, message ->
+                                    onMessage(message)
+                                }
+                            } else {
+                                vm.requestPasswordRecovery(email.trim()) { ok, message ->
+                                    onMessage(
+                                        if (ok) {
+                                            "إذا كان البريد مرتبطًا بحساب، فسيصلك رمز جديد."
+                                        } else {
+                                            message
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    ) {
+                        Text(
+                            text = "إعادة إرسال الرمز",
+                            color = MovyzaColors.Gold300,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                if (stage == MovyzaAuthStage.LOGIN) {
+                    TextButton(
+                        enabled = !loading,
+                        onClick = {
+                            password = ""
+                            code = ""
+                            stage = MovyzaAuthStage.RECOVERY_EMAIL
+                        }
+                    ) {
+                        Text(
+                            "نسيت كلمة المرور؟",
+                            color = MovyzaColors.Gold300,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                if (stage == MovyzaAuthStage.LOGIN || stage == MovyzaAuthStage.SIGNUP) {
+                    TextButton(
+                        enabled = !loading,
+                        onClick = {
+                            onToggle()
+                            password = ""
+                            confirmPassword = ""
+                            code = ""
+                            stage = if (stage == MovyzaAuthStage.LOGIN) {
+                                MovyzaAuthStage.SIGNUP
+                            } else {
+                                MovyzaAuthStage.LOGIN
+                            }
+                        }
+                    ) {
+                        Text(
+                            text = if (stage == MovyzaAuthStage.LOGIN) {
+                                "ليس لديك حساب؟ إنشاء حساب جديد"
+                            } else {
+                                "لديك حساب بالفعل؟ تسجيل الدخول"
+                            },
+                            color = MovyzaColors.Gold300,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                if (stage != MovyzaAuthStage.LOGIN && stage != MovyzaAuthStage.SIGNUP) {
+                    TextButton(
+                        enabled = !loading,
+                        onClick = {
+                            stage = when (stage) {
+                                MovyzaAuthStage.VERIFY_SIGNUP -> MovyzaAuthStage.SIGNUP
+                                MovyzaAuthStage.RECOVERY_EMAIL -> MovyzaAuthStage.LOGIN
+                                MovyzaAuthStage.VERIFY_RECOVERY -> MovyzaAuthStage.RECOVERY_EMAIL
+                                MovyzaAuthStage.NEW_PASSWORD -> MovyzaAuthStage.VERIFY_RECOVERY
+                                else -> MovyzaAuthStage.LOGIN
+                            }
+                            password = ""
+                            confirmPassword = ""
+                            code = ""
+                        }
+                    ) {
+                        Text(
+                            "رجوع",
+                            color = MovyzaColors.Text3,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             }
         },
         confirmButton = {
             Button(
-                enabled = !loading && email.isNotBlank() && password.length >= 6,
-                onClick = { onSubmit(name, email, password) },
+                enabled = submitEnabled,
+                onClick = {
+                    when (stage) {
+                        MovyzaAuthStage.LOGIN -> {
+                            vm.signIn(email.trim(), password) { ok, message ->
+                                onMessage(message)
+                                if (ok) onAuthComplete()
+                            }
+                        }
+                        MovyzaAuthStage.SIGNUP -> {
+                            vm.signUp(name.trim(), email.trim(), password) { ok, message, needsOtp ->
+                                onMessage(message)
+                                if (ok && needsOtp) {
+                                    code = ""
+                                    stage = MovyzaAuthStage.VERIFY_SIGNUP
+                                } else if (ok) {
+                                    onAuthComplete()
+                                }
+                            }
+                        }
+                        MovyzaAuthStage.VERIFY_SIGNUP -> {
+                            vm.verifySignupOtp(email.trim(), code) { ok, message ->
+                                onMessage(message)
+                                if (ok) onAuthComplete()
+                            }
+                        }
+                        MovyzaAuthStage.RECOVERY_EMAIL -> {
+                            vm.requestPasswordRecovery(email.trim()) { ok, message ->
+                                onMessage(message)
+                                if (ok) {
+                                    code = ""
+                                    stage = MovyzaAuthStage.VERIFY_RECOVERY
+                                }
+                            }
+                        }
+                        MovyzaAuthStage.VERIFY_RECOVERY -> {
+                            vm.verifyRecoveryOtp(email.trim(), code) { ok, message ->
+                                onMessage(message)
+                                if (ok) {
+                                    password = ""
+                                    confirmPassword = ""
+                                    stage = MovyzaAuthStage.NEW_PASSWORD
+                                }
+                            }
+                        }
+                        MovyzaAuthStage.NEW_PASSWORD -> {
+                            if (password != confirmPassword) {
+                                onMessage("كلمتا المرور غير متطابقتين.")
+                            } else {
+                                vm.updateRecoveredPassword(password) { ok, message ->
+                                    onMessage(message)
+                                    if (ok) onAuthComplete()
+                                }
+                            }
+                        }
+                    }
+                },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MovyzaColors.Gold400,
                     contentColor = MovyzaColors.Bg
@@ -1947,7 +2215,7 @@ private fun MovyzaAuthDialog(
                         color = MovyzaColors.Bg
                     )
                 } else {
-                    Text(if (login) "دخول" else "إنشاء الحساب", fontWeight = FontWeight.Bold)
+                    Text(submitLabel, fontWeight = FontWeight.Bold)
                 }
             }
         },
