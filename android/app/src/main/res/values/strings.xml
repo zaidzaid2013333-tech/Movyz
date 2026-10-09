@@ -96,4 +96,5 @@
     <string name="poster_overview_placeholder">اضغط لعرض التفاصيل والمشاهدة المباشرة.</string>
     <string name="continue_movie">متابعة الفيلم</string>
     <string name="btn_resume">استئناف</string>
+    <string name="continue_episode_format">م%1$d • ح%2$d</string>
 </resources>
