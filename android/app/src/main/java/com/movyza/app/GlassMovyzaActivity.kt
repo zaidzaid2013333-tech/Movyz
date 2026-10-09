@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -474,7 +475,7 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
                                 scope.launch { snackbar.showSnackbar("تم مسح سجل المشاهدة") }
                             },
                             onLogin = {
-                                loginMode = true
+                                authMode = NativeAuthMode.LOGIN
                                 authOpen = true
                             },
                             onSignup = {
@@ -543,7 +544,7 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
                     },
                     onToggleWatchlist = {
                         if (vm.session == null) {
-                            loginMode = true
+                            authMode = NativeAuthMode.LOGIN
                             authOpen = true
                         } else {
                             vm.toggleWatchlist(currentMovie) { message ->
@@ -2287,7 +2288,7 @@ private fun MovyzaAuthDialog(
                     Spacer(Modifier.width(9.dp))
                 } else {
                     Icon(
-                        imageVector = Icons.Outlined.Shield,
+                        imageVector = Icons.Outlined.Person,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp)
                     )
