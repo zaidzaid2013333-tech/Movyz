@@ -43,7 +43,7 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
             aria-label="Movyza Home"
           >
             <img
-              src="/pwa-icon.svg"
+              src="/movyza-icon.svg"
               alt=""
               aria-hidden="true"
               className="movyza-brand-icon"
