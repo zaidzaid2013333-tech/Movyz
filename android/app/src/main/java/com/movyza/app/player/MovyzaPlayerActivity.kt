@@ -1080,7 +1080,8 @@ private fun MovyzaPlayerScreen(
     var trackDialog by remember { mutableStateOf<TrackDialog?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var zoom by remember { mutableFloatStateOf(1f) }
-    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    // Zoom preserves the source ratio while using the full landscape viewport by default.
+    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_ZOOM) }
 
     BackHandler(onBack = onClose)
 
