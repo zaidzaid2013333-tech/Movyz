@@ -566,7 +566,7 @@ fun MovyzaHeroTemplate(
             Spacer(Modifier.height(8.dp))
             Text(
                 text = movie?.overview?.takeIf { it.isNotBlank() }
-                    ?: "اكتشف تفاصيل العمل وابدأ المشاهدة على Movyza.",
+                    ?: stringResource(R.string.hero_overview_placeholder),
                 color = if (hasData) MovyzaColors.Text2 else Color.Transparent,
                 fontSize = 13.sp,
                 lineHeight = 20.sp,
@@ -707,6 +707,7 @@ fun MovyzaPosterCardTemplate(
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            style = TextStyle(textDirection = TextDirection.Content),
             modifier = if (movie == null) {
                 Modifier
                     .fillMaxWidth(0.82f)
@@ -810,6 +811,7 @@ fun MovyzaHorizontalCardTemplate(
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(textDirection = TextDirection.Content),
                     modifier = if (movie == null) {
                         Modifier
                             .fillMaxWidth(0.65f)
@@ -823,7 +825,7 @@ fun MovyzaHorizontalCardTemplate(
                 val meta = if (movie != null) {
                     listOfNotNull(
                         "★ " + String.format(Locale.US, "%.1f", movie.rating),
-                        if (movie.mediaType == "series") "مسلسل" else "فيلم",
+                        if (movie.mediaType == "series") stringResource(R.string.genre_series) else stringResource(R.string.type_movie),
                         movie.yearText.takeIf { it.isNotBlank() }
                     ).joinToString("  •  ")
                 } else {
@@ -902,7 +904,7 @@ fun MovyzaContinueWatchingCard(
             )
 
             MovyzaBadge(
-                text = if (entry.mediaType == "series") "م${entry.season} • ح${entry.episode}" else "متابعة الفيلم",
+                text = if (entry.mediaType == "series") stringResource(R.string.detail_watch_episode_format, entry.season, entry.episode) else stringResource(R.string.continue_movie),
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(8.dp)
@@ -918,7 +920,7 @@ fun MovyzaContinueWatchingCard(
             ) {
                 Icon(
                     Icons.Outlined.PlayArrow,
-                    contentDescription = "استئناف",
+                    contentDescription = stringResource(R.string.btn_resume),
                     tint = MovyzaColors.Bg,
                     modifier = Modifier.size(22.dp)
                 )
@@ -945,7 +947,7 @@ fun MovyzaContinueWatchingCard(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "التفاصيل",
+                        text = stringResource(R.string.btn_details),
                         color = MovyzaColors.Gold300,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
