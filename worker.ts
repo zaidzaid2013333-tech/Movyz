@@ -556,6 +556,42 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     ur: 'فلموں اور سیریز کی معلومات، اصناف، ریلیز کے سال اور نئی پیشکشیں دیکھیں، پھر اپنی پسند کی زبان منتخب کریں۔',
     fa: 'اطلاعات فیلم‌ها و سریال‌ها، ژانرها، سال انتشار و آثار تازه را بررسی کنید و زبان دلخواه خود را انتخاب کنید.',
   };
+
+  const HOME_SEO_DETAILS: Record<LocaleCode, string> = {
+    ar: 'تعرّف على نبذة كل عمل وسنة إصداره وتصنيفاته وتقييمه عندما تكون هذه المعلومات متاحة. تساعدك صفحات اللغة على استخدام الموقع بلغتك، بينما تتيح لك صفحات العناوين الاطلاع على تفاصيل كل فيلم أو مسلسل قبل اختيار ما يناسبك.',
+    en: 'Each title page presents available details such as a synopsis, release year, genres, and rating. Use the language links to browse Movyza in your preferred language, then open a title page to review its information before deciding what to explore next.',
+    fr: 'Chaque fiche présente les informations disponibles, comme le synopsis, l’année de sortie, les genres et la note. Utilisez les liens linguistiques pour parcourir Movyza dans votre langue, puis consultez la fiche d’un titre pour en découvrir les détails.',
+    de: 'Jede Titelseite zeigt verfügbare Angaben wie Zusammenfassung, Erscheinungsjahr, Genres und Bewertung. Über die Sprachlinks kannst du Movyza in deiner bevorzugten Sprache nutzen und anschließend die Informationen zu einem Film oder einer Serie ansehen.',
+    es: 'Cada ficha incluye los datos disponibles, como sinopsis, año de estreno, géneros y valoración. Usa los enlaces de idioma para navegar por Movyza en tu lengua y consulta después la ficha de cada título para conocer sus detalles.',
+    it: 'Ogni scheda mostra le informazioni disponibili, come trama, anno di uscita, generi e valutazione. Usa i collegamenti alle lingue per visitare Movyza nella tua lingua e consulta poi la scheda del titolo per conoscerne i dettagli.',
+    pt: 'Cada página de título apresenta os dados disponíveis, como sinopse, ano de lançamento, gêneros e classificação. Use os links de idioma para navegar no Movyza na sua língua e consulte a ficha de cada obra para conhecer os detalhes.',
+    ru: 'На странице каждого произведения указаны доступные сведения: описание, год выпуска, жанры и рейтинг. Перейдите по ссылке на нужный язык, чтобы пользоваться Movyza на удобном языке, и изучите информацию о фильме или сериале.',
+    tr: 'Her yapım sayfasında özet, yayın yılı, türler ve puan gibi mevcut bilgiler bulunur. Movyza’yı tercih ettiğiniz dilde kullanmak için dil bağlantılarını seçin ve bir film ya da dizinin ayrıntılarını inceleyin.',
+    hi: 'हर शीर्षक के पेज पर उपलब्ध जानकारी, जैसे सारांश, रिलीज़ वर्ष, शैली और रेटिंग दिखाई जाती है। अपनी पसंदीदा भाषा में Movyza देखने के लिए भाषा लिंक चुनें और किसी फ़िल्म या सीरीज़ के विवरण पढ़ें।',
+    ja: '各作品ページでは、あらすじ、公開年、ジャンル、評価など、利用可能な情報を確認できます。言語リンクから希望する言語を選び、映画やシリーズの詳細を見て作品を探してください。',
+    ko: '각 작품 페이지에서 줄거리, 공개 연도, 장르, 평점 등 제공되는 정보를 확인할 수 있습니다. 언어 링크에서 원하는 언어를 선택하고 영화나 시리즈의 상세 정보를 살펴보세요.',
+    zh: '每个作品页面都会展示可用信息，例如简介、上映年份、类型和评分。使用语言链接切换到熟悉的语言，再查看电影或剧集的详细资料，帮助你了解作品。',
+    nl: 'Elke titelpagina toont beschikbare gegevens zoals een samenvatting, releasejaar, genres en beoordeling. Gebruik de taallinks om Movyza in je voorkeurstaal te bekijken en lees daarna de gegevens van een film of serie.',
+    sv: 'Varje titelsida visar tillgänglig information, till exempel sammanfattning, premiärår, genrer och betyg. Använd språklänkarna för att besöka Movyza på ditt språk och läs sedan detaljerna om en film eller serie.',
+    da: 'Hver titelside viser tilgængelige oplysninger som resumé, udgivelsesår, genrer og bedømmelse. Brug sproglinksene til at besøge Movyza på dit foretrukne sprog, og læs derefter oplysningerne om en film eller serie.',
+    no: 'Hver tittelside viser tilgjengelig informasjon som sammendrag, utgivelsesår, sjangre og vurdering. Bruk språklenkene for å besøke Movyza på språket ditt, og les deretter detaljene om en film eller serie.',
+    fi: 'Jokaisella nimikesivulla näytetään saatavilla olevia tietoja, kuten tiivistelmä, julkaisuvuosi, lajityypit ja arvosana. Valitse kielilinkeistä haluamasi kieli ja tutustu elokuvan tai sarjan tietoihin.',
+    pl: 'Każda strona tytułu przedstawia dostępne informacje, takie jak opis, rok premiery, gatunki i ocena. Skorzystaj z odnośników językowych, aby przeglądać Movyza w swoim języku, a następnie sprawdź szczegóły filmu lub serialu.',
+    cs: 'Stránka každého titulu uvádí dostupné informace, například synopsi, rok vydání, žánry a hodnocení. Pomocí jazykových odkazů si otevřete Movyza ve svém jazyce a poté si prohlédněte podrobnosti filmu nebo seriálu.',
+    uk: 'На сторінці кожного твору наведено доступні відомості: опис, рік виходу, жанри та рейтинг. Скористайтеся мовними посиланнями, щоб переглядати Movyza зручною мовою, а потім прочитайте деталі фільму чи серіалу.',
+    he: 'בכל עמוד יצירה מופיעים פרטים זמינים כגון תקציר, שנת יציאה, ז׳אנרים ודירוג. השתמשו בקישורי השפה כדי לגלוש ב‑Movyza בשפה המועדפת עליכם, ואז עיינו בפרטי הסרט או הסדרה.',
+    vi: 'Mỗi trang tác phẩm hiển thị thông tin hiện có như tóm tắt, năm phát hành, thể loại và điểm đánh giá. Hãy dùng liên kết ngôn ngữ để duyệt Movyza bằng ngôn ngữ bạn thích, rồi xem chi tiết phim hoặc series.',
+    id: 'Setiap halaman judul menampilkan informasi yang tersedia seperti sinopsis, tahun rilis, genre, dan rating. Gunakan tautan bahasa untuk menjelajahi Movyza dalam bahasa pilihan Anda, lalu baca detail film atau serial yang ingin diketahui.',
+    ms: 'Setiap halaman tajuk memaparkan maklumat yang tersedia seperti sinopsis, tahun keluaran, genre dan penilaian. Gunakan pautan bahasa untuk melayari Movyza dalam bahasa pilihan anda, kemudian semak butiran filem atau siri.',
+    th: 'หน้าแต่ละเรื่องจะแสดงข้อมูลที่มี เช่น เรื่องย่อ ปีที่ออกฉาย ประเภท และคะแนน เลือกลิงก์ภาษาเพื่อใช้งาน Movyza ในภาษาที่ต้องการ แล้วอ่านรายละเอียดของภาพยนตร์หรือซีรีส์เพิ่มเติม',
+    ro: 'Fiecare pagină de titlu prezintă informațiile disponibile, precum rezumatul, anul lansării, genurile și ratingul. Folosește linkurile de limbă pentru a naviga pe Movyza în limba preferată și consultă detaliile fiecărui film sau serial.',
+    hu: 'Minden adatlap megjeleníti az elérhető információkat, például az ismertetőt, a megjelenés évét, a műfajokat és az értékelést. A nyelvi hivatkozásokkal a kívánt nyelven böngészhetsz, majd elolvashatod a film vagy sorozat adatait.',
+    el: 'Κάθε σελίδα τίτλου παρουσιάζει τις διαθέσιμες πληροφορίες, όπως σύνοψη, έτος κυκλοφορίας, είδη και βαθμολογία. Χρησιμοποιήστε τους συνδέσμους γλώσσας για να περιηγηθείτε στο Movyza στη γλώσσα σας και δείτε τα στοιχεία κάθε έργου.',
+    bn: 'প্রতিটি শিরোনামের পাতায় উপলভ্য তথ্য, যেমন সারাংশ, মুক্তির বছর, ধরন ও রেটিং দেখানো হয়। নিজের পছন্দের ভাষায় Movyza ব্যবহার করতে ভাষার লিংক বেছে নিন এবং সিনেমা বা সিরিজের বিস্তারিত পড়ুন।',
+    ur: 'ہر عنوان کے صفحے پر دستیاب معلومات، مثلاً خلاصہ، ریلیز کا سال، اصناف اور درجہ بندی دکھائی جاتی ہے۔ اپنی پسند کی زبان میں Movyza دیکھنے کے لیے زبان کے روابط استعمال کریں اور فلم یا سیریز کی تفصیلات پڑھیں۔',
+    fa: 'در صفحه هر عنوان، اطلاعات موجود مانند خلاصه، سال انتشار، ژانرها و امتیاز نمایش داده می‌شود. برای مرور Movyza به زبان دلخواه از پیوندهای زبان استفاده کنید و سپس جزئیات فیلم یا سریال را بخوانید.',
+  };
+
   const HOME_LANGUAGE_LABEL: Record<LocaleCode, string> = {
     ar: 'اختر لغة الموقع', en: 'Choose your language', fr: 'Choisissez votre langue', de: 'Sprache auswählen',
     es: 'Elige tu idioma', it: 'Scegli la lingua', pt: 'Escolha seu idioma', ru: 'Выберите язык',
@@ -579,8 +615,12 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
           escapeXml(HOME_SEO[locale].title) + '</h1>' +
         '<p style="max-width:900px;margin:0 0 10px;color:#a1a1aa;font-size:15px;line-height:1.9">' +
           escapeXml(HOME_SEO[locale].description) + '</p>' +
-        '<p style="max-width:900px;margin:0;color:#a1a1aa;font-size:15px;line-height:1.9">' +
+        '<p style="max-width:900px;margin:0 0 10px;color:#a1a1aa;font-size:15px;line-height:1.9">' +
           escapeXml(HOME_SEO_INTRO[locale]) + '</p>' +
+        '<section style="max-width:900px;margin-top:18px">' +
+          '<h2 style="margin:0 0 8px;color:#fafafa;font-size:18px;font-weight:600">' + escapeXml(HOME_SEO[locale].title) + '</h2>' +
+          '<p style="margin:0;color:#a1a1aa;font-size:15px;line-height:1.9">' + escapeXml(HOME_SEO_DETAILS[locale]) + '</p>' +
+        '</section>' +
         '<nav style="margin-top:20px" aria-label="' + escapeXml(HOME_LANGUAGE_LABEL[locale]) + '">' +
           '<h2 style="margin:0 0 10px;color:#fafafa;font-size:16px;font-weight:600">' +
             escapeXml(HOME_LANGUAGE_LABEL[locale]) + '</h2>' +
