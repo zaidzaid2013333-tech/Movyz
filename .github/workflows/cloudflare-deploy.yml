@@ -186,10 +186,19 @@ jobs:
           legacy_sitemap_status="$(curl --silent --show-error --location -o /tmp/legacy-sitemap.txt -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml?__seo_policy=${GITHUB_SHA}")"
           test "$legacy_sitemap_status" = "410"
 
-          echo "CHECK 7/10: static assets"
-          assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | sort -u)"
+          echo "CHECK 7/10: verify every built JS/CSS asset is reachable"
+          assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.(js|css)' | sort -u)"
           test -n "$assets"
           printf '%s' "$html" | grep -q 'Movyza'
+          for asset in $assets; do
+            asset_status="$(curl --silent --show-error --location -o /tmp/movyza-asset -w '%{http_code}' "$base$asset")"
+            if [ "$asset_status" != "200" ]; then
+              echo "Built asset failed to load: $asset (HTTP $asset_status)"
+              exit 1
+            fi
+            test -s /tmp/movyza-asset
+            echo "Asset OK: $asset"
+          done
 
           echo "CHECK 8/10: TMDB proxy"
           body="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/tmdb/movie/550?language=en-US")"
