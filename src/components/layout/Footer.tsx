@@ -13,7 +13,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-start">
           <div className="flex items-center gap-2">
-            <img src="/pwa-icon.svg" alt="" aria-hidden="true" className="movyza-footer-brand-icon" width={28} height={28} />
+            <img src="/movyza-icon.svg" alt="" aria-hidden="true" className="movyza-footer-brand-icon" width={28} height={28} />
             <span className="font-bold text-white tracking-wider font-sans uppercase text-sm">
               MOVYZA
             </span>
