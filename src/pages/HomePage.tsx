@@ -8,7 +8,7 @@ import { MovieCard } from '../components/ui/MovieCard';
 import { SeriesCard } from '../components/ui/SeriesCard';
 import { HeroSkeleton, CardSkeleton } from '../components/ui/Skeletons';
 import { ErrorState } from '../components/ui/FeedbackStates';
-import { Play, Sparkles } from 'lucide-react';
+import { Play, Sparkles, Film, Tv, Search, Bookmark } from 'lucide-react';
 
 interface HomePageProps {
   onNavigate: (path: string) => void;
@@ -109,8 +109,29 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
         isSaved={watchlist.includes((heroOptions[activeHeroIndex] || hero).id)}
       />
 
+      <div className="movyza-quick-links max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="touch-chip-scroll gap-2.5 pb-1" aria-label={language === 'ar' ? 'روابط سريعة' : 'Quick links'}>
+          <button type="button" className="movyza-quick-link" onClick={() => onNavigate('/movies')}>
+            <Film className="w-4 h-4" aria-hidden="true" />
+            <span>{t('movies')}</span>
+          </button>
+          <button type="button" className="movyza-quick-link" onClick={() => onNavigate('/series')}>
+            <Tv className="w-4 h-4" aria-hidden="true" />
+            <span>{t('series')}</span>
+          </button>
+          <button type="button" className="movyza-quick-link" onClick={() => onNavigate('/search')}>
+            <Search className="w-4 h-4" aria-hidden="true" />
+            <span>{language === 'ar' ? 'البحث السريع' : 'Quick search'}</span>
+          </button>
+          <button type="button" className="movyza-quick-link" onClick={() => onNavigate('/watchlist')}>
+            <Bookmark className="w-4 h-4" aria-hidden="true" />
+            <span>{t('watchlist')}</span>
+          </button>
+        </div>
+      </div>
+
       {continueWatching.length > 0 && (
-        <SectionRow title={t('continueWatching')} actionLabel={t('all')} onAction={() => onNavigate('/history')}>
+        <SectionRow title={t('continueWatching')} subtitle={language === 'ar' ? 'تابع من حيث توقفت' : 'Pick up where you left off'} actionLabel={t('seeAll')} onAction={() => onNavigate('/history')}>
           {continueWatching.map((item) => (
             <div
               key={item.contentId}
@@ -146,7 +167,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
         </SectionRow>
       )}
 
-      <SectionRow title={t('trendingNow')} actionLabel={t('all')} onAction={() => onNavigate('/movies')}>
+      <SectionRow title={t('trendingNow')} subtitle={language === 'ar' ? 'عناوين تتصدر الاهتمام هذا الأسبوع' : 'The titles everyone is watching'} actionLabel={t('seeAll')} onAction={() => onNavigate('/movies')}>
         {trending.map((item) => (
           <div key={item.id} className="w-[43vw] max-w-52 sm:w-44 md:w-48 lg:w-52 shrink-0">
             {item.type === 'movie'
@@ -178,7 +199,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
         </div>
       )}
 
-      <SectionRow title={t('popularMovies')} actionLabel={t('all')} onAction={() => onNavigate('/movies')}>
+      <SectionRow title={t('popularMovies')} subtitle={language === 'ar' ? 'اختيارات سينمائية رائجة' : 'Popular picks for your next movie night'} actionLabel={t('seeAll')} onAction={() => onNavigate('/movies')}>
         {popularMovies.map((movie) => (
           <div key={movie.id} className="w-[43vw] max-w-52 sm:w-44 md:w-48 lg:w-52 shrink-0">
             <MovieCard movie={movie} onSelect={(id) => onNavigate(`/movies/${id}`)} onToggleWatchlist={onToggleWatchlist} isSaved={watchlist.includes(movie.id)} />
@@ -186,7 +207,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
         ))}
       </SectionRow>
 
-      <SectionRow title={t('featuredSeries')} actionLabel={t('all')} onAction={() => onNavigate('/series')}>
+      <SectionRow title={t('featuredSeries')} subtitle={language === 'ar' ? 'مسلسلات تستحق المتابعة' : 'Series worth settling in for'} actionLabel={t('seeAll')} onAction={() => onNavigate('/series')}>
         {featuredSeries.map((series) => (
           <div key={series.id} className="w-[43vw] max-w-52 sm:w-44 md:w-48 lg:w-52 shrink-0">
             <SeriesCard series={series} onSelect={(id) => onNavigate(`/series/${id}`)} onToggleWatchlist={onToggleWatchlist} isSaved={watchlist.includes(series.id)} />
@@ -194,7 +215,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
         ))}
       </SectionRow>
 
-      <SectionRow title={t('recentlyAdded')} actionLabel={t('all')} onAction={() => onNavigate('/movies')}>
+      <SectionRow title={t('recentlyAdded')} subtitle={language === 'ar' ? 'إصدارات وأعمال حديثة الإضافة' : 'New additions to explore'} actionLabel={t('seeAll')} onAction={() => onNavigate('/movies')}>
         {recentAdded.map((item) => (
           <div key={item.id} className="w-[43vw] max-w-52 sm:w-44 md:w-48 lg:w-52 shrink-0">
             {item.type === 'movie'
