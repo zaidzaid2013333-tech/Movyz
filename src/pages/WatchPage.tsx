@@ -126,8 +126,8 @@ export const WatchPage: React.FC<WatchPageProps> = ({
   const backdrop = movie?.backdropUrl || series?.backdropUrl || '';
   const poster = movie?.posterUrl || series?.posterUrl || '';
   const overview = movie
-    ? (language === 'ar' ? movie.overview : movie.overviewEn)
-    : (language === 'ar' ? series?.overview || '' : series?.overviewEn || '');
+    ? (movie.overview || movie.overviewEn || '')
+    : (series?.overview || series?.overviewEn || '');
 
   const subtitleHint = (() => {
     const hints: Record<string, string> = {
