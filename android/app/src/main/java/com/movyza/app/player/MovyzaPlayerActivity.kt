@@ -404,7 +404,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
             } catch (failure: Exception) {
                 if (requestGeneration != playbackRequestGeneration) return
                 buffering = false
-                error = failure.message ?: "لم نتمكن من تجهيز مصدر البث المباشر."
+                error = failure.message ?: getString(R.string.player_resolve_error)
                 emptyList()
             }
         }
@@ -466,7 +466,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
             } catch (_: Exception) {
                 if (recoveryGeneration != sourcePreparationGeneration) return
                 buffering = false
-                error = "تعذر تشغيل مصدر VidLink (${errorCode}) ولم يتوفر بديل."
+                error = getString(R.string.player_vidlink_failure_format, errorCode)
                 return
             }
 
@@ -478,7 +478,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
             return
         }
 
-        error = "تعذر تشغيل الفيديو (${errorCode}). جرّب مصدرًا آخر أو أعد المحاولة."
+        error = getString(R.string.player_source_failure_format, errorCode)
     }
 
     private suspend fun prepareSource(source: PlaybackCandidate, resumePositionMs: Long? = null) {

@@ -146,4 +146,9 @@
     <string name="player_quality_480">480p</string>
     <string name="player_quality_360">360p • توفير البيانات</string>
     <string name="player_quality_custom_format">%1$d p</string>
+
+    <string name="catalog_load_error">تعذر تحميل الكتالوج، تحقق من الاتصال بالإنترنت.</string>
+    <string name="player_resolve_error">لم نتمكن من تجهيز مصدر البث المباشر.</string>
+    <string name="player_vidlink_failure_format">تعذر تشغيل مصدر VidLink (%1$s) ولم يتوفر بديل.</string>
+    <string name="player_source_failure_format">تعذر تشغيل الفيديو (%1$s). جرّب مصدرًا آخر أو أعد المحاولة.</string>
 </resources>

@@ -257,7 +257,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             }.onFailure {
-                error = it.message ?: "تعذر تحميل الكتالوج، تحقق من الاتصال بالإنترنت."
+                error = it.message ?: getApplication<Application>().getString(R.string.catalog_load_error)
                 loading = false
                 return@launch
             }

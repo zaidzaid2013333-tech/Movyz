@@ -146,4 +146,9 @@
     <string name="player_quality_480">480p</string>
     <string name="player_quality_360">360p • Data saver</string>
     <string name="player_quality_custom_format">%1$d p</string>
+
+    <string name="catalog_load_error">Could not load the catalog. Check your internet connection.</string>
+    <string name="player_resolve_error">Unable to prepare a streaming source.</string>
+    <string name="player_vidlink_failure_format">VidLink source failed (%1$s), and no alternative was available.</string>
+    <string name="player_source_failure_format">Video playback failed (%1$s). Try another source or retry.</string>
 </resources>
