@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { Language, getLanguageConfig, getLanguageFromPath, detectLanguageFromBrowser } from '../lib/i18n';
+import { Language, getLanguageConfig, getCurrentLanguage } from '../lib/i18n';
 import {
   Movie, Series, Genre, WatchProgress, WatchlistItem, StreamReport,
   UserProfile, ApiResponse, Season, Episode, CastMember
@@ -13,12 +13,7 @@ const ok = <T,>(data: T, meta?: ApiResponse<T>['meta']): ApiResponse<T> => ({
   ...(meta ? { meta } : {}),
 });
 
-const getRequestLanguage = (): Language => {
-  if (typeof window !== 'undefined') {
-    return getLanguageFromPath(window.location.pathname) || detectLanguageFromBrowser();
-  }
-  return 'ar';
-};
+const getRequestLanguage = (): Language => getCurrentLanguage();
 
 const tmdb = async <T,>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> => {
   const language = getRequestLanguage();
