@@ -76,13 +76,11 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
     const origin = window.location.origin;
     const current = stripLanguagePrefix(window.location.pathname).pathname;
     const canonicalPath = withLanguagePrefix(current, language);
-    const isHomepage = current === '/';
-    const shouldNoindex = noindex || !isHomepage;
     document.title = title;
 
     ensureMeta('meta[name="description"]', { name: 'description' }, description);
     ensureMeta('meta[name="keywords"]', { name: 'keywords' }, buildSeoKeywords(language, title, keywords).join(', '));
-    ensureMeta('meta[name="robots"]', { name: 'robots' }, shouldNoindex ? 'noindex,follow' : 'index,follow,max-image-preview:large');
+    ensureMeta('meta[name="robots"]', { name: 'robots' }, noindex ? 'noindex,follow' : 'index,follow,max-image-preview:large');
     ensureMeta('meta[property="og:title"]', { property: 'og:title' }, title);
     ensureMeta('meta[property="og:description"]', { property: 'og:description' }, description);
     ensureMeta('meta[property="og:type"]', { property: 'og:type' }, type);
@@ -96,14 +94,10 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
 
     ensureLink('canonical', origin + canonicalPath);
 
-    if (isHomepage) {
-      for (const config of LANGUAGE_LIST) {
-        ensureLink('alternate', origin + withLanguagePrefix('/', config.code), { hreflang: config.tmdb.toLowerCase() });
-      }
-      ensureLink('alternate', origin + withLanguagePrefix('/', 'en'), { hreflang: 'x-default' });
-    } else {
-      document.head.querySelectorAll('link[rel="alternate"][hreflang]').forEach((node) => node.remove());
+    for (const config of LANGUAGE_LIST) {
+      ensureLink('alternate', origin + withLanguagePrefix(current, config.code), { hreflang: config.tmdb.toLowerCase() });
     }
+    ensureLink('alternate', origin + withLanguagePrefix(current, 'en'), { hreflang: 'x-default' });
 
     document.querySelectorAll('link[rel="alternate"][data-movyz-hreflang]').forEach((node) => {
       const code = node.getAttribute('data-movyz-hreflang');

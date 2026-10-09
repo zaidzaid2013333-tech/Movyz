@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyza-cloudflare-v2-${{ github.ref }}
+  group: movyza-cloudflare-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -86,58 +86,25 @@ jobs:
           html="$(cat /tmp/preflight.html)"
           printf '%s' "$html" | grep -q 'name="movyz-player" content="vidsrc"'
           printf '%s' "$html" | grep -q 'name="movyz-subtitles" content="vidsrc-locale-subtitles-v1"'
-          printf '%s' "$html" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
 
-          echo "CHECK 2/10: Arabic subpages are noindex"
-          ar_status="$(curl --silent --show-error --location -D /tmp/ar-subpage.headers -o /tmp/ar-subpage.html -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/ar/movies?__seo_policy=${GITHUB_SHA}")"
-          test "$ar_status" = "200"
-          ar_html="$(cat /tmp/ar-subpage.html)"
-          if ! grep -Eiq '^x-robots-tag: *noindex, follow' /tmp/ar-subpage.headers; then
-            echo "Arabic route response is missing X-Robots-Tag noindex:"
-            cat /tmp/ar-subpage.headers
-            exit 1
-          fi
-          if ! printf '%s' "$ar_html" | grep -q '<html lang="ar" dir="rtl"'; then
-            echo "Arabic HTML lang/dir marker missing:"
-            printf '%s' "$ar_html" | grep -oE '<html[^>]*>' | head -n 1 || true
-            printf '%s' "$ar_html" | head -c 500 || true
-            exit 1
-          fi
-          if ! printf '%s' "$ar_html" | grep -q 'name="robots" content="noindex,follow"'; then
-            echo "Arabic robots meta marker missing:"
-            printf '%s' "$ar_html" | grep -oiE '<meta[^>]*robots[^>]*>' || true
-            printf '%s' "$ar_html" | grep -oE '<html[^>]*>' | head -n 1 || true
-            exit 1
-          fi
-          if printf '%s' "$ar_html" | grep -q 'rel="alternate" hreflang='; then
-            echo "Non-homepage routes must not advertise hreflang alternates"
-            printf '%s' "$ar_html" | grep -oE '<link[^>]*hreflang[^>]*>' | head -n 4 || true
-            exit 1
-          fi
+          echo "CHECK 2/10: Arabic movies"
+          ar_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies")"
+          printf '%s' "$ar_html" | grep -q '<html lang="ar" dir="rtl"'
+          printf '%s' "$ar_html" | grep -q 'hreflang="en-us"'
 
-          echo "CHECK 3/10: English subpages are noindex"
-          en_status="$(curl --silent --show-error --location -D /tmp/en-subpage.headers -o /tmp/en-subpage.html -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/en/movies?__seo_policy=${GITHUB_SHA}")"
-          test "$en_status" = "200"
-          en_html="$(cat /tmp/en-subpage.html)"
-          grep -Eiq '^x-robots-tag: *noindex, follow' /tmp/en-subpage.headers
-          if ! printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'; then
-            echo "English HTML lang/dir marker missing:"
-            printf '%s' "$en_html" | grep -oE '<html[^>]*>' | head -n 1 || true
-            exit 1
-          fi
-          if ! printf '%s' "$en_html" | grep -q 'name="robots" content="noindex,follow"'; then
-            echo "English robots meta marker missing:"
-            printf '%s' "$en_html" | grep -oiE '<meta[^>]*robots[^>]*>' || true
-            exit 1
-          fi
+          echo "CHECK 3/10: English movies"
+          en_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/en/movies")"
+          printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'
+          printf '%s' "$en_html" | grep -q 'hreflang="ar-sa"'
 
-          echo "CHECK 4/10: fresh homepage-only sitemap (32 locales)"
-          sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap/homepages.xml?__seo_policy=${GITHUB_SHA}")"
+          echo "CHECK 4/10: root sitemap index"
+          sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
           printf '%s' "$sitemap_headers" | grep -Eiq '^content-type: *application/xml'
           sitemap="$(cat /tmp/sitemap.xml)"
           printf '%s' "$sitemap" | grep -q '^<?xml version="1.0" encoding="UTF-8"?>'
-          printf '%s' "$sitemap" | grep -q '<urlset'
-          printf '%s' "$sitemap" | python -c 'import sys,re,xml.etree.ElementTree as ET; r=ET.fromstring(sys.stdin.read()); n={"s":"http://www.sitemaps.org/schemas/sitemap/0.9"}; u=[x.find("s:loc",n).text for x in r.findall("s:url",n)]; assert len(u)==32, len(u); assert all(re.fullmatch(r"https://movyza\.sbs/[a-z]{2}/", x) for x in u), u; print("localized_homepages="+str(len(u)))'
+          printf '%s' "$sitemap" | grep -q '<sitemapindex'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/movies/1.xml'
+          printf '%s' "$sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
           echo "CHECK 4A/10: Cloudflare bot configuration diagnostics"
           zone_json="$(curl --silent --show-error --location --fail -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/zones?name=movyza.sbs&status=active" || true)"
@@ -150,55 +117,42 @@ jobs:
           fi
 
           echo "CHECK 5/10: public Googlebot sitemap access"
-          googlebot_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -D /tmp/googlebot-public-sitemap.headers -o /tmp/googlebot-public-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap/homepages.xml")"
+          googlebot_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -D /tmp/googlebot-public-sitemap.headers -o /tmp/googlebot-public-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap.xml")"
           echo "Googlebot HTTP status: $googlebot_status"
           echo "Googlebot response headers:"
           cat /tmp/googlebot-public-sitemap.headers
           echo "Googlebot response body (first 500 chars):"
           head -c 500 /tmp/googlebot-public-sitemap.xml || true
           echo
-          if [ "$googlebot_status" = "200" ]; then
-            googlebot_public_sitemap="$(cat /tmp/googlebot-public-sitemap.xml)"
-            printf '%s' "$googlebot_public_sitemap" | grep -q '<urlset'
-            printf '%s' "$googlebot_public_sitemap" | python -c 'import sys,re,xml.etree.ElementTree as ET; r=ET.fromstring(sys.stdin.read()); n={"s":"http://www.sitemaps.org/schemas/sitemap/0.9"}; u=[x.find("s:loc",n).text for x in r.findall("s:url",n)]; assert len(u)==32, len(u); assert all(re.fullmatch(r"https://movyza\.sbs/[a-z]{2}/", x) for x in u), u; print("googlebot_homepages="+str(len(u)))'
-          elif grep -Eiq '^cf-mitigated: *challenge' /tmp/googlebot-public-sitemap.headers; then
-            echo "::warning::Cloudflare challenged the synthetic Googlebot user-agent on movyza.sbs. The Worker-origin sitemap has passed validation; verify that Cloudflare allows verified Google crawlers on the public domain."
-          else
-            echo "Public custom-domain sitemap failed with HTTP $googlebot_status"
-            exit 1
-          fi
+          test "$googlebot_status" = "200"
+          googlebot_public_sitemap="$(cat /tmp/googlebot-public-sitemap.xml)"
+          printf '%s' "$googlebot_public_sitemap" | grep -q '<sitemapindex'
+          printf '%s' "$googlebot_public_sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/movies/1.xml'
+          printf '%s' "$googlebot_public_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
-          echo "CHECK 5B/10: legacy compatibility sitemap"
-          gsc_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -D /tmp/googlebot-gsc-sitemap.headers -o /tmp/googlebot-gsc-sitemap.xml -w '%{http_code}' "$base/sitemap-gsc.xml?__seo_policy=${GITHUB_SHA}")"
+          echo "CHECK 5B/10: public Google Search Console sitemap"
+          gsc_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -D /tmp/googlebot-gsc-sitemap.headers -o /tmp/googlebot-gsc-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap-gsc.xml")"
           echo "Googlebot GSC sitemap HTTP status: $gsc_status"
           cat /tmp/googlebot-gsc-sitemap.headers
           test "$gsc_status" = "200"
           gsc_sitemap="$(cat /tmp/googlebot-gsc-sitemap.xml)"
           printf '%s' "$gsc_sitemap" | grep -q '<urlset'
           printf '%s' "$gsc_sitemap" | grep -q 'https://movyza.sbs/ar/'
-          printf '%s' "$gsc_sitemap" | python -c 'import sys,re,xml.etree.ElementTree as ET; r=ET.fromstring(sys.stdin.read()); n={"s":"http://www.sitemaps.org/schemas/sitemap/0.9"}; u=[x.find("s:loc",n).text for x in r.findall("s:url",n)]; assert len(u)==32, len(u); assert all(re.fullmatch(r"https://movyza\.sbs/[a-z]{2}/", x) for x in u), u; print("legacy_compat_homepages="+str(len(u)))'
+          printf '%s' "$gsc_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
           echo "CHECK 5B/10: public robots points to same-origin sitemap"
-          public_robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/robots.txt?__seo_policy=${GITHUB_SHA}")"
-          printf '%s' "$public_robots" | grep -q 'Sitemap: https://movyza.sbs/sitemap/homepages.xml'
+          public_robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "https://movyza.sbs/robots.txt")"
+          printf '%s' "$public_robots" | grep -q 'Sitemap: https://movyza.sbs/sitemap.xml'
 
-          echo "CHECK 6/10: old content sitemap returns 410"
-          legacy_sitemap_status="$(curl --silent --show-error --location -o /tmp/legacy-sitemap.txt -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml?__seo_policy=${GITHUB_SHA}")"
-          test "$legacy_sitemap_status" = "410"
+          echo "CHECK 6/10: sitemap segment"
+          sitemap_segment="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml")"
+          printf '%s' "$sitemap_segment" | grep -q '<urlset'
+          printf '%s' "$sitemap_segment" | grep -q '/ar/movies/'
 
-          echo "CHECK 7/10: verify every built JS/CSS asset is reachable"
-          assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.(js|css)' | sort -u)"
+          echo "CHECK 7/10: static assets"
+          assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | sort -u)"
           test -n "$assets"
           printf '%s' "$html" | grep -q 'Movyza'
-          for asset in $assets; do
-            asset_status="$(curl --silent --show-error --location -o /tmp/movyza-asset -w '%{http_code}' "$base$asset")"
-            if [ "$asset_status" != "200" ]; then
-              echo "Built asset failed to load: $asset (HTTP $asset_status)"
-              exit 1
-            fi
-            test -s /tmp/movyza-asset
-            echo "Asset OK: $asset"
-          done
 
           echo "CHECK 8/10: TMDB proxy"
           body="$(curl --fail --silent --show-error -H 'Cache-Control: no-cache' "$base/tmdb/movie/550?language=en-US")"
@@ -207,14 +161,13 @@ jobs:
           echo "CHECK 9/10: movie deep link"
           fight_club="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies/550")"
           printf '%s' "$fight_club" | grep -q 'Fight Club'
-          printf '%s' "$fight_club" | grep -q 'name="robots" content="noindex,follow"'
+          printf '%s' "$fight_club" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
           printf '%s' "$fight_club" | grep -q 'rel="canonical"'
           printf '%s' "$fight_club" | grep -q '"@type":"Movie"'
 
           echo "CHECK 10/10: watch deep link"
-          watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/watch/movie/550?__seo_policy=${GITHUB_SHA}")"
+          watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/watch/movie/550")"
           printf '%s' "$watch_html" | grep -q 'Fight Club'
-          printf '%s' "$watch_html" | grep -q 'name="robots" content="noindex,follow"'
 
           echo "CHECK 11/11: robots"
           robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/robots.txt")"

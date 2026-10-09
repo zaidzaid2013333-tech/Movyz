@@ -118,16 +118,7 @@ const titleKeywords = (locale: LocaleCode, title: string) => {
 const localizedHtml = async (request: Request, env: MovyzEnvironment, response: Response, locale: LocaleCode) => {
   if (!response.headers.get('content-type')?.includes('text/html')) return response;
   const url = new URL(request.url);
-  const normalizedPath = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : '/';
-  const localizedPrefix = '/' + locale;
-  const isLocalizedHomepage = normalizedPath === localizedPrefix;
-  // Derive the route directly from the incoming locale-prefixed URL. This keeps
-  // /ar/movies, /ar/series/123, and /ar/watch/... from ever being treated as home.
-  const route = isLocalizedHomepage
-    ? '/'
-    : normalizedPath.startsWith(localizedPrefix + '/')
-      ? normalizedPath.slice(localizedPrefix.length) || '/'
-      : stripLocale(url.pathname).pathname;
+  const route = stripLocale(url.pathname).pathname;
   const config = LOCALES[locale];
 
   let contentTitle = '';
@@ -295,9 +286,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   ]);
   // Watch pages are intentionally excluded from search indexing. They remain
   // fully accessible to users, but are not SEO landing pages.
-  // The SEO scope is intentionally limited to each language homepage.
-  // Every subroute remains functional but is excluded from search indexing.
-  const isNoIndex = !isLocalizedHomepage || isWatchPage || noindexRoutes.has(route);
+  const isNoIndex = isWatchPage || route === '/search' || route.startsWith('/search/') || noindexRoutes.has(route);
   const searchTitle = alternateTitle || contentTitle;
   const seoTitle = isWatchPage
     ? (locale === 'ar'
@@ -310,14 +299,10 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
       : contentTitle;
   const canonicalPath = `/${locale}${route === '/' ? '/' : route}`;
   const origin = url.origin;
-  const hreflangLinks = isLocalizedHomepage
-    ? Object.entries(LOCALES)
-        .map(([code, item]) => `<link rel="alternate" hreflang="${item.tmdb.toLowerCase()}" href="${origin}/${code}/" />`)
-        .join('')
-    : '';
-  const xDefault = isLocalizedHomepage
-    ? `<link rel="alternate" hreflang="x-default" href="${origin}/en/" />`
-    : '';
+  const hreflangLinks = Object.entries(LOCALES)
+    .map(([code, item]) => `<link rel="alternate" hreflang="${item.tmdb.toLowerCase()}" href="${origin}/${code}${route === '/' ? '/' : route}" />`)
+    .join('');
+  const xDefault = `<link rel="alternate" hreflang="x-default" href="${origin}/en${route === '/' ? '/' : route}" />`;
   const keywords = titleKeywords(locale, contentTitle + (alternateTitle && alternateTitle !== contentTitle ? `, ${alternateTitle}` : ''));
 
   const toIsoDuration = (minutes: number) => {
@@ -386,11 +371,10 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   html = html.replace('</head>', injection + '</head>');
   const headers = new Headers(response.headers);
   headers.set('content-type', 'text/html; charset=UTF-8');
-  headers.set('X-Robots-Tag', isNoIndex ? 'noindex, follow' : 'index, follow, max-image-preview:large');
-  // Cache localized HTML briefly. The explicit X-Robots-Tag mirrors the meta directive
-  // so crawler policy is enforced from both response headers and the document head.
-  headers.set('cache-control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=60');
-  headers.set('cdn-cache-control', 'public, max-age=300, stale-while-revalidate=60');
+  // HTML is deterministic for a locale + path and safe to cache at the Worker edge.
+  // This prevents crawlers and repeat navigation from executing the Worker repeatedly.
+  headers.set('cache-control', 'public, max-age=300, s-maxage=3600, stale-while-revalidate=300');
+  headers.set('cdn-cache-control', 'public, max-age=3600, stale-while-revalidate=300');
   return new Response(html, { status: response.status, statusText: response.statusText, headers });
 };
 
@@ -632,26 +616,213 @@ const escapeXml = (value: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 
-const SITEMAP_PUBLIC_ORIGIN = 'https://movyza.sbs';
+const SITEMAP_DISCOVERY_PAGES = 20;
+// Retain the episode sitemap endpoint for direct requests, but keep it bounded.
+const SITEMAP_EPISODE_PAGES = 20;
+// Keep the XML sitemap focused on the highest-value language surfaces.
+// All supported locales remain directly accessible and retain hreflang links,
+// but advertising every episode in every locale causes an unnecessary crawl storm.
+const SITEMAP_SEO_LOCALES: LocaleCode[] = ['en', 'ar', 'fr', 'es', 'de', 'pt', 'tr', 'hi'];
+const SITEMAP_CRAWL_ORIGIN = 'https://movyza.sbs';
 
-// Index only the homepage for every supported locale. Never advertise movie, series,
-// search, category, or watch URLs in a sitemap.
-const buildHomepagesSitemap = () => {
-  const urls = (Object.keys(LOCALES) as LocaleCode[])
-    .map((locale) => '<url><loc>' + escapeXml(SITEMAP_PUBLIC_ORIGIN + '/' + locale + '/') + '</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>')
-    .join('');
-  return '<?xml version="1.0" encoding="UTF-8"?>' +
-    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls + '</urlset>';
+const buildSitemapIndex = (origin: string) => {
+  const entries: string[] = [];
+
+  // Static localized surfaces: home + public catalog landing pages.
+  for (const locale of SITEMAP_SEO_LOCALES) {
+    entries.push(`<sitemap><loc>${origin}/sitemap/${locale}/static.xml</loc></sitemap>`);
+  }
+
+  // Localized movie/series detail pages and movie watch pages are generated from TMDB discover.
+  // Episode URLs are intentionally not advertised here: one sitemap page can expand into
+  // thousands of episode URLs, multiplied again by every locale, which can exhaust the
+  // Workers Free request budget during crawler discovery.
+  for (const locale of SITEMAP_SEO_LOCALES) {
+    for (const type of ['movies', 'series'] as const) {
+      for (let page = 1; page <= SITEMAP_DISCOVERY_PAGES; page += 1) {
+        entries.push(
+          `<sitemap><loc>${origin}/sitemap/${locale}/${type}/${page}.xml</loc></sitemap>`
+        );
+      }
+    }
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries.join('')}</sitemapindex>`;
 };
 
-const buildGscSitemap = () => buildHomepagesSitemap();
-const buildRootSitemap = () => buildHomepagesSitemap();
+const buildStaticSitemapSegment = (request: Request, locale: LocaleCode) => {
+  const origin = SITEMAP_PUBLIC_ORIGIN;
+  const routes = ['/', '/movies', '/series', '/discover', '/catalog', '/legal'];
+  const urls = routes
+    .map((route) =>
+      `<url><loc>${escapeXml(`${origin}/${locale}${route === '/' ? '/' : route}`)}</loc><changefreq>daily</changefreq><priority>${route === '/' ? '1.0' : '0.8'}</priority></url>`
+    )
+    .join('');
+
+  const xml =
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`;
+
+  return new Response(xml, {
+    status: 200,
+    headers: {
+      'content-type': 'application/xml; charset=UTF-8',
+      'cache-control': 'public, max-age=3600, s-maxage=86400',
+      'cdn-cache-control': 'public, max-age=86400',
+    },
+  });
+};
+
+const buildSitemapSegment = async (
+  request: Request,
+  env: MovyzEnvironment,
+  locale: LocaleCode,
+  type: 'movies' | 'series' | 'episodes',
+  page: number,
+) => {
+  if (!env.TMDB_API_READ_ACCESS_TOKEN || page < 1) {
+    return new Response('Not found', { status: 404 });
+  }
+
+  const config = LOCALES[locale];
+  const origin = SITEMAP_PUBLIC_ORIGIN;
+
+  const fetchJson = async (target: URL) => {
+    const upstream = await fetch(target.toString(), { headers: tmdbHeaders(env) });
+    if (!upstream.ok) throw new Error('TMDB sitemap upstream failed: ' + upstream.status);
+    return await upstream.json().catch(() => null) as any;
+  };
+
+  try {
+    // Episode sitemap: five popular series per segment, covering all seasons
+    // using TMDB's season metadata without making one request per episode.
+    if (type === 'episodes') {
+      if (page > SITEMAP_EPISODE_PAGES) return new Response('Not found', { status: 404 });
+
+      const discoverPage = Math.floor((page - 1) / 4) + 1;
+      const sliceStart = ((page - 1) % 4) * 5;
+      const discoverTarget = new URL('https://api.themoviedb.org/3/discover/tv');
+      discoverTarget.searchParams.set('language', config.tmdb);
+      discoverTarget.searchParams.set('region', config.region);
+      discoverTarget.searchParams.set('page', String(discoverPage));
+      discoverTarget.searchParams.set('sort_by', 'popularity.desc');
+      discoverTarget.searchParams.set('include_adult', 'false');
+
+      const discoverData = await fetchJson(discoverTarget);
+      const seriesBatch = (discoverData?.results || []).slice(sliceStart, sliceStart + 5);
+
+      const detailData = await Promise.all(
+        seriesBatch.map(async (series: any) => {
+          const id = Number(series?.id || 0);
+          if (!id) return null;
+          try {
+            const target = new URL(`https://api.themoviedb.org/3/tv/${id}`);
+            target.searchParams.set('language', config.tmdb);
+            return { id, data: await fetchJson(target) };
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      const urls: string[] = [];
+      for (const entry of detailData) {
+        if (!entry?.data) continue;
+        for (const season of entry.data.seasons || []) {
+          const seasonNumber = Number(season?.season_number || 0);
+          const episodeCount = Number(season?.episode_count || 0);
+          if (seasonNumber <= 0 || episodeCount <= 0) continue;
+
+          for (let episode = 1; episode <= episodeCount; episode += 1) {
+            urls.push(
+              `<url><loc>${escapeXml(`${origin}/${locale}/watch/tv/${entry.id}/${seasonNumber}/${episode}`)}</loc><changefreq>monthly</changefreq><priority>0.55</priority></url>`
+            );
+          }
+        }
+      }
+
+      const xml =
+        `<?xml version="1.0" encoding="UTF-8"?>` +
+        `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`;
+
+      return new Response(xml, {
+        status: 200,
+        headers: {
+          'content-type': 'application/xml; charset=UTF-8',
+          'cache-control': 'public, max-age=3600, s-maxage=86400',
+          'cdn-cache-control': 'public, max-age=86400',
+        },
+      });
+    }
+
+    if (page > SITEMAP_DISCOVERY_PAGES) {
+      return new Response('Not found', { status: 404 });
+    }
+
+    const tmdbType = type === 'movies' ? 'movie' : 'tv';
+    const target = new URL(`https://api.themoviedb.org/3/discover/${tmdbType}`);
+    target.searchParams.set('language', config.tmdb);
+    target.searchParams.set('region', config.region);
+    target.searchParams.set('page', String(page));
+    target.searchParams.set('sort_by', 'popularity.desc');
+    target.searchParams.set('include_adult', 'false');
+    if (tmdbType === 'movie') target.searchParams.set('include_video', 'false');
+
+    const data = await fetchJson(target);
+    const urls: string[] = [];
+
+    for (const item of data?.results || []) {
+      const id = Number(item?.id || 0);
+      if (!id) continue;
+
+      urls.push(
+        `<url><loc>${escapeXml(`${origin}/${locale}/${type}/${id}`)}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`
+      );
+
+      // Watch pages are intentionally not included in sitemaps.
+      // Detail pages remain the SEO entry points for each title.
+    }
+
+    const xml =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`;
+
+    return new Response(xml, {
+      status: 200,
+      headers: {
+        'content-type': 'application/xml; charset=UTF-8',
+        'cache-control': 'public, max-age=3600, s-maxage=86400',
+        'cdn-cache-control': 'public, max-age=86400',
+      },
+    });
+  } catch {
+    return new Response('Upstream error', { status: 502 });
+  }
+};
+
+const ROOT_SITEMAP_ROUTES = ['/', '/movies', '/series', '/discover', '/catalog', '/legal'] as const;
+const SITEMAP_PUBLIC_ORIGIN = 'https://movyza.sbs';
+
+const buildGscSitemap = () => {
+  const urls: string[] = [];
+  for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
+    for (const route of ROOT_SITEMAP_ROUTES) {
+      urls.push(
+        `<url><loc>${escapeXml(`${SITEMAP_PUBLIC_ORIGIN}/${locale}${route === '/' ? '/' : route}`)}</loc></url>`,
+      );
+    }
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`;
+};
+
+const buildRootSitemap = () => buildSitemapIndex(SITEMAP_CRAWL_ORIGIN);
 
 const buildRobotsTxt = () => [
   '# Movyza crawler policy',
-  '# Only localized homepages are listed in the sitemap.',
-  '# App subroutes return noindex,follow so old indexed URLs can be removed by crawlers.',
-  '# robots.txt is not an access-control mechanism.',
+  '# robots.txt manages crawling; it is not an access-control mechanism.',
   '',
   'User-agent: *',
   'Allow: /',
@@ -661,7 +832,9 @@ const buildRobotsTxt = () => [
   'Disallow: /tmdb/',
   'Disallow: /api/v1/playback/resolve',
   '',
-  'Sitemap: https://movyza.sbs/sitemap/homepages.xml',
+  '# Search pages are marked noindex by the application instead of being blocked here.',
+  '',
+  'Sitemap: https://movyza.sbs/sitemap.xml',
   '',
 ].join('\n');
 
@@ -670,29 +843,28 @@ const xmlResponse = (xml: string, maxAge = 3600) =>
     status: 200,
     headers: {
       'Content-Type': 'application/xml; charset=UTF-8',
-      'Cache-Control': `public, max-age=${maxAge}, s-maxage=86400, stale-while-revalidate=3600`,
-      'CDN-Cache-Control': 'public, max-age=86400, stale-while-revalidate=3600',
+      'Cache-Control': `public, max-age=${maxAge}, s-maxage=86400`,
+      'CDN-Cache-Control': 'public, max-age=86400',
       'X-Content-Type-Options': 'nosniff',
     },
   });
 
-// Retire legacy nested sitemaps immediately, without querying TMDB or expanding episode URLs.
-const handleSitemap = (request: Request) => {
-  if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+const handleSitemap = async (request: Request, env: MovyzEnvironment) => {
   const url = new URL(request.url);
-  // Fresh, versioned path avoids stale CDN objects for the previous sitemap index.
-  if (url.pathname === '/sitemap/homepages.xml') {
-    return xmlResponse(buildHomepagesSitemap());
+  if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+
+  const staticMatch = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko|zh|nl|sv|da|no|fi|pl|cs|uk|he|vi|id|ms|th|ro|hu|el|bn|ur|fa)\/static\.xml$/);
+  if (staticMatch) {
+    return buildStaticSitemapSegment(request, staticMatch[1] as LocaleCode);
   }
-  return new Response('Gone: only homepage sitemaps are published.', {
-    status: 410,
-    headers: {
-      'content-type': 'text/plain; charset=UTF-8',
-      'cache-control': 'public, max-age=86400, s-maxage=86400',
-      'cdn-cache-control': 'public, max-age=86400',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  });
+
+  const match = url.pathname.match(/^\/sitemap\/(ar|en|fr|de|es|it|pt|ru|tr|hi|ja|ko|zh|nl|sv|da|no|fi|pl|cs|uk|he|vi|id|ms|th|ro|hu|el|bn|ur|fa)\/(movies|series|episodes)\/(\d+)\.xml$/);
+  if (!match) return null;
+
+  const locale = match[1] as LocaleCode;
+  const type = match[2] as 'movies' | 'series' | 'episodes';
+  const page = Number(match[3]);
+  return buildSitemapSegment(request, env, locale, type, page);
 };
 
 export default {
@@ -737,8 +909,9 @@ export default {
     if (request.method === 'GET' && url.pathname === '/sitemap.xml') {
       return xmlResponse(buildRootSitemap());
     }
-    if (url.pathname.startsWith('/sitemap/')) {
-      return handleSitemap(request);
+    if (request.method === 'GET' && url.pathname.startsWith('/sitemap/')) {
+      const sitemapResponse = await handleSitemap(request, env);
+      if (sitemapResponse) return sitemapResponse;
     }
     if (request.method === 'GET' && url.pathname === '/catalog/top1000') {
       return catalogTop1000(request, env);
