@@ -27,6 +27,19 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
   const [featuredSeries, setFeaturedSeries] = useState<Series[]>([]);
   const [recentAdded, setRecentAdded] = useState<(Movie | Series)[]>([]);
   const [genres, setGenres] = useState<Genre[]>([]);
+  const [activeHeroIndex, setActiveHeroIndex] = useState(0);
+
+  const heroOptions = React.useMemo(() => {
+    const seen = new Set<string>();
+    return [...trending, ...(hero ? [hero] : [])]
+      .filter((item) => {
+        const key = item.type + ':' + item.id;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 5);
+  }, [trending, hero]);
 
   const fetchHomeData = async () => {
     try {
@@ -49,7 +62,20 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
 
   useEffect(() => { fetchHomeData(); }, []);
 
+  useEffect(() => {
+    setActiveHeroIndex(0);
+  }, [heroOptions.length]);
 
+  useEffect(() => {
+    if (heroOptions.length < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const advance = () => {
+      if (document.visibilityState !== 'visible') return;
+      setActiveHeroIndex((current) => (current + 1) % heroOptions.length);
+    };
+    const timer = window.setInterval(advance, 6800);
+    return () => window.clearInterval(timer);
+  }, [heroOptions.length]);
 
   if (loading) {
     return (
@@ -73,11 +99,14 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
   return (
     <div className="movyza-shell space-y-9 pb-24 movyza-enter">
       <HeroBanner
-        item={hero}
-        onWatch={() => onNavigate(hero.type === 'movie' ? `/watch/movie/${hero.id}` : `/watch/tv/${hero.id}/1/1`)}
+        item={heroOptions[activeHeroIndex] || hero}
+        heroIndex={activeHeroIndex}
+        heroCount={heroOptions.length}
+        onSelectHeroIndex={setActiveHeroIndex}
+        onWatch={(id, type) => onNavigate(type === 'movie' ? `/watch/movie/${id}` : `/watch/tv/${id}/1/1`)}
         onDetails={(id, type) => onNavigate(type === 'movie' ? `/movies/${id}` : `/series/${id}`)}
         onToggleWatchlist={onToggleWatchlist}
-        isSaved={watchlist.includes(hero.id)}
+        isSaved={watchlist.includes((heroOptions[activeHeroIndex] || hero).id)}
       />
 
       {continueWatching.length > 0 && (
