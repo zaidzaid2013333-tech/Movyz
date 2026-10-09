@@ -19,10 +19,10 @@ export const MovieCard: React.FC<MovieCardProps> = ({
   isSaved = false,
   layout = 'poster',
 }) => {
-  const { language } = useLanguage();
+  const { t } = useLanguage();
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const displayTitle = movie.titleEn || movie.title;
+  const displayTitle = movie.title || movie.titleEn;
   const isStill = layout === 'still';
 
   return (
@@ -68,8 +68,8 @@ export const MovieCard: React.FC<MovieCardProps> = ({
               onToggleWatchlist(movie);
             }}
             className={`absolute top-2.5 rtl:left-2.5 ltr:right-2.5 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md border transition-all ${isSaved ? 'bg-amber-500 text-slate-950 border-amber-400/60' : 'bg-black/55 text-white border-white/10 hover:text-amber-300 hover:bg-black/75 opacity-100 sm:opacity-0 sm:group-hover:opacity-100'}`}
-            title={isSaved ? 'في قائمتي' : 'أضف لقائمتي'}
-            aria-label={isSaved ? 'في قائمتي' : 'أضف لقائمتي'}
+            title={isSaved ? t('inWatchlist') : t('addToWatchlist')}
+            aria-label={isSaved ? t('inWatchlist') : t('addToWatchlist')}
           >
             {isSaved ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Bookmark className="w-3.5 h-3.5" />}
           </button>
