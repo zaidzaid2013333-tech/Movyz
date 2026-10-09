@@ -426,8 +426,7 @@ fun SectionHeader(
 }
 
 /**
- * Fixed-Structure Hero Banner Template:
- * Keeps the exact same Box/Column/Row/Button hierarchy whether `movie` is null (loading) or loaded.
+ * Full-bleed cinematic hero. The real ViewModel model owns content and all callbacks.
  */
 @Composable
 fun MovyzaHeroTemplate(
@@ -441,57 +440,69 @@ fun MovyzaHeroTemplate(
     onToggleWatchlist: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val reducedMotion = rememberReducedMotion()
     val hasData = movie != null
+    val heroShape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(500.dp)
-            .padding(horizontal = 16.dp)
-            .clip(MovyzaShapes.Xl)
+            .height(450.dp)
+            .clip(heroShape)
             .background(MovyzaColors.SurfaceElevated)
-            .border(1.dp, MovyzaColors.GlassBorder, MovyzaShapes.Xl)
-            .then(if (hasData) Modifier.clickable(onClick = onOpenDetails) else Modifier)
     ) {
-        AsyncImage(
-            model = movie?.backdropUrl ?: movie?.posterUrl,
-            contentDescription = movie?.displayTitle,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0.0f to Color(0x44040507),
-                        0.36f to Color.Transparent,
-                        0.68f to Color(0xD9040507),
-                        1.0f to MovyzaColors.Bg
-                    )
+        AnimatedContent(
+            targetState = movie,
+            transitionSpec = {
+                if (reducedMotion) {
+                    fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                } else {
+                    fadeIn(tween(280, easing = FastOutSlowInEasing)) togetherWith
+                        fadeOut(tween(280, easing = FastOutSlowInEasing))
+                }
+            },
+            label = "movyza-hero-crossfade"
+        ) { current ->
+            Box(Modifier.fillMaxSize()) {
+                AsyncImage(
+                    model = current?.backdropUrl ?: current?.posterUrl,
+                    contentDescription = current?.displayTitle,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
-        )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0.0f to Color(0x220A1226),
+                                0.38f to Color(0x4405070D),
+                                0.62f to Color(0xBB05070D),
+                                0.84f to Color(0xF505070D),
+                                1.0f to MovyzaColors.Bg
+                            )
+                        )
+                )
+            }
+        }
 
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            MovyzaBadge(
-                text = if (hasData) "اختيار Movyza" else "جارٍ التحميل"
-            )
-
+            MovyzaBadge(text = if (hasData) "اختيار Movyza" else "جارٍ التحميل")
             if (heroCount > 1) {
                 Row(
                     modifier = Modifier
                         .clip(MovyzaShapes.Pill)
-                        .background(Color(0xB3050812))
-                        .border(1.dp, MovyzaColors.GlassBorder, MovyzaShapes.Pill)
-                        .padding(horizontal = 8.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        .background(MovyzaColors.Bg2.copy(alpha = 0.66f))
+                        .border(0.8.dp, MovyzaColors.GlassStroke, MovyzaShapes.Pill)
+                        .padding(horizontal = 9.dp, vertical = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     for (idx in 0 until heroCount) {
@@ -499,9 +510,12 @@ fun MovyzaHeroTemplate(
                         Box(
                             modifier = Modifier
                                 .height(6.dp)
-                                .width(if (active) 18.dp else 6.dp)
+                                .width(if (active) 19.dp else 6.dp)
                                 .clip(MovyzaShapes.Pill)
-                                .background(if (active) MovyzaColors.Gold300 else MovyzaColors.Text3.copy(alpha = 0.45f))
+                                .background(
+                                    if (active) MovyzaColors.Gold300
+                                    else MovyzaColors.Text3.copy(alpha = 0.56f)
+                                )
                                 .clickable { onSelectHeroIndex?.invoke(idx) }
                         )
                     }
@@ -513,16 +527,17 @@ fun MovyzaHeroTemplate(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(18.dp)
+                .padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 22.dp)
         ) {
             Text(
-                text = movie?.displayTitle ?: "٠٠٠٠٠٠٠٠٠٠٠٠٠٠",
+                text = movie?.displayTitle ?: "MOVYZA",
                 color = if (hasData) MovyzaColors.Text else Color.Transparent,
-                fontSize = 29.sp,
-                lineHeight = 35.sp,
+                fontSize = 30.sp,
+                lineHeight = 36.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.headlineLarge.copy(textDirection = TextDirection.Content),
                 modifier = if (!hasData) {
                     Modifier
                         .fillMaxWidth(0.68f)
@@ -532,36 +547,25 @@ fun MovyzaHeroTemplate(
             )
 
             Spacer(Modifier.height(8.dp))
-
-            val metaText = if (movie != null) {
+            val metadata = movie?.let {
                 listOfNotNull(
-                    "★ " + String.format(Locale.US, "%.1f", movie.rating),
-                    if (movie.mediaType == "series") "مسلسل" else "فيلم",
-                    movie.yearText.takeIf { it.isNotBlank() }
-                ).joinToString("  •  ")
-            } else {
-                "★ 0.0  •  فيلم  •  2026"
-            }
-
+                    it.yearText.takeIf { year -> year.isNotBlank() },
+                    if (it.mediaType == "series") "مسلسل" else "فيلم",
+                    "★ " + String.format(Locale.US, "%.1f", it.rating)
+                ).joinToString("  ·  ")
+            } ?: "فيلم  ·  ★ —"
             Text(
-                text = metaText,
+                text = metadata,
                 color = if (hasData) MovyzaColors.Gold300 else Color.Transparent,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                modifier = if (!hasData) {
-                    Modifier
-                        .width(150.dp)
-                        .clip(MovyzaShapes.Xs)
-                        .background(MovyzaColors.SkeletonFill)
-                } else Modifier
+                maxLines = 1
             )
 
             Spacer(Modifier.height(8.dp))
-
             Text(
                 text = movie?.overview?.takeIf { it.isNotBlank() }
-                    ?: "اكتشف التفاصيل الكاملة وشاهد بجودة عالية على منصة موفيزا.",
+                    ?: "اكتشف تفاصيل العمل وابدأ المشاهدة على Movyza.",
                 color = if (hasData) MovyzaColors.Text2 else Color.Transparent,
                 fontSize = 13.sp,
                 lineHeight = 20.sp,
@@ -576,10 +580,9 @@ fun MovyzaHeroTemplate(
             )
 
             Spacer(Modifier.height(14.dp))
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 GoldButton(
@@ -588,15 +591,14 @@ fun MovyzaHeroTemplate(
                     enabled = hasData,
                     modifier = Modifier.weight(1f)
                 )
-
                 GlassCard(
-                    modifier = Modifier.height(48.dp),
-                    shape = MovyzaShapes.Md,
+                    modifier = Modifier.height(54.dp),
+                    shape = MovyzaShapes.Pill,
                     strong = true,
                     onClick = if (hasData) onOpenDetails else null
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        modifier = Modifier.padding(horizontal = 15.dp, vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -614,7 +616,6 @@ fun MovyzaHeroTemplate(
                         )
                     }
                 }
-
                 GlassIconButton(
                     onClick = { if (hasData) onToggleWatchlist() },
                     icon = if (watchlisted) Icons.Outlined.BookmarkAdded else Icons.Outlined.BookmarkAdd,
@@ -628,6 +629,7 @@ fun MovyzaHeroTemplate(
     }
 }
 
+/** Vertical poster card: artwork, concise title and compact rating/year metadata. */
 /**
  * Fixed-Structure Vertical Poster Card Template:
  * Identical Composable node layout during loading (`movie == null`) and loaded (`movie != null`).
@@ -650,10 +652,10 @@ fun MovyzaPosterCardTemplate(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.68f)
-                .clip(MovyzaShapes.Md)
+                .aspectRatio(2f / 3f)
+                .clip(MovyzaShapes.Poster)
                 .background(MovyzaColors.SurfaceElevated)
-                .border(1.dp, MovyzaColors.GlassBorder, MovyzaShapes.Md)
+                .border(0.8.dp, MovyzaColors.GlassStroke, MovyzaShapes.Poster)
         ) {
             AsyncImage(
                 model = movie?.posterUrl,
