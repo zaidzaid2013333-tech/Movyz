@@ -3,6 +3,7 @@ package com.movyza.app
 import android.provider.Settings
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -50,8 +51,12 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,6 +85,7 @@ import com.movyza.app.data.CastMemberItem
 import com.movyza.app.data.Movie
 import com.movyza.app.data.WatchHistoryEntry
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 object MovyzaColors {
     // Midnight Glass palette from the supplied native-app design specification.
@@ -141,6 +147,48 @@ fun rememberReducedMotion(): Boolean {
                 1f
             ) == 0f
         }.getOrDefault(false)
+    }
+}
+
+/** Presses scale to 0.96 in 140ms; no heavy blur or ripple noise is added. */
+@Composable
+fun Modifier.pressable(onClick: () -> Unit): Modifier {
+    val reducedMotion = rememberReducedMotion()
+    val interactions = remember { MutableInteractionSource() }
+    val pressed by interactions.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && !reducedMotion) 0.96f else 1f,
+        animationSpec = tween(if (reducedMotion) 0 else 140, easing = FastOutSlowInEasing),
+        label = "press-scale"
+    )
+    return this
+        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .clickable(interactionSource = interactions, indication = null, onClick = onClick)
+}
+
+/** Staggered fade/translate on first entrance; saved state prevents replay on scroll. */
+@Composable
+fun Modifier.staggerIn(index: Int, key: Any? = null): Modifier {
+    val reducedMotion = rememberReducedMotion()
+    var hasEntered by rememberSaveable(key) { mutableStateOf(reducedMotion) }
+    val progress = remember(key) { Animatable(if (hasEntered || reducedMotion) 1f else 0f) }
+
+    LaunchedEffect(key, reducedMotion) {
+        if (reducedMotion) {
+            progress.snapTo(1f)
+            hasEntered = true
+        } else if (!hasEntered) {
+            delay(minOf(index, 6) * 45L)
+            progress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(280, easing = FastOutSlowInEasing)
+            )
+            hasEntered = true
+        }
+    }
+    return graphicsLayer {
+        alpha = progress.value
+        translationY = (1f - progress.value) * 16.dp.toPx()
     }
 }
 
@@ -209,7 +257,7 @@ fun GlassCard(
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val clickModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    val clickModifier = if (onClick != null) Modifier.pressable(onClick) else Modifier
     val glassBorder = if (goldAccent) {
         Brush.verticalGradient(
             listOf(
@@ -221,6 +269,7 @@ fun GlassCard(
 
     Box(
         modifier = modifier
+            .then(clickModifier)
             .clip(shape)
             .background(
                 if (strong) MovyzaColors.Bg2.copy(alpha = 0.68f)
@@ -228,8 +277,7 @@ fun GlassCard(
                 shape
             )
             .background(MovyzaColors.GlassFill, shape)
-            .border(width = 0.8.dp, brush = glassBorder, shape = shape)
-            .then(clickModifier),
+            .border(width = 0.8.dp, brush = glassBorder, shape = shape),
         content = content
     )
 }
@@ -318,7 +366,7 @@ fun GlassPill(
 ) {
     val shape = MovyzaShapes.Pill
     val textColor = if (active) MovyzaColors.Gold300 else MovyzaColors.Text2
-    val clickMod = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    val clickMod = if (onClick != null) Modifier.pressable(onClick) else Modifier
     val fillBrush = if (active) {
         Brush.verticalGradient(
             listOf(MovyzaColors.Gold400.copy(alpha = 0.22f), MovyzaColors.Gold600.copy(alpha = 0.12f))
@@ -640,15 +688,20 @@ fun MovyzaPosterCardTemplate(
     movie: Movie?,
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
-    fixedWidth: Dp? = 150.dp
+    fixedWidth: Dp? = 150.dp,
+    staggerIndex: Int = 0
 ) {
     // Poster cards now follow the web catalogue pattern: artwork first, title below,
     // and compact rating/year metadata outside the poster (not oversized overlay badges).
     val sizeMod = if (fixedWidth != null) modifier.width(fixedWidth) else modifier.fillMaxWidth()
-    val clickMod = if (movie != null && onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    val clickMod = if (movie != null && onClick != null) Modifier.pressable(onClick) else Modifier
+    val animationKey: Any = movie?.let { "poster-${it.mediaType}-${it.id}" }
+        ?: "poster-loading-$staggerIndex"
 
     Column(
-        modifier = sizeMod.then(clickMod)
+        modifier = sizeMod
+            .then(clickMod)
+            .staggerIn(index = staggerIndex, key = animationKey)
     ) {
         Box(
             modifier = Modifier
