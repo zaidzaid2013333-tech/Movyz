@@ -1202,9 +1202,9 @@ private fun MovyzaPlayerScreen(
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        style = TextStyle(textDirection = TextDirection.Content),
-                            )
+                            overflow = TextOverflow.Ellipsis,
+                            style = TextStyle(textDirection = TextDirection.Content)
+                        )
                         Text(
                             text = stringResource(R.string.player_brand_subtitle),
                             color = MovyzaColors.Gold300,

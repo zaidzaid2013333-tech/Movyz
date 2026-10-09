@@ -1524,9 +1524,9 @@ private fun MovyzaDetailsTemplateScreen(
                             lineHeight = 36.sp,
                             fontWeight = FontWeight.Black,
                             maxLines = 3,
-                            overflow = TextOverflow.Ellipsis
-                        style = TextStyle(textDirection = TextDirection.Content),
-                            )
+                            overflow = TextOverflow.Ellipsis,
+                            style = TextStyle(textDirection = TextDirection.Content)
+                        )
 
                         val metaParts = listOfNotNull(
                             "★ " + String.format(Locale.US, "%.1f", movie.rating),
