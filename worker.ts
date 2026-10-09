@@ -300,7 +300,8 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   };
 
   if (route === '/') {
-    contentTitle = HOME_SEO[locale].title;
+    // Keep the homepage's search-result title brand-first across every locale.
+    contentTitle = 'Movyza';
     description = HOME_SEO[locale].description;
   } else if (route === '/movies') {
     contentTitle = generic[locale].movies;
