@@ -550,7 +550,7 @@ private fun MovyzaFixedBottomBar(
                             if (reducedMotion) tween(0)
                             else spring(dampingRatio = 0.8f, stiffness = 380f)
                         )
-                        .clickable { onSelect(item) }
+                        .pressable { onSelect(item) }
                         .padding(horizontal = if (active) 10.dp else 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
@@ -845,7 +845,8 @@ private fun FixedHorizontalSection(
                     MovyzaPosterCardTemplate(
                         movie = movie,
                         onClick = if (movie != null) ({ onOpen(movie) }) else null,
-                        fixedWidth = 162.dp
+                        fixedWidth = 162.dp,
+                        staggerIndex = index
                     )
                 }
             }
@@ -953,7 +954,8 @@ private fun MovyzaCatalogTemplateScreen(
                 MovyzaPosterCardTemplate(
                     movie = movie,
                     onClick = if (movie != null) ({ onOpen(movie) }) else null,
-                    fixedWidth = null
+                    fixedWidth = null,
+                    staggerIndex = index
                 )
             }
 
