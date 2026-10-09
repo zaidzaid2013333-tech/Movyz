@@ -236,7 +236,9 @@ object MovyzaPlaybackRepository {
             }
             val stream = root.optJSONObject("stream")
                 ?: root.optJSONObject("data")?.optJSONObject("stream")
+                ?: root.optJSONObject("result")?.optJSONObject("stream")
                 ?: root.optJSONObject("data")
+                ?: root.optJSONObject("result")
                 ?: root
             val qualities = stream.optJSONObject("qualities")
             val candidates = mutableListOf<PlaybackCandidate>()
@@ -380,7 +382,7 @@ object MovyzaPlaybackRepository {
                     if (key in SKIPPED_MEDIA_KEYS) continue
                     collectCandidates(
                         node.opt(key),
-                        quality,
+                        parseQuality(key) ?: quality,
                         headers,
                         subtitles,
                         out,
