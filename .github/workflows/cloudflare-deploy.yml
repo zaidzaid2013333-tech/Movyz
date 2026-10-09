@@ -60,6 +60,60 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --var MOVYZ_BUILD_ID:${{ github.sha }}
+      - name: Purge stale sitemap cache when legacy maps are still served
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          public="https://movyza.sbs"
+          root_status="$(curl --silent --show-error --location -o /tmp/current-public-sitemap.xml -w '%{http_code}' "$public/sitemap.xml" || true)"
+          legacy_status="$(curl --silent --show-error --location -o /tmp/current-legacy-sitemap.xml -w '%{http_code}' "$public/sitemap/ar/episodes/1.xml" || true)"
+          root_is_current=false
+          if [ "$root_status" = "200" ] && grep -q '<urlset' /tmp/current-public-sitemap.xml && ! grep -q '<sitemapindex' /tmp/current-public-sitemap.xml && [ "$legacy_status" = "410" ]; then
+            root_is_current=true
+          fi
+          if [ "$root_is_current" = "true" ]; then
+            echo "Homepage-only sitemap and retired legacy maps are already cached."
+            exit 0
+          fi
+
+          echo "Old sitemap cache detected (root=$root_status, legacy episode map=$legacy_status); purging only crawl-policy URLs."
+          zone_json="$(curl --fail --silent --show-error --location -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/zones?name=movyza.sbs&status=active")"
+          zone_id="$(printf '%s' "$zone_json" | python -c 'import json,sys; print((json.load(sys.stdin).get("result") or [{}])[0].get("id",""))')"
+          test -n "$zone_id"
+
+          python - "$zone_id" <<'PY'
+          import json
+          import os
+          import sys
+          from urllib.request import Request, urlopen
+
+          zone_id = sys.argv[1]
+          token = os.environ["CLOUDFLARE_API_TOKEN"]
+          origin = "https://movyza.sbs"
+          locales = ["ar","en","fr","de","es","it","pt","ru","tr","hi","ja","ko","zh","nl","sv","da","no","fi","pl","cs","uk","he","vi","id","ms","th","ro","hu","el","bn","ur","fa"]
+          urls = [origin + path for path in ("/sitemap.xml", "/sitemap-gsc.xml", "/robots.txt")]
+          for locale in locales:
+              urls.append(f"{origin}/sitemap/{locale}/static.xml")
+              for kind in ("movies", "series", "episodes"):
+                  for page in range(1, 21):
+                      urls.append(f"{origin}/sitemap/{locale}/{kind}/{page}.xml")
+
+          endpoint = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/purge_cache"
+          batches = [urls[i:i+30] for i in range(0, len(urls), 30)]
+          for index, batch in enumerate(batches, start=1):
+              body = json.dumps({"files": batch}).encode()
+              req = Request(endpoint, data=body, method="POST", headers={
+                  "Authorization": f"Bearer {token}",
+                  "Content-Type": "application/json",
+              })
+              with urlopen(req, timeout=30) as response:
+                  result = json.load(response)
+              if not result.get("success"):
+                  raise SystemExit(f"Cloudflare cache purge batch {index}/{len(batches)} failed: {result}")
+          print(f"Purged {len(urls)} crawl-policy URLs in {len(batches)} small batches.")
+          PY
+
       - name: Live health check
         run: |
           set -euo pipefail
@@ -89,7 +143,7 @@ jobs:
           printf '%s' "$html" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
 
           echo "CHECK 2/10: Arabic subpages are noindex"
-          ar_status="$(curl --silent --show-error --location -D /tmp/ar-subpage.headers -o /tmp/ar-subpage.html -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/ar/movies")"
+          ar_status="$(curl --silent --show-error --location -D /tmp/ar-subpage.headers -o /tmp/ar-subpage.html -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/ar/movies?__seo_policy=${GITHUB_SHA}")"
           test "$ar_status" = "200"
           ar_html="$(cat /tmp/ar-subpage.html)"
           if ! grep -Eiq '^x-robots-tag: *noindex, follow' /tmp/ar-subpage.headers; then
@@ -116,7 +170,7 @@ jobs:
           fi
 
           echo "CHECK 3/10: English subpages are noindex"
-          en_status="$(curl --silent --show-error --location -D /tmp/en-subpage.headers -o /tmp/en-subpage.html -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/en/movies")"
+          en_status="$(curl --silent --show-error --location -D /tmp/en-subpage.headers -o /tmp/en-subpage.html -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/en/movies?__seo_policy=${GITHUB_SHA}")"
           test "$en_status" = "200"
           en_html="$(cat /tmp/en-subpage.html)"
           grep -Eiq '^x-robots-tag: *noindex, follow' /tmp/en-subpage.headers
@@ -132,7 +186,7 @@ jobs:
           fi
 
           echo "CHECK 4/10: homepage-only sitemap (32 locales)"
-          sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
+          sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap.xml?__seo_policy=${GITHUB_SHA}")"
           printf '%s' "$sitemap_headers" | grep -Eiq '^content-type: *application/xml'
           sitemap="$(cat /tmp/sitemap.xml)"
           printf '%s' "$sitemap" | grep -q '^<?xml version="1.0" encoding="UTF-8"?>'
@@ -177,7 +231,7 @@ jobs:
           printf '%s' "$public_robots" | grep -q 'Sitemap: https://movyza.sbs/sitemap.xml'
 
           echo "CHECK 6/10: old content sitemap returns 410"
-          legacy_sitemap_status="$(curl --silent --show-error --location -o /tmp/legacy-sitemap.txt -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml")"
+          legacy_sitemap_status="$(curl --silent --show-error --location -o /tmp/legacy-sitemap.txt -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml?__seo_policy=${GITHUB_SHA}")"
           test "$legacy_sitemap_status" = "410"
 
           echo "CHECK 7/10: static assets"
@@ -197,7 +251,7 @@ jobs:
           printf '%s' "$fight_club" | grep -q '"@type":"Movie"'
 
           echo "CHECK 10/10: watch deep link"
-          watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/watch/movie/550")"
+          watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/watch/movie/550?__seo_policy=${GITHUB_SHA}")"
           printf '%s' "$watch_html" | grep -q 'Fight Club'
           printf '%s' "$watch_html" | grep -q 'name="robots" content="noindex,follow"'
 
