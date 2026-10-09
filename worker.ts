@@ -406,6 +406,19 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     description = generic[locale].home;
   }
 
+  // Category pages should not reuse the short category label as the description.
+  if (['/movies', '/series', '/discover', '/catalog'].includes(route)) {
+    const categoryLabel = contentTitle.split(/\s+\|\s+/)[0].trim();
+    const fullDescription = `${categoryLabel}. ${HOME_SEO[locale].description}`.replace(/\s+/g, ' ').trim();
+    const descriptionChars = Array.from(fullDescription);
+    if (descriptionChars.length <= 160) {
+      description = fullDescription;
+    } else {
+      const shortened = descriptionChars.slice(0, 157).join('').replace(/\s+\S*$/u, '').trim();
+      description = `${shortened}…`;
+    }
+  }
+
   const isWatchPage = Boolean(watchMovie || watchEpisode);
   const noindexRoutes = new Set([
     '/admin',
@@ -496,11 +509,38 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     hreflangLinks + xDefault +
     `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>`;
   const htmlLang = `<html lang="${locale}" dir="${config.dir}"`;
+
+  // Supply meaningful, visible server-delivered copy and internal links outside
+  // the React mount node, so crawlers do not depend entirely on client rendering.
+  const crawlableRoutes = ['/movies', '/series', '/discover', '/catalog', '/legal'];
+  const hasIndexableContentRoute = route === '/' || crawlableRoutes.includes(route) || Boolean(detailMovie || detailSeries);
+  const bodyHeading = route === '/' ? HOME_SEO[locale].title : contentTitle;
+  const bodyDescription = description || HOME_SEO[locale].description;
+  const sectionLinks = [
+    { path: 'movies', label: generic[locale].movies },
+    { path: 'series', label: generic[locale].series },
+    { path: 'discover', label: generic[locale].discover },
+    { path: 'catalog', label: generic[locale].catalog },
+  ].map(({ path, label }) => {
+    const displayLabel = label.replace(/\s*\|\s*(Movyza|موفيزا)$/i, '').trim();
+    return `<a href="${origin}/${locale}/${path}" style="display:inline-flex;align-items:center;border:1px solid #3f3f46;border-radius:999px;padding:9px 14px;color:#fbbf24;background:#101012;text-decoration:none;font-size:14px;line-height:1.5">${escapeXml(displayLabel)}</a>`;
+  }).join('');
+  const crawlableBody = !isNoIndex && hasIndexableContentRoute
+    ? `<section id="movyza-seo-content" dir="${config.dir}" aria-label="${escapeXml(HOME_SEO[locale].title)}" style="max-width:1160px;margin:28px auto 18px;padding:24px 20px;border-top:1px solid #27272a;color:#e4e4e7;font-family:inherit">
+        <h1 style="margin:0 0 12px;font-size:clamp(22px,3vw,32px);line-height:1.35;font-weight:700;color:#fafafa">${escapeXml(bodyHeading)}</h1>
+        <p style="max-width:900px;margin:0;color:#a1a1aa;font-size:15px;line-height:1.9">${escapeXml(bodyDescription)}</p>
+        <nav style="display:flex;flex-wrap:wrap;gap:10px;margin-top:16px" aria-label="${escapeXml(HOME_SEO[locale].title)}">${sectionLinks}</nav>
+      </section>`
+    : '';
+
   let html = await response.text();
   html = html.replace(/<html\b[^>]*>/i, htmlLang + '>');
   html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${seoTitle}</title>`);
   html = html.replace(/<meta\s+name=["']description["'][^>]*>/i, `<meta name="description" content="${description.replace(/"/g, '&quot;')}" />`);
   html = html.replace('</head>', injection + '</head>');
+  if (crawlableBody) {
+    html = html.replace(/(<div id="root"><\/div>)/i, `$1${crawlableBody}`);
+  }
   const headers = new Headers(response.headers);
   headers.set('content-type', 'text/html; charset=UTF-8');
   // HTML is deterministic for a locale + path and safe to cache at the Worker edge.
@@ -756,9 +796,19 @@ const SITEMAP_EPISODE_PAGES = 20;
 const SITEMAP_CRAWL_ORIGIN = 'https://movyza.sbs';
 
 const buildSitemapIndex = (origin: string) => {
-  const entry = `<sitemap><loc>${origin}/sitemap-gsc.xml</loc></sitemap>`;
+  // Include localized entry/category pages and indexable movie/series detail pages.
+  // Watch/episode URLs remain excluded because the page templates mark them noindex.
+  const entries = [`<sitemap><loc>${origin}/sitemap-gsc.xml</loc></sitemap>`];
+  for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
+    entries.push(`<sitemap><loc>${origin}/sitemap/${locale}/static.xml</loc></sitemap>`);
+    for (const type of ['movies', 'series'] as const) {
+      for (let page = 1; page <= SITEMAP_DISCOVERY_PAGES; page += 1) {
+        entries.push(`<sitemap><loc>${origin}/sitemap/${locale}/${type}/${page}.xml</loc></sitemap>`);
+      }
+    }
+  }
   return `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entry}</sitemapindex>`;
+    `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries.join('')}</sitemapindex>`;
 };
 
 const buildStaticSitemapSegment = (request: Request, locale: LocaleCode) => {
