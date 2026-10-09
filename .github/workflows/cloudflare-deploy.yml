@@ -70,7 +70,7 @@ jobs:
           # state, so do one preflight request and distinguish quota exhaustion from
           # a real application failure. This also prevents the health check itself
           # from generating a burst of failing requests.
-          preflight_status="$(curl --silent --show-error --location -o /tmp/preflight.html -w '%{http_code}' "$base/")"
+          preflight_status="$(curl --silent --show-error --location -o /tmp/preflight.html -w '%{http_code}' -H 'Cache-Control: no-cache, no-store' "$base/?__healthcheck=$VITE_MOVYZ_BUILD_ID")"
           if [ "$preflight_status" = "429" ]; then
             echo "Cloudflare Workers daily request quota is exhausted (HTTP 429)."
             echo "Deployment completed, but live HTTP checks are blocked until the quota resets."
@@ -89,7 +89,7 @@ jobs:
           printf '%s' "$html" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
 
           echo "CHECK 2/10: Arabic subpages are noindex"
-          ar_status="$(curl --silent --show-error --location -D /tmp/ar-subpage.headers -o /tmp/ar-subpage.html -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/ar/movies")"
+          ar_status="$(curl --silent --show-error --location -D /tmp/ar-subpage.headers -o /tmp/ar-subpage.html -w '%{http_code}' -H 'Cache-Control: no-cache, no-store' "$base/ar/movies?__healthcheck=$VITE_MOVYZ_BUILD_ID")"
           test "$ar_status" = "200"
           ar_html="$(cat /tmp/ar-subpage.html)"
           if ! grep -Eiq '^x-robots-tag: *noindex, follow' /tmp/ar-subpage.headers; then
@@ -116,7 +116,7 @@ jobs:
           fi
 
           echo "CHECK 3/10: English subpages are noindex"
-          en_status="$(curl --silent --show-error --location -D /tmp/en-subpage.headers -o /tmp/en-subpage.html -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/en/movies")"
+          en_status="$(curl --silent --show-error --location -D /tmp/en-subpage.headers -o /tmp/en-subpage.html -w '%{http_code}' -H 'Cache-Control: no-cache, no-store' "$base/en/movies?__healthcheck=$VITE_MOVYZ_BUILD_ID")"
           test "$en_status" = "200"
           en_html="$(cat /tmp/en-subpage.html)"
           grep -Eiq '^x-robots-tag: *noindex, follow' /tmp/en-subpage.headers
@@ -190,14 +190,14 @@ jobs:
           printf '%s' "$body" | grep -q '"id":550'
 
           echo "CHECK 9/10: movie deep link"
-          fight_club="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies/550")"
+          fight_club="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache, no-store' "$base/ar/movies/550?__healthcheck=$VITE_MOVYZ_BUILD_ID")"
           printf '%s' "$fight_club" | grep -q 'Fight Club'
           printf '%s' "$fight_club" | grep -q 'name="robots" content="noindex,follow"'
           printf '%s' "$fight_club" | grep -q 'rel="canonical"'
           printf '%s' "$fight_club" | grep -q '"@type":"Movie"'
 
           echo "CHECK 10/10: watch deep link"
-          watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/watch/movie/550")"
+          watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache, no-store' "$base/ar/watch/movie/550?__healthcheck=$VITE_MOVYZ_BUILD_ID")"
           printf '%s' "$watch_html" | grep -q 'Fight Club'
           printf '%s' "$watch_html" | grep -q 'name="robots" content="noindex,follow"'
 
