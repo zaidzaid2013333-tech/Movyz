@@ -9,6 +9,9 @@ interface HeroBannerProps {
   onDetails: (id: string, type: 'movie' | 'series') => void;
   onToggleWatchlist: (item: Movie | Series) => void;
   isSaved?: boolean;
+  heroIndex?: number;
+  heroCount?: number;
+  onSelectHeroIndex?: (index: number) => void;
 }
 
 export const HeroBanner: React.FC<HeroBannerProps> = ({
@@ -17,6 +20,9 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   onDetails,
   onToggleWatchlist,
   isSaved = false,
+  heroIndex = 0,
+  heroCount = 1,
+  onSelectHeroIndex,
 }) => {
   const { language, t } = useLanguage();
   const titlePrimary = item.titleEn || item.title;
@@ -29,12 +35,14 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
 
   return (
     <div className="w-full px-2 sm:px-4 pt-2">
-      <div className="relative min-h-[500px] sm:min-h-[560px] overflow-hidden rounded-[28px] bg-[#080a0f] border border-white/[0.06] shadow-2xl">
+      <div className="movyza-hero-frame relative min-h-[500px] sm:min-h-[560px] overflow-hidden rounded-[28px] bg-[#080a0f] border border-white/[0.06] shadow-2xl">
         <img
-          src={item.backdropUrl}
+          key={item.id + ':' + item.type}
+          src={item.backdropUrl || item.posterUrl}
           alt={titlePrimary}
           referrerPolicy="no-referrer"
-          className="absolute inset-0 h-full w-full object-cover object-center scale-[1.02]"
+          fetchPriority="high"
+          className="movyza-hero-backdrop absolute inset-0 h-full w-full object-cover object-center scale-[1.02]"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#040507] via-[#040507]/65 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-r from-[#040507]/95 via-[#040507]/60 to-transparent rtl:bg-gradient-to-l" />
@@ -102,6 +110,21 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
             </div>
           </div>
         </div>
+
+        {heroCount > 1 && onSelectHeroIndex && (
+          <div className="movyza-hero-pager absolute top-5 right-5 z-20" role="group" aria-label={language === 'ar' ? 'الأعمال المميزة' : 'Featured titles'}>
+            {Array.from({ length: heroCount }).map((_, index) => (
+              <button
+                key={index}
+                type="button"
+                className={'movyza-hero-dot' + (index === heroIndex ? ' is-active' : '')}
+                onClick={() => onSelectHeroIndex(index)}
+                aria-label={language === 'ar' ? 'عرض العمل المميز ' + (index + 1) : 'Show featured title ' + (index + 1)}
+                aria-pressed={index === heroIndex}
+              />
+            ))}
+          </div>
+        )}
 
         <div className="absolute left-5 top-5 hidden sm:flex items-center gap-2 rounded-full bg-black/30 border border-white/10 px-3 py-1.5 text-[10px] text-white/60 backdrop-blur-md">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_12px_rgba(242,184,75,0.75)]" />
