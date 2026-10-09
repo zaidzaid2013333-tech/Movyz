@@ -60,60 +60,6 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --var MOVYZ_BUILD_ID:${{ github.sha }}
-      - name: Purge stale sitemap cache when legacy maps are still served
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          public="https://movyza.sbs"
-          root_status="$(curl --silent --show-error --location -o /tmp/current-public-sitemap.xml -w '%{http_code}' "$public/sitemap.xml" || true)"
-          legacy_status="$(curl --silent --show-error --location -o /tmp/current-legacy-sitemap.xml -w '%{http_code}' "$public/sitemap/ar/episodes/1.xml" || true)"
-          root_is_current=false
-          if [ "$root_status" = "200" ] && grep -q '<urlset' /tmp/current-public-sitemap.xml && ! grep -q '<sitemapindex' /tmp/current-public-sitemap.xml && [ "$legacy_status" = "410" ]; then
-            root_is_current=true
-          fi
-          if [ "$root_is_current" = "true" ]; then
-            echo "Homepage-only sitemap and retired legacy maps are already cached."
-            exit 0
-          fi
-
-          echo "Old sitemap cache detected (root=$root_status, legacy episode map=$legacy_status); purging only crawl-policy URLs."
-          zone_json="$(curl --fail --silent --show-error --location -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/zones?name=movyza.sbs&status=active")"
-          zone_id="$(printf '%s' "$zone_json" | python -c 'import json,sys; print((json.load(sys.stdin).get("result") or [{}])[0].get("id",""))')"
-          test -n "$zone_id"
-
-          python - "$zone_id" <<'PY'
-          import json
-          import os
-          import sys
-          from urllib.request import Request, urlopen
-
-          zone_id = sys.argv[1]
-          token = os.environ["CLOUDFLARE_API_TOKEN"]
-          origin = "https://movyza.sbs"
-          locales = ["ar","en","fr","de","es","it","pt","ru","tr","hi","ja","ko","zh","nl","sv","da","no","fi","pl","cs","uk","he","vi","id","ms","th","ro","hu","el","bn","ur","fa"]
-          urls = [origin + path for path in ("/sitemap.xml", "/sitemap-gsc.xml", "/robots.txt")]
-          for locale in locales:
-              urls.append(f"{origin}/sitemap/{locale}/static.xml")
-              for kind in ("movies", "series", "episodes"):
-                  for page in range(1, 21):
-                      urls.append(f"{origin}/sitemap/{locale}/{kind}/{page}.xml")
-
-          endpoint = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/purge_cache"
-          batches = [urls[i:i+30] for i in range(0, len(urls), 30)]
-          for index, batch in enumerate(batches, start=1):
-              body = json.dumps({"files": batch}).encode()
-              req = Request(endpoint, data=body, method="POST", headers={
-                  "Authorization": f"Bearer {token}",
-                  "Content-Type": "application/json",
-              })
-              with urlopen(req, timeout=30) as response:
-                  result = json.load(response)
-              if not result.get("success"):
-                  raise SystemExit(f"Cloudflare cache purge batch {index}/{len(batches)} failed: {result}")
-          print(f"Purged {len(urls)} crawl-policy URLs in {len(batches)} small batches.")
-          PY
-
       - name: Live health check
         run: |
           set -euo pipefail
@@ -185,8 +131,8 @@ jobs:
             exit 1
           fi
 
-          echo "CHECK 4/10: homepage-only sitemap (32 locales)"
-          sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap.xml?__seo_policy=${GITHUB_SHA}")"
+          echo "CHECK 4/10: fresh homepage-only sitemap (32 locales)"
+          sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap/homepages.xml?__seo_policy=${GITHUB_SHA}")"
           printf '%s' "$sitemap_headers" | grep -Eiq '^content-type: *application/xml'
           sitemap="$(cat /tmp/sitemap.xml)"
           printf '%s' "$sitemap" | grep -q '^<?xml version="1.0" encoding="UTF-8"?>'
@@ -204,7 +150,7 @@ jobs:
           fi
 
           echo "CHECK 5/10: public Googlebot sitemap access"
-          googlebot_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -D /tmp/googlebot-public-sitemap.headers -o /tmp/googlebot-public-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap.xml")"
+          googlebot_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -D /tmp/googlebot-public-sitemap.headers -o /tmp/googlebot-public-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap/homepages.xml")"
           echo "Googlebot HTTP status: $googlebot_status"
           echo "Googlebot response headers:"
           cat /tmp/googlebot-public-sitemap.headers
@@ -216,7 +162,7 @@ jobs:
           printf '%s' "$googlebot_public_sitemap" | grep -q '<urlset'
           printf '%s' "$googlebot_public_sitemap" | python -c 'import sys,re,xml.etree.ElementTree as ET; r=ET.fromstring(sys.stdin.read()); n={"s":"http://www.sitemaps.org/schemas/sitemap/0.9"}; u=[x.find("s:loc",n).text for x in r.findall("s:url",n)]; assert len(u)==32, len(u); assert all(re.fullmatch(r"https://movyza\.sbs/[a-z]{2}/", x) for x in u), u; print("googlebot_homepages="+str(len(u)))'
 
-          echo "CHECK 5B/10: public Google Search Console sitemap"
+          echo "CHECK 5B/10: legacy compatibility sitemap"
           gsc_status="$(curl --silent --show-error --location -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' -D /tmp/googlebot-gsc-sitemap.headers -o /tmp/googlebot-gsc-sitemap.xml -w '%{http_code}' "https://movyza.sbs/sitemap-gsc.xml")"
           echo "Googlebot GSC sitemap HTTP status: $gsc_status"
           cat /tmp/googlebot-gsc-sitemap.headers
@@ -228,7 +174,7 @@ jobs:
 
           echo "CHECK 5B/10: public robots points to same-origin sitemap"
           public_robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "https://movyza.sbs/robots.txt")"
-          printf '%s' "$public_robots" | grep -q 'Sitemap: https://movyza.sbs/sitemap.xml'
+          printf '%s' "$public_robots" | grep -q 'Sitemap: https://movyza.sbs/sitemap/homepages.xml'
 
           echo "CHECK 6/10: old content sitemap returns 410"
           legacy_sitemap_status="$(curl --silent --show-error --location -o /tmp/legacy-sitemap.txt -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml?__seo_policy=${GITHUB_SHA}")"
