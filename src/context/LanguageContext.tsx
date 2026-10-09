@@ -2,10 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UI_TRANSLATIONS } from '../lib/uiTranslations';
 import {
   Language,
-  LANGUAGE_LIST,
-  detectLanguageFromBrowser,
-  detectLanguageFromCountry,
-  getLanguageFromPath,
+  getCurrentLanguage,
   withLanguagePrefix,
 } from '../lib/i18n';
 
@@ -141,21 +138,7 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [language, setLanguageState] = useState<Language>(() => {
-    const fromUrl = getLanguageFromPath(window.location.pathname);
-    if (fromUrl) return fromUrl;
-
-    // Cloudflare injects the visitor country into the HTML before the app boots.
-    // Prefer that country over a stale localStorage/browser language so Algeria,
-    // France, Japan, etc. receive the intended default language automatically.
-    const country = document.querySelector('meta[name="movyz-country"]')?.getAttribute('content');
-    const fromCountry = detectLanguageFromCountry(country);
-    if (fromCountry) return fromCountry;
-
-    const saved = localStorage.getItem('movyza_lang');
-    if (saved && LANGUAGE_LIST.some((entry) => entry.code === saved)) return saved as Language;
-    return detectLanguageFromBrowser();
-  });
+  const [language, setLanguageState] = useState<Language>(() => getCurrentLanguage());
 
   const direction = ['ar', 'he', 'fa', 'ur'].includes(language) ? 'rtl' : 'ltr';
 
