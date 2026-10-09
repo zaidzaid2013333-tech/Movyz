@@ -144,6 +144,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private lateinit var trackSelector: DefaultTrackSelector
     private var sources: List<PlaybackCandidate> = emptyList()
     private var sourceIndex = 0
+    private val failedSourceUrls = linkedSetOf<String>()
     private var playbackRequestGeneration = 0
     private var sourcePreparationGeneration = 0
     private var brokerFallbackAttempted = false
@@ -252,6 +253,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
                 if (isPlaying) {
+                    sources.getOrNull(sourceIndex)?.url?.let { failedSourceUrls.remove(sourceKey(it)) }
                     startupWatchdogJob?.cancel()
                     startupWatchdogJob = null
                 }
@@ -362,6 +364,8 @@ class MovyzaPlayerActivity : ComponentActivity() {
         }
     }
 
+    private fun sourceKey(url: String): String = url.trim().substringBefore("#")
+
     private fun currentPlaybackRequest(): PlaybackRequest = PlaybackRequest(
         tmdbId = intent.getIntExtra(EXTRA_TMDB_ID, 0),
         mediaType = intent.getStringExtra(EXTRA_MEDIA_TYPE).orEmpty().ifBlank { "movie" },
@@ -407,6 +411,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
         // A retry/new episode may have resolved while this request was in flight.
         if (requestGeneration != playbackRequestGeneration) return
         sources = resolvedSources
+        failedSourceUrls.clear()
         if (sources.isEmpty()) return
 
         sourceIndex = 0
@@ -432,8 +437,15 @@ class MovyzaPlayerActivity : ComponentActivity() {
         val errorCode = playerError?.errorCodeName ?: fallbackErrorCode
         val resumePosition = player.currentPosition.coerceAtLeast(0L)
 
-        if (sourceIndex + 1 < sources.size) {
-            sourceIndex += 1
+        // Source arrays are quality-sorted, but users can manually jump to a
+        // later URL (e.g. 1080p). On failure we must still try earlier, unfailed
+        // candidates such as 720p, without cycling over a URL already attempted.
+        sources.getOrNull(sourceIndex)?.url?.let { failedSourceUrls += sourceKey(it) }
+        val nextSourceIndex = sources.indices.firstOrNull { index ->
+            sourceKey(sources[index].url) !in failedSourceUrls
+        }
+        if (nextSourceIndex != null) {
+            sourceIndex = nextSourceIndex
             prepareSource(sources[sourceIndex], resumePosition.takeIf { it > 0L })
             return
         }
