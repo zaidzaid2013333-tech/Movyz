@@ -881,6 +881,7 @@ private fun MovyzaCatalogTemplateScreen(
 ) {
     var filterIndex by remember { mutableIntStateOf(0) }
     var selectedGenreId by remember { mutableIntStateOf(0) }
+    val seriesTitle = stringResource(R.string.quick_series)
 
     val baseList = if (filterIndex == 0) popularItems else topRatedItems
     val activeList = remember(baseList, selectedGenreId) {
@@ -937,7 +938,7 @@ private fun MovyzaCatalogTemplateScreen(
                     text = stringResource(R.string.genre_action),
                     active = selectedGenreId == 28 || selectedGenreId == 10759,
                     onClick = {
-                        selectedGenreId = if (title == stringResource(R.string.quick_series)) 10759 else 28
+                        selectedGenreId = if (title == seriesTitle) 10759 else 28
                     }
                 )
                 GlassPill(
