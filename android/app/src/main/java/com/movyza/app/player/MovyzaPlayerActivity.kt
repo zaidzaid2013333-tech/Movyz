@@ -77,6 +77,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1201,7 +1203,8 @@ private fun MovyzaPlayerScreen(
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
-                        )
+                        style = TextStyle(textDirection = TextDirection.Content),
+                            )
                         Text(
                             text = stringResource(R.string.player_brand_subtitle),
                             color = MovyzaColors.Gold300,

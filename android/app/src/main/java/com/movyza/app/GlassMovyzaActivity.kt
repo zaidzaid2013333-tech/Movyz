@@ -105,6 +105,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -1523,7 +1525,8 @@ private fun MovyzaDetailsTemplateScreen(
                             fontWeight = FontWeight.Black,
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis
-                        )
+                        style = TextStyle(textDirection = TextDirection.Content),
+                            )
 
                         val metaParts = listOfNotNull(
                             "★ " + String.format(Locale.US, "%.1f", movie.rating),
