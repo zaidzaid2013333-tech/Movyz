@@ -592,6 +592,42 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     fa: 'در صفحه هر عنوان، اطلاعات موجود مانند خلاصه، سال انتشار، ژانرها و امتیاز نمایش داده می‌شود. برای مرور Movyza به زبان دلخواه از پیوندهای زبان استفاده کنید و سپس جزئیات فیلم یا سریال را بخوانید.',
   };
 
+
+  const HOME_SEO_GUIDANCE: Record<LocaleCode, string> = {
+    ar: 'ابدأ بالبحث عن اسم العمل، ثم راجع صفحته لمعرفة التفاصيل المتاحة. روابط اللغة تنقلك إلى الصفحة الرئيسية باللغة التي تختارها.',
+    en: 'Start by searching for a title, then open its page to review the available details. Language links take you to the homepage in your chosen language.',
+    fr: 'Recherchez un titre, puis ouvrez sa fiche pour consulter les informations disponibles. Les liens linguistiques mènent à l’accueil dans la langue choisie.',
+    de: 'Suche nach einem Titel und öffne seine Seite, um verfügbare Angaben zu lesen. Die Sprachlinks führen zur Startseite in deiner gewählten Sprache.',
+    es: 'Busca un título y abre su ficha para consultar los datos disponibles. Los enlaces de idioma llevan a la página de inicio en la lengua elegida.',
+    it: 'Cerca un titolo e apri la relativa scheda per consultare le informazioni disponibili. I link linguistici portano alla homepage nella lingua scelta.',
+    pt: 'Pesquise um título e abra sua página para consultar as informações disponíveis. Os links de idioma levam à página inicial no idioma escolhido.',
+    ru: 'Найдите название и откройте его страницу, чтобы изучить доступные сведения. Ссылки на языки ведут на главную страницу на выбранном языке.',
+    tr: 'Bir başlık arayın ve mevcut bilgileri incelemek için sayfasını açın. Dil bağlantıları sizi seçtiğiniz dildeki ana sayfaya götürür.',
+    hi: 'किसी शीर्षक को खोजें और उपलब्ध जानकारी देखने के लिए उसका पेज खोलें। भाषा लिंक आपके चुने हुए भाषा के होमपेज पर ले जाते हैं।',
+    ja: '作品名を検索して詳細ページを開くと、利用可能な情報を確認できます。言語リンクは選択した言語のホームページにつながります。',
+    ko: '작품명을 검색한 뒤 상세 페이지를 열어 제공되는 정보를 확인하세요. 언어 링크는 선택한 언어의 홈페이지로 연결됩니다.',
+    zh: '搜索作品名称并打开详情页，即可查看可用信息。语言链接会带你前往所选语言的首页。',
+    nl: 'Zoek een titel en open de pagina om beschikbare informatie te bekijken. De taallinks leiden naar de homepage in de gekozen taal.',
+    sv: 'Sök efter en titel och öppna sidan för tillgänglig information. Språklänkarna leder till startsidan på det valda språket.',
+    da: 'Søg efter en titel, og åbn siden for at se tilgængelige oplysninger. Sproglinksene fører til startsiden på det valgte sprog.',
+    no: 'Søk etter en tittel og åpne siden for tilgjengelig informasjon. Språklenkene fører til startsiden på det valgte språket.',
+    fi: 'Etsi nimike ja avaa sen sivu nähdäksesi saatavilla olevat tiedot. Kielilinkit vievät etusivulle valitsemallasi kielellä.',
+    pl: 'Wyszukaj tytuł i otwórz jego stronę, aby sprawdzić dostępne informacje. Odnośniki językowe prowadzą do strony głównej w wybranym języku.',
+    cs: 'Vyhledejte titul a otevřete jeho stránku, kde najdete dostupné informace. Jazykové odkazy vedou na domovskou stránku ve zvoleném jazyce.',
+    uk: 'Знайдіть назву та відкрийте її сторінку, щоб переглянути доступні відомості. Мовні посилання ведуть на головну сторінку обраною мовою.',
+    he: 'חפשו כותרת ופתחו את העמוד שלה כדי לעיין במידע הזמין. קישורי השפה מובילים לעמוד הבית בשפה שבחרתם.',
+    vi: 'Tìm tên tác phẩm rồi mở trang chi tiết để xem thông tin hiện có. Liên kết ngôn ngữ sẽ đưa bạn đến trang chủ bằng ngôn ngữ đã chọn.',
+    id: 'Cari judul dan buka halamannya untuk melihat informasi yang tersedia. Tautan bahasa mengarah ke beranda dalam bahasa pilihan Anda.',
+    ms: 'Cari tajuk dan buka halamannya untuk melihat maklumat yang tersedia. Pautan bahasa membawa anda ke halaman utama dalam bahasa pilihan.',
+    th: 'ค้นหาชื่อเรื่องแล้วเปิดหน้ารายละเอียดเพื่อดูข้อมูลที่มี ลิงก์ภาษาจะพาไปยังหน้าแรกในภาษาที่เลือก',
+    ro: 'Caută un titlu și deschide pagina sa pentru informațiile disponibile. Linkurile de limbă duc la pagina principală în limba aleasă.',
+    hu: 'Keress rá a címre, majd nyisd meg az adatlapját az elérhető információkért. A nyelvi linkek a kiválasztott nyelvű kezdőlapra vezetnek.',
+    el: 'Αναζητήστε έναν τίτλο και ανοίξτε τη σελίδα του για τις διαθέσιμες πληροφορίες. Οι σύνδεσμοι γλώσσας οδηγούν στην αρχική σελίδα της επιλογής σας.',
+    bn: 'শিরোনাম খুঁজে তার পাতা খুলুন এবং উপলভ্য তথ্য দেখুন। ভাষার লিংক আপনার নির্বাচিত ভাষার হোমপেজে নিয়ে যায়।',
+    ur: 'عنوان تلاش کریں اور دستیاب معلومات دیکھنے کے لیے اس کا صفحہ کھولیں۔ زبان کے روابط آپ کی منتخب کردہ زبان کے ہوم پیج پر لے جاتے ہیں۔',
+    fa: 'عنوان را جست‌وجو کنید و برای دیدن اطلاعات موجود صفحه آن را باز کنید. پیوندهای زبان به صفحه اصلی زبان انتخابی شما می‌روند.',
+  };
+
   const HOME_LANGUAGE_LABEL: Record<LocaleCode, string> = {
     ar: 'اختر لغة الموقع', en: 'Choose your language', fr: 'Choisissez votre langue', de: 'Sprache auswählen',
     es: 'Elige tu idioma', it: 'Scegli la lingua', pt: 'Escolha seu idioma', ru: 'Выберите язык',
@@ -619,7 +655,8 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
           escapeXml(HOME_SEO_INTRO[locale]) + '</p>' +
         '<section style="max-width:900px;margin-top:18px">' +
           '<h2 style="margin:0 0 8px;color:#fafafa;font-size:18px;font-weight:600">' + escapeXml(HOME_SEO[locale].title) + '</h2>' +
-          '<p style="margin:0;color:#a1a1aa;font-size:15px;line-height:1.9">' + escapeXml(HOME_SEO_DETAILS[locale]) + '</p>' +
+          '<p style="margin:0 0 10px;color:#a1a1aa;font-size:15px;line-height:1.9">' + escapeXml(HOME_SEO_DETAILS[locale]) + '</p>' +
+          '<p style="margin:0;color:#a1a1aa;font-size:15px;line-height:1.9">' + escapeXml(HOME_SEO_GUIDANCE[locale]) + '</p>' +
         '</section>' +
         '<nav style="margin-top:20px" aria-label="' + escapeXml(HOME_LANGUAGE_LABEL[locale]) + '">' +
           '<h2 style="margin:0 0 10px;color:#fafafa;font-size:16px;font-weight:600">' +
