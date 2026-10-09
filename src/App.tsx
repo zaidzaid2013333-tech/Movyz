@@ -280,6 +280,12 @@ function MainApp() {
     if (pathOnly === '/forgot-password') {
       return <AuthPage mode="forgot" onNavigate={navigate} />;
     }
+    if (pathOnly === '/reset-password') {
+      return <AuthPage mode="reset" onNavigate={navigate} />;
+    }
+    if (pathOnly === '/auth/callback') {
+      return <AuthPage mode="callback" onNavigate={navigate} />;
+    }
 
     // Public legal / DMCA policy route
     if (pathOnly === '/legal') {
@@ -320,6 +326,8 @@ function MainApp() {
     hilltopEligiblePath !== '/login' &&
     hilltopEligiblePath !== '/register' &&
     hilltopEligiblePath !== '/forgot-password' &&
+    hilltopEligiblePath !== '/reset-password' &&
+    hilltopEligiblePath !== '/auth/callback' &&
     hilltopEligiblePath !== '/legal' &&
     hilltopEligiblePath !== '/admin';
 
@@ -331,7 +339,12 @@ function MainApp() {
     const existing = document.getElementById('movyza-monetag-multitag');
     existing?.remove();
 
-    if (isWatchPage) return;
+    const currentRoute = stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname;
+    const isSensitiveRoute = [
+      '/login', '/register', '/forgot-password', '/reset-password',
+      '/auth/callback', '/legal', '/admin',
+    ].includes(currentRoute);
+    if (isWatchPage || isSensitiveRoute) return;
 
     const script = document.createElement('script');
     script.id = 'movyza-monetag-multitag';
