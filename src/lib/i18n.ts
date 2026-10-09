@@ -136,4 +136,31 @@ export const detectLanguageFromBrowser = (): Language => {
 export const detectLanguageFromCountry = (country: string | null | undefined): Language | null =>
   COUNTRY_TO_LANGUAGE[String(country || '').toUpperCase()] || null;
 
+/**
+ * Resolve one locale for the entire client: explicit localized URL, Cloudflare's
+ * visitor-country metadata, saved choice (when geolocation is unavailable),
+ * then the browser language. API requests must use this same resolver as the UI.
+ */
+export const getCurrentLanguage = (): Language => {
+  if (typeof window === 'undefined') return 'ar';
+
+  const fromUrl = getLanguageFromPath(window.location.pathname);
+  if (fromUrl) return fromUrl;
+
+  const country = typeof document !== 'undefined'
+    ? document.querySelector('meta[name="movyz-country"]')?.getAttribute('content')
+    : null;
+  const fromCountry = detectLanguageFromCountry(country);
+  if (fromCountry) return fromCountry;
+
+  try {
+    const saved = window.localStorage.getItem('movyza_lang');
+    if (isLanguage(saved)) return saved;
+  } catch {
+    // Private browsing/storage restrictions must not block locale detection.
+  }
+
+  return detectLanguageFromBrowser();
+};
+
 export const localizeLabel = (language: Language) => LANGUAGE_CONFIGS[language].nativeName;

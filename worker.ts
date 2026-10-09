@@ -85,20 +85,12 @@ const detectRequestLocale = (request: Request): LocaleCode => {
     || 'en';
 };
 
-const SUBTITLE_COUNTRY_LANGUAGE: Record<string, LocaleCode> = Object.fromEntries(
-  Object.entries(LOCALES).flatMap(([locale, config]) =>
-    config.countries.map((country) => [country, locale as LocaleCode]),
-  ),
-);
-
 const detectSubtitleLocale = (request: Request): LocaleCode => {
-  // An explicit /ar/... or /fr/... route is the strongest signal because the
-  // visitor intentionally selected that Movyza language.
+  // An explicit locale in the URL is authoritative. On the unprefixed homepage,
+  // reuse the same country/Accept-Language detection as the rendered document so
+  // the subtitle preference cannot silently fall back to English or Arabic.
   const fromPath = localeFromPath(new URL(request.url).pathname);
-  if (fromPath) return fromPath;
-
-  const fromCountry = String(countryFromRequest(request) || '').toUpperCase();
-  return SUBTITLE_COUNTRY_LANGUAGE[fromCountry] || 'en';
+  return fromPath || detectRequestLocale(request);
 };
 
 const VIDSRC_BASE_URL = 'https://player.movyza.sbs';

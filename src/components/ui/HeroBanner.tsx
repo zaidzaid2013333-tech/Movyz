@@ -19,9 +19,9 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   isSaved = false,
 }) => {
   const { language, t } = useLanguage();
-  const titlePrimary = item.titleEn || item.title;
-  const titleSecondary = item.originalTitle;
-  const overview = language === 'ar' ? item.overview : item.overviewEn;
+  const titlePrimary = item.title || item.titleEn;
+  const titleSecondary = item.originalTitle !== titlePrimary ? item.originalTitle : '';
+  const overview = item.overview || item.overviewEn;
   const year = item.type === 'movie' ? item.year : item.startYear;
   const durationLabel = item.type === 'movie'
     ? item.runtime + ' ' + t('minutes')
