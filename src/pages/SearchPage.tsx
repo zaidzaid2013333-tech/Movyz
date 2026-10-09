@@ -223,7 +223,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                     />
                     <div className="truncate">
                       <p className="text-xs font-semibold text-white truncate">
-                        {language === 'ar' ? actor.name : actor.nameEn}
+                        {actor.name || actor.nameEn}
                       </p>
                       <p className="text-[10px] text-amber-400 font-mono">
                         {actor.worksCount} {language === 'ar' ? 'أعمال' : 'titles'}
