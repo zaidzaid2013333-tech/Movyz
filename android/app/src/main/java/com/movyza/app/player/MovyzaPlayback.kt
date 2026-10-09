@@ -221,7 +221,7 @@ object MovyzaPlaybackRepository {
                         PlaybackCandidate(
                             url = cleanUrl,
                             format = inferredFormat,
-                            headers = requestHeaders + embeddedHeaders,
+                            headers = mergeHeaders(requestHeaders, embeddedHeaders),
                             provider = PlaybackProvider.VIDLINK,
                         )
                     )
