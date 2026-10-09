@@ -366,7 +366,7 @@ function MainApp() {
         )}
         <div
           key={stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname}
-          className="movyza-route-transition"
+          className={isWatchPage ? undefined : 'movyza-route-transition'}
         >
           {renderCurrentRoute()}
         </div>
