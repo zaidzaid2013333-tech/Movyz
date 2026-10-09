@@ -115,6 +115,137 @@ const titleKeywords = (locale: LocaleCode, title: string) => {
   return Array.from(new Set([title, ...terms.map((term) => term + ' ' + title)])).join(', ');
 };
 
+const HOME_SEO: Record<LocaleCode, { title: string; description: string }> = {
+  "ar": {
+    "title": "مشاهدة الأفلام والمسلسلات مجانًا | Movyza",
+    "description": "شاهد الأفلام والمسلسلات مجانًا على Movyza. استكشف مجموعة واسعة من العناوين، واكتشف الإصدارات الجديدة، واختر ما ترغب في مشاهدته عبر الإنترنت."
+  },
+  "en": {
+    "title": "Watch Movies & TV Shows for Free | Movyza",
+    "description": "Watch movies and TV series for free on Movyza. Explore a wide selection of films and series, discover new releases, and find something to watch online."
+  },
+  "fr": {
+    "title": "Films et séries en streaming gratuit | Movyza",
+    "description": "Regardez gratuitement des films et des séries sur Movyza. Explorez un large catalogue, découvrez les nouveautés et trouvez votre prochain programme à regarder en ligne."
+  },
+  "de": {
+    "title": "Filme und Serien kostenlos ansehen | Movyza",
+    "description": "Sieh dir Filme und Serien kostenlos auf Movyza an. Entdecke eine große Auswahl, finde Neuerscheinungen und entdecke Titel, die du online ansehen möchtest."
+  },
+  "es": {
+    "title": "Ver películas y series gratis | Movyza",
+    "description": "Mira películas y series gratis en Movyza. Explora un amplio catálogo, descubre nuevos estrenos y encuentra tu próxima película o serie para ver online."
+  },
+  "it": {
+    "title": "Guarda film e serie TV gratis | Movyza",
+    "description": "Guarda film e serie TV gratis su Movyza. Esplora un ampio catalogo, scopri le nuove uscite e trova il prossimo titolo da vedere online."
+  },
+  "pt": {
+    "title": "Assista a filmes e séries grátis | Movyza",
+    "description": "Assista a filmes e séries grátis na Movyza. Explore um catálogo variado, descubra novos lançamentos e encontre o que quer ver online."
+  },
+  "ru": {
+    "title": "Смотреть фильмы и сериалы бесплатно | Movyza",
+    "description": "Смотрите фильмы и сериалы бесплатно на Movyza. Изучайте большой каталог, открывайте новые премьеры и находите, что посмотреть онлайн."
+  },
+  "tr": {
+    "title": "Ücretsiz film ve dizi izle | Movyza",
+    "description": "Movyza'da film ve dizileri ücretsiz izle. Geniş kataloğu keşfet, yeni çıkanları incele ve çevrim içi izlemek için yeni içerikler bul."
+  },
+  "hi": {
+    "title": "मुफ़्त फ़िल्में और सीरीज़ देखें | Movyza",
+    "description": "Movyza पर फ़िल्में और सीरीज़ मुफ़्त देखें। बड़े कैटलॉग को एक्सप्लोर करें, नई रिलीज़ खोजें और ऑनलाइन देखने के लिए अगला पसंदीदा शीर्षक चुनें।"
+  },
+  "ja": {
+    "title": "映画・ドラマを無料で視聴 | Movyza",
+    "description": "Movyzaで映画やドラマを無料で視聴。豊富な作品を探し、新作をチェックして、オンラインで見たい映画やシリーズを見つけましょう。"
+  },
+  "ko": {
+    "title": "영화와 TV 시리즈 무료 시청 | Movyza",
+    "description": "Movyza에서 영화와 TV 시리즈를 무료로 감상하세요. 다양한 작품을 둘러보고 신작을 발견하며 온라인에서 볼 콘텐츠를 찾아보세요."
+  },
+  "zh": {
+    "title": "免费在线看电影和电视剧 | Movyza",
+    "description": "在 Movyza 免费观看电影和电视剧。浏览丰富的片库、发现最新作品，并找到想在线观看的电影或剧集。"
+  },
+  "nl": {
+    "title": "Gratis films en series kijken | Movyza",
+    "description": "Bekijk gratis films en series op Movyza. Ontdek een ruime catalogus, bekijk nieuwe releases en vind je volgende film of serie om online te kijken."
+  },
+  "sv": {
+    "title": "Titta på filmer och serier gratis | Movyza",
+    "description": "Se filmer och serier gratis på Movyza. Utforska ett brett utbud, upptäck nya släpp och hitta nästa film eller serie att titta på online."
+  },
+  "da": {
+    "title": "Se film og serier gratis | Movyza",
+    "description": "Se film og serier gratis på Movyza. Gå på opdagelse i et stort udvalg, find nye udgivelser, og vælg noget at streame online."
+  },
+  "no": {
+    "title": "Se filmer og serier gratis | Movyza",
+    "description": "Se filmer og serier gratis på Movyza. Utforsk et bredt utvalg, oppdag nye lanseringer og finn noe du vil se på nettet."
+  },
+  "fi": {
+    "title": "Katso elokuvia ja sarjoja ilmaiseksi | Movyza",
+    "description": "Katso elokuvia ja sarjoja ilmaiseksi Movyzassa. Tutustu laajaan valikoimaan, löydä uutuuksia ja valitse seuraava verkossa katsottava elokuva tai sarja."
+  },
+  "pl": {
+    "title": "Oglądaj filmy i seriale za darmo | Movyza",
+    "description": "Oglądaj filmy i seriale za darmo na Movyza. Przeglądaj bogaty katalog, odkrywaj nowości i znajdź kolejny tytuł do obejrzenia online."
+  },
+  "cs": {
+    "title": "Sledujte filmy a seriály zdarma | Movyza",
+    "description": "Sledujte filmy a seriály zdarma na Movyza. Procházejte široký katalog, objevujte novinky a najděte další titul ke sledování online."
+  },
+  "uk": {
+    "title": "Дивіться фільми та серіали безкоштовно | Movyza",
+    "description": "Дивіться фільми й серіали безкоштовно на Movyza. Переглядайте великий каталог, відкривайте новинки та знаходьте, що подивитися онлайн."
+  },
+  "he": {
+    "title": "צפו בסרטים ובסדרות בחינם | Movyza",
+    "description": "צפו בסרטים ובסדרות בחינם ב‑Movyza. גלו מבחר רחב, הכירו את התכנים החדשים ומצאו את הסרט או הסדרה הבאים לצפייה אונליין."
+  },
+  "vi": {
+    "title": "Xem phim và series miễn phí | Movyza",
+    "description": "Xem phim và series miễn phí trên Movyza. Khám phá danh mục đa dạng, tìm các bộ phim mới và chọn nội dung yêu thích để xem trực tuyến."
+  },
+  "id": {
+    "title": "Nonton film dan serial gratis | Movyza",
+    "description": "Tonton film dan serial gratis di Movyza. Jelajahi katalog pilihan, temukan rilisan terbaru, dan cari tontonan berikutnya untuk dinikmati online."
+  },
+  "ms": {
+    "title": "Tonton filem dan siri secara percuma | Movyza",
+    "description": "Tonton filem dan siri secara percuma di Movyza. Terokai katalog yang luas, temui keluaran baharu dan pilih tontonan seterusnya dalam talian."
+  },
+  "th": {
+    "title": "ดูหนังและซีรีส์ฟรี | Movyza",
+    "description": "ดูหนังและซีรีส์ฟรีบน Movyza สำรวจรายการหลากหลาย ค้นพบเรื่องใหม่ และเลือกภาพยนตร์หรือซีรีส์ที่ต้องการรับชมออนไลน์"
+  },
+  "ro": {
+    "title": "Urmărește filme și seriale gratuit | Movyza",
+    "description": "Urmărește filme și seriale gratuit pe Movyza. Explorează un catalog variat, descoperă noutăți și găsește următorul titlu de vizionat online."
+  },
+  "hu": {
+    "title": "Filmek és sorozatok ingyen | Movyza",
+    "description": "Nézz filmeket és sorozatokat ingyen a Movyza oldalán. Böngéssz a kínálatban, fedezd fel az újdonságokat, és válassz online néznivalót."
+  },
+  "el": {
+    "title": "Δείτε ταινίες και σειρές δωρεάν | Movyza",
+    "description": "Δείτε ταινίες και σειρές δωρεάν στο Movyza. Εξερευνήστε μια μεγάλη συλλογή, ανακαλύψτε νέες κυκλοφορίες και βρείτε τι να δείτε online."
+  },
+  "bn": {
+    "title": "বিনামূল্যে সিনেমা ও সিরিজ দেখুন | Movyza",
+    "description": "Movyza-তে বিনামূল্যে সিনেমা ও সিরিজ দেখুন। বড় সংগ্রহ ঘুরে দেখুন, নতুন মুক্তি খুঁজুন এবং অনলাইনে দেখার জন্য পছন্দের বিষয় বেছে নিন।"
+  },
+  "ur": {
+    "title": "فلمیں اور سیریز مفت دیکھیں | Movyza",
+    "description": "Movyza پر فلمیں اور سیریز مفت دیکھیں۔ وسیع کیٹلاگ دریافت کریں، نئی ریلیزز دیکھیں اور آن لائن دیکھنے کے لیے اگلا پسندیدہ عنوان تلاش کریں۔"
+  },
+  "fa": {
+    "title": "تماشای رایگان فیلم و سریال | Movyza",
+    "description": "در Movyza فیلم و سریال را رایگان تماشا کنید. مجموعه‌ای متنوع را بگردید، آثار تازه را کشف کنید و عنوان بعدی برای تماشای آنلاین را بیابید."
+  }
+};
+
 const localizedHtml = async (request: Request, env: MovyzEnvironment, response: Response, locale: LocaleCode) => {
   if (!response.headers.get('content-type')?.includes('text/html')) return response;
   const url = new URL(request.url);
@@ -169,8 +300,8 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   };
 
   if (route === '/') {
-    contentTitle = generic[locale].home;
-    description = generic[locale].home;
+    contentTitle = HOME_SEO[locale].title;
+    description = HOME_SEO[locale].description;
   } else if (route === '/movies') {
     contentTitle = generic[locale].movies;
     description = generic[locale].movies;
@@ -335,13 +466,12 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     : {
         '@context': 'https://schema.org',
         '@type': schemaType,
+        ...(route === '/' ? { '@id': 'https://movyza.sbs/#website', inLanguage: locale } : {}),
         // Use one stable brand name for every localized homepage. Site names
         // are domain-level in Google Search, not separate per-locale brands.
         name: route === '/' ? 'Movyza' : contentTitle,
         description,
-        alternateName: route === '/'
-          ? ['موفيزا', 'movyza.sbs']
-          : alternateTitle || undefined,
+        alternateName: route === '/' ? undefined : alternateTitle || undefined,
         image: imageUrl ? [imageUrl] : undefined,
         url: route === '/' ? 'https://movyza.sbs/' : origin + canonicalPath,
       };
