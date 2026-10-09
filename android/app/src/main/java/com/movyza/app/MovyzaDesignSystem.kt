@@ -385,6 +385,7 @@ fun GlassPill(
 
     Row(
         modifier = modifier
+            .then(clickMod)
             .clip(shape)
             .background(fillBrush, shape)
             .border(
@@ -399,7 +400,6 @@ fun GlassPill(
                 } else MovyzaColors.GlassStroke,
                 shape
             )
-            .then(clickMod)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
@@ -978,7 +978,7 @@ fun MovyzaContinueWatchingCard(
             )
 
             MovyzaBadge(
-                text = if (entry.mediaType == "series") stringResource(R.string.detail_watch_episode_format, entry.season, entry.episode) else stringResource(R.string.continue_movie),
+                text = if (entry.mediaType == "series") stringResource(R.string.continue_episode_format, entry.season, entry.episode) else stringResource(R.string.continue_movie),
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(8.dp)
