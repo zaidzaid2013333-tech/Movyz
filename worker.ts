@@ -431,7 +431,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   ]);
   // Watch pages are intentionally excluded from search indexing. They remain
   // fully accessible to users, but are not SEO landing pages.
-  const isNoIndex = route !== '/' || isWatchPage || route === '/search' || route.startsWith('/search/') || noindexRoutes.has(route);
+  const isNoIndex = route !== '/' || isWatchPage || noindexRoutes.has(route);
   const searchTitle = alternateTitle || contentTitle;
   const seoTitle = isWatchPage
     ? (locale === 'ar'
