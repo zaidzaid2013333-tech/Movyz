@@ -1171,7 +1171,13 @@ export default {
     if (url.protocol === 'http:' && !localHost) {
       const secureUrl = new URL(request.url);
       secureUrl.protocol = 'https:';
-      if (secureUrl.port === '80') secureUrl.port = '';
+      // Cloudflare accepts HTTP on alternate ports such as 2052, but HTTPS
+      // must use the site's normal TLS port (443). Preserve only the default
+      // HTTPS port when canonicalizing public requests, otherwise this creates
+      // invalid URLs such as https://movyza.sbs:2052/.
+      if (['80', '2052', '8080', '8880', '2082', '2086', '2095'].includes(secureUrl.port)) {
+        secureUrl.port = '';
+      }
       return new Response(null, {
         status: 301,
         headers: {
