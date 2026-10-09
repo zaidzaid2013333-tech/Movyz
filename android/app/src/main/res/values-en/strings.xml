@@ -69,4 +69,27 @@
     <string name="app_loading">Loading</string>
     <string name="hero_pick">Movyza pick</string>
     <string name="app_tagline">Your cinema starts here</string>
+    <string name="history_short">History</string>
+    <string name="message_history_cleared">Watch history cleared</string>
+    <string name="message_signed_out">Signed out</string>
+    <string name="genre_series">Series</string>
+    <string name="genre_movie_cinematic">Feature film</string>
+    <string name="search_clear">Clear</string>
+    <string name="detail_similar_title">You may also like</string>
+    <string name="detail_similar_subtitle">Related recommendations</string>
+    <string name="retry">Retry</string>
+    <string name="auth_welcome_back">Welcome back</string>
+    <string name="auth_join">Join Movyza</string>
+    <string name="auth_name">Name</string>
+    <string name="auth_email">Email address</string>
+    <string name="auth_password">Password</string>
+    <string name="auth_show_password">Show password</string>
+    <string name="auth_switch_to_signup">No account? Create one</string>
+    <string name="auth_switch_to_login">Already have an account? Sign in</string>
+    <string name="auth_submit_login">Sign in</string>
+    <string name="auth_submit_signup">Create account</string>
+    <string name="auth_cancel">Cancel</string>
+    <string name="auth_created_success">Account created</string>
+    <string name="hero_overview_placeholder">Explore the title details and start watching on Movyza.</string>
+    <string name="detail_episode_format">Episode %1$d • %2$s</string>
 </resources>
