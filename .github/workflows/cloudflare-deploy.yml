@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: movyza-cloudflare-${{ github.ref }}
+  group: movyza-cloudflare-v2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
