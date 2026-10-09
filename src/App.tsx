@@ -347,7 +347,7 @@ function MainApp() {
   }, [isWatchPage, currentPath]);
 
   return (
-    <div className="min-h-screen bg-[#08090d] text-slate-100 flex flex-col font-sans selection:bg-amber-500/30 selection:text-amber-200">
+    <div className="movyza-app-shell min-h-screen bg-[#08090d] text-slate-100 flex flex-col font-sans selection:bg-amber-500/30 selection:text-amber-200">
       {/* Header: hidden when in fullscreen watch page to maximize cinematic focus */}
       {!isWatchPage && (
         <Header
@@ -364,7 +364,12 @@ function MainApp() {
             <HilltopBanner key={hilltopEligiblePath} slotKey={hilltopEligiblePath} />
           </div>
         )}
-        {renderCurrentRoute()}
+        <div
+          key={stripLanguagePrefix(currentPath.split('?')[0] || '/').pathname}
+          className="movyza-route-transition"
+        >
+          {renderCurrentRoute()}
+        </div>
       </main>
 
       {/* Footer: hidden on watch page */}
