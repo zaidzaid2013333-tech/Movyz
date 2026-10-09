@@ -353,7 +353,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
           <div className="p-4 rounded-2xl bg-[#090b10] border border-amber-500/15 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
             <div>
               <span className="font-bold text-white text-sm">
-                {language === 'ar' ? activeSeason.name : activeSeason.nameEn}
+                {activeSeason.name || activeSeason.nameEn}
               </span>
               {activeSeason.airDate && (
                 <span className="mx-2 text-slate-600">· {activeSeason.airDate}</span>
@@ -368,8 +368,8 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
         {/* Episodes Grid with Celluloid Film Frame Style */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {activeSeason?.episodes.map((episode) => {
-            const epTitle = episode.titleEn || episode.title;
-            const epOverview = language === 'ar' ? episode.overview : episode.overviewEn;
+            const epTitle = episode.title || episode.titleEn;
+            const epOverview = episode.overview || episode.overviewEn || '';
 
             return (
               <div
@@ -447,10 +447,10 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
                 {actor.name.charAt(0)}
               </div>
               <span className="font-medium text-xs text-white line-clamp-1">
-                {language === 'ar' ? actor.name : actor.nameEn}
+                {actor.name || actor.nameEn}
               </span>
               <span className="text-[10px] text-slate-400 line-clamp-1">
-                {language === 'ar' ? actor.character : actor.characterEn}
+                {actor.character || actor.characterEn}
               </span>
             </div>
           ))}
