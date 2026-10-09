@@ -422,13 +422,14 @@ class MovyzaPlayerActivity : ComponentActivity() {
     private suspend fun handlePlaybackError(
         playerError: PlaybackException?,
         expectedPreparationGeneration: Int,
+        fallbackErrorCode: String = "STARTUP_TIMEOUT",
     ) {
         startupWatchdogJob?.cancel()
         startupWatchdogJob = null
         if (expectedPreparationGeneration != sourcePreparationGeneration) return
         buffering = false
         val recoveryGeneration = expectedPreparationGeneration
-        val errorCode = playerError?.errorCodeName ?: "STARTUP_TIMEOUT"
+        val errorCode = playerError?.errorCodeName ?: fallbackErrorCode
         val resumePosition = player.currentPosition.coerceAtLeast(0L)
 
         if (sourceIndex + 1 < sources.size) {
@@ -513,26 +514,44 @@ class MovyzaPlayerActivity : ComponentActivity() {
         // Do not let a stale preparation finish after a retry or source switch.
         if (preparationGeneration != sourcePreparationGeneration) return
 
-        val mediaItemBuilder = MediaItem.Builder()
-            .setUri(source.url)
-            .setTag(source)
-            .setSubtitleConfigurations(subtitleConfigurations)
-        mediaMimeTypeFor(source)?.let { mediaItemBuilder.setMimeType(it) }
-        val mediaItem = mediaItemBuilder.build()
+        val mediaSource = try {
+            val mediaItemBuilder = MediaItem.Builder()
+                .setUri(source.url)
+                .setTag(source)
+                .setSubtitleConfigurations(subtitleConfigurations)
+            mediaMimeTypeFor(source)?.let { mediaItemBuilder.setMimeType(it) }
+            val mediaItem = mediaItemBuilder.build()
 
-        val mediaSource = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
-            .createMediaSource(mediaItem)
-
-        // Recovery is now committed to a new MediaSource; allow a future
-        // error from this new attempt to start the next failover transition.
-        handlingPlaybackError = false
-        if (resumePositionMs != null && resumePositionMs > 0L) {
-            player.setMediaSource(mediaSource, resumePositionMs)
-        } else {
-            player.setMediaSource(mediaSource)
+            DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
+                .createMediaSource(mediaItem)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            if (preparationGeneration != sourcePreparationGeneration) return
+            handlingPlaybackError = true
+            handlePlaybackError(null, preparationGeneration, "SOURCE_SETUP")
+            return
         }
-        player.prepare()
-        player.playWhenReady = true
+
+        try {
+            // Recovery is now committed to a new MediaSource; allow a future
+            // error from this new attempt to start the next failover transition.
+            handlingPlaybackError = false
+            if (resumePositionMs != null && resumePositionMs > 0L) {
+                player.setMediaSource(mediaSource, resumePositionMs)
+            } else {
+                player.setMediaSource(mediaSource)
+            }
+            player.prepare()
+            player.playWhenReady = true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            if (preparationGeneration != sourcePreparationGeneration) return
+            handlingPlaybackError = true
+            handlePlaybackError(null, preparationGeneration, "SOURCE_SETUP")
+            return
+        }
 
         // A dead manifest/CDN can leave ExoPlayer buffering forever without
         // emitting a terminal error. Give each source 25 seconds to start,
