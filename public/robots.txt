@@ -11,4 +11,4 @@ Disallow: /tmdb
 Disallow: /tmdb/
 Disallow: /api/v1/playback/resolve
 
-Sitemap: https://movyza.sbs/sitemap.xml
+Sitemap: https://movyza.sbs/sitemap/homepages.xml
