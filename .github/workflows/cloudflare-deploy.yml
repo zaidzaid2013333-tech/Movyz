@@ -86,9 +86,17 @@ jobs:
           html="$(cat /tmp/preflight.html)"
           printf '%s' "$html" | grep -q 'name="movyz-player" content="vidsrc"'
           printf '%s' "$html" | grep -q 'name="movyz-subtitles" content="vidsrc-locale-subtitles-v1"'
+          printf '%s' "$html" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
 
           echo "CHECK 2/10: Arabic subpages are noindex"
-          ar_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies")"
+          ar_status="$(curl --silent --show-error --location -D /tmp/ar-subpage.headers -o /tmp/ar-subpage.html -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/ar/movies")"
+          test "$ar_status" = "200"
+          ar_html="$(cat /tmp/ar-subpage.html)"
+          if ! grep -Eiq '^x-robots-tag: *noindex, follow' /tmp/ar-subpage.headers; then
+            echo "Arabic route response is missing X-Robots-Tag noindex:"
+            cat /tmp/ar-subpage.headers
+            exit 1
+          fi
           if ! printf '%s' "$ar_html" | grep -q '<html lang="ar" dir="rtl"'; then
             echo "Arabic HTML lang/dir marker missing:"
             printf '%s' "$ar_html" | grep -oE '<html[^>]*>' | head -n 1 || true
@@ -108,7 +116,10 @@ jobs:
           fi
 
           echo "CHECK 3/10: English subpages are noindex"
-          en_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/en/movies")"
+          en_status="$(curl --silent --show-error --location -D /tmp/en-subpage.headers -o /tmp/en-subpage.html -w '%{http_code}' -H 'Cache-Control: no-cache' "$base/en/movies")"
+          test "$en_status" = "200"
+          en_html="$(cat /tmp/en-subpage.html)"
+          grep -Eiq '^x-robots-tag: *noindex, follow' /tmp/en-subpage.headers
           if ! printf '%s' "$en_html" | grep -q '<html lang="en" dir="ltr"'; then
             echo "English HTML lang/dir marker missing:"
             printf '%s' "$en_html" | grep -oE '<html[^>]*>' | head -n 1 || true
@@ -188,6 +199,7 @@ jobs:
           echo "CHECK 10/10: watch deep link"
           watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/watch/movie/550")"
           printf '%s' "$watch_html" | grep -q 'Fight Club'
+          printf '%s' "$watch_html" | grep -q 'name="robots" content="noindex,follow"'
 
           echo "CHECK 11/11: robots"
           robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/robots.txt")"
