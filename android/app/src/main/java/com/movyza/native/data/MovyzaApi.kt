@@ -286,6 +286,21 @@ class MovyzaApi {
         }.map { Unit }
     }
 
+    suspend fun updatePassword(session: UserSession, newPassword: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                if (newPassword.length < 8) {
+                    throw IOException("كلمة المرور يجب أن تحتوي على 8 أحرف على الأقل.")
+                }
+                supabaseRequest(
+                    "PUT",
+                    "/auth/v1/user",
+                    JSONObject().put("password", newPassword),
+                    session.accessToken
+                )
+            }.map { Unit }
+        }
+
     private fun sessionFromAuthResponse(obj: JSONObject, fallbackEmail: String): UserSession {
         val accessToken = obj.optString("access_token").trim()
         val user = obj.optJSONObject("user")
