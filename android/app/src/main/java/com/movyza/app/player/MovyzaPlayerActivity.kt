@@ -73,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -1182,7 +1183,7 @@ private fun MovyzaPlayerScreen(
                         border = BorderStroke(1.dp, MovyzaColors.GlassBorder)
                     ) {
                         IconButton(onClick = onClose) {
-                            Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = MovyzaColors.Text)
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.player_close), tint = MovyzaColors.Text)
                         }
                     }
 
@@ -1200,7 +1201,7 @@ private fun MovyzaPlayerScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "MOVYZA CINEMA PLAYER",
+                            text = stringResource(R.string.player_brand_subtitle),
                             color = MovyzaColors.Gold300,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold
@@ -1222,7 +1223,7 @@ private fun MovyzaPlayerScreen(
                                 )
                                 Spacer(Modifier.width(4.dp))
                                 Text(
-                                    text = "الحلقة التالية",
+                                    text = stringResource(R.string.player_next_episode),
                                     color = MovyzaColors.Text,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
@@ -1266,7 +1267,7 @@ private fun MovyzaPlayerScreen(
                         IconButton(onClick = { showSettings = true }) {
                             Icon(
                                 Icons.Outlined.Settings,
-                                contentDescription = "إعدادات المشغل",
+                                contentDescription = stringResource(R.string.player_settings),
                                 tint = MovyzaColors.Text,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -1291,7 +1292,7 @@ private fun MovyzaPlayerScreen(
                         ) {
                             Icon(
                                 Icons.Outlined.AspectRatio,
-                                contentDescription = "أبعاد الشاشة",
+                                contentDescription = stringResource(R.string.player_aspect_ratio),
                                 tint = MovyzaColors.Text,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -1314,7 +1315,7 @@ private fun MovyzaPlayerScreen(
                             )
                             Spacer(Modifier.width(5.dp))
                             val qualityText = if (qualities.isEmpty()) {
-                                "تلقائي"
+                                stringResource(R.string.player_quality_auto)
                             } else {
                                 qualityLabel(selectedQualityHeight)
                             }
@@ -1345,7 +1346,7 @@ private fun MovyzaPlayerScreen(
                         IconButton(onClick = { onSkip(-10_000L) }) {
                             Icon(
                                 Icons.Default.FastRewind,
-                                contentDescription = "تأخير 10 ثوان",
+                                contentDescription = stringResource(R.string.player_seek_back),
                                 tint = MovyzaColors.Text,
                                 modifier = Modifier.size(26.dp)
                             )
@@ -1362,7 +1363,7 @@ private fun MovyzaPlayerScreen(
                         IconButton(onClick = onTogglePlay) {
                             Icon(
                                 imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (playing) "إيقاف مؤقت" else "تشغيل",
+                                contentDescription = if (playing) stringResource(R.string.player_pause) else stringResource(R.string.player_play),
                                 tint = MovyzaColors.Bg,
                                 modifier = Modifier.size(34.dp)
                             )
@@ -1380,7 +1381,7 @@ private fun MovyzaPlayerScreen(
                         IconButton(onClick = { onSkip(10_000L) }) {
                             Icon(
                                 Icons.Default.FastForward,
-                                contentDescription = "تقديم 10 ثوان",
+                                contentDescription = stringResource(R.string.player_seek_forward),
                                 tint = MovyzaColors.Text,
                                 modifier = Modifier.size(26.dp)
                             )
@@ -1409,7 +1410,7 @@ private fun MovyzaPlayerScreen(
                         Spacer(Modifier.weight(1f))
                         if (buffered > position && duration > 0L) {
                             Text(
-                                text = "محمّل ${(100 * buffered.toFloat() / duration.toFloat()).toInt().coerceIn(0, 100)}%",
+                                text = stringResource(R.string.player_buffered_format, (100 * buffered.toFloat() / duration.toFloat()).toInt().coerceIn(0, 100)),
                                 color = MovyzaColors.Text3,
                                 fontSize = 11.sp
                             )
@@ -1459,7 +1460,7 @@ private fun MovyzaPlayerScreen(
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "تحقق من اتصال الإنترنت أو أعد محاولة جلب المصدر.",
+                        text = stringResource(R.string.player_error_hint),
                         color = MovyzaColors.Text3,
                         fontSize = 12.sp
                     )
@@ -1475,10 +1476,10 @@ private fun MovyzaPlayerScreen(
                         ) {
                             Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("إعادة المحاولة", fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.player_retry), fontWeight = FontWeight.Bold)
                         }
                         TextButton(onClick = onClose) {
-                            Text("رجوع", color = MovyzaColors.Text2)
+                            Text(stringResource(R.string.back), color = MovyzaColors.Text2)
                         }
                     }
                 }
@@ -1491,10 +1492,10 @@ private fun MovyzaPlayerScreen(
             onDismissRequest = { showSettings = false },
             containerColor = MovyzaColors.Bg2,
             shape = MovyzaShapes.Lg,
-            title = { Text("إعدادات المشغل", color = MovyzaColors.Text, fontWeight = FontWeight.Black) },
+            title = { Text(stringResource(R.string.player_settings), color = MovyzaColors.Text, fontWeight = FontWeight.Black) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("سرعة التشغيل", color = MovyzaColors.Text2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.player_speed), color = MovyzaColors.Text2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -1518,9 +1519,9 @@ private fun MovyzaPlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("التشغيل التلقائي للحلقة التالية", color = MovyzaColors.Text, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.player_autoplay_next), color = MovyzaColors.Text, fontWeight = FontWeight.Bold)
                             Text(
-                                if (autoplayNext) "ينتقل تلقائياً عند انتهاء الحلقة" else "لن ينتقل تلقائياً",
+                                stringResource(if (autoplayNext) R.string.player_autoplay_enabled else R.string.player_autoplay_disabled),
                                 color = MovyzaColors.Text3,
                                 fontSize = 11.sp
                             )
@@ -1528,11 +1529,11 @@ private fun MovyzaPlayerScreen(
                         Switch(checked = autoplayNext, onCheckedChange = onAutoplayNext)
                     }
 
-                    Text("شكل الترجمة", color = MovyzaColors.Text2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.player_subtitle_style), color = MovyzaColors.Text2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     listOf(
-                        SubtitleVisualStyle.CLASSIC to "أبيض كلاسيكي",
-                        SubtitleVisualStyle.GOLD to "ذهبي Movyza",
-                        SubtitleVisualStyle.HIGH_CONTRAST to "تباين مرتفع"
+                        SubtitleVisualStyle.CLASSIC to stringResource(R.string.subtitle_classic),
+                        SubtitleVisualStyle.GOLD to stringResource(R.string.subtitle_gold),
+                        SubtitleVisualStyle.HIGH_CONTRAST to stringResource(R.string.subtitle_high_contrast)
                     ).forEach { (style, label) ->
                         TextButton(
                             onClick = { onSubtitleStyle(style) },
@@ -1547,7 +1548,7 @@ private fun MovyzaPlayerScreen(
                     }
 
                     Text(
-                        "الجودة الافتراضية تُحفظ تلقائياً عند اختيار جودة جديدة.",
+                        stringResource(R.string.player_default_quality_note),
                         color = MovyzaColors.Text3,
                         fontSize = 11.sp
                     )
@@ -1555,7 +1556,7 @@ private fun MovyzaPlayerScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showSettings = false }) {
-                    Text("تم", color = MovyzaColors.Gold300, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.common_done), color = MovyzaColors.Gold300, fontWeight = FontWeight.Bold)
                 }
             }
         )
@@ -1567,12 +1568,12 @@ private fun MovyzaPlayerScreen(
             containerColor = MovyzaColors.Bg2,
             shape = MovyzaShapes.Lg,
             title = {
-                Text("جودة البث", color = MovyzaColors.Text, fontWeight = FontWeight.Black)
+                Text(stringResource(R.string.player_quality_title), color = MovyzaColors.Text, fontWeight = FontWeight.Black)
             },
             text = {
                 Column {
                     if (qualities.isEmpty()) {
-                        Text("الجودة التلقائية مفعّلة لهذا المصدر.", color = MovyzaColors.Text2, fontSize = 13.sp)
+                        Text(stringResource(R.string.player_quality_auto_active), color = MovyzaColors.Text2, fontSize = 13.sp)
                     } else {
                         qualities.distinct().sortedDescending().forEach { height ->
                             TextButton(
@@ -1595,7 +1596,7 @@ private fun MovyzaPlayerScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showQuality = false }) {
-                    Text("إغلاق", color = MovyzaColors.Text3)
+                    Text(stringResource(R.string.player_close), color = MovyzaColors.Text3)
                 }
             }
         )
@@ -1606,11 +1607,11 @@ private fun MovyzaPlayerScreen(
             onDismissRequest = { trackDialog = null },
             containerColor = MovyzaColors.Bg2,
             shape = MovyzaShapes.Lg,
-            title = { Text("الترجمة • مفعّلة افتراضيًا", color = MovyzaColors.Text, fontWeight = FontWeight.Black) },
+            title = { Text(stringResource(R.string.player_subtitles_title), color = MovyzaColors.Text, fontWeight = FontWeight.Black) },
             text = {
                 Column {
                     TextButton(onClick = { onSelectPreferredSubtitle(); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
-                        Text("تلقائي • لغة الجهاز", color = MovyzaColors.Gold300, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.player_subtitle_device_auto), color = MovyzaColors.Gold300, fontWeight = FontWeight.Bold)
                     }
                     subtitleTracks.forEach { option ->
                         TextButton(onClick = { onSelectSubtitle(option); trackDialog = null }, modifier = Modifier.fillMaxWidth()) {
@@ -1622,7 +1623,7 @@ private fun MovyzaPlayerScreen(
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { trackDialog = null }) { Text("إغلاق", color = MovyzaColors.Text3) } }
+            confirmButton = { TextButton(onClick = { trackDialog = null }) { Text(stringResource(R.string.player_close), color = MovyzaColors.Text3) } }
         )
     }
 
@@ -1631,7 +1632,7 @@ private fun MovyzaPlayerScreen(
             onDismissRequest = { trackDialog = null },
             containerColor = MovyzaColors.Bg2,
             shape = MovyzaShapes.Lg,
-            title = { Text("مسار الصوت", color = MovyzaColors.Text, fontWeight = FontWeight.Black) },
+            title = { Text(stringResource(R.string.player_audio_track_title), color = MovyzaColors.Text, fontWeight = FontWeight.Black) },
             text = {
                 Column {
                     audioTracks.forEach { option ->
@@ -1644,7 +1645,7 @@ private fun MovyzaPlayerScreen(
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { trackDialog = null }) { Text("إغلاق", color = MovyzaColors.Text3) } }
+            confirmButton = { TextButton(onClick = { trackDialog = null }) { Text(stringResource(R.string.player_close), color = MovyzaColors.Text3) } }
         )
     }
 }
@@ -1658,13 +1659,14 @@ private fun formatTime(milliseconds: Long): String {
     else String.format(Locale.US, "%02d:%02d", m, s)
 }
 
+@Composable
 private fun qualityLabel(height: Int): String = when {
-    height >= 2160 -> "4K Ultra HD"
-    height >= 1440 -> "1440p QHD"
-    height >= 1080 -> "1080p Full HD"
-    height >= 720 -> "720p HD • مستحسن"
-    height >= 576 -> "576p"
-    height >= 480 -> "480p"
-    height >= 360 -> "360p توفير البيانات"
-    else -> "${height}p"
+    height >= 2160 -> stringResource(R.string.player_quality_4k)
+    height >= 1440 -> stringResource(R.string.player_quality_1440)
+    height >= 1080 -> stringResource(R.string.player_quality_1080)
+    height >= 720 -> stringResource(R.string.player_quality_720)
+    height >= 576 -> stringResource(R.string.player_quality_576)
+    height >= 480 -> stringResource(R.string.player_quality_480)
+    height >= 360 -> stringResource(R.string.player_quality_360)
+    else -> stringResource(R.string.player_quality_custom_format, height)
 }

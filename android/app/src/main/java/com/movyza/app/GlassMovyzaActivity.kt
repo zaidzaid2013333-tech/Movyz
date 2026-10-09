@@ -204,7 +204,7 @@ private fun MovyzaLaunchScreen() {
             )
             Spacer(Modifier.height(5.dp))
             Text(
-                text = "سينماك تبدأ هنا",
+                text = stringResource(R.string.app_tagline),
                 color = MovyzaColors.Text3,
                 fontSize = 10.sp
             )
@@ -275,7 +275,7 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
                 } else {
                     vm.signUp(name, email, password) { ok, message ->
                         scope.launch { snackbar.showSnackbar(message) }
-                        if (ok && message == "تم إنشاء الحساب") authOpen = false
+                        if (ok && message == context.getString(R.string.auth_created_success)) authOpen = false
                     }
                 }
             }
@@ -382,7 +382,9 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
                             results = search,
                             suggestions = home.trending,
                             loading = vm.searchLoading,
+                            error = vm.searchError,
                             onQuery = vm::search,
+                            onRetry = vm::search,
                             onOpen = { item ->
                                 details = null
                                 selected = item
@@ -564,7 +566,7 @@ private fun MovyzaFixedBottomBar(
                         },
                         contentDescription = stringResource(item.labelRes),
                         tint = tint,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(if (active) 26.dp else 24.dp)
                     )
                     AnimatedVisibility(
                         visible = active,
@@ -787,6 +789,18 @@ private fun MovyzaHomeTemplateScreen(
             )
         }
 
+        item(key = "section-series") {
+            FixedHorizontalSection(
+                sectionId = "series",
+                title = stringResource(R.string.section_series),
+                subtitle = stringResource(R.string.section_series_subtitle),
+                movies = state.series,
+                loading = loading,
+                actionLabel = stringResource(R.string.view_all),
+                onAction = { onSelectTab(Tab.SERIES) },
+                onOpen = onOpen
+            )
+        }
         item(key = "section-top-rated") {
             FixedHorizontalSection(
                 sectionId = "toprated",
@@ -800,18 +814,6 @@ private fun MovyzaHomeTemplateScreen(
             )
         }
 
-        item(key = "section-series") {
-            FixedHorizontalSection(
-                sectionId = "series",
-                title = stringResource(R.string.section_series),
-                subtitle = stringResource(R.string.section_series_subtitle),
-                movies = state.series,
-                loading = loading,
-                actionLabel = stringResource(R.string.view_all),
-                onAction = { onSelectTab(Tab.SERIES) },
-                onOpen = onOpen
-            )
-        }
     }
 }
 
@@ -935,7 +937,7 @@ private fun MovyzaCatalogTemplateScreen(
                     text = stringResource(R.string.genre_action),
                     active = selectedGenreId == 28 || selectedGenreId == 10759,
                     onClick = {
-                        selectedGenreId = if (title == "المسلسلات") 10759 else 28
+                        selectedGenreId = if (title == stringResource(R.string.quick_series)) 10759 else 28
                     }
                 )
                 GlassPill(
@@ -1007,7 +1009,9 @@ private fun MovyzaSearchTemplateScreen(
     results: List<Movie>,
     suggestions: List<Movie>,
     loading: Boolean,
+    error: String?,
     onQuery: (String) -> Unit,
+    onRetry: (String) -> Unit,
     onOpen: (Movie) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
@@ -1090,7 +1094,11 @@ private fun MovyzaSearchTemplateScreen(
             )
         }
 
-        if (isSearching && !loading && listItems.isEmpty()) {
+        if (isSearching && !loading && error != null) {
+            item(key = "search-error") {
+                NativeErrorBanner(message = error, onRetry = { onRetry(query) })
+            }
+        } else if (isSearching && !loading && listItems.isEmpty()) {
             item(key = "search-empty") {
                 GlassCard(
                     modifier = Modifier

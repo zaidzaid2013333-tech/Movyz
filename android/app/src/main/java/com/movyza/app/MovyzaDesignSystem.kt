@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -135,6 +136,27 @@ object MovyzaShapes {
     val Poster = RoundedCornerShape(20.dp)
 }
 
+object MovyzaSpacing {
+    val Xs = 4.dp
+    val Sm = 8.dp
+    val Md = 12.dp
+    val Lg = 16.dp
+    val Xl = 20.dp
+    val Xxl = 24.dp
+    val Huge = 32.dp
+    val ScreenHorizontal = 20.dp
+}
+
+object MovyzaMotion {
+    const val Standard = 280
+    const val Quick = 140
+    const val StaggerStep = 45
+    val Ease = FastOutSlowInEasing
+    fun <T> standard() = tween<T>(Standard, easing = Ease)
+    fun <T> quick() = tween<T>(Quick, easing = Ease)
+    fun <T> navSpring() = spring<T>(dampingRatio = 0.8f, stiffness = 380f)
+}
+
 @Composable
 fun rememberReducedMotion(): Boolean {
     val context = LocalContext.current
@@ -157,7 +179,7 @@ fun Modifier.pressable(onClick: () -> Unit): Modifier {
     val pressed by interactions.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed && !reducedMotion) 0.96f else 1f,
-        animationSpec = tween(if (reducedMotion) 0 else 140, easing = FastOutSlowInEasing),
+        animationSpec = tween(if (reducedMotion) 0 else MovyzaMotion.Quick, easing = FastOutSlowInEasing),
         label = "press-scale"
     )
     return this
@@ -177,10 +199,10 @@ fun Modifier.staggerIn(index: Int, key: Any? = null): Modifier {
             progress.snapTo(1f)
             hasEntered = true
         } else if (!hasEntered) {
-            delay(minOf(index, 6) * 45L)
+            delay(minOf(index, 6) * MovyzaMotion.StaggerStep.toLong())
             progress.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(280, easing = FastOutSlowInEasing)
+                animationSpec = MovyzaMotion.standard()
             )
             hasEntered = true
         }
@@ -196,10 +218,18 @@ fun Modifier.staggerIn(index: Int, key: Any? = null): Modifier {
 fun MovyzaMidnightBackdrop(modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         drawRect(brush = MovyzaColors.ScreenBrush)
+        val glowCenter = Offset(size.width * 0.92f, size.height * 0.03f)
         drawCircle(
-            color = MovyzaColors.Gold400.copy(alpha = 0.06f),
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    MovyzaColors.Gold400.copy(alpha = 0.06f),
+                    MovyzaColors.Gold400.copy(alpha = 0.0f)
+                ),
+                center = glowCenter,
+                radius = size.width * 0.76f
+            ),
             radius = size.width * 0.76f,
-            center = Offset(size.width * 0.92f, size.height * 0.03f)
+            center = glowCenter
         )
     }
 }
