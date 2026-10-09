@@ -251,8 +251,16 @@ class MovyzaApi {
         withContext(Dispatchers.IO) {
             runCatching {
                 validateEmail(email)
-                val cleanToken = token.trim().replace(" ", "")
-                if (cleanToken.length != 6 || cleanToken.any { !it.isDigit() }) {
+                // Arabic keyboards may insert Arabic-Indic digits (١٢٣٤٥٦).
+                // Supabase OTP expects the ASCII form, so normalize decimal digits
+                // before validating/sending while still rejecting any other character.
+                val cleanToken = token.trim()
+                    .filterNot { it.isWhitespace() }
+                    .map { character ->
+                        if (character.isDigit()) character.digitToInt().toChar() else character
+                    }
+                    .joinToString("")
+                if (cleanToken.length != 6 || cleanToken.any { it !in '0'..'9' }) {
                     throw IOException("أدخل رمز التحقق المكوّن من 6 أرقام.")
                 }
                 val cleanType = type.trim().lowercase()
