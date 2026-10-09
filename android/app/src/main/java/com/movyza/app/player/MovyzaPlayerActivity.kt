@@ -1,5 +1,7 @@
 package com.movyza.app.player
 
+import com.movyza.app.R
+
 import android.content.Context
 import android.net.Uri
 import android.os.Build
