@@ -10,7 +10,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
@@ -98,6 +103,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -281,10 +287,11 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
             .fillMaxSize()
             .background(MovyzaColors.Bg)
     ) {
+        MovyzaMidnightBackdrop(Modifier.fillMaxSize())
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MovyzaColors.Bg)
+                .background(Color.Transparent)
         ) {
             Box(
                 modifier = Modifier
@@ -490,6 +497,7 @@ private fun MovyzaFixedBottomBar(
     selected: Tab,
     onSelect: (Tab) -> Unit
 ) {
+    val reducedMotion = rememberReducedMotion()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -499,66 +507,71 @@ private fun MovyzaFixedBottomBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(62.dp)
-                .clip(MovyzaShapes.Xl)
-                .background(Color(0xF20A0B10))
-                .border(1.dp, MovyzaColors.GlassBorder.copy(alpha = 0.82f), MovyzaShapes.Xl)
-                .padding(horizontal = 5.dp, vertical = 5.dp),
+                .height(68.dp)
+                .clip(MovyzaShapes.Pill)
+                .background(MovyzaColors.Bg2.copy(alpha = 0.80f))
+                .background(MovyzaColors.GlassFill, MovyzaShapes.Pill)
+                .border(0.8.dp, MovyzaColors.GlassStroke, MovyzaShapes.Pill)
+                .padding(horizontal = 7.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceEvenly
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Tab.entries.forEach { item ->
                 val active = selected == item
                 val tint by animateColorAsState(
                     targetValue = if (active) MovyzaColors.Gold300 else MovyzaColors.Text3,
-                    animationSpec = tween(180),
+                    animationSpec = tween(if (reducedMotion) 0 else 140, easing = FastOutSlowInEasing),
                     label = "nav-tint"
                 )
                 val pillBg by animateColorAsState(
-                    targetValue = if (active) MovyzaColors.Gold500.copy(alpha = 0.16f) else Color.Transparent,
-                    animationSpec = tween(180),
+                    targetValue = if (active) MovyzaColors.GoldSoft else Color.Transparent,
+                    animationSpec = tween(if (reducedMotion) 0 else 140, easing = FastOutSlowInEasing),
                     label = "nav-bg"
                 )
-
-                Box(
+                val shape = MovyzaShapes.Pill
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .height(50.dp)
-                        .padding(horizontal = 2.dp)
-                        .clip(MovyzaShapes.Lg)
-                        .background(pillBg)
+                        .height(52.dp)
+                        .clip(shape)
+                        .background(pillBg, shape)
                         .then(
-                            if (active) Modifier.border(
-                                1.dp,
-                                MovyzaColors.Gold300.copy(alpha = 0.46f),
-                                MovyzaShapes.Lg
-                            ) else Modifier
+                            if (active) Modifier.border(0.8.dp, MovyzaColors.GoldBorder, shape)
+                            else Modifier
                         )
-                        .clickable { onSelect(item) },
-                    contentAlignment = Alignment.Center
+                        .animateContentSize(
+                            if (reducedMotion) tween(0)
+                            else spring(dampingRatio = 0.8f, stiffness = 380f)
+                        )
+                        .clickable { onSelect(item) }
+                        .padding(horizontal = if (active) 10.dp else 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                    Icon(
+                        imageVector = when (item) {
+                            Tab.HOME -> Icons.Outlined.Home
+                            Tab.MOVIES -> Icons.Outlined.LocalMovies
+                            Tab.SERIES -> Icons.Outlined.Tv
+                            Tab.SEARCH -> Icons.Outlined.Search
+                            Tab.PROFILE -> Icons.Outlined.Person
+                        },
+                        contentDescription = stringResource(item.labelRes),
+                        tint = tint,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    AnimatedVisibility(
+                        visible = active,
+                        enter = if (reducedMotion) fadeIn(tween(0))
+                        else fadeIn(tween(140)) + expandHorizontally(),
+                        exit = if (reducedMotion) fadeOut(tween(0))
+                        else fadeOut(tween(100)) + shrinkHorizontally()
                     ) {
-                        Icon(
-                            imageVector = when (item) {
-                                Tab.HOME -> Icons.Outlined.Home
-                                Tab.MOVIES -> Icons.Outlined.LocalMovies
-                                Tab.SERIES -> Icons.Outlined.Tv
-                                Tab.SEARCH -> Icons.Outlined.Search
-                                Tab.PROFILE -> Icons.Outlined.Person
-                            },
-                            contentDescription = item.label,
-                            tint = tint,
-                            modifier = Modifier.size(if (active) 22.dp else 21.dp)
-                        )
-                        Spacer(Modifier.height(2.dp))
                         Text(
-                            text = item.label,
+                            text = stringResource(item.labelRes),
+                            modifier = Modifier.padding(start = 7.dp),
                             color = tint,
-                            fontSize = 10.sp,
-                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
                             maxLines = 1
                         )
                     }
@@ -585,12 +598,16 @@ private fun MovyzaHomeTemplateScreen(
         state.trending.take(5)
     }
     var heroIndex by remember { mutableIntStateOf(0) }
+    val reducedMotion = rememberReducedMotion()
+    val screenLifecycle = LocalLifecycleOwner.current
 
-    LaunchedEffect(heroCandidates.size) {
-        if (heroCandidates.size > 1) {
+    LaunchedEffect(heroCandidates.size, reducedMotion, screenLifecycle) {
+        if (heroCandidates.size > 1 && !reducedMotion) {
             while (true) {
                 delay(6_500)
-                heroIndex = (heroIndex + 1) % heroCandidates.size
+                if (screenLifecycle.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                    heroIndex = (heroIndex + 1) % heroCandidates.size
+                }
             }
         } else {
             heroIndex = 0
@@ -603,7 +620,7 @@ private fun MovyzaHomeTemplateScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MovyzaColors.Bg),
+            .background(Color.Transparent),
         contentPadding = PaddingValues(bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
@@ -611,56 +628,47 @@ private fun MovyzaHomeTemplateScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                GlassCard(
+                    shape = MovyzaShapes.Pill,
+                    strong = true,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(9.dp)
+                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
+                        horizontalArrangement = Arrangement.Start,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(MovyzaShapes.Sm)
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(MovyzaColors.Gold300, MovyzaColors.Gold400, MovyzaColors.Gold600)
-                                    )
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.LocalMovies,
-                                contentDescription = null,
-                                tint = MovyzaColors.Bg,
-                                modifier = Modifier.size(19.dp)
-                            )
-                        }
+                        Text(
+                            text = "M",
+                            color = MovyzaColors.Gold300,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Spacer(Modifier.width(8.dp))
                         Text(
                             text = "MOVYZA",
                             color = MovyzaColors.Text,
-                            fontSize = 22.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Black,
-                            letterSpacing = 2.4.sp
+                            letterSpacing = 2.2.sp,
+                            maxLines = 1
                         )
                     }
-                    Text(
-                        text = "سينماك تبدأ هنا",
-                        color = MovyzaColors.Text3,
-                        fontSize = 11.sp
-                    )
                 }
-                GlassIconButton(
-                    onClick = { onSelectTab(Tab.SEARCH) },
-                    icon = Icons.Outlined.Search,
-                    contentDescription = "البحث"
-                )
                 Spacer(Modifier.width(8.dp))
                 GlassIconButton(
                     onClick = { onSelectTab(Tab.PROFILE) },
                     icon = Icons.Outlined.AccountCircle,
-                    contentDescription = "حسابي"
+                    contentDescription = stringResource(R.string.tab_profile)
+                )
+                Spacer(Modifier.width(8.dp))
+                GlassIconButton(
+                    onClick = { onSelectTab(Tab.SEARCH) },
+                    icon = Icons.Outlined.Search,
+                    contentDescription = stringResource(R.string.tab_search)
                 )
             }
         }
@@ -772,19 +780,6 @@ private fun MovyzaHomeTemplateScreen(
             )
         }
 
-        item(key = "section-top-rated") {
-            FixedHorizontalSection(
-                sectionId = "toprated",
-                title = "الأعلى تقييمًا",
-                subtitle = "أعمال خالدة بتقييمات استثنائية",
-                movies = state.topRated,
-                loading = loading,
-                actionLabel = "عرض الكل",
-                onAction = { onSelectTab(Tab.MOVIES) },
-                onOpen = onOpen
-            )
-        }
-
         item(key = "section-series") {
             FixedHorizontalSection(
                 sectionId = "series",
@@ -874,7 +869,7 @@ private fun MovyzaCatalogTemplateScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MovyzaColors.Bg)
+            .background(Color.Transparent)
     ) {
         Column(
             modifier = Modifier
@@ -936,8 +931,8 @@ private fun MovyzaCatalogTemplateScreen(
         }
 
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 160.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 28.dp),
+            columns = GridCells.Fixed(2),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 28.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -999,7 +994,7 @@ private fun MovyzaSearchTemplateScreen(
         if (query.isBlank()) {
             onQuery("")
         } else {
-            delay(360)
+            delay(350)
             onQuery(query)
         }
     }
@@ -1011,7 +1006,7 @@ private fun MovyzaSearchTemplateScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MovyzaColors.Bg),
+            .background(Color.Transparent),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -1140,7 +1135,7 @@ private fun MovyzaProfileTemplateScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MovyzaColors.Bg),
+            .background(Color.Transparent),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -1426,12 +1421,11 @@ private fun MovyzaDetailsTemplateScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MovyzaColors.Bg)
+            .background(Color.Transparent)
     ) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding(),
             contentPadding = PaddingValues(bottom = 36.dp)
         ) {
@@ -1439,9 +1433,7 @@ private fun MovyzaDetailsTemplateScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .height(500.dp)
-                        .clip(MovyzaShapes.Xl)
+                        .height(430.dp)
                         .background(MovyzaColors.SurfaceElevated)
                 ) {
                     AsyncImage(
@@ -1476,15 +1468,6 @@ private fun MovyzaDetailsTemplateScreen(
                                     )
                                 )
                             )
-                    )
-
-                    GlassIconButton(
-                        onClick = onBack,
-                        icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                        contentDescription = "رجوع",
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(14.dp)
                     )
 
                     MovyzaBadge(
@@ -1565,14 +1548,6 @@ private fun MovyzaDetailsTemplateScreen(
                             modifier = Modifier.weight(1f)
                         )
 
-                        GlassIconButton(
-                            onClick = onToggleWatchlist,
-                            icon = if (watchlisted) Icons.Outlined.BookmarkAdded else Icons.Outlined.BookmarkAdd,
-                            contentDescription = "قائمتي",
-                            tint = if (watchlisted) MovyzaColors.Gold300 else MovyzaColors.Text,
-                            goldBorder = watchlisted,
-                            modifier = Modifier.size(48.dp)
-                        )
                     }
 
                     val genres = details?.genres.orEmpty()
