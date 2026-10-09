@@ -661,7 +661,7 @@ const buildRobotsTxt = () => [
   'Disallow: /tmdb/',
   'Disallow: /api/v1/playback/resolve',
   '',
-  'Sitemap: https://movyza.sbs/sitemap.xml',
+  'Sitemap: https://movyza.sbs/sitemap/homepages.xml',
   '',
 ].join('\n');
 
@@ -679,7 +679,12 @@ const xmlResponse = (xml: string, maxAge = 3600) =>
 // Retire legacy nested sitemaps immediately, without querying TMDB or expanding episode URLs.
 const handleSitemap = (request: Request) => {
   if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
-  return new Response('Gone: only /sitemap.xml is published.', {
+  const url = new URL(request.url);
+  // Fresh, versioned path avoids stale CDN objects for the previous sitemap index.
+  if (url.pathname === '/sitemap/homepages.xml') {
+    return xmlResponse(buildHomepagesSitemap());
+  }
+  return new Response('Gone: only homepage sitemaps are published.', {
     status: 410,
     headers: {
       'content-type': 'text/plain; charset=UTF-8',
