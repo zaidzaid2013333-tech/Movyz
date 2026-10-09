@@ -1,6 +1,5 @@
 import React from 'react';
 import { useLanguage } from '../../context/LanguageContext';
-import { Play } from 'lucide-react';
 
 interface FooterProps {
   onNavigate: (path: string) => void;
@@ -10,13 +9,11 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
   const { t, language } = useLanguage();
 
   return (
-    <footer className="w-full border-t border-white/[0.06] bg-[#06070a] text-slate-400 text-xs py-10 px-4 sm:px-6 lg:px-8 mt-16 mb-16 md:mb-0">
+    <footer className="movyza-footer w-full border-t border-white/[0.06] bg-[#06070a] text-slate-400 text-xs py-10 px-4 sm:px-6 lg:px-8 mt-16 mb-16 md:mb-0">
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-start">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-amber-500 flex items-center justify-center">
-              <Play className="w-3 h-3 text-slate-950 fill-slate-950 translate-x-0.5" />
-            </div>
+            <img src="/pwa-icon.svg" alt="" aria-hidden="true" className="movyza-footer-brand-icon" width={28} height={28} />
             <span className="font-bold text-white tracking-wider font-sans uppercase text-sm">
               MOVYZA
             </span>
