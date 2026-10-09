@@ -16,7 +16,7 @@ export const LegalPage: React.FC = () => {
       />
 
       <main dir={direction} className="max-w-4xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
-        <div className="rounded-3xl border border-white/[0.08] bg-[#0b0e14] p-6 sm:p-10 shadow-2xl">
+        <div className="movyza-glass-panel rounded-3xl border border-white/[0.08] bg-[#0b0e14] p-6 sm:p-10 shadow-2xl">
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 rounded-2xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center shrink-0">
               <ShieldCheck className="w-6 h-6 text-amber-300" />
