@@ -592,9 +592,18 @@ class MovyzaPlayerActivity : ComponentActivity() {
             MimeTypes.TEXT_SSA -> "ass"
             else -> "vtt"
         }
-        val cacheFile = File(cacheDir, "subtitle_${kotlin.math.abs(subtitle.url.hashCode())}_$index.$extension")
+        val cacheFile = File(cacheDir, "subtitle_${Integer.toUnsignedString(subtitle.url.hashCode())}_$index.$extension")
 
-        val normalizedText = runCatching {
+        // Reuse a previously normalized subtitle when switching quality/source;
+        // otherwise every switch re-downloads the same subtitle and delays video.
+        val cachedText = if (cacheFile.isFile && cacheFile.length() > 0L) {
+            runCatching { cacheFile.readText(Charsets.UTF_8) }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
+        val normalizedText = cachedText ?: runCatching {
             val requestBuilder = Request.Builder()
                 .url(subtitle.url)
                 .header("Accept", "text/vtt,text/plain,text/*,application/*;q=0.8")
@@ -612,7 +621,7 @@ class MovyzaPlayerActivity : ComponentActivity() {
         }.getOrNull()
 
         if (!normalizedText.isNullOrBlank()) {
-            cacheFile.writeText(normalizedText, Charsets.UTF_8)
+            if (cachedText == null) cacheFile.writeText(normalizedText, Charsets.UTF_8)
             Uri.fromFile(cacheFile)
         } else {
             runCatching { Uri.parse(subtitle.url) }.getOrNull()
