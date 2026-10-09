@@ -431,7 +431,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   ]);
   // Watch pages are intentionally excluded from search indexing. They remain
   // fully accessible to users, but are not SEO landing pages.
-  const isNoIndex = isWatchPage || route === '/search' || route.startsWith('/search/') || noindexRoutes.has(route);
+  const isNoIndex = route !== '/' || isWatchPage || route === '/search' || route.startsWith('/search/') || noindexRoutes.has(route);
   const searchTitle = alternateTitle || contentTitle;
   const seoTitle = isWatchPage
     ? (locale === 'ar'
@@ -441,15 +441,24 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
       ? (locale === 'ar'
         ? `${searchTitle} مترجم عربي | ${contentTitle} | مشاهدة ${searchTitle} | موفيزا`
         : `${searchTitle} | ${contentTitle} | Movyza`)
-      : contentTitle;
+      : route === '/' ? HOME_SEO[locale].title : contentTitle;
   const hasExplicitLocale = Boolean(localeFromPath(url.pathname));
   const canonicalPath = route === '/' && !hasExplicitLocale ? '/' : `/${locale}${route === '/' ? '/' : route}`;
   const origin = url.origin;
-  const hreflangLinks = Object.entries(LOCALES)
-    .map(([code, item]) => `<link rel="alternate" hreflang="${item.tmdb.toLowerCase()}" href="${origin}/${code}${route === '/' ? '/' : route}" />`)
-    .join('');
-  const xDefault = `<link rel="alternate" hreflang="x-default" href="${origin}/en${route === '/' ? '/' : route}" />`;
+  const hreflangLinks = route === '/'
+    ? Object.entries(LOCALES)
+        .map(([code, item]) => `<link rel="alternate" hreflang="${item.tmdb.toLowerCase()}" href="${origin}/${code}/" />`)
+        .join('')
+    : '';
+  const xDefault = route === '/'
+    ? `<link rel="alternate" hreflang="x-default" href="${origin}/en/" />`
+    : '';
   const keywords = titleKeywords(locale, contentTitle + (alternateTitle && alternateTitle !== contentTitle ? `, ${alternateTitle}` : ''));
+  const metaDescriptionSource = String(description || HOME_SEO[locale].description).replace(/\s+/g, ' ').trim();
+  const metaDescriptionChars = Array.from(metaDescriptionSource);
+  const metaDescription = metaDescriptionChars.length <= 155
+    ? metaDescriptionSource
+    : metaDescriptionChars.slice(0, 152).join('').replace(/\s+\S*$/u, '').trim() + '…';
 
   const toIsoDuration = (minutes: number) => {
     const totalSeconds = Math.max(0, Math.round(minutes * 60));
@@ -510,37 +519,87 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>`;
   const htmlLang = `<html lang="${locale}" dir="${config.dir}"`;
 
-  // Supply meaningful, visible server-delivered copy and internal links outside
-  // the React mount node, so crawlers do not depend entirely on client rendering.
-  const crawlableRoutes = ['/movies', '/series', '/discover', '/catalog', '/legal'];
-  const hasIndexableContentRoute = route === '/' || crawlableRoutes.includes(route) || Boolean(detailMovie || detailSeries);
-  const bodyHeading = route === '/' ? HOME_SEO[locale].title : contentTitle;
-  const bodyDescription = description || HOME_SEO[locale].description;
-  const sectionLinks = [
-    { path: 'movies', label: generic[locale].movies },
-    { path: 'series', label: generic[locale].series },
-    { path: 'discover', label: generic[locale].discover },
-    { path: 'catalog', label: generic[locale].catalog },
-  ].map(({ path, label }) => {
-    const displayLabel = label.replace(/\s*\|\s*(Movyza|موفيزا)$/i, '').trim();
-    return `<a href="${origin}/${locale}/${path}" style="display:inline-flex;align-items:center;border:1px solid #3f3f46;border-radius:999px;padding:9px 14px;color:#fbbf24;background:#101012;text-decoration:none;font-size:14px;line-height:1.5">${escapeXml(displayLabel)}</a>`;
-  }).join('');
-  const crawlableBody = !isNoIndex && hasIndexableContentRoute
-    ? `<section id="movyza-seo-content" dir="${config.dir}" aria-label="${escapeXml(HOME_SEO[locale].title)}" style="max-width:1160px;margin:28px auto 18px;padding:24px 20px;border-top:1px solid #27272a;color:#e4e4e7;font-family:inherit">
-        <h1 style="margin:0 0 12px;font-size:clamp(22px,3vw,32px);line-height:1.35;font-weight:700;color:#fafafa">${escapeXml(bodyHeading)}</h1>
-        <p style="max-width:900px;margin:0;color:#a1a1aa;font-size:15px;line-height:1.9">${escapeXml(bodyDescription)}</p>
-        <nav style="display:flex;flex-wrap:wrap;gap:10px;margin-top:16px" aria-label="${escapeXml(HOME_SEO[locale].title)}">${sectionLinks}</nav>
-      </section>`
+
+  // Crawlable content belongs only on the 33 intended homepage URLs.
+  // Put it before </body> so it does not depend on the exact React mount markup.
+  const HOME_SEO_INTRO: Record<LocaleCode, string> = {
+    ar: 'اكتشف معلومات الأفلام والمسلسلات وتصنيفاتها وتواريخ إصدارها، واختر لغة التصفح التي تناسبك.',
+    en: 'Explore movie and TV details, genres, release years, and new titles, then choose the language you prefer for browsing.',
+    fr: 'Explorez les fiches des films et séries, les genres, les années de sortie et les nouveautés, puis choisissez votre langue de navigation.',
+    de: 'Entdecke Filmdetails, Genres, Erscheinungsjahre und neue Titel und wähle die passende Sprache für die Navigation.',
+    es: 'Explora fichas de películas y series, géneros, años de estreno y novedades, y elige el idioma que prefieras para navegar.',
+    it: 'Esplora schede di film e serie, generi, anni di uscita e novità, quindi scegli la lingua che preferisci per navigare.',
+    pt: 'Explore informações de filmes e séries, gêneros, anos de lançamento e novidades, e escolha o idioma que preferir para navegar.',
+    ru: 'Изучайте информацию о фильмах и сериалах, жанры, годы выхода и новинки, а также выбирайте удобный язык интерфейса.',
+    tr: 'Film ve dizi bilgilerini, türleri, yayın yıllarını ve yeni yapımları keşfedin; gezinmek için tercih ettiğiniz dili seçin.',
+    hi: 'फ़िल्मों और सीरीज़ के विवरण, शैली, रिलीज़ वर्ष और नई रिलीज़ खोजें, और ब्राउज़ करने के लिए अपनी पसंदीदा भाषा चुनें।',
+    ja: '映画やシリーズの作品情報、ジャンル、公開年、新作を調べ、使いやすい表示言語を選べます。',
+    ko: '영화와 시리즈의 작품 정보, 장르, 공개 연도와 신작을 살펴보고 편한 표시 언어를 선택하세요.',
+    zh: '查看电影和剧集的作品资料、类型、上映年份和新作，并选择适合自己的浏览语言。',
+    nl: 'Bekijk informatie over films en series, genres, releasejaren en nieuwe titels, en kies de taal waarin je wilt browsen.',
+    sv: 'Utforska information om filmer och serier, genrer, premiärår och nya titlar och välj ditt föredragna språk.',
+    da: 'Udforsk information om film og serier, genrer, udgivelsesår og nye titler, og vælg det sprog, du foretrækker.',
+    no: 'Utforsk informasjon om filmer og serier, sjangre, utgivelsesår og nye titler, og velg språket du foretrekker.',
+    fi: 'Tutustu elokuvien ja sarjojen tietoihin, genreihin, julkaisuvuosiin ja uutuuksiin sekä valitse haluamasi käyttöliittymän kieli.',
+    pl: 'Poznawaj informacje o filmach i serialach, gatunki, lata premier i nowości, a następnie wybierz preferowany język.',
+    cs: 'Prohlížejte si informace o filmech a seriálech, žánry, roky vydání a novinky a vyberte si preferovaný jazyk.',
+    uk: 'Переглядайте інформацію про фільми й серіали, жанри, роки виходу та новинки й обирайте зручну мову.',
+    he: 'גלו פרטים על סרטים וסדרות, ז׳אנרים, שנות יציאה ותכנים חדשים ובחרו את שפת הגלישה המועדפת עליכם.',
+    vi: 'Khám phá thông tin phim và series, thể loại, năm phát hành và nội dung mới, đồng thời chọn ngôn ngữ duyệt phù hợp.',
+    id: 'Jelajahi informasi film dan serial, genre, tahun rilis, dan judul terbaru, lalu pilih bahasa yang paling nyaman untuk digunakan.',
+    ms: 'Terokai maklumat filem dan siri, genre, tahun keluaran dan tajuk baharu, kemudian pilih bahasa pilihan anda.',
+    th: 'สำรวจข้อมูลภาพยนตร์และซีรีส์ ประเภท ปีที่ออกฉาย และเรื่องใหม่ พร้อมเลือกภาษาที่ต้องการใช้',
+    ro: 'Explorează informații despre filme și seriale, genuri, ani de lansare și titluri noi, apoi alege limba preferată.',
+    hu: 'Fedezd fel a filmek és sorozatok adatait, műfajait, megjelenési éveit és újdonságait, majd válaszd ki a kívánt nyelvet.',
+    el: 'Εξερευνήστε πληροφορίες για ταινίες και σειρές, είδη, έτη κυκλοφορίας και νέους τίτλους και επιλέξτε τη γλώσσα σας.',
+    bn: 'সিনেমা ও সিরিজের তথ্য, ধরন, মুক্তির বছর এবং নতুন শিরোনাম দেখুন, তারপর পছন্দের ভাষা বেছে নিন।',
+    ur: 'فلموں اور سیریز کی معلومات، اصناف، ریلیز کے سال اور نئی پیشکشیں دیکھیں، پھر اپنی پسند کی زبان منتخب کریں۔',
+    fa: 'اطلاعات فیلم‌ها و سریال‌ها، ژانرها، سال انتشار و آثار تازه را بررسی کنید و زبان دلخواه خود را انتخاب کنید.',
+  };
+  const HOME_LANGUAGE_LABEL: Record<LocaleCode, string> = {
+    ar: 'اختر لغة الموقع', en: 'Choose your language', fr: 'Choisissez votre langue', de: 'Sprache auswählen',
+    es: 'Elige tu idioma', it: 'Scegli la lingua', pt: 'Escolha seu idioma', ru: 'Выберите язык',
+    tr: 'Dilinizi seçin', hi: 'अपनी भाषा चुनें', ja: '言語を選択', ko: '언어 선택', zh: '选择语言',
+    nl: 'Kies je taal', sv: 'Välj språk', da: 'Vælg sprog', no: 'Velg språk', fi: 'Valitse kieli',
+    pl: 'Wybierz język', cs: 'Vyberte jazyk', uk: 'Виберіть мову', he: 'בחרו שפה', vi: 'Chọn ngôn ngữ',
+    id: 'Pilih bahasa', ms: 'Pilih bahasa', th: 'เลือกภาษา', ro: 'Alege limba', hu: 'Válassz nyelvet',
+    el: 'Επιλέξτε γλώσσα', bn: 'ভাষা নির্বাচন করুন', ur: 'اپنی زبان منتخب کریں', fa: 'زبان خود را انتخاب کنید',
+  };
+  const languageLinks = Object.entries(LOCALES)
+    .map(([code, item]) =>
+      '<a href="' + origin + '/' + code + '/" hreflang="' + item.tmdb.toLowerCase() +
+      '" lang="' + code + '" style="color:#fbbf24;text-decoration:none;padding:6px 9px;border:1px solid #3f3f46;border-radius:8px;font-size:13px;line-height:1.5">' +
+      escapeXml(item.nativeName) + '</a>',
+    )
+    .join('');
+  const crawlableBody = !isNoIndex && route === '/'
+    ? '<section id="movyza-seo-content" dir="' + config.dir + '" aria-label="' + escapeXml(HOME_SEO[locale].title) +
+      '" style="max-width:1160px;margin:28px auto 18px;padding:24px 20px;border-top:1px solid #27272a;color:#e4e4e7;font-family:inherit">' +
+        '<h1 style="margin:0 0 12px;font-size:clamp(22px,3vw,32px);line-height:1.35;font-weight:700;color:#fafafa">' +
+          escapeXml(HOME_SEO[locale].title) + '</h1>' +
+        '<p style="max-width:900px;margin:0 0 10px;color:#a1a1aa;font-size:15px;line-height:1.9">' +
+          escapeXml(HOME_SEO[locale].description) + '</p>' +
+        '<p style="max-width:900px;margin:0;color:#a1a1aa;font-size:15px;line-height:1.9">' +
+          escapeXml(HOME_SEO_INTRO[locale]) + '</p>' +
+        '<nav style="margin-top:20px" aria-label="' + escapeXml(HOME_LANGUAGE_LABEL[locale]) + '">' +
+          '<h2 style="margin:0 0 10px;color:#fafafa;font-size:16px;font-weight:600">' +
+            escapeXml(HOME_LANGUAGE_LABEL[locale]) + '</h2>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:8px">' + languageLinks + '</div>' +
+        '</nav>' +
+      '</section>'
     : '';
 
   let html = await response.text();
   html = html.replace(/<html\b[^>]*>/i, htmlLang + '>');
-  html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${seoTitle}</title>`);
-  html = html.replace(/<meta\s+name=["']description["'][^>]*>/i, `<meta name="description" content="${description.replace(/"/g, '&quot;')}" />`);
+  html = html.replace(/<title>[\s\S]*?<\/title>/i, '<title>' + escapeXml(seoTitle) + '</title>');
+  html = html.replace(/<meta\s+name=["']description["'][^>]*>/i, '<meta name="description" content="' + escapeXml(metaDescription) + '" />');
   html = html.replace('</head>', injection + '</head>');
   if (crawlableBody) {
-    html = html.replace(/(<div id="root"><\/div>)/i, `$1${crawlableBody}`);
+    const closingBody = /<\/body\s*>/i;
+    if (closingBody.test(html)) html = html.replace(closingBody, (match) => crawlableBody + match);
+    else html += crawlableBody;
   }
+
   const headers = new Headers(response.headers);
   headers.set('content-type', 'text/html; charset=UTF-8');
   // HTML is deterministic for a locale + path and safe to cache at the Worker edge.
