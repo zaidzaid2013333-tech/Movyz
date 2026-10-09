@@ -94,4 +94,6 @@
     <string name="detail_episode_format">الحلقة %1$d • %2$s</string>
     <string name="type_movie">فيلم</string>
     <string name="poster_overview_placeholder">اضغط لعرض التفاصيل والمشاهدة المباشرة.</string>
+    <string name="continue_movie">متابعة الفيلم</string>
+    <string name="btn_resume">استئناف</string>
 </resources>
