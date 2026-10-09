@@ -346,8 +346,8 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
                         )
 
                         Tab.MOVIES -> MovyzaCatalogTemplateScreen(
-                            title = "الأفلام",
-                            subtitle = "تشكيلة سينمائية منتقاة بجودة عالية",
+                            title = stringResource(R.string.quick_movies),
+                            subtitle = stringResource(R.string.catalog_movies_subtitle),
                             popularItems = home.movies,
                             topRatedItems = home.topRated,
                             loading = vm.loading,
@@ -360,8 +360,8 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
                         )
 
                         Tab.SERIES -> MovyzaCatalogTemplateScreen(
-                            title = "المسلسلات",
-                            subtitle = "أقوى المسلسلات الدرامية والعالمية",
+                            title = stringResource(R.string.quick_series),
+                            subtitle = stringResource(R.string.catalog_series_subtitle),
                             popularItems = home.series,
                             topRatedItems = home.topRatedSeries.ifEmpty { home.series },
                             loading = vm.loading,
@@ -397,7 +397,7 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
                             },
                             onClearHistory = {
                                 vm.clearWatchHistory()
-                                scope.launch { snackbar.showSnackbar("تم مسح سجل المشاهدة") }
+                                scope.launch { snackbar.showSnackbar(context.getString(R.string.message_history_cleared)) }
                             },
                             onLogin = {
                                 loginMode = true
@@ -409,7 +409,7 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
                             },
                             onLogout = {
                                 vm.signOut()
-                                scope.launch { snackbar.showSnackbar("تم تسجيل الخروج") }
+                                scope.launch { snackbar.showSnackbar(context.getString(R.string.message_signed_out)) }
                             },
                             onBrowseCatalog = { tab = Tab.MOVIES }
                         )
@@ -695,22 +695,22 @@ private fun MovyzaHomeTemplateScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 GlassPill(
-                    text = "الأفلام",
+                    text = stringResource(R.string.quick_movies),
                     icon = Icons.Outlined.LocalMovies,
                     onClick = { onSelectTab(Tab.MOVIES) }
                 )
                 GlassPill(
-                    text = "المسلسلات",
+                    text = stringResource(R.string.quick_series),
                     icon = Icons.Outlined.Tv,
                     onClick = { onSelectTab(Tab.SERIES) }
                 )
                 GlassPill(
-                    text = "البحث السريع",
+                    text = stringResource(R.string.quick_search),
                     icon = Icons.Outlined.Search,
                     onClick = { onSelectTab(Tab.SEARCH) }
                 )
                 GlassPill(
-                    text = "قائمتي المحفوظة",
+                    text = stringResource(R.string.quick_list),
                     icon = Icons.Outlined.BookmarkAdded,
                     onClick = { onSelectTab(Tab.PROFILE) }
                 )
@@ -727,9 +727,9 @@ private fun MovyzaHomeTemplateScreen(
             item(key = "section-continue-watching") {
                 Column {
                     SectionHeader(
-                        title = "متابعة المشاهدة",
-                        subtitle = "استكمل من حيث توقفت",
-                        actionLabel = "السجل",
+                        title = stringResource(R.string.section_continue),
+                        subtitle = stringResource(R.string.section_continue_subtitle),
+                        actionLabel = stringResource(R.string.history_short),
                         onAction = { onSelectTab(Tab.PROFILE) }
                     )
                     LazyRow(
@@ -759,8 +759,8 @@ private fun MovyzaHomeTemplateScreen(
         item(key = "section-trending") {
             FixedHorizontalSection(
                 sectionId = "trending",
-                title = "الأكثر رواجًا هذا الأسبوع",
-                subtitle = "عناوين تتصدر المشاهدات الآن",
+                title = stringResource(R.string.section_trending),
+                subtitle = stringResource(R.string.section_trending_subtitle),
                 movies = state.trending.drop(1),
                 loading = loading,
                 onOpen = onOpen
@@ -770,11 +770,11 @@ private fun MovyzaHomeTemplateScreen(
         item(key = "section-movies") {
             FixedHorizontalSection(
                 sectionId = "movies",
-                title = "أفلام شعبية",
-                subtitle = "اختيارات سينمائية جاهزة للمشاهدة",
+                title = stringResource(R.string.section_movies),
+                subtitle = stringResource(R.string.section_movies_subtitle),
                 movies = state.movies,
                 loading = loading,
-                actionLabel = "عرض الكل",
+                actionLabel = stringResource(R.string.view_all),
                 onAction = { onSelectTab(Tab.MOVIES) },
                 onOpen = onOpen
             )
@@ -783,11 +783,11 @@ private fun MovyzaHomeTemplateScreen(
         item(key = "section-series") {
             FixedHorizontalSection(
                 sectionId = "series",
-                title = "مسلسلات رائجة",
-                subtitle = "حلقات ومواسم كاملة بانتظارك",
+                title = stringResource(R.string.section_series),
+                subtitle = stringResource(R.string.section_series_subtitle),
                 movies = state.series,
                 loading = loading,
-                actionLabel = "عرض الكل",
+                actionLabel = stringResource(R.string.view_all),
                 onAction = { onSelectTab(Tab.SERIES) },
                 onOpen = onOpen
             )
@@ -894,7 +894,7 @@ private fun MovyzaCatalogTemplateScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 GlassPill(
-                    text = "الأكثر شعبية",
+                    text = stringResource(R.string.sort_popular),
                     active = filterIndex == 0 && selectedGenreId == 0,
                     onClick = {
                         filterIndex = 0
@@ -902,7 +902,7 @@ private fun MovyzaCatalogTemplateScreen(
                     }
                 )
                 GlassPill(
-                    text = "الأعلى تقييمًا",
+                    text = stringResource(R.string.sort_top_rated),
                     active = filterIndex == 1 && selectedGenreId == 0,
                     icon = Icons.Outlined.Star,
                     onClick = {
@@ -911,19 +911,19 @@ private fun MovyzaCatalogTemplateScreen(
                     }
                 )
                 GlassPill(
-                    text = "أكشن وإثارة",
+                    text = stringResource(R.string.genre_action),
                     active = selectedGenreId == 28 || selectedGenreId == 10759,
                     onClick = {
                         selectedGenreId = if (title == "المسلسلات") 10759 else 28
                     }
                 )
                 GlassPill(
-                    text = "دراما",
+                    text = stringResource(R.string.genre_drama),
                     active = selectedGenreId == 18,
                     onClick = { selectedGenreId = 18 }
                 )
                 GlassPill(
-                    text = "كوميديا",
+                    text = stringResource(R.string.genre_comedy),
                     active = selectedGenreId == 35,
                     onClick = { selectedGenreId = 35 }
                 )
@@ -968,7 +968,7 @@ private fun MovyzaCatalogTemplateScreen(
                             )
                         } else {
                             GlassPill(
-                                text = "تحميل المزيد من $title",
+                                text = stringResource(R.string.load_more_format, title),
                                 active = true,
                                 onClick = onLoadMore
                             )
@@ -1012,20 +1012,20 @@ private fun MovyzaSearchTemplateScreen(
     ) {
         item(key = "search-header") {
             Text(
-                text = "البحث الذكي",
+                text = stringResource(R.string.search_title),
                 color = MovyzaColors.Text,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Black
             )
             Text(
-                text = "ابحث عن أي فيلم أو مسلسل بالاسم العربي أو الأجنبي",
+                text = stringResource(R.string.search_subtitle),
                 color = MovyzaColors.Text3,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(top = 2.dp)
             )
             Spacer(Modifier.height(14.dp))
             GlassCard(
-                shape = MovyzaShapes.Md,
+                shape = MovyzaShapes.Pill,
                 strong = true,
                 goldAccent = query.isNotBlank()
             ) {
@@ -1034,7 +1034,7 @@ private fun MovyzaSearchTemplateScreen(
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = {
-                        Text("اكتب اسم الفيلم أو المسلسل...", color = MovyzaColors.Text3, fontSize = 13.sp)
+                        Text(stringResource(R.string.search_placeholder), color = MovyzaColors.Text3, fontSize = 13.sp)
                     },
                     leadingIcon = {
                         Icon(Icons.Outlined.Search, contentDescription = null, tint = MovyzaColors.Gold300)
@@ -1042,12 +1042,12 @@ private fun MovyzaSearchTemplateScreen(
                     trailingIcon = {
                         if (query.isNotEmpty()) {
                             IconButton(onClick = { query = "" }) {
-                                Icon(Icons.Outlined.Close, contentDescription = "مسح", tint = MovyzaColors.Text2)
+                                Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.search_clear), tint = MovyzaColors.Text2)
                             }
                         }
                     },
                     singleLine = true,
-                    shape = MovyzaShapes.Md,
+                    shape = MovyzaShapes.Pill,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color.Transparent,
                         unfocusedBorderColor = Color.Transparent,
@@ -1061,7 +1061,7 @@ private fun MovyzaSearchTemplateScreen(
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                text = if (isSearching) "نتائج البحث" else "اقتراحات شائعة الآن",
+                text = if (isSearching) stringResource(R.string.search_results) else stringResource(R.string.search_suggestions),
                 color = MovyzaColors.Gold300,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold
@@ -1090,13 +1090,13 @@ private fun MovyzaSearchTemplateScreen(
                         )
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            "لم نعثر على نتائج مطابقة",
+                            stringResource(R.string.search_empty_title),
                             color = MovyzaColors.Text,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "جرّب كتابة الاسم بطريقة أخرى أو باللغة الإنجليزية.",
+                            stringResource(R.string.search_empty_subtitle),
                             color = MovyzaColors.Text3,
                             fontSize = 12.sp,
                             modifier = Modifier.padding(top = 4.dp)
@@ -1141,13 +1141,13 @@ private fun MovyzaProfileTemplateScreen(
     ) {
         item(key = "profile-header") {
             Text(
-                text = "مساحتي الخاصة",
+                text = stringResource(R.string.profile_title),
                 color = MovyzaColors.Text,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Black
             )
             Text(
-                text = "إدارة حسابك وسجل المشاهدة وقائمتك المحفوظة",
+                text = stringResource(R.string.profile_subtitle),
                 color = MovyzaColors.Text3,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(top = 2.dp)
@@ -1184,7 +1184,7 @@ private fun MovyzaProfileTemplateScreen(
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
-                                text = session?.email ?: "مرحباً بك في Movyza",
+                                text = session?.email ?: stringResource(R.string.profile_guest_title),
                                 color = MovyzaColors.Text,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1193,9 +1193,9 @@ private fun MovyzaProfileTemplateScreen(
                             )
                             Text(
                                 text = if (session == null) {
-                                    "سجّل الدخول لحفظ ومزامنة قائمة المشاهدة عبر أجهزتك"
+                                    stringResource(R.string.profile_guest_subtitle)
                                 } else {
-                                    "حساب موفيزا نشط • مزامنة سحابية فورية"
+                                    stringResource(R.string.profile_active_subtitle)
                                 },
                                 color = MovyzaColors.Text3,
                                 fontSize = 11.sp,
@@ -1209,7 +1209,7 @@ private fun MovyzaProfileTemplateScreen(
                     if (session == null) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             GoldButton(
-                                text = "تسجيل الدخول",
+                                text = stringResource(R.string.btn_login),
                                 icon = null,
                                 onClick = onLogin,
                                 modifier = Modifier.weight(1f)
@@ -1248,13 +1248,13 @@ private fun MovyzaProfileTemplateScreen(
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                text = "سجل المشاهدة الأخير",
+                                text = stringResource(R.string.history_title),
                                 color = MovyzaColors.Text,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                             Text(
-                                text = "${watchHistory.size} عنصر تم تشغيله",
+                                text = stringResource(R.string.history_count_format, watchHistory.size),
                                 color = MovyzaColors.Text3,
                                 fontSize = 11.sp
                             )
@@ -1267,7 +1267,7 @@ private fun MovyzaProfileTemplateScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(Modifier.width(4.dp))
-                            Text("مسح السجل", color = MovyzaColors.Text3, fontSize = 11.sp)
+                            Text(stringResource(R.string.clear_history), color = MovyzaColors.Text3, fontSize = 11.sp)
                         }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -1303,13 +1303,13 @@ private fun MovyzaProfileTemplateScreen(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = "قائمتي المحفوظة",
+                        text = stringResource(R.string.quick_list),
                         color = MovyzaColors.Text,
                         fontSize = 19.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
-                        text = "${watchlist.size} عنوان محفوظ",
+                        text = stringResource(R.string.watchlist_count_format, watchlist.size),
                         color = MovyzaColors.Text3,
                         fontSize = 11.sp
                     )
@@ -1337,20 +1337,20 @@ private fun MovyzaProfileTemplateScreen(
                         )
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            text = "قائمتك فارغة حالياً",
+                            text = stringResource(R.string.watchlist_empty_title),
                             color = MovyzaColors.Text,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "أضف الأفلام والمسلسلات المفضلة لديك للوصول السريع إليها في أي وقت.",
+                            text = stringResource(R.string.watchlist_empty_subtitle),
                             color = MovyzaColors.Text3,
                             fontSize = 12.sp,
                             modifier = Modifier.padding(top = 4.dp)
                         )
                         Spacer(Modifier.height(14.dp))
                         GlassPill(
-                            text = "استكشاف الكتالوج",
+                            text = stringResource(R.string.browse_catalog),
                             active = true,
                             onClick = onBrowseCatalog
                         )
@@ -1471,7 +1471,7 @@ private fun MovyzaDetailsTemplateScreen(
                     )
 
                     MovyzaBadge(
-                        text = if (isSeries) "مسلسل" else "فيلم سينمائي",
+                        text = if (isSeries) stringResource(R.string.genre_series) else stringResource(R.string.genre_movie_cinematic),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(16.dp)
@@ -1497,8 +1497,8 @@ private fun MovyzaDetailsTemplateScreen(
                         val metaParts = listOfNotNull(
                             "★ " + String.format(Locale.US, "%.1f", movie.rating),
                             movie.yearText.takeIf { it.isNotBlank() },
-                            details?.runtime?.takeIf { it > 0 }?.let { "$it دقيقة" },
-                            if (isSeries && seasons.isNotEmpty()) "${seasons.size} مواسم" else null
+                            details?.runtime?.takeIf { it > 0 }?.let { stringResource(R.string.detail_runtime_format, it) },
+                            if (isSeries && seasons.isNotEmpty()) stringResource(R.string.detail_seasons_count_format, seasons.size) else null
                         )
                         Text(
                             text = metaParts.joinToString("  •  "),
@@ -1511,7 +1511,7 @@ private fun MovyzaDetailsTemplateScreen(
 
                         if (!details?.director.isNullOrBlank()) {
                             Text(
-                                text = (if (isSeries) "ابتكار: " else "إخراج: ") + details?.director.orEmpty(),
+                                text = if (isSeries) stringResource(R.string.detail_creator, details?.director.orEmpty()) else stringResource(R.string.detail_director, details?.director.orEmpty()),
                                 color = MovyzaColors.Text2,
                                 fontSize = 12.sp,
                                 maxLines = 1,
@@ -1530,9 +1530,9 @@ private fun MovyzaDetailsTemplateScreen(
                 ) {
                     val activeEpObj = episodes.firstOrNull { it.episodeNumber == selectedEpisode }
                     val watchButtonLabel = if (isSeries) {
-                        "مشاهدة م$selectedSeason • ح$selectedEpisode"
+                        stringResource(R.string.detail_watch_episode_format, selectedSeason, selectedEpisode)
                     } else {
-                        "مشاهدة الفيلم الآن"
+                        stringResource(R.string.detail_watch_movie)
                     }
 
                     Row(
@@ -1581,7 +1581,7 @@ private fun MovyzaDetailsTemplateScreen(
                     ) {
                         Column(Modifier.padding(14.dp)) {
                             Text(
-                                text = "القصة",
+                                text = stringResource(R.string.detail_story),
                                 color = MovyzaColors.Gold300,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
@@ -1589,7 +1589,7 @@ private fun MovyzaDetailsTemplateScreen(
                             Spacer(Modifier.height(6.dp))
                             val overviewText = details?.movie?.overview?.takeIf { it.isNotBlank() }
                                 ?: movie.overview.takeIf { it.isNotBlank() }
-                                ?: if (detailsLoading) "جارٍ تحميل تفاصيل القصة..." else "لا يتوفر ملخص عربي لهذا العمل حالياً."
+                                ?: if (detailsLoading) stringResource(R.string.detail_loading_story) else stringResource(R.string.detail_unknown_story)
                             Text(
                                 text = overviewText,
                                 color = MovyzaColors.Text2,
@@ -1606,8 +1606,8 @@ private fun MovyzaDetailsTemplateScreen(
                 item(key = "detail-cast") {
                     Column(Modifier.padding(top = 6.dp)) {
                         SectionHeader(
-                            title = "طاقم التمثيل",
-                            subtitle = "أبرز نجوم العمل"
+                            title = stringResource(R.string.detail_cast),
+                            subtitle = stringResource(R.string.detail_cast_subtitle)
                         )
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
@@ -1632,8 +1632,8 @@ private fun MovyzaDetailsTemplateScreen(
                             .padding(top = 8.dp)
                     ) {
                         SectionHeader(
-                            title = "المواسم والحلقات",
-                            subtitle = "اختر الموسم والحلقة لبدء المشاهدة فوراً"
+                            title = stringResource(R.string.detail_seasons),
+                            subtitle = stringResource(R.string.detail_seasons_subtitle)
                         )
 
                         if (seasons.isNotEmpty()) {
@@ -1727,7 +1727,7 @@ private fun MovyzaDetailsTemplateScreen(
 
                                             Column(Modifier.weight(1f)) {
                                                 Text(
-                                                    text = "الحلقة ${ep.episodeNumber} • ${ep.name}",
+                                                    text = stringResource(R.string.detail_episode_format, ep.episodeNumber, ep.name),
                                                     color = if (isSelectedEp) MovyzaColors.Gold300 else MovyzaColors.Text,
                                                     fontSize = 13.sp,
                                                     fontWeight = FontWeight.Bold,
@@ -1761,8 +1761,8 @@ private fun MovyzaDetailsTemplateScreen(
                     Spacer(Modifier.height(14.dp))
                     FixedHorizontalSection(
                         sectionId = "similar-${movie.id}",
-                        title = "أعمال مشابهة قد تعجبك",
-                        subtitle = "اقتراحات ذات صلة",
+                        title = stringResource(R.string.detail_similar_title),
+                        subtitle = stringResource(R.string.detail_similar_subtitle),
                         movies = similarList,
                         loading = false,
                         onOpen = onSelectSimilar
@@ -1783,12 +1783,12 @@ private fun MovyzaDetailsTemplateScreen(
             GlassIconButton(
                 onClick = onBack,
                 icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                contentDescription = "رجوع"
+                contentDescription = stringResource(R.string.back)
             )
             GlassIconButton(
                 onClick = onToggleWatchlist,
                 icon = if (watchlisted) Icons.Outlined.BookmarkAdded else Icons.Outlined.BookmarkAdd,
-                contentDescription = "قائمتي",
+                contentDescription = stringResource(R.string.btn_save),
                 tint = if (watchlisted) MovyzaColors.Gold300 else MovyzaColors.Text,
                 goldBorder = watchlisted
             )
@@ -1824,7 +1824,7 @@ private fun NativeErrorBanner(message: String, onRetry: () -> Unit) {
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(Modifier.width(4.dp))
-                Text("إعادة المحاولة", color = MovyzaColors.Gold300, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.retry), color = MovyzaColors.Gold300, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -1849,7 +1849,7 @@ private fun MovyzaAuthDialog(
         shape = MovyzaShapes.Lg,
         title = {
             Text(
-                text = if (login) "مرحباً بعودتك" else "انضم إلى Movyza",
+                text = if (login) stringResource(R.string.auth_welcome_back) else stringResource(R.string.auth_join),
                 color = MovyzaColors.Text,
                 fontWeight = FontWeight.Black,
                 fontSize = 20.sp
@@ -1861,7 +1861,7 @@ private fun MovyzaAuthDialog(
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("الاسم") },
+                        label = { Text(stringResource(R.string.auth_name)) },
                         singleLine = true,
                         shape = MovyzaShapes.Sm,
                         modifier = Modifier.fillMaxWidth()
@@ -1870,7 +1870,7 @@ private fun MovyzaAuthDialog(
                 OutlinedTextField(
                     value = email,
                     onValueChange = { email = it },
-                    label = { Text("البريد الإلكتروني") },
+                    label = { Text(stringResource(R.string.auth_email)) },
                     singleLine = true,
                     shape = MovyzaShapes.Sm,
                     modifier = Modifier.fillMaxWidth(),
@@ -1879,7 +1879,7 @@ private fun MovyzaAuthDialog(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("كلمة المرور") },
+                    label = { Text(stringResource(R.string.auth_password)) },
                     singleLine = true,
                     shape = MovyzaShapes.Sm,
                     modifier = Modifier.fillMaxWidth(),
@@ -1889,7 +1889,7 @@ private fun MovyzaAuthDialog(
                         IconButton(onClick = { showPassword = !showPassword }) {
                             Icon(
                                 imageVector = if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                contentDescription = "إظهار كلمة المرور",
+                                contentDescription = stringResource(R.string.auth_show_password),
                                 tint = MovyzaColors.Text3
                             )
                         }
@@ -1897,7 +1897,7 @@ private fun MovyzaAuthDialog(
                 )
                 TextButton(onClick = onToggle) {
                     Text(
-                        text = if (login) "ليس لديك حساب؟ إنشاء حساب جديد" else "لديك حساب بالفعل؟ تسجيل الدخول",
+                        text = if (login) stringResource(R.string.auth_switch_to_signup) else stringResource(R.string.auth_switch_to_login),
                         color = MovyzaColors.Gold300,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
@@ -1922,13 +1922,13 @@ private fun MovyzaAuthDialog(
                         color = MovyzaColors.Bg
                     )
                 } else {
-                    Text(if (login) "دخول" else "إنشاء الحساب", fontWeight = FontWeight.Bold)
+                    Text(if (login) stringResource(R.string.auth_submit_login) else stringResource(R.string.auth_submit_signup), fontWeight = FontWeight.Bold)
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("إلغاء", color = MovyzaColors.Text3)
+                Text(stringResource(R.string.auth_cancel), color = MovyzaColors.Text3)
             }
         }
     )
