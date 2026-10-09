@@ -92,4 +92,6 @@
     <string name="auth_created_success">تم إنشاء الحساب</string>
     <string name="hero_overview_placeholder">اكتشف تفاصيل العمل وابدأ المشاهدة على Movyza.</string>
     <string name="detail_episode_format">الحلقة %1$d • %2$s</string>
+    <string name="type_movie">فيلم</string>
+    <string name="poster_overview_placeholder">اضغط لعرض التفاصيل والمشاهدة المباشرة.</string>
 </resources>
