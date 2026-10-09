@@ -93,7 +93,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
               <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-900 border border-white/[0.06] shadow-lg group-hover:-translate-y-0.5 transition-transform duration-200">
                 <img
                   src={item.backdropUrl || item.posterUrl}
-                  alt={item.titleEn || item.title}
+                  alt={item.title || item.titleEn}
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover"
                 />
@@ -108,7 +108,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, watchlist, onTog
               </div>
               <div className="px-1">
                 <h4 className="text-xs sm:text-sm font-bold text-white truncate group-hover:text-amber-300 transition-colors">
-                  {item.titleEn || item.title}
+                  {item.title || item.titleEn}
                 </h4>
                 <p className="text-[11px] text-slate-500">{item.percentage}% {language === 'ar' ? 'مكتمل' : 'completed'}</p>
               </div>
