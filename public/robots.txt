@@ -1,5 +1,7 @@
 # Movyza crawler policy
-# robots.txt manages crawling; it is not an access-control mechanism.
+# Only localized homepages are listed in the sitemap.
+# App subroutes return noindex,follow so old indexed URLs can be removed by crawlers.
+# robots.txt is not an access-control mechanism.
 
 User-agent: *
 Allow: /
@@ -8,8 +10,5 @@ Disallow: /*/admin
 Disallow: /tmdb
 Disallow: /tmdb/
 Disallow: /api/v1/playback/resolve
-
-# Keep public movie/series/watch pages crawlable for search engines.
-# Search pages are marked noindex by the application instead of being blocked here.
 
 Sitemap: https://movyza.sbs/sitemap.xml
