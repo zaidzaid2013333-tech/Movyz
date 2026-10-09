@@ -16,7 +16,7 @@ interface Translations {
 export const DICTIONARY: Translations = {
   // Brand & Navigation
   brandName: { ar: 'موفيزا', en: 'Movyza' },
-  brandTagline: { ar: 'منصة السينما والتلفزيون العربية', en: 'Arabic-First Cinema & TV Platform' },
+  brandTagline: { ar: 'اكتشف الأفلام والمسلسلات من حول العالم', en: 'Movies & TV from Around the World' },
   home: { ar: 'الرئيسية', en: 'Home' },
   movies: { ar: 'الأفلام', en: 'Movies' },
   series: { ar: 'المسلسلات', en: 'Series' },

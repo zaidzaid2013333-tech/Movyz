@@ -1,6 +1,8 @@
 {
-  "name": "Movyza | موفيزا",
-  "description": "منصة أفلام ومسلسلات عربية حديثة مصممة بأسلوب عالي الأداء مع تجربة سينمائية عربية أصيلة.",
+  "name": "Movyza",
+  "description": "Discover and watch movies and TV series for free. Explore new releases, popular titles, and an international entertainment catalog in multiple languages.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

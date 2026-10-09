@@ -428,7 +428,8 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
         ? `${searchTitle} مترجم عربي | ${contentTitle} | مشاهدة ${searchTitle} | موفيزا`
         : `${searchTitle} | ${contentTitle} | Movyza`)
       : contentTitle;
-  const canonicalPath = `/${locale}${route === '/' ? '/' : route}`;
+  const hasExplicitLocale = Boolean(localeFromPath(url.pathname));
+  const canonicalPath = route === '/' && !hasExplicitLocale ? '/' : `/${locale}${route === '/' ? '/' : route}`;
   const origin = url.origin;
   const hreflangLinks = Object.entries(LOCALES)
     .map(([code, item]) => `<link rel="alternate" hreflang="${item.tmdb.toLowerCase()}" href="${origin}/${code}${route === '/' ? '/' : route}" />`)
@@ -912,7 +913,9 @@ const buildSitemapSegment = async (
 const SITEMAP_PUBLIC_ORIGIN = 'https://movyza.sbs';
 
 const buildGscSitemap = () => {
-  const urls: string[] = [];
+  const urls: string[] = [
+    `<url><loc>${escapeXml(SITEMAP_PUBLIC_ORIGIN + '/')}</loc></url>`,
+  ];
   for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
     urls.push(
       `<url><loc>${escapeXml(`${SITEMAP_PUBLIC_ORIGIN}/${locale}/`)}</loc></url>`,
@@ -1024,7 +1027,7 @@ export default {
     if (url.pathname === '/tmdb' || url.pathname.startsWith('/tmdb/')) {
       return proxyTmdb(request, env);
     }
-    if (request.method === 'GET' && isAppHtmlPath(url.pathname) && !localeFromPath(url.pathname)) {
+    if (request.method === 'GET' && url.pathname !== '/' && isAppHtmlPath(url.pathname) && !localeFromPath(url.pathname)) {
       const target = new URL(request.url);
       const locale = detectRequestLocale(request);
       target.pathname = target.pathname === '/' ? `/${locale}/` : `/${locale}${target.pathname}`;
@@ -1051,9 +1054,8 @@ export default {
       if (!localized.ok) {
         return new Response('Application shell unavailable', { status: 503 });
       }
-      const locale = localeFromPath(url.pathname);
-      if (locale) return await localizedHtml(request, env, localized, locale);
-      return new Response(localized.body, { status: localized.status, statusText: localized.statusText, headers: new Headers(localized.headers) });
+      const locale = localeFromPath(url.pathname) || detectRequestLocale(request);
+      return await localizedHtml(request, env, localized, locale);
     }
     return await env.ASSETS.fetch(request);
   },
