@@ -134,11 +134,14 @@ jobs:
           echo "SITEMAP CHECK 2/8: XML declaration passed"
           printf '%s' "$sitemap" | grep -q '<sitemapindex'
           echo "SITEMAP CHECK 3/8: sitemap index passed"
-          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/movies/1.xml'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/en/movies/1.xml'
           echo "SITEMAP CHECK 4/8: movie segment passed"
-          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/series/1.xml'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/en/series/1.xml'
           echo "SITEMAP CHECK 5/8: series segment passed"
-          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/episodes/1.xml'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/en/episodes/1.xml'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/en/movies/500.xml'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/en/series/500.xml'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/en/episodes/100.xml'
           echo "SITEMAP CHECK 6/8: episode-information segment passed"
           if printf '%s' "$sitemap" | grep -q '/watch/'; then
             echo "Playback routes must never appear in a sitemap"
@@ -193,7 +196,7 @@ jobs:
           printf '%s' "$public_robots" | grep -q 'Sitemap: https://movyza.sbs/sitemap.xml'
 
           echo "CHECK 6/10: sitemap segment"
-          sitemap_segment="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap/ar/movies/1.xml")"
+          sitemap_segment="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap/en/movies/1.xml")"
           printf '%s' "$sitemap_segment" | grep -q '<urlset'
           printf '%s' "$sitemap_segment" | grep -q '/ar/movies/'
 
