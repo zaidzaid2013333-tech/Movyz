@@ -101,7 +101,7 @@ const resolveFreeContentTemplate = (language: Language, kind: FreeContentKind) =
 };
 
 export const buildFreeContentTitle = (language: Language, title: string, kind: FreeContentKind) => {
-  const cleanTitle = String(title || '').replace(/\\s+/g, ' ').trim();
+  const cleanTitle = String(title || '').replace(/\s+/g, ' ').trim();
   const template = resolveFreeContentTemplate(language, kind);
   return `${(template || FREE_CONTENT_TITLES.en.movie).replace('{title}', cleanTitle)} | Movyza`;
 };
