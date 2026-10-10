@@ -8,7 +8,7 @@ import { HeroSkeleton } from '../components/ui/Skeletons';
 import { ErrorState } from '../components/ui/FeedbackStates';
 import { ShareButton } from '../components/ui/ShareButton';
 import { QuickRating } from '../components/ui/QuickRating';
-import { SeoHead } from '../components/SEOHead';
+import { SeoHead, buildFreeContentTitle } from '../components/SEOHead';
 import {
   Play,
   Bookmark,
@@ -131,7 +131,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
   return (
     <>
       <SeoHead
-        title={language === 'ar' ? `${series.originalTitle || titlePrimary} مترجم عربي | ${titlePrimary} | موفيزا` : `${series.originalTitle || titlePrimary} | ${titlePrimary} | Movyza`}
+        title={buildFreeContentTitle(language, titlePrimary, 'series')}
         description={seoDescription}
         keywords={[series.originalTitle, series.title, ...series.genres.map((genre) => genre.name).filter(Boolean)]}
         image={series.backdropUrl || series.posterUrl}
@@ -376,7 +376,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
                 key={episode.id}
                 onClick={() =>
                   onNavigate(
-                    `/watch/tv/${series.id}/${selectedSeasonNumber}/${episode.episodeNumber}`
+                    `/episodes/${series.id}/${selectedSeasonNumber}/${episode.episodeNumber}`
                   )
                 }
                 className="group relative rounded-2xl bg-[#0c0e15] border border-amber-500/15 hover:border-amber-500/50 overflow-hidden transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/10 cursor-pointer flex flex-col"
@@ -421,7 +421,7 @@ export const SeriesDetailsPage: React.FC<SeriesDetailsPageProps> = ({
                   <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[11px] text-slate-400">
                     <span className="font-mono">{episode.airDate}</span>
                     <span className="text-amber-400 font-semibold group-hover:underline">
-                      {t('watchNow')} ←
+                      {language === 'ar' ? 'معلومات الحلقة' : 'Episode details'} ←
                     </span>
                   </div>
                 </div>

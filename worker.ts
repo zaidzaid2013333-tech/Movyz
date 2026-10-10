@@ -238,6 +238,50 @@ const HOME_SEO: Record<LocaleCode, { title: string; description: string }> = {
   }
 };
 
+const FREE_SEO_TITLES: Record<LocaleCode, { movie: string; series: string; episode: string; movies: string; seriesList: string; discover: string; catalog: string }> = {
+  ar: { movie: 'مشاهدة {title} مجانًا', series: 'مشاهدة مسلسل {title} مجانًا', episode: 'مشاهدة حلقة {title} مجانًا', movies: 'مشاهدة الأفلام مجانًا', seriesList: 'مشاهدة المسلسلات مجانًا', discover: 'اكتشف أفلامًا ومسلسلات مجانية', catalog: 'أفضل 1000 فيلم ومسلسل مجاني' },
+  en: { movie: 'Watch {title} Online Free', series: 'Watch {title} Series Online Free', episode: 'Watch {title} Episode Free', movies: 'Watch Movies Online Free', seriesList: 'Watch TV Series Online Free', discover: 'Discover Movies and Series to Watch Free', catalog: 'Top 1000 Movies and Series to Watch Free' },
+  fr: { movie: 'Regarder {title} gratuitement', series: 'Regarder la série {title} gratuitement', episode: 'Regarder l’épisode {title} gratuitement', movies: 'Regarder des films gratuitement', seriesList: 'Regarder des séries gratuitement', discover: 'Découvrir des films et séries gratuits', catalog: 'Top 1000 films et séries gratuits' },
+  de: { movie: '{title} kostenlos online ansehen', series: 'Serie {title} kostenlos ansehen', episode: 'Folge {title} kostenlos ansehen', movies: 'Filme kostenlos online ansehen', seriesList: 'Serien kostenlos online ansehen', discover: 'Kostenlose Filme und Serien entdecken', catalog: 'Top 1000 Filme und Serien kostenlos ansehen' },
+  es: { movie: 'Ver {title} gratis online', series: 'Ver la serie {title} gratis', episode: 'Ver el episodio {title} gratis', movies: 'Ver películas gratis', seriesList: 'Ver series gratis', discover: 'Descubrir películas y series gratis', catalog: 'Top 1000 películas y series gratis' },
+  it: { movie: 'Guarda {title} gratis online', series: 'Guarda la serie {title} gratis', episode: 'Guarda l’episodio {title} gratis', movies: 'Guarda film gratis', seriesList: 'Guarda serie TV gratis', discover: 'Scopri film e serie gratis', catalog: 'Top 1000 film e serie gratis' },
+  pt: { movie: 'Assistir {title} grátis online', series: 'Assistir à série {title} grátis', episode: 'Assistir ao episódio {title} grátis', movies: 'Assistir a filmes grátis', seriesList: 'Assistir a séries grátis', discover: 'Descubra filmes e séries grátis', catalog: 'Top 1000 filmes e séries grátis' },
+  ru: { movie: 'Смотреть {title} бесплатно', series: 'Смотреть сериал {title} бесплатно', episode: 'Смотреть серию {title} бесплатно', movies: 'Смотреть фильмы бесплатно', seriesList: 'Смотреть сериалы бесплатно', discover: 'Бесплатные фильмы и сериалы', catalog: 'Топ-1000 фильмов и сериалов бесплатно' },
+  tr: { movie: '{title} ücretsiz izle', series: '{title} dizisini ücretsiz izle', episode: '{title} bölümünü ücretsiz izle', movies: 'Ücretsiz film izle', seriesList: 'Ücretsiz dizi izle', discover: 'Ücretsiz film ve dizileri keşfet', catalog: 'En iyi 1000 film ve diziyi ücretsiz izle' },
+  hi: { movie: '{title} मुफ़्त ऑनलाइन देखें', series: '{title} सीरीज़ मुफ़्त देखें', episode: '{title} एपिसोड मुफ़्त देखें', movies: 'मुफ़्त फ़िल्में देखें', seriesList: 'मुफ़्त सीरीज़ देखें', discover: 'मुफ़्त फ़िल्में और सीरीज़ खोजें', catalog: 'टॉप 1000 फ़िल्में और सीरीज़ मुफ़्त देखें' },
+  ja: { movie: '{title}を無料で視聴', series: 'ドラマ{title}を無料で視聴', episode: 'エピソード{title}を無料で視聴', movies: '映画を無料で視聴', seriesList: 'ドラマを無料で視聴', discover: '無料の映画・ドラマを探す', catalog: '人気映画・ドラマTop 1000を無料で視聴' },
+  ko: { movie: '{title} 무료 시청', series: '드라마 {title} 무료 시청', episode: '에피소드 {title} 무료 시청', movies: '영화 무료 시청', seriesList: 'TV 시리즈 무료 시청', discover: '무료 영화와 시리즈 찾기', catalog: '인기 영화·시리즈 Top 1000 무료 시청' },
+  zh: { movie: '免费在线看{title}', series: '免费在线看剧集{title}', episode: '免费在线看{title}这一集', movies: '免费在线看电影', seriesList: '免费在线看电视剧', discover: '发现免费电影和剧集', catalog: '免费查看热门电影和剧集Top 1000' },
+  nl: { movie: '{title} gratis online kijken', series: 'Serie {title} gratis kijken', episode: 'Aflevering {title} gratis kijken', movies: 'Gratis films kijken', seriesList: 'Gratis series kijken', discover: 'Gratis films en series ontdekken', catalog: 'Top 1000 films en series gratis kijken' },
+  sv: { movie: 'Se {title} gratis online', series: 'Se serien {title} gratis', episode: 'Se avsnittet {title} gratis', movies: 'Se filmer gratis', seriesList: 'Se serier gratis', discover: 'Upptäck gratis filmer och serier', catalog: 'Topp 1000 filmer och serier gratis' },
+  da: { movie: 'Se {title} gratis online', series: 'Se serien {title} gratis', episode: 'Se afsnittet {title} gratis', movies: 'Se film gratis', seriesList: 'Se serier gratis', discover: 'Find gratis film og serier', catalog: 'Top 1000 film og serier gratis' },
+  no: { movie: 'Se {title} gratis på nett', series: 'Se serien {title} gratis', episode: 'Se episoden {title} gratis', movies: 'Se filmer gratis på nett', seriesList: 'Se serier gratis på nett', discover: 'Finn gratis filmer og serier', catalog: 'Topp 1000 filmer og serier gratis' },
+  fi: { movie: 'Katso {title} ilmaiseksi verkossa', series: 'Katso sarja {title} ilmaiseksi', episode: 'Katso jakso {title} ilmaiseksi', movies: 'Katso elokuvia ilmaiseksi', seriesList: 'Katso sarjoja ilmaiseksi', discover: 'Löydä ilmaisia elokuvia ja sarjoja', catalog: 'Top 1000 elokuvaa ja sarjaa ilmaiseksi' },
+  pl: { movie: 'Oglądaj {title} online za darmo', series: 'Oglądaj serial {title} za darmo', episode: 'Oglądaj odcinek {title} za darmo', movies: 'Oglądaj filmy za darmo', seriesList: 'Oglądaj seriale za darmo', discover: 'Odkrywaj darmowe filmy i seriale', catalog: 'Top 1000 filmów i seriali za darmo' },
+  cs: { movie: 'Sledujte {title} online zdarma', series: 'Sledujte seriál {title} zdarma', episode: 'Sledujte epizodu {title} zdarma', movies: 'Sledujte filmy zdarma', seriesList: 'Sledujte seriály zdarma', discover: 'Objevte filmy a seriály zdarma', catalog: 'Top 1000 filmů a seriálů zdarma' },
+  uk: { movie: 'Дивіться {title} безкоштовно онлайн', series: 'Дивіться серіал {title} безкоштовно', episode: 'Дивіться епізод {title} безкоштовно', movies: 'Дивіться фільми безкоштовно', seriesList: 'Дивіться серіали безкоштовно', discover: 'Знайдіть безкоштовні фільми й серіали', catalog: 'Топ-1000 фільмів і серіалів безкоштовно' },
+  he: { movie: 'צפו ב־{title} בחינם', series: 'צפו בסדרה {title} בחינם', episode: 'צפו בפרק {title} בחינם', movies: 'צפו בסרטים בחינם', seriesList: 'צפו בסדרות בחינם', discover: 'גלו סרטים וסדרות בחינם', catalog: '1000 הסרטים והסדרות המובילים בחינם' },
+  vi: { movie: 'Xem {title} miễn phí trực tuyến', series: 'Xem phim bộ {title} miễn phí', episode: 'Xem tập {title} miễn phí', movies: 'Xem phim miễn phí', seriesList: 'Xem series miễn phí', discover: 'Khám phá phim và series miễn phí', catalog: 'Top 1000 phim và series miễn phí' },
+  id: { movie: 'Nonton {title} online gratis', series: 'Nonton serial {title} gratis', episode: 'Nonton episode {title} gratis', movies: 'Nonton film gratis', seriesList: 'Nonton serial gratis', discover: 'Temukan film dan serial gratis', catalog: 'Top 1000 film dan serial gratis' },
+  ms: { movie: 'Tonton {title} dalam talian secara percuma', series: 'Tonton siri {title} secara percuma', episode: 'Tonton episod {title} secara percuma', movies: 'Tonton filem percuma', seriesList: 'Tonton siri percuma', discover: 'Temui filem dan siri percuma', catalog: 'Top 1000 filem dan siri percuma' },
+  th: { movie: 'ดู{title}ออนไลน์ฟรี', series: 'ดูซีรีส์{title}ฟรี', episode: 'ดูตอน{title}ฟรี', movies: 'ดูหนังฟรีออนไลน์', seriesList: 'ดูซีรีส์ฟรีออนไลน์', discover: 'ค้นหาหนังและซีรีส์ฟรี', catalog: 'หนังและซีรีส์ยอดนิยม 1000 รายการฟรี' },
+  ro: { movie: 'Urmărește {title} gratuit online', series: 'Urmărește serialul {title} gratuit', episode: 'Urmărește episodul {title} gratuit', movies: 'Urmărește filme gratuit', seriesList: 'Urmărește seriale gratuit', discover: 'Descoperă filme și seriale gratuite', catalog: 'Top 1000 filme și seriale gratuite' },
+  hu: { movie: 'Nézd meg a(z) {title} című filmet ingyen', series: 'Nézd meg a(z) {title} sorozatot ingyen', episode: 'Nézd meg a(z) {title} epizódot ingyen', movies: 'Filmek ingyen online', seriesList: 'Sorozatok ingyen online', discover: 'Ingyenes filmek és sorozatok felfedezése', catalog: 'Top 1000 ingyenes film és sorozat' },
+  el: { movie: 'Δείτε το {title} δωρεάν online', series: 'Δείτε τη σειρά {title} δωρεάν', episode: 'Δείτε το επεισόδιο {title} δωρεάν', movies: 'Δείτε ταινίες δωρεάν', seriesList: 'Δείτε σειρές δωρεάν', discover: 'Ανακαλύψτε δωρεάν ταινίες και σειρές', catalog: 'Top 1000 ταινίες και σειρές δωρεάν' },
+  bn: { movie: '{title} বিনামূল্যে অনলাইনে দেখুন', series: '{title} সিরিজ বিনামূল্যে দেখুন', episode: '{title} পর্ব বিনামূল্যে দেখুন', movies: 'বিনামূল্যে সিনেমা দেখুন', seriesList: 'বিনামূল্যে সিরিজ দেখুন', discover: 'বিনামূল্যে সিনেমা ও সিরিজ খুঁজুন', catalog: 'সেরা ১০০০ সিনেমা ও সিরিজ বিনামূল্যে' },
+  ur: { movie: '{title} مفت آن لائن دیکھیں', series: 'سیریز {title} مفت دیکھیں', episode: 'قسط {title} مفت دیکھیں', movies: 'فلمیں مفت دیکھیں', seriesList: 'سیریز مفت دیکھیں', discover: 'مفت فلمیں اور سیریز دریافت کریں', catalog: '1000 بہترین فلمیں اور سیریز مفت' },
+  fa: { movie: '{title} را رایگان آنلاین تماشا کنید', series: 'سریال {title} را رایگان تماشا کنید', episode: 'قسمت {title} را رایگان تماشا کنید', movies: 'تماشای رایگان فیلم', seriesList: 'تماشای رایگان سریال', discover: 'کشف فیلم و سریال رایگان', catalog: '۱۰۰۰ فیلم و سریال برتر رایگان' },
+};
+
+const freeTitle = (locale: LocaleCode, kind: 'movie' | 'series' | 'episode' | 'movies' | 'seriesList' | 'discover' | 'catalog', title = '') => {
+  const template = FREE_SEO_TITLES[locale]?.[kind] || FREE_SEO_TITLES.en[kind];
+  const label = template.replace('{title}', String(title || '').replace(/\s+/g, ' ').trim());
+  return label.endsWith('| Movyza') ? label : `${label} | Movyza`;
+};
+
+const brandedHomepageTitle = (locale: LocaleCode) =>
+  `Movyza — ${HOME_SEO[locale].title.replace(/\s*\|\s*Movyza\s*$/i, '').replace(/^Movyza\s*[—-]\s*/i, '')}`;
+
 const localizedHtml = async (request: Request, env: MovyzEnvironment, response: Response, locale: LocaleCode) => {
   if (!response.headers.get('content-type')?.includes('text/html')) return response;
   const url = new URL(request.url);
@@ -248,14 +292,15 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   let alternateTitle = '';
   let description = '';
   let imageUrl = '';
-  let schemaType = 'WebSite';
+  let schemaType = route === '/' ? 'WebSite' : 'WebPage';
   let ogType = 'website';
   let watchVideo: { embedUrl: string; uploadDate?: string; duration?: number } | null = null;
+  let episodeDetails: { seriesData: any; episodeData: any; seasonNumber: number; episodeNumber: number } | null = null;
   const detailMovie = route.match(/^\/movies\/(\d+)$/);
   const detailSeries = route.match(/^\/series\/(\d+)$/);
+  const episodeInfo = route.match(/^\/episodes\/(\d+)\/(\d+)\/(\d+)$/);
   const watchMovie = route.match(/^\/watch\/movie\/(\d+)$/);
   const watchEpisode = route.match(/^\/watch\/tv\/(\d+)\/(\d+)\/(\d+)$/);
-
   const generic: Record<LocaleCode, { home: string; movies: string; series: string; discover: string; search: string; catalog: string; legal: string }> = {
     ar: { home: "موفيزا — منصة الأفلام والمسلسلات", movies: "الأفلام والمسلسلات المترجمة | موفيزا", series: "المسلسلات التلفزيونية | موفيزا", discover: "استكشاف الأفلام والمسلسلات | موفيزا", search: "البحث في موفيزا", catalog: "أفضل 1000 فيلم ومسلسل | موفيزا", legal: "إخلاء المسؤولية وDMCA | موفيزا" },
     en: { home: "Movyza — Movies & TV Shows", movies: "Movies & Films | Movyza", series: "TV Series | Movyza", discover: "Discover Movies & TV | Movyza", search: "Search | Movyza", catalog: "Movyza Top 1000 Movies & TV Shows", legal: "DMCA & Third-Party Policy | Movyza" },
@@ -331,6 +376,40 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
       } catch {
         contentTitle = `Movyza #${id}`;
         description = contentTitle;
+      }
+    }
+  } else if (episodeInfo) {
+    const id = Number(episodeInfo[1]);
+    const seasonNumber = Number(episodeInfo[2]);
+    const episodeNumber = Number(episodeInfo[3]);
+    if (id && seasonNumber > 0 && episodeNumber > 0 && env.TMDB_API_READ_ACCESS_TOKEN) {
+      try {
+        const seriesUrl = new URL(`https://api.themoviedb.org/3/tv/${id}`);
+        seriesUrl.searchParams.set('language', config.tmdb);
+        const seasonUrl = new URL(`https://api.themoviedb.org/3/tv/${id}/season/${seasonNumber}`);
+        seasonUrl.searchParams.set('language', config.tmdb);
+        const [seriesResponse, seasonResponse] = await Promise.all([
+          fetch(seriesUrl.toString(), { headers: tmdbHeaders(env) }),
+          fetch(seasonUrl.toString(), { headers: tmdbHeaders(env) }),
+        ]);
+        if (!seriesResponse.ok || !seasonResponse.ok) throw new Error('Episode metadata unavailable');
+        const [seriesData, seasonData] = await Promise.all([seriesResponse.json(), seasonResponse.json()]) as [any, any];
+        const episodeData = (seasonData?.episodes || []).find((item: any) => Number(item?.episode_number) === episodeNumber);
+        if (!episodeData) throw new Error('Episode not found');
+        const seriesName = seriesData?.name || seriesData?.original_name || `Series ${id}`;
+        const episodeName = episodeData?.name || `Episode ${episodeNumber}`;
+        contentTitle = `${seriesName} — ${episodeName} (S${seasonNumber} E${episodeNumber})`;
+        alternateTitle = episodeData?.original_name || seriesData?.original_name || '';
+        description = episodeData?.overview || seriesData?.overview || `${episodeName} from ${seriesName}, Season ${seasonNumber}, Episode ${episodeNumber}.`;
+        imageUrl = episodeData?.still_path
+          ? `https://image.tmdb.org/t/p/w1280${episodeData.still_path}`
+          : (seriesData?.backdrop_path ? `https://image.tmdb.org/t/p/w1280${seriesData.backdrop_path}` : '');
+        schemaType = 'TVEpisode';
+        ogType = 'video.tv_show';
+        episodeDetails = { seriesData, episodeData, seasonNumber, episodeNumber };
+      } catch {
+        contentTitle = `Episode ${episodeNumber} | Movyza`;
+        description = locale === 'ar' ? 'معلومات الحلقة وتاريخ عرضها وتفاصيل المسلسل.' : 'Episode information, air date, and series details.';
       }
     }
   } else if (watchMovie || watchEpisode) {
@@ -411,39 +490,45 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     }
   }
 
-  const isWatchPage = Boolean(watchMovie || watchEpisode);
-  const noindexRoutes = new Set([
-    '/admin',
-    '/profile',
-    '/watchlist',
-    '/history',
-    '/login',
-    '/register',
-    '/forgot-password',
-  ]);
-  // Watch pages are intentionally excluded from search indexing. They remain
-  // fully accessible to users, but are not SEO landing pages.
-  const isNoIndex = route !== '/' || isWatchPage || noindexRoutes.has(route);
-  const searchTitle = alternateTitle || contentTitle;
+  const isWatchPage = route.startsWith('/watch/') || Boolean(watchMovie || watchEpisode);
+  const noindexRoutes = [
+    '/admin', '/profile', '/watchlist', '/history', '/login', '/register', '/forgot-password', '/search',
+  ];
+  const isPrivateOrSearchRoute = noindexRoutes.some((base) => route === base || route.startsWith(base + '/'));
+  const isIndexableInfoRoute = route === '/' || ['/movies', '/series', '/discover', '/catalog', '/legal'].includes(route)
+    || Boolean(detailMovie || detailSeries || episodeInfo);
+  // Public information pages are indexable; every actual playback route remains noindex.
+  const isNoIndex = isWatchPage || isPrivateOrSearchRoute || !isIndexableInfoRoute;
+  const searchTitle = contentTitle || alternateTitle;
   const seoTitle = isWatchPage
-    ? (locale === 'ar'
-      ? `مشاهدة ${searchTitle} مترجم عربي | ${contentTitle} | موفيزا`
-      : `Watch ${searchTitle} | ${contentTitle} | Movyza`)
-    : (detailMovie || detailSeries)
-      ? (locale === 'ar'
-        ? `${searchTitle} مترجم عربي | ${contentTitle} | مشاهدة ${searchTitle} | موفيزا`
-        : `${searchTitle} | ${contentTitle} | Movyza`)
-      : route === '/' ? HOME_SEO[locale].title : contentTitle;
+    ? `${locale === 'ar' ? 'مشاهدة' : 'Watch'} ${searchTitle} | Movyza`
+    : episodeInfo
+      ? freeTitle(locale, 'episode', searchTitle)
+      : detailMovie
+        ? freeTitle(locale, 'movie', searchTitle)
+        : detailSeries
+          ? freeTitle(locale, 'series', searchTitle)
+          : route === '/'
+            ? brandedHomepageTitle(locale)
+            : route === '/movies'
+              ? freeTitle(locale, 'movies')
+              : route === '/series'
+                ? freeTitle(locale, 'seriesList')
+                : route === '/discover'
+                  ? freeTitle(locale, 'discover')
+                  : route === '/catalog'
+                    ? freeTitle(locale, 'catalog')
+                    : (contentTitle.endsWith('| Movyza') ? contentTitle : `${contentTitle} | Movyza`);
   const hasExplicitLocale = Boolean(localeFromPath(url.pathname));
   const canonicalPath = route === '/' && !hasExplicitLocale ? '/' : `/${locale}${route === '/' ? '/' : route}`;
   const origin = url.origin;
-  const hreflangLinks = route === '/'
+  const hreflangLinks = !isNoIndex
     ? Object.entries(LOCALES)
-        .map(([code, item]) => `<link rel="alternate" hreflang="${item.tmdb.toLowerCase()}" href="${origin}/${code}/" />`)
+        .map(([code, item]) => `<link rel="alternate" hreflang="${item.tmdb.toLowerCase()}" href="${origin}/${code}${route === '/' ? '/' : route}" />`)
         .join('')
     : '';
-  const xDefault = route === '/'
-    ? `<link rel="alternate" hreflang="x-default" href="${origin}/en/" />`
+  const xDefault = !isNoIndex
+    ? `<link rel="alternate" hreflang="x-default" href="${origin}/en${route === '/' ? '/' : route}" />`
     : '';
   const keywords = titleKeywords(locale, contentTitle + (alternateTitle && alternateTitle !== contentTitle ? `, ${alternateTitle}` : ''));
   const metaDescriptionSource = String(description || HOME_SEO[locale].description).replace(/\s+/g, ' ').trim();
@@ -461,36 +546,48 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     return `PT${hours ? hours + 'H' : ''}${mins ? mins + 'M' : ''}${secs ? secs + 'S' : ''}`;
   };
 
-  const jsonLd = isWatchPage
+  const jsonLd = isWatchPage && watchVideo
     ? {
         '@context': 'https://schema.org',
         '@type': 'VideoObject',
         name: contentTitle,
         description,
         thumbnailUrl: imageUrl ? [imageUrl] : undefined,
-        uploadDate: watchVideo?.uploadDate || undefined,
-        duration: toIsoDuration(Number(watchVideo?.duration || 0)),
-        embedUrl: watchVideo?.embedUrl,
+        uploadDate: watchVideo.uploadDate || undefined,
+        duration: toIsoDuration(Number(watchVideo.duration || 0)),
+        embedUrl: watchVideo.embedUrl,
         url: origin + canonicalPath,
         inLanguage: locale,
-        creator: {
-          '@type': 'Organization',
-          name: 'Movyz',
-          url: origin,
-        },
+        creator: { '@type': 'Organization', name: 'Movyza', url: origin },
       }
-    : {
-        '@context': 'https://schema.org',
-        '@type': schemaType,
-        ...(route === '/' ? { '@id': 'https://movyza.sbs/#website', inLanguage: locale } : {}),
-        // Use one stable brand name for every localized homepage. Site names
-        // are domain-level in Google Search, not separate per-locale brands.
-        name: route === '/' ? 'Movyza' : contentTitle,
-        description,
-        alternateName: route === '/' ? undefined : alternateTitle || undefined,
-        image: imageUrl ? [imageUrl] : undefined,
-        url: route === '/' ? 'https://movyza.sbs/' : origin + canonicalPath,
-      };
+    : episodeDetails
+      ? {
+          '@context': 'https://schema.org',
+          '@type': 'TVEpisode',
+          name: episodeDetails.episodeData?.name || contentTitle,
+          description,
+          image: imageUrl ? [imageUrl] : undefined,
+          datePublished: episodeDetails.episodeData?.air_date || undefined,
+          episodeNumber: episodeDetails.episodeNumber,
+          partOfSeason: { '@type': 'TVSeason', seasonNumber: episodeDetails.seasonNumber },
+          partOfSeries: {
+            '@type': 'TVSeries',
+            name: episodeDetails.seriesData?.name || episodeDetails.seriesData?.original_name,
+            url: origin + `/${locale}/series/${episodeInfo?.[1] || ''}`,
+          },
+          url: origin + canonicalPath,
+          inLanguage: locale,
+        }
+      : {
+          '@context': 'https://schema.org',
+          '@type': schemaType,
+          ...(route === '/' ? { '@id': 'https://movyza.sbs/#website', inLanguage: locale } : {}),
+          name: route === '/' ? 'Movyza' : contentTitle,
+          alternateName: route === '/' ? undefined : alternateTitle || undefined,
+          image: imageUrl ? [imageUrl] : undefined,
+          description,
+          url: route === '/' ? 'https://movyza.sbs/' : origin + canonicalPath,
+        };
   const subtitleLocale = detectSubtitleLocale(request);
   const injection = `<!-- movyz-seo -->` +
     `<meta name="movyz-country" content="${String(countryFromRequest(request) || 'XX').toUpperCase()}" />` +
@@ -498,6 +595,8 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     `<meta name="movyz-subtitle-priority" content="${subtitlePriorityForLanguage(subtitleLocale)}" />` +
     `<meta name="keywords" content="${keywords.replace(/"/g, '&quot;')}" />` +
     `<meta name="robots" content="${isNoIndex ? 'noindex,follow' : 'index,follow,max-image-preview:large'}" />` +
+    `<meta property="og:site_name" content="Movyza" />` +
+    `<meta name="application-name" content="Movyza" />` +
     `<meta property="og:title" content="${seoTitle.replace(/"/g, '&quot;')}" />` +
     `<meta property="og:description" content="${description.replace(/"/g, '&quot;')}" />` +
     `<meta property="og:type" content="${ogType}" />` +
@@ -508,7 +607,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     (imageUrl ? `<meta name="twitter:image" content="${imageUrl}" />` : '') +
     `<link rel="canonical" href="${origin + canonicalPath}" />` +
     hreflangLinks + xDefault +
-    `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>`;
+    `<script id="movyz-jsonld" type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>`;
   const htmlLang = `<html lang="${locale}" dir="${config.dir}"`;
 
 
@@ -1031,7 +1130,7 @@ const buildSitemapSegment = async (
 
           for (let episode = 1; episode <= episodeCount; episode += 1) {
             urls.push(
-              `<url><loc>${escapeXml(`${origin}/${locale}/watch/tv/${entry.id}/${seasonNumber}/${episode}`)}</loc><changefreq>monthly</changefreq><priority>0.55</priority></url>`
+              `<url><loc>${escapeXml(`${origin}/${locale}/episodes/${entry.id}/${seasonNumber}/${episode}`)}</loc><changefreq>monthly</changefreq><priority>0.55</priority></url>`
             );
           }
         }
@@ -1112,7 +1211,22 @@ const buildGscSitemap = () => {
     `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`;
 };
 
-const buildRootSitemap = () => buildHomepagesSitemap(SITEMAP_CRAWL_ORIGIN);
+const buildSitemapIndex = () => {
+  const entries: string[] = [];
+  for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
+    entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${locale}/static.xml</loc></sitemap>`);
+    for (let page = 1; page <= SITEMAP_DISCOVERY_PAGES; page += 1) {
+      entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${locale}/movies/${page}.xml</loc></sitemap>`);
+      entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${locale}/series/${page}.xml</loc></sitemap>`);
+    }
+    for (let page = 1; page <= SITEMAP_EPISODE_PAGES; page += 1) {
+      entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${locale}/episodes/${page}.xml</loc></sitemap>`);
+    }
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries.join('')}</sitemapindex>`;
+};
+
+const buildRootSitemap = () => buildSitemapIndex();
 
 const buildRobotsTxt = () => [
   '# Movyza crawler policy',

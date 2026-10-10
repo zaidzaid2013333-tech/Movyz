@@ -9,7 +9,8 @@ Disallow: /tmdb
 Disallow: /tmdb/
 Disallow: /api/v1/playback/resolve
 
-# Keep public movie/series/watch pages crawlable for search engines.
-# Search pages are marked noindex by the application instead of being blocked here.
+# Public movie, series and episode-information pages are crawlable and listed in sitemaps.
+# Playback routes remain crawlable so Google can read their noindex directive, but are never listed in sitemaps.
+# Search, login, profile, history and watchlist pages are marked noindex by the application.
 
 Sitemap: https://movyza.sbs/sitemap.xml

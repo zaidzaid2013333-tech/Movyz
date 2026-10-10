@@ -8,7 +8,7 @@ import { HeroSkeleton } from '../components/ui/Skeletons';
 import { ErrorState } from '../components/ui/FeedbackStates';
 import { ShareButton } from '../components/ui/ShareButton';
 import { QuickRating } from '../components/ui/QuickRating';
-import { SeoHead } from '../components/SEOHead';
+import { SeoHead, buildFreeContentTitle } from '../components/SEOHead';
 import {
   Play,
   Bookmark,
@@ -100,7 +100,7 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({
   return (
     <>
       <SeoHead
-        title={language === 'ar' ? `${movie.originalTitle || titlePrimary} مترجم عربي | ${titlePrimary} | موفيزا` : `${movie.originalTitle || titlePrimary} | ${titlePrimary} | Movyza`}
+        title={buildFreeContentTitle(language, titlePrimary, 'movie')}
         description={seoDescription}
         keywords={[movie.originalTitle, movie.title, ...movie.genres.map((genre) => genre.name).filter(Boolean)]}
         image={movie.backdropUrl || movie.posterUrl}
