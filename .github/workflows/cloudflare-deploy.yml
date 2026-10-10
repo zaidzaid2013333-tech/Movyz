@@ -224,7 +224,8 @@ jobs:
 
           echo "CHECK 11/11: watch deep link stays private to playback"
           watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/watch/movie/550")"
-          printf '%s' "$watch_html" | grep -q 'Fight Club'
+          # Arabic/localized TMDB responses may translate the title; test the video schema instead of English-only text.
+          printf '%s' "$watch_html" | grep -q '"@type":"VideoObject"'
           printf '%s' "$watch_html" | grep -q 'name="robots" content="noindex,follow"'
 
           echo "CHECK 11/11: robots"
