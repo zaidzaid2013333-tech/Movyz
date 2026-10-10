@@ -1181,9 +1181,11 @@ const escapeXml = (value: string) =>
 
 // TMDB discovery exposes at most 500 pages per content type. Keep each sitemap
 // segment to one API page so each sitemap request stays lightweight on Cloudflare Free.
-const SITEMAP_DISCOVERY_PAGES = 500;
-// Five series per episode sitemap segment; 100 segments cover 500 popular series.
+const SITEMAP_DISCOVERY_PAGES = 500; // TMDB discovery pages per media type (up to 10,000 URLs).
+const SITEMAP_DISCOVERY_PAGES_PER_SITEMAP = 10; // Batch ten TMDB pages into each movie/series sitemap.
+// Five series per source slice; batching two slices preserves coverage of 500 popular series.
 const SITEMAP_EPISODE_PAGES = 100;
+const SITEMAP_EPISODE_PAGES_PER_SITEMAP = 2;
 const SITEMAP_CRAWL_ORIGIN = 'https://movyza.sbs';
 
 const buildHomepagesSitemap = (origin: string) => {
@@ -1250,13 +1252,15 @@ const buildSitemapSegment = async (
   };
 
   try {
-    // Episode sitemap: five popular series per segment, covering all seasons
-    // using TMDB's season metadata without making one request per episode.
+    // Batch ten popular series per episode sitemap (one discovery request plus up to ten detail requests).
+    // This preserves the previous 500-series coverage while halving the number of episode sitemap requests.
     if (type === 'episodes') {
-      if (page > SITEMAP_EPISODE_PAGES) return new Response('Not found', { status: 404 });
+      const sitemapPageCount = Math.ceil(SITEMAP_EPISODE_PAGES / SITEMAP_EPISODE_PAGES_PER_SITEMAP);
+      if (page < 1 || page > sitemapPageCount) return new Response('Not found', { status: 404 });
 
-      const discoverPage = Math.floor((page - 1) / 4) + 1;
-      const sliceStart = ((page - 1) % 4) * 5;
+      const sourcePageOffset = (page - 1) * SITEMAP_EPISODE_PAGES_PER_SITEMAP;
+      const discoverPage = Math.floor(sourcePageOffset / 4) + 1;
+      const sliceStart = (sourcePageOffset % 4) * 5;
       const discoverTarget = new URL('https://api.themoviedb.org/3/discover/tv');
       discoverTarget.searchParams.set('language', config.tmdb);
       discoverTarget.searchParams.set('region', config.region);
@@ -1265,7 +1269,7 @@ const buildSitemapSegment = async (
       discoverTarget.searchParams.set('include_adult', 'false');
 
       const discoverData = await fetchJson(discoverTarget);
-      const seriesBatch = (discoverData?.results || []).slice(sliceStart, sliceStart + 5);
+      const seriesBatch = (discoverData?.results || []).slice(sliceStart, sliceStart + SITEMAP_EPISODE_PAGES_PER_SITEMAP * 5);
 
       const detailData = await Promise.all(
         seriesBatch.map(async (series: any) => {
@@ -1315,28 +1319,39 @@ const buildSitemapSegment = async (
       return new Response('Not found', { status: 404 });
     }
 
-    const tmdbType = type === 'movies' ? 'movie' : 'tv';
-    const target = new URL(`https://api.themoviedb.org/3/discover/${tmdbType}`);
-    target.searchParams.set('language', config.tmdb);
-    target.searchParams.set('region', config.region);
-    target.searchParams.set('page', String(page));
-    target.searchParams.set('sort_by', 'popularity.desc');
-    target.searchParams.set('include_adult', 'false');
-    if (tmdbType === 'movie') target.searchParams.set('include_video', 'false');
+    const sitemapPageCount = Math.ceil(SITEMAP_DISCOVERY_PAGES / SITEMAP_DISCOVERY_PAGES_PER_SITEMAP);
+    if (page < 1 || page > sitemapPageCount) {
+      return new Response('Not found', { status: 404 });
+    }
 
-    const data = await fetchJson(target);
+    const tmdbType = type === 'movies' ? 'movie' : 'tv';
+    const firstApiPage = (page - 1) * SITEMAP_DISCOVERY_PAGES_PER_SITEMAP + 1;
+    const lastApiPage = Math.min(SITEMAP_DISCOVERY_PAGES, firstApiPage + SITEMAP_DISCOVERY_PAGES_PER_SITEMAP - 1);
+    const apiPages = Array.from({ length: lastApiPage - firstApiPage + 1 }, (_, index) => firstApiPage + index);
+    const pageData = await Promise.all(apiPages.map(async (apiPage) => {
+      const target = new URL(`https://api.themoviedb.org/3/discover/${tmdbType}`);
+      target.searchParams.set('language', config.tmdb);
+      target.searchParams.set('region', config.region);
+      target.searchParams.set('page', String(apiPage));
+      target.searchParams.set('sort_by', 'popularity.desc');
+      target.searchParams.set('include_adult', 'false');
+      if (tmdbType === 'movie') target.searchParams.set('include_video', 'false');
+      return fetchJson(target);
+    }));
     const urls: string[] = [];
 
-    for (const item of data?.results || []) {
-      const id = Number(item?.id || 0);
-      if (!id) continue;
-
-      urls.push(
-        `<url><loc>${escapeXml(`${origin}/${locale}/${type}/${id}`)}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`
-      );
-
-      // Watch pages are intentionally not included in sitemaps.
-      // Detail pages remain the SEO entry points for each title.
+    for (const data of pageData) {
+      for (const item of data?.results || []) {
+        const id = Number(item?.id || 0);
+        if (!id) continue;
+  
+        urls.push(
+          `<url><loc>${escapeXml(`${origin}/${locale}/${type}/${id}`)}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`
+        );
+  
+        // Watch pages are intentionally not included in sitemaps.
+        // Detail pages remain the SEO entry points for each title.
+      }
     }
 
     const xml =
@@ -1385,11 +1400,13 @@ const buildSitemapIndex = () => {
   // Do not multiply thousands of dynamic sitemap requests by every language.
   // Google can discover translations through the hreflang set on each detail page.
   const contentLocale: LocaleCode = 'en';
-  for (let page = 1; page <= SITEMAP_DISCOVERY_PAGES; page += 1) {
+  const discoverySitemapCount = Math.ceil(SITEMAP_DISCOVERY_PAGES / SITEMAP_DISCOVERY_PAGES_PER_SITEMAP);
+  for (let page = 1; page <= discoverySitemapCount; page += 1) {
     entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${contentLocale}/movies/${page}.xml</loc></sitemap>`);
     entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${contentLocale}/series/${page}.xml</loc></sitemap>`);
   }
-  for (let page = 1; page <= SITEMAP_EPISODE_PAGES; page += 1) {
+  const episodeSitemapCount = Math.ceil(SITEMAP_EPISODE_PAGES / SITEMAP_EPISODE_PAGES_PER_SITEMAP);
+  for (let page = 1; page <= episodeSitemapCount; page += 1) {
     entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${contentLocale}/episodes/${page}.xml</loc></sitemap>`);
   }
 
