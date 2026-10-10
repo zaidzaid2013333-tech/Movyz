@@ -296,11 +296,12 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   let ogType = 'website';
   let watchVideo: { embedUrl: string; uploadDate?: string; duration?: number } | null = null;
   let episodeDetails: { seriesData: any; episodeData: any; seasonNumber: number; episodeNumber: number } | null = null;
+  let detailSeoData: any = null;
   const detailMovie = route.match(/^\/movies\/(\d+)$/);
   const detailSeries = route.match(/^\/series\/(\d+)$/);
   const episodeInfo = route.match(/^\/episodes\/(\d+)\/(\d+)\/(\d+)$/);
   const watchMovie = route.match(/^\/watch\/movie\/(\d+)$/);
-  const watchEpisode = route.match(/^\/watch\/tv\/(\d+)\/(\d+)\/(\d+)$/);
+  const watchEpisode = route.match(/^\/watch\/(?:tv|series)\/(\d+)\/(\d+)\/(\d+)$/);
   const generic: Record<LocaleCode, { home: string; movies: string; series: string; discover: string; search: string; catalog: string; legal: string }> = {
     ar: { home: "موفيزا — منصة الأفلام والمسلسلات", movies: "الأفلام والمسلسلات المترجمة | موفيزا", series: "المسلسلات التلفزيونية | موفيزا", discover: "استكشاف الأفلام والمسلسلات | موفيزا", search: "البحث في موفيزا", catalog: "أفضل 1000 فيلم ومسلسل | موفيزا", legal: "إخلاء المسؤولية وDMCA | موفيزا" },
     en: { home: "Movyza — Movies & TV Shows", movies: "Movies & Films | Movyza", series: "TV Series | Movyza", discover: "Discover Movies & TV | Movyza", search: "Search | Movyza", catalog: "Movyza Top 1000 Movies & TV Shows", legal: "DMCA & Third-Party Policy | Movyza" },
@@ -367,6 +368,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
           headers: tmdbHeaders(env),
         });
         const data = await upstream.json().catch(() => null) as any;
+        detailSeoData = data;
         contentTitle = data?.title || data?.name || data?.original_title || data?.original_name || `Movyza #${id}`;
         alternateTitle = data?.original_title || data?.original_name || '';
         description = data?.overview || `${contentTitle} — Movyza`;
@@ -558,7 +560,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
         embedUrl: watchVideo.embedUrl,
         url: origin + canonicalPath,
         inLanguage: locale,
-        creator: { '@type': 'Organization', name: 'Movyza', url: origin },
+        creator: { '@type': 'Organization', name: 'Movyza', url: origin, logo: { '@type': 'ImageObject', url: `${origin}/favicon.png` } },
       }
     : episodeDetails
       ? {
@@ -586,6 +588,9 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
           alternateName: route === '/' ? undefined : alternateTitle || undefined,
           image: imageUrl ? [imageUrl] : undefined,
           description,
+          ...(detailSeoData?.genres?.length ? { genre: detailSeoData.genres.map((genre: any) => genre?.name).filter(Boolean) } : {}),
+          ...(detailSeoData?.credits?.cast?.length ? { actor: detailSeoData.credits.cast.slice(0, 10).map((person: any) => ({ '@type': 'Person', name: person?.name })).filter((person: any) => person.name) } : {}),
+          ...(detailSeoData?.release_date || detailSeoData?.first_air_date ? { datePublished: detailSeoData.release_date || detailSeoData.first_air_date } : {}),
           url: route === '/' ? 'https://movyza.sbs/' : origin + canonicalPath,
         };
   const subtitleLocale = detectSubtitleLocale(request);
