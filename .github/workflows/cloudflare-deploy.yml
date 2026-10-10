@@ -119,14 +119,19 @@ jobs:
           printf '%s' "$ar_home" | grep -q 'hreflang="en-us"'
           printf '%s' "$en_home" | grep -q 'hreflang="ar-sa"'
 
-          echo "CHECK 4/10: root sitemap lists only localized homepages"
+          echo "CHECK 4/11: root sitemap indexes public information pages only"
           sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
           printf '%s' "$sitemap_headers" | grep -Eiq '^content-type: *application/xml'
           sitemap="$(cat /tmp/sitemap.xml)"
           printf '%s' "$sitemap" | grep -q '^<?xml version="1.0" encoding="UTF-8"?>'
-          printf '%s' "$sitemap" | grep -q '<urlset'
-          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/ar/'
-          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/en/'
+          printf '%s' "$sitemap" | grep -q '<sitemapindex'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/movies/1.xml'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/series/1.xml'
+          printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/episodes/1.xml'
+          if printf '%s' "$sitemap" | grep -q '/watch/'; then
+            echo "Playback routes must never appear in a sitemap"
+            exit 1
+          fi
           printf '%s' "$sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
 
           echo "CHECK 4A/10: Cloudflare bot configuration diagnostics"
@@ -190,15 +195,20 @@ jobs:
           echo "CHECK 9/10: movie deep link"
           fight_club="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/movies/550")"
           printf '%s' "$fight_club" | grep -q 'Fight Club'
-          # Only localized homepages are indexable by design; catalog/detail
-          # routes remain noindex so they are not treated as SEO landing pages.
-          printf '%s' "$fight_club" | grep -q 'name="robots" content="noindex,follow"'
+          # Public movie information pages are indexable; actual playback pages stay noindex.
+          printf '%s' "$fight_club" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
           printf '%s' "$fight_club" | grep -q 'rel="canonical"'
           printf '%s' "$fight_club" | grep -q '"@type":"Movie"'
 
-          echo "CHECK 10/10: watch deep link"
+          echo "CHECK 10/11: episode information deep link"
+          episode_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/episodes/1396/1/1")"
+          printf '%s' "$episode_html" | grep -q '"@type":"TVEpisode"'
+          printf '%s' "$episode_html" | grep -q 'name="robots" content="index,follow,max-image-preview:large"'
+
+          echo "CHECK 11/11: watch deep link stays private to playback"
           watch_html="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/ar/watch/movie/550")"
           printf '%s' "$watch_html" | grep -q 'Fight Club'
+          printf '%s' "$watch_html" | grep -q 'name="robots" content="noindex,follow"'
 
           echo "CHECK 11/11: robots"
           robots="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/robots.txt")"
