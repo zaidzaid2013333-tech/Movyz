@@ -172,7 +172,7 @@ jobs:
           if [ "$googlebot_status" = "200" ]; then
             googlebot_public_sitemap="$(cat /tmp/googlebot-public-sitemap.xml)"
             printf '%s' "$googlebot_public_sitemap" | grep -q '<sitemapindex'
-            printf '%s' "$googlebot_public_sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/movies/1.xml'
+            printf '%s' "$googlebot_public_sitemap" | grep -q 'https://movyza.sbs/sitemap/en/movies/1.xml'
             printf '%s' "$googlebot_public_sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
           else
             echo "WARNING: Public domain challenged the synthetic Googlebot user-agent (HTTP $googlebot_status). This does not validate real Googlebot access; check Cloudflare Security Events / Search Console separately."
@@ -198,7 +198,7 @@ jobs:
           echo "CHECK 6/10: sitemap segment"
           sitemap_segment="$(curl --fail --silent --show-error --location -H 'Cache-Control: no-cache' "$base/sitemap/en/movies/1.xml")"
           printf '%s' "$sitemap_segment" | grep -q '<urlset'
-          printf '%s' "$sitemap_segment" | grep -q '/ar/movies/'
+          printf '%s' "$sitemap_segment" | grep -q '/en/movies/'
 
           echo "CHECK 7/10: static assets"
           assets="$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | sort -u)"
