@@ -292,7 +292,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   let alternateTitle = '';
   let description = '';
   let imageUrl = '';
-  let schemaType = 'WebSite';
+  let schemaType = route === '/' ? 'WebSite' : 'WebPage';
   let ogType = 'website';
   let watchVideo: { embedUrl: string; uploadDate?: string; duration?: number } | null = null;
   let episodeDetails: { seriesData: any; episodeData: any; seasonNumber: number; episodeNumber: number } | null = null;
@@ -607,7 +607,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     (imageUrl ? `<meta name="twitter:image" content="${imageUrl}" />` : '') +
     `<link rel="canonical" href="${origin + canonicalPath}" />` +
     hreflangLinks + xDefault +
-    `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>`;
+    `<script id="movyz-jsonld" type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>`;
   const htmlLang = `<html lang="${locale}" dir="${config.dir}"`;
 
 
