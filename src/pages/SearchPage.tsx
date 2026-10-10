@@ -213,7 +213,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                 {results.cast.map((actor) => (
                   <div
                     key={actor.name}
-                    className="flex items-center gap-3 p-3 rounded-2xl bg-[#090b10] border border-amber-500/15 hover:border-amber-500/30 transition-all"
+                    className="movyza-glass-panel is-interactive flex items-center gap-3 p-3 rounded-2xl bg-[#090b10] border border-amber-500/15 hover:border-amber-500/30 transition-all"
                   >
                     <img
                       src={actor.avatarUrl}

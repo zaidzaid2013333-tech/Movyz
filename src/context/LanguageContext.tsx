@@ -58,6 +58,7 @@ export const DICTIONARY: Translations = {
   season: { ar: 'الموسم', en: 'Season' },
   episode: { ar: 'الحلقة', en: 'Episode' },
   all: { ar: 'الكل', en: 'All' },
+  seeAll: { ar: 'عرض الكل', en: 'View all' },
   
   // Filtering & Sorting
   filterByGenre: { ar: 'التصنيف', en: 'Genre' },

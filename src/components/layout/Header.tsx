@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Bookmark, User, Globe, Shield, LogOut, Menu, X, Play, Film, Dices } from 'lucide-react';
+import { Search, Bookmark, User, Globe, Shield, LogOut, Menu, X, Play, Dices } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -42,9 +42,14 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
             className="movyza-header-brand flex items-center gap-2 group text-start cursor-pointer shrink-0"
             aria-label="Movyza Home"
           >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-400/15 group-hover:scale-105 transition-transform">
-              <Film className="w-4 h-4 stroke-[2.5]" />
-            </div>
+            <img
+              src="/movyza-icon.svg"
+              alt=""
+              aria-hidden="true"
+              className="movyza-brand-icon"
+              width={39}
+              height={39}
+            />
             <span className="text-lg sm:text-xl font-bold tracking-[0.16em] text-white font-cinzel leading-none uppercase">
               MOVYZA
             </span>
@@ -52,17 +57,20 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate, watchli
 
           <nav className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => {
-              const isActive = currentPath === link.path;
+              const isActive = link.path === '/'
+                ? currentPath === '/'
+                : currentPath === link.path || currentPath.startsWith(link.path + '/');
               return (
                 <button
                   key={link.path}
                   onClick={() => handleNav(link.path)}
                   className={
-                    'text-xs font-semibold px-3 py-2 rounded-xl transition-all cursor-pointer ' +
+                    'movyza-nav-link text-xs font-semibold px-3 py-2 rounded-xl transition-all cursor-pointer ' +
                     (isActive
-                      ? 'text-white bg-white/[0.06]'
+                      ? 'is-active text-white bg-white/[0.06]'
                       : 'text-slate-400 hover:text-white hover:bg-white/[0.035]')
                   }
+                  aria-current={isActive ? 'page' : undefined}
                 >
                   {link.label}
                 </button>

@@ -33,7 +33,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigate }) => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-in fade-in duration-300">
       {/* Bespoke Header */}
-      <div className="relative rounded-3xl p-6 sm:p-8 bg-[#080a10] border border-amber-500/20 overflow-hidden shadow-2xl">
+      <div className="movyza-glass-panel relative rounded-3xl p-6 sm:p-8 bg-[#080a10] border border-amber-500/20 overflow-hidden shadow-2xl">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6">
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono text-xs">
@@ -90,7 +90,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigate }) => {
               <div
                 key={`${item.contentId}-${item.seasonNumber || 0}-${item.episodeNumber || 0}`}
                 onClick={() => onNavigate(watchUrl)}
-                className="group p-4 rounded-2xl bg-[#090b10] border border-amber-500/15 hover:border-amber-500/50 hover:bg-[#0e111a] transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer shadow-lg"
+                className="movyza-glass-panel is-interactive group p-4 rounded-2xl bg-[#090b10] border border-amber-500/15 hover:border-amber-500/50 hover:bg-[#0e111a] transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer shadow-lg"
               >
                 <div className="flex items-center gap-4">
                   <div className="relative w-28 sm:w-36 aspect-[16/9] rounded-xl overflow-hidden bg-slate-900 shrink-0 border border-amber-500/20">

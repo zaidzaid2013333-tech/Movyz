@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Play, Lock, Mail, User, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Lock, Mail, User, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface AuthPageProps {
   mode: 'login' | 'register' | 'forgot';
@@ -55,11 +55,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({ mode, onNavigate }) => {
 
   return (
     <div className="min-h-[75vh] flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md space-y-6 p-8 rounded-3xl bg-white/[0.02] border border-white/[0.08] shadow-2xl backdrop-blur-md">
+      <div className="movyza-glass-panel w-full max-w-md space-y-6 p-8 rounded-3xl bg-white/[0.02] border border-white/[0.08] shadow-2xl backdrop-blur-md">
         {/* Brand Header */}
         <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/20 mb-3">
-            <Play className="w-6 h-6 text-slate-950 fill-slate-950 translate-x-0.5" />
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-amber-500/20 mb-3 overflow-hidden border border-amber-400/25">
+            <img src="/movyza-icon.svg" alt="" aria-hidden="true" className="w-full h-full object-cover" width={48} height={48} />
           </div>
           <h2 className="text-2xl font-black text-white tracking-tight">
             {mode === 'login'
