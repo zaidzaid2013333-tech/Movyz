@@ -121,18 +121,32 @@ jobs:
 
           echo "CHECK 4/11: root sitemap indexes public information pages only"
           sitemap_headers="$(curl --fail --silent --show-error --location -D - -o /tmp/sitemap.xml -H 'Cache-Control: no-cache' "$base/sitemap.xml")"
+          echo "SITEMAP RESPONSE HEADERS:"
+          printf '%s\n' "$sitemap_headers"
+          echo "SITEMAP RESPONSE BODY PREVIEW:"
+          head -c 400 /tmp/sitemap.xml || true
+          echo
+          echo "SITEMAP RESPONSE SIZE: $(wc -c < /tmp/sitemap.xml) bytes"
           printf '%s' "$sitemap_headers" | grep -Eiq '^content-type: *application/xml'
+          echo "SITEMAP CHECK 1/8: XML content type passed"
           sitemap="$(cat /tmp/sitemap.xml)"
           printf '%s' "$sitemap" | grep -q '^<?xml version="1.0" encoding="UTF-8"?>'
+          echo "SITEMAP CHECK 2/8: XML declaration passed"
           printf '%s' "$sitemap" | grep -q '<sitemapindex'
+          echo "SITEMAP CHECK 3/8: sitemap index passed"
           printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/movies/1.xml'
+          echo "SITEMAP CHECK 4/8: movie segment passed"
           printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/series/1.xml'
+          echo "SITEMAP CHECK 5/8: series segment passed"
           printf '%s' "$sitemap" | grep -q 'https://movyza.sbs/sitemap/ar/episodes/1.xml'
+          echo "SITEMAP CHECK 6/8: episode-information segment passed"
           if printf '%s' "$sitemap" | grep -q '/watch/'; then
             echo "Playback routes must never appear in a sitemap"
             exit 1
           fi
+          echo "SITEMAP CHECK 7/8: no playback URLs passed"
           printf '%s' "$sitemap" | python -c 'import sys,xml.etree.ElementTree as ET; ET.fromstring(sys.stdin.read())'
+          echo "SITEMAP CHECK 8/8: XML parsing passed"
 
           echo "CHECK 4A/10: Cloudflare bot configuration diagnostics"
           zone_json="$(curl --silent --show-error --location --fail -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/zones?name=movyza.sbs&status=active" || true)"
