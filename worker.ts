@@ -812,7 +812,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
         const releaseDate = String(isEpisodePage ? (episodeForPage?.air_date || '') : (detailSeoData?.release_date || detailSeoData?.first_air_date || '')).trim();
         const vote = Number(sourceData?.vote_average || 0);
         const overview = String(isEpisodePage ? (episodeForPage?.overview || seriesForEpisode?.overview || description) : description || '').trim();
-        const pageTitle = String(isEpisodePage ? (episodeForPage?.name || contentTitle) : contentTitle).trim();
+        const pageTitle = String(contentTitle).trim();
         const row = (label: string, value: string) => value
           ? '<div style="display:flex;flex-wrap:wrap;gap:8px;margin:7px 0"><dt style="font-weight:650;color:#f4f4f5">' + escapeXml(label) +
             '</dt><dd style="margin:0;color:#d4d4d8">' + escapeXml(value) + '</dd></div>'
