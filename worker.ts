@@ -273,6 +273,41 @@ const FREE_SEO_TITLES: Record<LocaleCode, { movie: string; series: string; episo
   fa: { movie: '{title} را رایگان آنلاین تماشا کنید', series: 'سریال {title} را رایگان تماشا کنید', episode: 'قسمت {title} را رایگان تماشا کنید', movies: 'تماشای رایگان فیلم', seriesList: 'تماشای رایگان سریال', discover: 'کشف فیلم و سریال رایگان', catalog: '۱۰۰۰ فیلم و سریال برتر رایگان' },
 };
 
+const DETAIL_SEO_LABELS: Record<LocaleCode, { details: string; originalTitle: string; genres: string; cast: string; release: string; rating: string; related: string; allMovies: string; allSeries: string; discover: string; viewSeries: string }> = {
+  ar: { details: 'تفاصيل العمل', originalTitle: 'العنوان الأصلي', genres: 'التصنيفات', cast: 'بطولة', release: 'تاريخ الإصدار', rating: 'التقييم', related: 'استكشف المزيد', allMovies: 'كل الأفلام', allSeries: 'كل المسلسلات', discover: 'اكتشف المزيد', viewSeries: 'صفحة المسلسل' },
+  en: { details: 'Movie and series information', originalTitle: 'Original title', genres: 'Genres', cast: 'Cast', release: 'Release date', rating: 'Rating', related: 'Explore more', allMovies: 'Browse movies', allSeries: 'Browse series', discover: 'Discover titles', viewSeries: 'Series details' },
+  fr: { details: 'Informations sur le film ou la série', originalTitle: 'Titre original', genres: 'Genres', cast: 'Distribution', release: 'Date de sortie', rating: 'Note', related: 'À découvrir', allMovies: 'Voir les films', allSeries: 'Voir les séries', discover: 'Découvrir', viewSeries: 'Détails de la série' },
+  de: { details: 'Film- und Serieninformationen', originalTitle: 'Originaltitel', genres: 'Genres', cast: 'Besetzung', release: 'Veröffentlichungsdatum', rating: 'Bewertung', related: 'Mehr entdecken', allMovies: 'Filme ansehen', allSeries: 'Serien ansehen', discover: 'Titel entdecken', viewSeries: 'Seriendetails' },
+  es: { details: 'Información de películas y series', originalTitle: 'Título original', genres: 'Géneros', cast: 'Reparto', release: 'Fecha de estreno', rating: 'Valoración', related: 'Descubre más', allMovies: 'Ver películas', allSeries: 'Ver series', discover: 'Explorar títulos', viewSeries: 'Detalles de la serie' },
+  it: { details: 'Informazioni su film e serie', originalTitle: 'Titolo originale', genres: 'Generi', cast: 'Cast', release: 'Data di uscita', rating: 'Valutazione', related: 'Scopri di più', allMovies: 'Film', allSeries: 'Serie TV', discover: 'Scopri titoli', viewSeries: 'Dettagli della serie' },
+  pt: { details: 'Informações sobre filmes e séries', originalTitle: 'Título original', genres: 'Gêneros', cast: 'Elenco', release: 'Data de lançamento', rating: 'Avaliação', related: 'Descubra mais', allMovies: 'Ver filmes', allSeries: 'Ver séries', discover: 'Explorar títulos', viewSeries: 'Detalhes da série' },
+  ru: { details: 'Информация о фильме или сериале', originalTitle: 'Оригинальное название', genres: 'Жанры', cast: 'В ролях', release: 'Дата выхода', rating: 'Рейтинг', related: 'Больше материалов', allMovies: 'Фильмы', allSeries: 'Сериалы', discover: 'Открыть подборку', viewSeries: 'Страница сериала' },
+  tr: { details: 'Film ve dizi bilgileri', originalTitle: 'Orijinal ad', genres: 'Türler', cast: 'Oyuncular', release: 'Yayın tarihi', rating: 'Puan', related: 'Daha fazlasını keşfet', allMovies: 'Filmler', allSeries: 'Diziler', discover: 'İçerikleri keşfet', viewSeries: 'Dizi bilgileri' },
+  hi: { details: 'फ़िल्म और सीरीज़ की जानकारी', originalTitle: 'मूल शीर्षक', genres: 'शैलियाँ', cast: 'कलाकार', release: 'रिलीज़ तारीख', rating: 'रेटिंग', related: 'और खोजें', allMovies: 'फ़िल्में देखें', allSeries: 'सीरीज़ देखें', discover: 'शीर्षक खोजें', viewSeries: 'सीरीज़ विवरण' },
+  ja: { details: '映画・シリーズ情報', originalTitle: '原題', genres: 'ジャンル', cast: '出演者', release: '公開日', rating: '評価', related: 'さらに探す', allMovies: '映画一覧', allSeries: 'シリーズ一覧', discover: '作品を探す', viewSeries: 'シリーズ詳細' },
+  ko: { details: '영화 및 시리즈 정보', originalTitle: '원제', genres: '장르', cast: '출연진', release: '공개일', rating: '평점', related: '더 알아보기', allMovies: '영화 보기', allSeries: '시리즈 보기', discover: '작품 찾기', viewSeries: '시리즈 정보' },
+  zh: { details: '电影与剧集信息', originalTitle: '原名', genres: '类型', cast: '演员', release: '上映日期', rating: '评分', related: '探索更多', allMovies: '浏览电影', allSeries: '浏览剧集', discover: '发现作品', viewSeries: '剧集详情' },
+  nl: { details: 'Film- en serie-informatie', originalTitle: 'Originele titel', genres: 'Genres', cast: 'Cast', release: 'Releasedatum', rating: 'Beoordeling', related: 'Ontdek meer', allMovies: 'Films bekijken', allSeries: 'Series bekijken', discover: 'Titels ontdekken', viewSeries: 'Seriegegevens' },
+  sv: { details: 'Film- och serieinformation', originalTitle: 'Originaltitel', genres: 'Genrer', cast: 'Medverkande', release: 'Premiärdatum', rating: 'Betyg', related: 'Upptäck mer', allMovies: 'Visa filmer', allSeries: 'Visa serier', discover: 'Upptäck titlar', viewSeries: 'Seriedetaljer' },
+  da: { details: 'Film- og serieinformation', originalTitle: 'Originaltitel', genres: 'Genrer', cast: 'Medvirkende', release: 'Udgivelsesdato', rating: 'Bedømmelse', related: 'Udforsk mere', allMovies: 'Se film', allSeries: 'Se serier', discover: 'Find titler', viewSeries: 'Seriedetaljer' },
+  no: { details: 'Film- og serieinformasjon', originalTitle: 'Originaltittel', genres: 'Sjangre', cast: 'Medvirkende', release: 'Utgivelsesdato', rating: 'Vurdering', related: 'Utforsk mer', allMovies: 'Se filmer', allSeries: 'Se serier', discover: 'Utforsk titler', viewSeries: 'Seriedetaljer' },
+  fi: { details: 'Elokuva- ja sarjatiedot', originalTitle: 'Alkuperäinen nimi', genres: 'Tyylilajit', cast: 'Näyttelijät', release: 'Julkaisupäivä', rating: 'Arvio', related: 'Tutustu lisää', allMovies: 'Elokuvat', allSeries: 'Sarjat', discover: 'Tutustu nimikkeisiin', viewSeries: 'Sarjan tiedot' },
+  pl: { details: 'Informacje o filmie lub serialu', originalTitle: 'Tytuł oryginalny', genres: 'Gatunki', cast: 'Obsada', release: 'Data premiery', rating: 'Ocena', related: 'Odkryj więcej', allMovies: 'Filmy', allSeries: 'Seriale', discover: 'Odkryj tytuły', viewSeries: 'Szczegóły serialu' },
+  cs: { details: 'Informace o filmu nebo seriálu', originalTitle: 'Původní název', genres: 'Žánry', cast: 'Obsazení', release: 'Datum vydání', rating: 'Hodnocení', related: 'Objevte více', allMovies: 'Filmy', allSeries: 'Seriály', discover: 'Objevovat tituly', viewSeries: 'Podrobnosti seriálu' },
+  uk: { details: 'Інформація про фільм або серіал', originalTitle: 'Оригінальна назва', genres: 'Жанри', cast: 'У ролях', release: 'Дата виходу', rating: 'Рейтинг', related: 'Досліджуйте далі', allMovies: 'Фільми', allSeries: 'Серіали', discover: 'Знайти твори', viewSeries: 'Деталі серіалу' },
+  he: { details: 'מידע על סרטים וסדרות', originalTitle: 'שם מקורי', genres: 'ז׳אנרים', cast: 'שחקנים', release: 'תאריך יציאה', rating: 'דירוג', related: 'לגלות עוד', allMovies: 'סרטים', allSeries: 'סדרות', discover: 'לגלות תכנים', viewSeries: 'פרטי הסדרה' },
+  vi: { details: 'Thông tin phim và series', originalTitle: 'Tên gốc', genres: 'Thể loại', cast: 'Diễn viên', release: 'Ngày phát hành', rating: 'Đánh giá', related: 'Khám phá thêm', allMovies: 'Xem phim', allSeries: 'Xem series', discover: 'Khám phá nội dung', viewSeries: 'Thông tin series' },
+  id: { details: 'Informasi film dan serial', originalTitle: 'Judul asli', genres: 'Genre', cast: 'Pemeran', release: 'Tanggal rilis', rating: 'Rating', related: 'Jelajahi lainnya', allMovies: 'Lihat film', allSeries: 'Lihat serial', discover: 'Jelajahi judul', viewSeries: 'Detail serial' },
+  ms: { details: 'Maklumat filem dan siri', originalTitle: 'Tajuk asal', genres: 'Genre', cast: 'Pelakon', release: 'Tarikh keluaran', rating: 'Penilaian', related: 'Terokai lagi', allMovies: 'Lihat filem', allSeries: 'Lihat siri', discover: 'Terokai tajuk', viewSeries: 'Butiran siri' },
+  th: { details: 'ข้อมูลภาพยนตร์และซีรีส์', originalTitle: 'ชื่อเรื่องต้นฉบับ', genres: 'ประเภท', cast: 'นักแสดง', release: 'วันเข้าฉาย', rating: 'คะแนน', related: 'ค้นหาเพิ่มเติม', allMovies: 'ดูภาพยนตร์', allSeries: 'ดูซีรีส์', discover: 'ค้นหาผลงาน', viewSeries: 'รายละเอียดซีรีส์' },
+  ro: { details: 'Informații despre filme și seriale', originalTitle: 'Titlu original', genres: 'Genuri', cast: 'Distribuție', release: 'Data lansării', rating: 'Evaluare', related: 'Descoperă mai mult', allMovies: 'Vezi filme', allSeries: 'Vezi seriale', discover: 'Descoperă titluri', viewSeries: 'Detalii serial' },
+  hu: { details: 'Film- és sorozatinformációk', originalTitle: 'Eredeti cím', genres: 'Műfajok', cast: 'Szereplők', release: 'Megjelenés dátuma', rating: 'Értékelés', related: 'Fedezz fel többet', allMovies: 'Filmek', allSeries: 'Sorozatok', discover: 'Címek felfedezése', viewSeries: 'Sorozat adatai' },
+  el: { details: 'Πληροφορίες ταινιών και σειρών', originalTitle: 'Πρωτότυπος τίτλος', genres: 'Είδη', cast: 'Ηθοποιοί', release: 'Ημερομηνία κυκλοφορίας', rating: 'Βαθμολογία', related: 'Εξερευνήστε περισσότερα', allMovies: 'Ταινίες', allSeries: 'Σειρές', discover: 'Ανακαλύψτε τίτλους', viewSeries: 'Λεπτομέρειες σειράς' },
+  bn: { details: 'সিনেমা ও সিরিজের তথ্য', originalTitle: 'মূল শিরোনাম', genres: 'ধরন', cast: 'অভিনয়ে', release: 'মুক্তির তারিখ', rating: 'রেটিং', related: 'আরও দেখুন', allMovies: 'সিনেমা দেখুন', allSeries: 'সিরিজ দেখুন', discover: 'শিরোনাম খুঁজুন', viewSeries: 'সিরিজের বিবরণ' },
+  ur: { details: 'فلموں اور سیریز کی معلومات', originalTitle: 'اصل عنوان', genres: 'اقسام', cast: 'اداکار', release: 'ریلیز کی تاریخ', rating: 'درجہ بندی', related: 'مزید دریافت کریں', allMovies: 'فلمیں دیکھیں', allSeries: 'سیریز دیکھیں', discover: 'عنوانات دریافت کریں', viewSeries: 'سیریز کی تفصیل' },
+  fa: { details: 'اطلاعات فیلم و سریال', originalTitle: 'عنوان اصلی', genres: 'ژانرها', cast: 'بازیگران', release: 'تاریخ انتشار', rating: 'امتیاز', related: 'بیشتر کشف کنید', allMovies: 'فیلم‌ها', allSeries: 'سریال‌ها', discover: 'کشف آثار', viewSeries: 'جزئیات سریال' },
+};
+
 const freeTitle = (locale: LocaleCode, kind: 'movie' | 'series' | 'episode' | 'movies' | 'seriesList' | 'discover' | 'catalog', title = '') => {
   const template = FREE_SEO_TITLES[locale]?.[kind] || FREE_SEO_TITLES.en[kind];
   const label = template.replace('{title}', String(title || '').replace(/\s+/g, ' ').trim());
@@ -296,11 +331,12 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   let ogType = 'website';
   let watchVideo: { embedUrl: string; uploadDate?: string; duration?: number } | null = null;
   let episodeDetails: { seriesData: any; episodeData: any; seasonNumber: number; episodeNumber: number } | null = null;
+  let detailSeoData: any = null;
   const detailMovie = route.match(/^\/movies\/(\d+)$/);
   const detailSeries = route.match(/^\/series\/(\d+)$/);
   const episodeInfo = route.match(/^\/episodes\/(\d+)\/(\d+)\/(\d+)$/);
   const watchMovie = route.match(/^\/watch\/movie\/(\d+)$/);
-  const watchEpisode = route.match(/^\/watch\/tv\/(\d+)\/(\d+)\/(\d+)$/);
+  const watchEpisode = route.match(/^\/watch\/(?:tv|series)\/(\d+)\/(\d+)\/(\d+)$/);
   const generic: Record<LocaleCode, { home: string; movies: string; series: string; discover: string; search: string; catalog: string; legal: string }> = {
     ar: { home: "موفيزا — منصة الأفلام والمسلسلات", movies: "الأفلام والمسلسلات المترجمة | موفيزا", series: "المسلسلات التلفزيونية | موفيزا", discover: "استكشاف الأفلام والمسلسلات | موفيزا", search: "البحث في موفيزا", catalog: "أفضل 1000 فيلم ومسلسل | موفيزا", legal: "إخلاء المسؤولية وDMCA | موفيزا" },
     en: { home: "Movyza — Movies & TV Shows", movies: "Movies & Films | Movyza", series: "TV Series | Movyza", discover: "Discover Movies & TV | Movyza", search: "Search | Movyza", catalog: "Movyza Top 1000 Movies & TV Shows", legal: "DMCA & Third-Party Policy | Movyza" },
@@ -367,6 +403,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
           headers: tmdbHeaders(env),
         });
         const data = await upstream.json().catch(() => null) as any;
+        detailSeoData = data;
         contentTitle = data?.title || data?.name || data?.original_title || data?.original_name || `Movyza #${id}`;
         alternateTitle = data?.original_title || data?.original_name || '';
         description = data?.overview || `${contentTitle} — Movyza`;
@@ -386,6 +423,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
       try {
         const seriesUrl = new URL(`https://api.themoviedb.org/3/tv/${id}`);
         seriesUrl.searchParams.set('language', config.tmdb);
+        seriesUrl.searchParams.set('append_to_response', 'credits');
         const seasonUrl = new URL(`https://api.themoviedb.org/3/tv/${id}/season/${seasonNumber}`);
         seasonUrl.searchParams.set('language', config.tmdb);
         const [seriesResponse, seasonResponse] = await Promise.all([
@@ -558,7 +596,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
         embedUrl: watchVideo.embedUrl,
         url: origin + canonicalPath,
         inLanguage: locale,
-        creator: { '@type': 'Organization', name: 'Movyza', url: origin },
+        creator: { '@type': 'Organization', name: 'Movyza', url: origin, logo: { '@type': 'ImageObject', url: `${origin}/favicon.png` } },
       }
     : episodeDetails
       ? {
@@ -586,6 +624,9 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
           alternateName: route === '/' ? undefined : alternateTitle || undefined,
           image: imageUrl ? [imageUrl] : undefined,
           description,
+          ...(detailSeoData?.genres?.length ? { genre: detailSeoData.genres.map((genre: any) => genre?.name).filter(Boolean) } : {}),
+          ...(detailSeoData?.credits?.cast?.length ? { actor: detailSeoData.credits.cast.slice(0, 10).map((person: any) => ({ '@type': 'Person', name: person?.name })).filter((person: any) => person.name) } : {}),
+          ...(detailSeoData?.release_date || detailSeoData?.first_air_date ? { datePublished: detailSeoData.release_date || detailSeoData.first_air_date } : {}),
           url: route === '/' ? 'https://movyza.sbs/' : origin + canonicalPath,
         };
   const subtitleLocale = detectSubtitleLocale(request);
@@ -757,15 +798,68 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
       '</section>'
     : '';
 
+  const detailContentBody = !isNoIndex && (detailMovie || detailSeries || episodeInfo)
+    ? (() => {
+        const labels = DETAIL_SEO_LABELS[locale];
+        const isEpisodePage = Boolean(episodeInfo);
+        const seriesForEpisode = episodeDetails?.seriesData;
+        const episodeForPage = episodeDetails?.episodeData;
+        const sourceData = isEpisodePage ? seriesForEpisode : detailSeoData;
+        const castNames = (sourceData?.credits?.cast || sourceData?.aggregate_credits?.cast || [])
+          .slice(0, 8).map((person: any) => String(person?.name || '').trim()).filter(Boolean);
+        const genreNames = (sourceData?.genres || []).map((genre: any) => String(genre?.name || '').trim()).filter(Boolean);
+        const original = String(isEpisodePage ? (seriesForEpisode?.original_name || '') : alternateTitle || '').trim();
+        const releaseDate = String(isEpisodePage ? (episodeForPage?.air_date || '') : (detailSeoData?.release_date || detailSeoData?.first_air_date || '')).trim();
+        const vote = Number(sourceData?.vote_average || 0);
+        const overview = String(isEpisodePage ? (episodeForPage?.overview || seriesForEpisode?.overview || description) : description || '').trim();
+        const pageTitle = String(contentTitle).trim();
+        const row = (label: string, value: string) => value
+          ? '<div style="display:flex;flex-wrap:wrap;gap:8px;margin:7px 0"><dt style="font-weight:650;color:#f4f4f5">' + escapeXml(label) +
+            '</dt><dd style="margin:0;color:#d4d4d8">' + escapeXml(value) + '</dd></div>'
+          : '';
+        const relatedHref = isEpisodePage
+          ? '/' + locale + '/series/' + String(episodeInfo?.[1] || '')
+          : detailMovie
+            ? '/' + locale + '/movies'
+            : '/' + locale + '/series';
+        const relatedLabel = isEpisodePage ? labels.viewSeries : detailMovie ? labels.allMovies : labels.allSeries;
+        const castBlock = castNames.length
+          ? '<p style="margin:12px 0;color:#d4d4d8;line-height:1.8"><strong style="color:#f4f4f5">' + escapeXml(labels.cast) +
+            ':</strong> ' + castNames.map(escapeXml).join(', ') + '</p>'
+          : '';
+        const genresBlock = genreNames.length ? row(labels.genres, genreNames.join(', ')) : '';
+        const dateBlock = releaseDate ? row(labels.release, releaseDate) : '';
+        const ratingBlock = Number.isFinite(vote) && vote > 0 ? row(labels.rating, vote.toFixed(1) + '/10') : '';
+        const originalBlock = original && original !== pageTitle ? row(labels.originalTitle, original) : '';
+        const poster = imageUrl
+          ? '<img src="' + escapeXml(imageUrl) + '" alt="' + escapeXml(pageTitle) + '" loading="lazy" decoding="async" style="width:min(100%,220px);max-height:320px;object-fit:cover;border-radius:12px;border:1px solid #3f3f46" />'
+          : '';
+        return '<section id="movyza-indexable-details" lang="' + locale + '" dir="' + config.dir + '" aria-label="' + escapeXml(labels.details) +
+          '" style="max-width:1160px;margin:26px auto 18px;padding:24px 20px;border-top:1px solid #27272a;color:#e4e4e7;font-family:inherit">' +
+          '<div style="display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start">' +
+          (poster ? '<figure style="margin:0;flex:0 0 180px">' + poster + '</figure>' : '') +
+          '<article style="flex:1;min-width:min(100%,280px)">' +
+          '<h1 style="margin:0 0 14px;font-size:clamp(22px,3vw,32px);line-height:1.35;font-weight:700;color:#fafafa">' + escapeXml(pageTitle) + '</h1>' +
+          '<p style="max-width:900px;margin:0 0 14px;color:#d4d4d8;font-size:15px;line-height:1.9">' + escapeXml(overview) + '</p>' +
+          castBlock +
+          '<dl style="margin:12px 0;font-size:14px;line-height:1.7">' + originalBlock + genresBlock + dateBlock + ratingBlock + '</dl>' +
+          '<nav aria-label="' + escapeXml(labels.related) + '" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:18px">' +
+          '<a href="' + escapeXml(relatedHref) + '" style="color:#fbbf24;text-decoration:underline;text-underline-offset:4px">' + escapeXml(relatedLabel) + '</a>' +
+          '<a href="/' + locale + '/discover" style="color:#fbbf24;text-decoration:underline;text-underline-offset:4px">' + escapeXml(labels.discover) + '</a>' +
+          '</nav></article></div></section>';
+      })()
+    : '';
+
   let html = await response.text();
   html = html.replace(/<html\b[^>]*>/i, htmlLang + '>');
   html = html.replace(/<title>[\s\S]*?<\/title>/i, '<title>' + escapeXml(seoTitle) + '</title>');
   html = html.replace(/<meta\s+name=["']description["'][^>]*>/i, '<meta name="description" content="' + escapeXml(metaDescription) + '" />');
   html = html.replace('</head>', injection + '</head>');
-  if (crawlableBody) {
+  const appendableSeoBody = [crawlableBody, detailContentBody].filter(Boolean).join('');
+  if (appendableSeoBody) {
     const closingBody = /<\/body\s*>/i;
-    if (closingBody.test(html)) html = html.replace(closingBody, (match) => crawlableBody + match);
-    else html += crawlableBody;
+    if (closingBody.test(html)) html = html.replace(closingBody, (match) => appendableSeoBody + match);
+    else html += appendableSeoBody;
   }
 
   const headers = new Headers(response.headers);
