@@ -1256,7 +1256,7 @@ const buildSitemapSegment = async (
     // This preserves the previous 500-series coverage while halving the number of episode sitemap requests.
     if (type === 'episodes') {
       const sitemapPageCount = Math.ceil(SITEMAP_EPISODE_PAGES / SITEMAP_EPISODE_PAGES_PER_SITEMAP);
-      if (page > sitemapPageCount) return new Response('Not found', { status: 404 });
+      if (page < 1 || page > sitemapPageCount) return new Response('Not found', { status: 404 });
 
       const sourcePageOffset = (page - 1) * SITEMAP_EPISODE_PAGES_PER_SITEMAP;
       const discoverPage = Math.floor(sourcePageOffset / 4) + 1;
@@ -1320,7 +1320,7 @@ const buildSitemapSegment = async (
     }
 
     const sitemapPageCount = Math.ceil(SITEMAP_DISCOVERY_PAGES / SITEMAP_DISCOVERY_PAGES_PER_SITEMAP);
-    if (page > sitemapPageCount) {
+    if (page < 1 || page > sitemapPageCount) {
       return new Response('Not found', { status: 404 });
     }
 
