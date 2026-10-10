@@ -280,7 +280,7 @@ const freeTitle = (locale: LocaleCode, kind: 'movie' | 'series' | 'episode' | 'm
 };
 
 const brandedHomepageTitle = (locale: LocaleCode) =>
-  `Movyza — ${HOME_SEO[locale].title.replace(/\s*\\|\s*Movyza\s*$/i, '').replace(/^Movyza\s*[—-]\s*/i, '')}`;
+  `Movyza — ${HOME_SEO[locale].title.replace(/\s*\|\s*Movyza\s*$/i, '').replace(/^Movyza\s*[—-]\s*/i, '')}`;
 
 const localizedHtml = async (request: Request, env: MovyzEnvironment, response: Response, locale: LocaleCode) => {
   if (!response.headers.get('content-type')?.includes('text/html')) return response;
