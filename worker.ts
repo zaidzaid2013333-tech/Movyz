@@ -275,12 +275,12 @@ const FREE_SEO_TITLES: Record<LocaleCode, { movie: string; series: string; episo
 
 const freeTitle = (locale: LocaleCode, kind: 'movie' | 'series' | 'episode' | 'movies' | 'seriesList' | 'discover' | 'catalog', title = '') => {
   const template = FREE_SEO_TITLES[locale]?.[kind] || FREE_SEO_TITLES.en[kind];
-  const label = template.replace('{title}', String(title || '').replace(/\\s+/g, ' ').trim());
+  const label = template.replace('{title}', String(title || '').replace(/\s+/g, ' ').trim());
   return label.endsWith('| Movyza') ? label : `${label} | Movyza`;
 };
 
 const brandedHomepageTitle = (locale: LocaleCode) =>
-  `Movyza — ${HOME_SEO[locale].title.replace(/\\s*\\|\\s*Movyza\\s*$/i, '').replace(/^Movyza\\s*[—-]\\s*/i, '')}`;
+  `Movyza — ${HOME_SEO[locale].title.replace(/\s*\\|\s*Movyza\s*$/i, '').replace(/^Movyza\s*[—-]\s*/i, '')}`;
 
 const localizedHtml = async (request: Request, env: MovyzEnvironment, response: Response, locale: LocaleCode) => {
   if (!response.headers.get('content-type')?.includes('text/html')) return response;
@@ -296,11 +296,11 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   let ogType = 'website';
   let watchVideo: { embedUrl: string; uploadDate?: string; duration?: number } | null = null;
   let episodeDetails: { seriesData: any; episodeData: any; seasonNumber: number; episodeNumber: number } | null = null;
-  const detailMovie = route.match(/^\\/movies\\/(\\d+)$/);
-  const detailSeries = route.match(/^\\/series\\/(\\d+)$/);
-  const episodeInfo = route.match(/^\\/episodes\\/(\\d+)\\/(\\d+)\\/(\\d+)$/);
-  const watchMovie = route.match(/^\\/watch\\/movie\\/(\\d+)$/);
-  const watchEpisode = route.match(/^\\/watch\\/tv\\/(\\d+)\\/(\\d+)\\/(\\d+)$/);
+  const detailMovie = route.match(/^\/movies\/(\d+)$/);
+  const detailSeries = route.match(/^\/series\/(\d+)$/);
+  const episodeInfo = route.match(/^\/episodes\/(\d+)\/(\d+)\/(\d+)$/);
+  const watchMovie = route.match(/^\/watch\/movie\/(\d+)$/);
+  const watchEpisode = route.match(/^\/watch\/tv\/(\d+)\/(\d+)\/(\d+)$/);
   const generic: Record<LocaleCode, { home: string; movies: string; series: string; discover: string; search: string; catalog: string; legal: string }> = {
     ar: { home: "موفيزا — منصة الأفلام والمسلسلات", movies: "الأفلام والمسلسلات المترجمة | موفيزا", series: "المسلسلات التلفزيونية | موفيزا", discover: "استكشاف الأفلام والمسلسلات | موفيزا", search: "البحث في موفيزا", catalog: "أفضل 1000 فيلم ومسلسل | موفيزا", legal: "إخلاء المسؤولية وDMCA | موفيزا" },
     en: { home: "Movyza — Movies & TV Shows", movies: "Movies & Films | Movyza", series: "TV Series | Movyza", discover: "Discover Movies & TV | Movyza", search: "Search | Movyza", catalog: "Movyza Top 1000 Movies & TV Shows", legal: "DMCA & Third-Party Policy | Movyza" },
