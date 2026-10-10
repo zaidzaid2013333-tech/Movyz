@@ -11,6 +11,11 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
@@ -20,6 +25,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,6 +37,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -91,6 +98,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -161,48 +171,262 @@ private fun launchPlayer(
     )
 }
 
+private const val TMDB_SPLASH_IMAGE_BASE = "https://image.tmdb.org/t/p/w342"
+
+private val MOVYZA_SPLASH_POSTER_COLUMNS = listOf(
+    listOf(
+        "/xf9wuDcqlUPWABZNeDKPbZUjWx0.jpg", // The Walking Dead
+        "/ggFHVNu6YYI5L9pCfOacjizRGt.jpg", // Breaking Bad
+        "/7WUHnWGx5OO145IRxPDUkQSh4C7.jpg", // Game of Thrones
+        "/gEU2QniE6E77NI6lCU6MXLH5Rwd.jpg", // Interstellar
+        "/49WJfeN0moxb9IPfGn8AIqMGskD.jpg", // Stranger Things
+        "/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg"  // Inception
+    ),
+    listOf(
+        "/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg", // Dune: Part Two
+        "/udDclJoHjfjb8Ekgsd4FDteOkCU.jpg", // Joker
+        "/uKvVjHNqB5VmOrdxqAt2F7J78ED.jpg", // The Last of Us
+        "/qJ2tW6WMUDux911r6m7haRef0WH.jpg", // The Dark Knight
+        "/reEMJA1uzscCbkpeRJeTT2bjqUp.jpg", // Money Heist
+        "/vUUqzWa2LnHIVqkaKVlVGkVcZIW.jpg"  // Peaky Blinders
+    ),
+    listOf(
+        "/or06FN3Dka5tukK1e9sl16pB3iy.jpg", // Avengers: Endgame
+        "/ptpr0kGAckfQkJeJIt8st5dglvd.jpg", // Oppenheimer
+        "/74xTEgt7R36Fpooo50r9T25onhq.jpg", // The Batman
+        "/9xjZS2rlVxm8SFx8kPC3aIGCOYQ.jpg", // Titanic
+        "/xf9wuDcqlUPWABZNeDKPbZUjWx0.jpg", // The Walking Dead
+        "/ggFHVNu6YYI5L9pCfOacjizRGt.jpg"  // Breaking Bad
+    )
+)
+
 @Composable
 private fun MovyzaLaunchScreen() {
+    val density = LocalDensity.current
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MovyzaColors.Bg),
-        contentAlignment = Alignment.Center
+            .background(MovyzaColors.Bg)
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                modifier = Modifier
-                    .size(78.dp)
-                    .clip(MovyzaShapes.Xl)
-                    .background(
-                        Brush.linearGradient(
-                            listOf(MovyzaColors.Gold300, MovyzaColors.Gold600)
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "M",
-                    color = MovyzaColors.Bg,
-                    fontSize = 42.sp,
-                    fontWeight = FontWeight.Black
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    rotationZ = -12f
+                    scaleX = 1.12f
+                    scaleY = 1.10f
+                    translationX = with(density) { -28.dp.toPx() }
+                },
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            MOVYZA_SPLASH_POSTER_COLUMNS.forEachIndexed { index, posters ->
+                SplashPosterMarquee(
+                    posterPaths = posters,
+                    durationMillis = listOf(42_000, 50_000, 58_000)[index],
+                    reverse = index == 1,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
                 )
             }
-            Spacer(Modifier.height(16.dp))
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xF5030303),
+                            Color(0xD9030303),
+                            Color(0x63030303)
+                        ),
+                        radius = 760f
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xB8030303),
+                            Color(0x16030303),
+                            Color(0x30030303),
+                            Color(0xF5030303)
+                        )
+                    )
+                )
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier.size(132.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    MovyzaColors.Gold400.copy(alpha = 0.20f),
+                                    MovyzaColors.Gold600.copy(alpha = 0.07f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+                MovyzaGoldMark(Modifier.size(104.dp))
+            }
+            Spacer(Modifier.height(15.dp))
             Text(
                 text = "MOVYZA",
                 color = MovyzaColors.Gold300,
-                fontSize = 26.sp,
+                fontSize = 29.sp,
                 fontWeight = FontWeight.Black,
-                letterSpacing = 5.sp
-            )
-            Spacer(Modifier.height(5.dp))
-            Text(
-                text = "سينماك تبدأ هنا",
-                color = MovyzaColors.Text3,
-                fontSize = 10.sp
+                letterSpacing = 6.sp
             )
         }
+
+        val shimmer = rememberInfiniteTransition()
+        val progress by shimmer.animateFloat(
+            initialValue = -0.45f,
+            targetValue = 1.45f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1_650, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            )
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 48.dp)
+                .width(148.dp)
+                .height(3.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.13f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.38f)
+                    .height(3.dp)
+                    .graphicsLayer { translationX = with(density) { progress * 148.dp.toPx() } }
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                MovyzaColors.Gold600,
+                                MovyzaColors.Gold300,
+                                MovyzaColors.Gold500
+                            )
+                        )
+                    )
+            )
+        }
+    }
+}
+
+@Composable
+private fun SplashPosterMarquee(
+    posterPaths: List<String>,
+    durationMillis: Int,
+    reverse: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val transition = rememberInfiniteTransition()
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = durationMillis, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        )
+    )
+    val posterHeight = 188.dp
+    val cardGap = 10.dp
+    val density = LocalDensity.current
+    val cycleHeightPx = with(density) {
+        (posterHeight + cardGap).toPx() * posterPaths.size
+    }
+
+    Box(
+        modifier = modifier
+            .clip(MovyzaShapes.Md)
+            .background(Color(0xFF101010))
+    ) {
+        Column(
+            modifier = Modifier.graphicsLayer {
+                translationY = if (reverse) {
+                    -cycleHeightPx + progress * cycleHeightPx
+                } else {
+                    -progress * cycleHeightPx
+                }
+            },
+            verticalArrangement = Arrangement.spacedBy(cardGap)
+        ) {
+            repeat(2) {
+                posterPaths.forEach { posterPath ->
+                    AsyncImage(
+                        model = "$TMDB_SPLASH_IMAGE_BASE$posterPath",
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(posterHeight)
+                            .clip(MovyzaShapes.Sm)
+                            .border(
+                                1.dp,
+                                Color.White.copy(alpha = 0.10f),
+                                MovyzaShapes.Sm
+                            )
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MovyzaGoldMark(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val sx = size.width / 1024f
+        val sy = size.height / 1024f
+        val path = Path().apply {
+            moveTo(236f * sx, 788f * sy)
+            lineTo(236f * sx, 236f * sy)
+            lineTo(352f * sx, 236f * sy)
+            lineTo(512f * sx, 530f * sy)
+            lineTo(672f * sx, 236f * sy)
+            lineTo(788f * sx, 236f * sy)
+            lineTo(788f * sx, 788f * sy)
+            lineTo(680f * sx, 788f * sy)
+            lineTo(680f * sx, 440f * sy)
+            lineTo(548f * sx, 688f * sy)
+            lineTo(476f * sx, 688f * sy)
+            lineTo(344f * sx, 440f * sy)
+            lineTo(344f * sx, 788f * sy)
+            close()
+        }
+        drawPath(
+            path = path,
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color(0xFFFFF0A8),
+                    MovyzaColors.Gold400,
+                    Color(0xFFE0A100),
+                    Color(0xFFA87400)
+                ),
+                start = Offset(200f * sx, 210f * sy),
+                end = Offset(800f * sx, 800f * sy)
+            )
+        )
     }
 }
 @Composable
@@ -210,9 +434,16 @@ fun MovyzaNativeApp(vm: MainViewModel = viewModel()) {
     var launchComplete by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        // Let the launch surface draw once, then start data work without an artificial delay.
+        // Draw the animated poster splash while the first TMDB-backed shelves are fetched.
         withFrameNanos { }
         vm.startInitialLoad()
+        delay(1_050L)
+        var waitedMs = 0L
+        while (vm.loading && waitedMs < 5_500L) {
+            delay(100L)
+            waitedMs += 100L
+        }
+        // A slow connection must not trap the user on the splash forever.
         launchComplete = true
     }
 
@@ -501,8 +732,11 @@ private fun MovyzaFixedBottomBar(
                 .fillMaxWidth()
                 .height(62.dp)
                 .clip(MovyzaShapes.Xl)
-                .background(Color(0xF20A0B10))
-                .border(1.dp, MovyzaColors.GlassBorder.copy(alpha = 0.82f), MovyzaShapes.Xl)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color(0xF2131314), Color(0xE8060607))
+                    )
+                )
                 .padding(horizontal = 5.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly
@@ -1457,10 +1691,10 @@ private fun MovyzaDetailsTemplateScreen(
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
-                                    0.0f to Color(0x55040507),
-                                    0.34f to Color(0x22040507),
-                                    0.62f to Color(0x88040507),
-                                    1.0f to Color(0xFF040507)
+                                    0.0f to Color(0x55030303),
+                                    0.34f to Color(0x22030303),
+                                    0.62f to Color(0x88030303),
+                                    1.0f to Color(0xFF030303)
                                 )
                             )
                     )
@@ -1471,8 +1705,8 @@ private fun MovyzaDetailsTemplateScreen(
                                 Brush.horizontalGradient(
                                     listOf(
                                         Color.Transparent,
-                                        Color(0x44040507),
-                                        Color(0xAA040507)
+                                        Color(0x44030303),
+                                        Color(0xAA030303)
                                     )
                                 )
                             )
@@ -1736,7 +1970,7 @@ private fun MovyzaDetailsTemplateScreen(
                                                     modifier = Modifier
                                                         .size(28.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color(0xB304060D)),
+                                                        .background(Color(0xB3030303)),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Icon(

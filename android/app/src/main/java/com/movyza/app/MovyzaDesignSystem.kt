@@ -67,18 +67,18 @@ import java.util.Locale
 
 object MovyzaColors {
     // Shared Movyza website palette: carbon black, warm gold and restrained glass.
-    val Bg = Color(0xFF040507)
-    val Bg2 = Color(0xFF0A0B10)
-    val SurfaceElevated = Color(0xFF11131A)
-    // Kept for compatibility with existing theme references; no blue surface is used.
-    val Navy500 = Color(0xFF1A1710)
+    val Bg = Color(0xFF030303)
+    val Bg2 = Color(0xFF080808)
+    val SurfaceElevated = Color(0xFF121212)
+    // Compatibility token kept neutral; the visual system is carbon-black, not blue-black.
+    val Navy500 = Color(0xFF1B1B1B)
 
-    // Exact warm-gold hierarchy from the website design tokens.
-    val Gold300 = Color(0xFFFFD071)
-    val Gold400 = Color(0xFFF2B84B)
-    val Gold500 = Color(0xFFE5A950)
-    val Gold600 = Color(0xFFB87920)
-    val Gold700 = Color(0xFF7D5218)
+    // High-contrast sharp gold against deep carbon-black surfaces.
+    val Gold300 = Color(0xFFFFE08A)
+    val Gold400 = Color(0xFFFFC400)
+    val Gold500 = Color(0xFFE9AF00)
+    val Gold600 = Color(0xFFB8860B)
+    val Gold700 = Color(0xFF785700)
 
     // Warm white and neutral slate typography, as on movyza.sbs.
     val Text = Color(0xFFF8FAFC)
@@ -88,12 +88,12 @@ object MovyzaColors {
     // Lightweight translucent glass tokens on near-black surfaces.
     val Glass = Color(0x0FFFFFFF)
     val Glass2 = Color(0x14FFFFFF)
-    val GlassStrong = Color(0xF20A0B10)
-    val GlassCardBg = Color(0xCC0A0B10)
-    val GlassBorder = Color(0x12FFFFFF)
-    val GoldBorder = Color(0x29E5A950)
-    val SkeletonFill = Color(0xFF11141A)
-    val SkeletonHighlight = Color(0xFF1B1E27)
+    val GlassStrong = Color(0xF20A0A0A)
+    val GlassCardBg = Color(0xCC090909)
+    val GlassBorder = Color(0x14FFFFFF)
+    val GoldBorder = Color(0x38FFC400)
+    val SkeletonFill = Color(0xFF131313)
+    val SkeletonHighlight = Color(0xFF202020)
 }
 
 object MovyzaShapes {
@@ -271,7 +271,7 @@ fun MovyzaBadge(
     Box(
         modifier = modifier
             .clip(MovyzaShapes.Pill)
-            .background(Color(0xCC050812))
+            .background(Color(0xCC080808))
             .border(1.dp, if (gold) MovyzaColors.GoldBorder else MovyzaColors.GlassBorder, MovyzaShapes.Pill)
             .padding(horizontal = 9.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center
@@ -378,9 +378,9 @@ fun MovyzaHeroTemplate(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0.0f to Color(0x44040507),
+                        0.0f to Color(0x44030303),
                         0.36f to Color.Transparent,
-                        0.68f to Color(0xD9040507),
+                        0.68f to Color(0xD9030303),
                         1.0f to MovyzaColors.Bg
                     )
                 )
@@ -402,7 +402,7 @@ fun MovyzaHeroTemplate(
                 Row(
                     modifier = Modifier
                         .clip(MovyzaShapes.Pill)
-                        .background(Color(0xB3050812))
+                        .background(Color(0xB3080808))
                         .border(1.dp, MovyzaColors.GlassBorder, MovyzaShapes.Pill)
                         .padding(horizontal = 8.dp, vertical = 5.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -583,7 +583,7 @@ fun MovyzaPosterCardTemplate(
                         Brush.verticalGradient(
                             0.0f to Color.Transparent,
                             0.64f to Color.Transparent,
-                            1.0f to Color(0xD9040507)
+                            1.0f to Color(0xD9030303)
                         )
                     )
             )
@@ -805,9 +805,9 @@ fun MovyzaContinueWatchingCard(
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            0.0f to Color(0x4D04060D),
-                            0.45f to Color(0x9904060D),
-                            1.0f to Color(0xF204060D)
+                            0.0f to Color(0x4D030303),
+                            0.45f to Color(0x99030303),
+                            1.0f to Color(0xF2030303)
                         )
                     )
             )
