@@ -39,12 +39,12 @@ data class HomeState(
     val topRatedSeries: List<Movie> = emptyList()
 )
 
-enum class Tab(val label: String) {
-    HOME("الرئيسية"),
-    MOVIES("أفلام"),
-    SERIES("مسلسلات"),
-    SEARCH("بحث"),
-    PROFILE("حسابي")
+enum class Tab(val labelRes: Int) {
+    HOME(R.string.tab_home),
+    MOVIES(R.string.tab_movies),
+    SERIES(R.string.tab_series),
+    SEARCH(R.string.tab_search),
+    PROFILE(R.string.tab_profile)
 }
 
 class MainActivity : ComponentActivity() {
@@ -91,6 +91,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var loading by mutableStateOf(false)
         private set
     var searchLoading by mutableStateOf(false)
+        private set
+    var searchError by mutableStateOf<String?>(null)
         private set
     var moviesPage by mutableStateOf(1)
         private set
@@ -255,7 +257,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             }.onFailure {
-                error = it.message ?: "تعذر تحميل الكتالوج، تحقق من الاتصال بالإنترنت."
+                error = it.message ?: getApplication<Application>().getString(R.string.catalog_load_error)
                 loading = false
                 return@launch
             }
@@ -314,16 +316,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             lastSearchQuery = ""
             _search.value = emptyList()
             searchLoading = false
+            searchError = null
             return
         }
-        if (clean == lastSearchQuery && _search.value.isNotEmpty()) return
+        if (clean == lastSearchQuery && _search.value.isNotEmpty() && searchError == null) return
         lastSearchQuery = clean
 
         viewModelScope.launch {
             searchLoading = true
+            searchError = null
             runCatching { api.search(clean) }
-                .onSuccess { _search.value = it }
-                .onFailure { _search.value = emptyList() }
+                .onSuccess {
+                    _search.value = it
+                    searchError = null
+                }
+                .onFailure {
+                    _search.value = emptyList()
+                    searchError = it.message
+                        ?: getApplication<Application>().getString(R.string.search_error_generic)
+                }
             searchLoading = false
         }
     }
@@ -371,9 +382,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 session = it
                 saveSession(it)
                 loadWatchlist()
-                onDone(true, "تم تسجيل الدخول بنجاح")
+                onDone(true, getApplication<Application>().getString(R.string.auth_login_success))
             }.onFailure {
-                onDone(false, it.message ?: "فشل تسجيل الدخول")
+                onDone(false, it.message ?: getApplication<Application>().getString(R.string.auth_login_failure))
             }
             loading = false
         }
@@ -386,12 +397,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 if (created != null) {
                     session = created
                     saveSession(created)
-                    onDone(true, "تم إنشاء الحساب")
+                    onDone(true, getApplication<Application>().getString(R.string.auth_created_success))
                 } else {
-                    onDone(true, "تم إنشاء الحساب. تحقق من بريدك ثم سجّل الدخول.")
+                    onDone(true, getApplication<Application>().getString(R.string.auth_created_confirmation))
                 }
             }.onFailure {
-                onDone(false, it.message ?: "فشل إنشاء الحساب")
+                onDone(false, getApplication<Application>().getString(R.string.auth_signup_failure))
             }
             loading = false
         }
@@ -399,7 +410,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleWatchlist(movie: Movie, onMessage: (String) -> Unit) {
         val current = session ?: run {
-            onMessage("سجّل الدخول أولًا لحفظ العناوين في قائمتك")
+            onMessage(getApplication<Application>().getString(R.string.message_login_required))
             return
         }
         val currentList = _watchlist.value
@@ -418,10 +429,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 api.addToWatchlist(current, movie)
             }
             result.onSuccess {
-                onMessage(if (exists) "تمت الإزالة من قائمتي" else "تمت الإضافة إلى قائمتي")
+                onMessage(
+                    getApplication<Application>().getString(
+                        if (exists) R.string.message_watchlist_removed else R.string.message_watchlist_added
+                    )
+                )
             }.onFailure {
                 _watchlist.value = currentList
-                onMessage(it.message ?: "تعذر تحديث القائمة")
+                onMessage(it.message ?: getApplication<Application>().getString(R.string.message_watchlist_update_failed))
             }
         }
     }

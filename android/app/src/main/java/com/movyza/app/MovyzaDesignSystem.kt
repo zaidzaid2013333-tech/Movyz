@@ -1,8 +1,18 @@
 package com.movyza.app
 
+import android.provider.Settings
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +31,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -40,20 +52,30 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -64,45 +86,153 @@ import com.movyza.app.data.CastMemberItem
 import com.movyza.app.data.Movie
 import com.movyza.app.data.WatchHistoryEntry
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 object MovyzaColors {
-    // Shared Movyza website palette: carbon black, warm gold and restrained glass.
-    val Bg = Color(0xFF040507)
-    val Bg2 = Color(0xFF0A0B10)
-    val SurfaceElevated = Color(0xFF11131A)
-    // Kept for compatibility with existing theme references; no blue surface is used.
-    val Navy500 = Color(0xFF1A1710)
+    // Midnight Glass palette from the supplied native-app design specification.
+    val Bg = Color(0xFF05070D)
+    val Bg2 = Color(0xFF0A1226)
+    val SurfaceElevated = Color(0xFF101C38)
+    // Compatibility alias used by existing screen and player-theme code.
+    val Navy500 = Color(0xFF0A1226)
 
-    // Exact warm-gold hierarchy from the website design tokens.
-    val Gold300 = Color(0xFFFFD071)
-    val Gold400 = Color(0xFFF2B84B)
-    val Gold500 = Color(0xFFE5A950)
-    val Gold600 = Color(0xFFB87920)
-    val Gold700 = Color(0xFF7D5218)
+    val Gold300 = Color(0xFFF5B942)
+    val Gold400 = Color(0xFFF5B942)
+    val Gold500 = Color(0xFFC8902A)
+    val Gold600 = Color(0xFFC8902A)
+    val Gold700 = Color(0xFF80531A)
 
-    // Warm white and neutral slate typography, as on movyza.sbs.
-    val Text = Color(0xFFF8FAFC)
-    val Text2 = Color(0xFFCBD5E1)
-    val Text3 = Color(0xFF687386)
+    val Text = Color(0xFFF4F6FB)
+    val Text2 = Color(0xFFA9B2C7)
+    val Text3 = Color(0xFF6B7590)
 
-    // Lightweight translucent glass tokens on near-black surfaces.
-    val Glass = Color(0x0FFFFFFF)
-    val Glass2 = Color(0x14FFFFFF)
-    val GlassStrong = Color(0xF20A0B10)
-    val GlassCardBg = Color(0xCC0A0B10)
-    val GlassBorder = Color(0x12FFFFFF)
-    val GoldBorder = Color(0x29E5A950)
-    val SkeletonFill = Color(0xFF11141A)
-    val SkeletonHighlight = Color(0xFF1B1E27)
+    val GoldSoft = Gold400.copy(alpha = 0.16f)
+    val GoldBrush = Brush.linearGradient(listOf(Gold400, Gold600))
+    val ScreenBrush = Brush.verticalGradient(listOf(Bg, Bg2, Bg))
+    val GlassFill = Brush.verticalGradient(
+        listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.03f))
+    )
+    val GlassStroke = Brush.verticalGradient(
+        listOf(Color.White.copy(alpha = 0.28f), Color.White.copy(alpha = 0.04f))
+    )
+
+    // Keep public aliases used throughout existing screens.
+    val Glass = Color.White.copy(alpha = 0.10f)
+    val Glass2 = Color.White.copy(alpha = 0.03f)
+    val GlassStrong = Color(0xE60A1226)
+    val GlassCardBg = Color(0x330A1226)
+    val GlassBorder = Color.White.copy(alpha = 0.16f)
+    val GoldBorder = Gold400.copy(alpha = 0.42f)
+    val SkeletonFill = Color(0xFF101C38)
+    val SkeletonHighlight = Color(0xFF1A2945)
 }
 
 object MovyzaShapes {
     val Xs = RoundedCornerShape(10.dp)
     val Sm = RoundedCornerShape(14.dp)
-    val Md = RoundedCornerShape(18.dp)
+    val Md = RoundedCornerShape(22.dp)
     val Lg = RoundedCornerShape(22.dp)
     val Xl = RoundedCornerShape(28.dp)
     val Pill = RoundedCornerShape(999.dp)
+    val Poster = RoundedCornerShape(20.dp)
+}
+
+object MovyzaSpacing {
+    val Xs = 4.dp
+    val Sm = 8.dp
+    val Md = 12.dp
+    val Lg = 16.dp
+    val Xl = 20.dp
+    val Xxl = 24.dp
+    val Huge = 32.dp
+    val ScreenHorizontal = 20.dp
+}
+
+object MovyzaMotion {
+    const val Standard = 280
+    const val Quick = 140
+    const val StaggerStep = 45
+    val Ease = FastOutSlowInEasing
+    fun <T> standard() = tween<T>(Standard, easing = Ease)
+    fun <T> quick() = tween<T>(Quick, easing = Ease)
+    fun <T> navSpring() = spring<T>(dampingRatio = 0.8f, stiffness = 380f)
+}
+
+@Composable
+fun rememberReducedMotion(): Boolean {
+    val context = LocalContext.current
+    return remember(context) {
+        runCatching {
+            Settings.Global.getFloat(
+                context.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            ) == 0f
+        }.getOrDefault(false)
+    }
+}
+
+/** Presses scale to 0.96 in 140ms; no heavy blur or ripple noise is added. */
+@Composable
+fun Modifier.pressable(onClick: () -> Unit): Modifier {
+    val reducedMotion = rememberReducedMotion()
+    val interactions = remember { MutableInteractionSource() }
+    val pressed by interactions.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && !reducedMotion) 0.96f else 1f,
+        animationSpec = tween(if (reducedMotion) 0 else MovyzaMotion.Quick, easing = FastOutSlowInEasing),
+        label = "press-scale"
+    )
+    return this
+        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .clickable(interactionSource = interactions, indication = null, onClick = onClick)
+}
+
+/** Staggered fade/translate on first entrance; saved state prevents replay on scroll. */
+@Composable
+fun Modifier.staggerIn(index: Int, key: Any? = null): Modifier {
+    val reducedMotion = rememberReducedMotion()
+    var hasEntered by rememberSaveable(key) { mutableStateOf(reducedMotion) }
+    val progress = remember(key) { Animatable(if (hasEntered || reducedMotion) 1f else 0f) }
+
+    LaunchedEffect(key, reducedMotion) {
+        if (reducedMotion) {
+            progress.snapTo(1f)
+            hasEntered = true
+        } else if (!hasEntered) {
+            delay(minOf(index, 6) * MovyzaMotion.StaggerStep.toLong())
+            progress.animateTo(
+                targetValue = 1f,
+                animationSpec = MovyzaMotion.standard()
+            )
+            hasEntered = true
+        }
+    }
+    return graphicsLayer {
+        alpha = progress.value
+        translationY = (1f - progress.value) * 16.dp.toPx()
+    }
+}
+
+/** Static one-pass Midnight Glass background; no blur and no ongoing animation. */
+@Composable
+fun MovyzaMidnightBackdrop(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        drawRect(brush = MovyzaColors.ScreenBrush)
+        val glowCenter = Offset(size.width * 0.92f, size.height * 0.03f)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    MovyzaColors.Gold400.copy(alpha = 0.06f),
+                    MovyzaColors.Gold400.copy(alpha = 0.0f)
+                ),
+                center = glowCenter,
+                radius = size.width * 0.76f
+            ),
+            radius = size.width * 0.76f,
+            center = glowCenter
+        )
+    }
 }
 
 val MovyzaFontFamily = FontFamily.SansSerif
@@ -157,16 +287,27 @@ fun GlassCard(
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val bgColor = if (strong) MovyzaColors.GlassStrong else MovyzaColors.GlassCardBg
-    val borderColor = if (goldAccent) MovyzaColors.GoldBorder else MovyzaColors.GlassBorder
-    val clickModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    val clickModifier = if (onClick != null) Modifier.pressable(onClick) else Modifier
+    val glassBorder = if (goldAccent) {
+        Brush.verticalGradient(
+            listOf(
+                MovyzaColors.Gold400.copy(alpha = 0.68f),
+                MovyzaColors.Gold600.copy(alpha = 0.20f)
+            )
+        )
+    } else MovyzaColors.GlassStroke
 
     Box(
         modifier = modifier
+            .then(clickModifier)
             .clip(shape)
-            .background(bgColor)
-            .border(1.dp, borderColor, shape)
-            .then(clickModifier),
+            .background(
+                if (strong) MovyzaColors.Bg2.copy(alpha = 0.68f)
+                else MovyzaColors.Bg2.copy(alpha = 0.22f),
+                shape
+            )
+            .background(MovyzaColors.GlassFill, shape)
+            .border(width = 0.8.dp, brush = glassBorder, shape = shape),
         content = content
     )
 }
@@ -181,10 +322,20 @@ fun GlassIconButton(
     goldBorder: Boolean = false
 ) {
     Surface(
-        modifier = modifier.size(44.dp),
+        modifier = modifier.size(48.dp),
         shape = CircleShape,
-        color = MovyzaColors.GlassStrong,
-        border = BorderStroke(1.dp, if (goldBorder) MovyzaColors.GoldBorder else MovyzaColors.GlassBorder)
+        color = MovyzaColors.Bg2.copy(alpha = 0.72f),
+        border = BorderStroke(
+            0.8.dp,
+            if (goldBorder) {
+                Brush.verticalGradient(
+                    listOf(
+                        MovyzaColors.Gold400.copy(alpha = 0.62f),
+                        MovyzaColors.Gold600.copy(alpha = 0.20f)
+                    )
+                )
+            } else MovyzaColors.GlassStroke
+        )
     ) {
         IconButton(onClick = onClick) {
             Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(20.dp))
@@ -200,24 +351,48 @@ fun GoldButton(
     icon: ImageVector? = Icons.Outlined.PlayArrow,
     enabled: Boolean = true
 ) {
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier.height(48.dp),
-        shape = MovyzaShapes.Md,
-        contentPadding = PaddingValues(horizontal = 18.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MovyzaColors.Gold400,
-            contentColor = MovyzaColors.Bg,
-            disabledContainerColor = MovyzaColors.SurfaceElevated,
-            disabledContentColor = MovyzaColors.Text3
-        )
+    val reducedMotion = rememberReducedMotion()
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && !reducedMotion && enabled) 0.96f else 1f,
+        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
+        label = "gold-button-press"
+    )
+    Row(
+        modifier = modifier
+            .height(54.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(MovyzaShapes.Pill)
+            .background(MovyzaColors.GoldBrush)
+            .border(
+                0.8.dp,
+                Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = 0.32f), Color.White.copy(alpha = 0.04f))
+                ),
+                MovyzaShapes.Pill
+            )
+            .clickable(
+                enabled = enabled,
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 18.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
-            Spacer(Modifier.width(6.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp), tint = MovyzaColors.Bg)
+            Spacer(Modifier.width(7.dp))
         }
-        Text(text, fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1)
+        Text(
+            text = text,
+            color = MovyzaColors.Bg,
+            fontWeight = FontWeight.Black,
+            fontSize = 14.sp,
+            maxLines = 1
+        )
     }
 }
 
@@ -229,28 +404,39 @@ fun GlassPill(
     icon: ImageVector? = null,
     onClick: (() -> Unit)? = null
 ) {
-    val bg by animateColorAsState(
-        targetValue = if (active) MovyzaColors.Gold500.copy(alpha = 0.24f) else MovyzaColors.GlassCardBg,
-        animationSpec = tween(160),
-        label = "pill-bg"
-    )
-    val border = if (active) MovyzaColors.Gold300.copy(alpha = 0.52f) else MovyzaColors.GlassBorder
+    val shape = MovyzaShapes.Pill
     val textColor = if (active) MovyzaColors.Gold300 else MovyzaColors.Text2
-    val clickMod = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    val clickMod = if (onClick != null) Modifier.pressable(onClick) else Modifier
+    val fillBrush = if (active) {
+        Brush.verticalGradient(
+            listOf(MovyzaColors.Gold400.copy(alpha = 0.22f), MovyzaColors.Gold600.copy(alpha = 0.12f))
+        )
+    } else MovyzaColors.GlassFill
 
     Row(
         modifier = modifier
-            .clip(MovyzaShapes.Pill)
-            .background(bg)
-            .border(1.dp, border, MovyzaShapes.Pill)
             .then(clickMod)
-            .padding(horizontal = 14.dp, vertical = 9.dp),
+            .clip(shape)
+            .background(fillBrush, shape)
+            .border(
+                0.8.dp,
+                if (active) {
+                    Brush.verticalGradient(
+                        listOf(
+                            MovyzaColors.Gold400.copy(alpha = 0.62f),
+                            MovyzaColors.Gold600.copy(alpha = 0.20f)
+                        )
+                    )
+                } else MovyzaColors.GlassStroke,
+                shape
+            )
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, tint = textColor, modifier = Modifier.size(15.dp))
-            Spacer(Modifier.width(6.dp))
+            Icon(icon, contentDescription = null, tint = textColor, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(7.dp))
         }
         Text(
             text = text,
@@ -340,8 +526,7 @@ fun SectionHeader(
 }
 
 /**
- * Fixed-Structure Hero Banner Template:
- * Keeps the exact same Box/Column/Row/Button hierarchy whether `movie` is null (loading) or loaded.
+ * Full-bleed cinematic hero. The real ViewModel model owns content and all callbacks.
  */
 @Composable
 fun MovyzaHeroTemplate(
@@ -355,57 +540,69 @@ fun MovyzaHeroTemplate(
     onToggleWatchlist: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val reducedMotion = rememberReducedMotion()
     val hasData = movie != null
+    val heroShape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(500.dp)
-            .padding(horizontal = 16.dp)
-            .clip(MovyzaShapes.Xl)
+            .height(450.dp)
+            .clip(heroShape)
             .background(MovyzaColors.SurfaceElevated)
-            .border(1.dp, MovyzaColors.GlassBorder, MovyzaShapes.Xl)
-            .then(if (hasData) Modifier.clickable(onClick = onOpenDetails) else Modifier)
     ) {
-        AsyncImage(
-            model = movie?.backdropUrl ?: movie?.posterUrl,
-            contentDescription = movie?.displayTitle,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0.0f to Color(0x44040507),
-                        0.36f to Color.Transparent,
-                        0.68f to Color(0xD9040507),
-                        1.0f to MovyzaColors.Bg
-                    )
+        AnimatedContent(
+            targetState = movie,
+            transitionSpec = {
+                if (reducedMotion) {
+                    fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                } else {
+                    fadeIn(tween(280, easing = FastOutSlowInEasing)) togetherWith
+                        fadeOut(tween(280, easing = FastOutSlowInEasing))
+                }
+            },
+            label = "movyza-hero-crossfade"
+        ) { current ->
+            Box(Modifier.fillMaxSize()) {
+                AsyncImage(
+                    model = current?.backdropUrl ?: current?.posterUrl,
+                    contentDescription = current?.displayTitle,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
-        )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0.0f to Color(0x220A1226),
+                                0.38f to Color(0x4405070D),
+                                0.62f to Color(0xBB05070D),
+                                0.84f to Color(0xF505070D),
+                                1.0f to MovyzaColors.Bg
+                            )
+                        )
+                )
+            }
+        }
 
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            MovyzaBadge(
-                text = if (hasData) "اختيار Movyza" else "جارٍ التحميل"
-            )
-
+            MovyzaBadge(text = if (hasData) stringResource(R.string.hero_pick) else stringResource(R.string.app_loading))
             if (heroCount > 1) {
                 Row(
                     modifier = Modifier
                         .clip(MovyzaShapes.Pill)
-                        .background(Color(0xB3050812))
-                        .border(1.dp, MovyzaColors.GlassBorder, MovyzaShapes.Pill)
-                        .padding(horizontal = 8.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        .background(MovyzaColors.Bg2.copy(alpha = 0.66f))
+                        .border(0.8.dp, MovyzaColors.GlassStroke, MovyzaShapes.Pill)
+                        .padding(horizontal = 9.dp, vertical = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     for (idx in 0 until heroCount) {
@@ -413,9 +610,12 @@ fun MovyzaHeroTemplate(
                         Box(
                             modifier = Modifier
                                 .height(6.dp)
-                                .width(if (active) 18.dp else 6.dp)
+                                .width(if (active) 19.dp else 6.dp)
                                 .clip(MovyzaShapes.Pill)
-                                .background(if (active) MovyzaColors.Gold300 else MovyzaColors.Text3.copy(alpha = 0.45f))
+                                .background(
+                                    if (active) MovyzaColors.Gold300
+                                    else MovyzaColors.Text3.copy(alpha = 0.56f)
+                                )
                                 .clickable { onSelectHeroIndex?.invoke(idx) }
                         )
                     }
@@ -427,16 +627,17 @@ fun MovyzaHeroTemplate(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(18.dp)
+                .padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 22.dp)
         ) {
             Text(
-                text = movie?.displayTitle ?: "٠٠٠٠٠٠٠٠٠٠٠٠٠٠",
+                text = movie?.displayTitle ?: "MOVYZA",
                 color = if (hasData) MovyzaColors.Text else Color.Transparent,
-                fontSize = 29.sp,
-                lineHeight = 35.sp,
+                fontSize = 30.sp,
+                lineHeight = 36.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(textDirection = TextDirection.Content),
                 modifier = if (!hasData) {
                     Modifier
                         .fillMaxWidth(0.68f)
@@ -446,36 +647,25 @@ fun MovyzaHeroTemplate(
             )
 
             Spacer(Modifier.height(8.dp))
-
-            val metaText = if (movie != null) {
+            val metadata = movie?.let {
                 listOfNotNull(
-                    "★ " + String.format(Locale.US, "%.1f", movie.rating),
-                    if (movie.mediaType == "series") "مسلسل" else "فيلم",
-                    movie.yearText.takeIf { it.isNotBlank() }
-                ).joinToString("  •  ")
-            } else {
-                "★ 0.0  •  فيلم  •  2026"
-            }
-
+                    it.yearText.takeIf { year -> year.isNotBlank() },
+                    if (it.mediaType == "series") stringResource(R.string.type_series) else stringResource(R.string.type_movie),
+                    "★ " + String.format(Locale.US, "%.1f", it.rating)
+                ).joinToString("  ·  ")
+            } ?: "فيلم  ·  ★ —"
             Text(
-                text = metaText,
+                text = metadata,
                 color = if (hasData) MovyzaColors.Gold300 else Color.Transparent,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                modifier = if (!hasData) {
-                    Modifier
-                        .width(150.dp)
-                        .clip(MovyzaShapes.Xs)
-                        .background(MovyzaColors.SkeletonFill)
-                } else Modifier
+                maxLines = 1
             )
 
             Spacer(Modifier.height(8.dp))
-
             Text(
                 text = movie?.overview?.takeIf { it.isNotBlank() }
-                    ?: "اكتشف التفاصيل الكاملة وشاهد بجودة عالية على منصة موفيزا.",
+                    ?: stringResource(R.string.hero_overview_placeholder),
                 color = if (hasData) MovyzaColors.Text2 else Color.Transparent,
                 fontSize = 13.sp,
                 lineHeight = 20.sp,
@@ -490,49 +680,46 @@ fun MovyzaHeroTemplate(
             )
 
             Spacer(Modifier.height(14.dp))
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 GoldButton(
-                    text = "مشاهدة الآن",
+                    text = stringResource(R.string.btn_watch_now),
                     onClick = onPlay,
                     enabled = hasData,
                     modifier = Modifier.weight(1f)
                 )
-
                 GlassCard(
-                    modifier = Modifier.height(48.dp),
-                    shape = MovyzaShapes.Md,
+                    modifier = Modifier.height(54.dp),
+                    shape = MovyzaShapes.Pill,
                     strong = true,
                     onClick = if (hasData) onOpenDetails else null
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        modifier = Modifier.padding(horizontal = 15.dp, vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             Icons.Outlined.Info,
-                            contentDescription = "التفاصيل",
+                            contentDescription = stringResource(R.string.btn_details),
                             tint = MovyzaColors.Text,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "التفاصيل",
+                            stringResource(R.string.btn_details),
                             color = MovyzaColors.Text,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
-
                 GlassIconButton(
                     onClick = { if (hasData) onToggleWatchlist() },
                     icon = if (watchlisted) Icons.Outlined.BookmarkAdded else Icons.Outlined.BookmarkAdd,
-                    contentDescription = "قائمتي",
+                    contentDescription = stringResource(R.string.btn_save),
                     tint = if (watchlisted) MovyzaColors.Gold300 else MovyzaColors.Text,
                     goldBorder = watchlisted,
                     modifier = Modifier.size(48.dp)
@@ -542,6 +729,7 @@ fun MovyzaHeroTemplate(
     }
 }
 
+/** Vertical poster card: artwork, concise title and compact rating/year metadata. */
 /**
  * Fixed-Structure Vertical Poster Card Template:
  * Identical Composable node layout during loading (`movie == null`) and loaded (`movie != null`).
@@ -551,23 +739,28 @@ fun MovyzaPosterCardTemplate(
     movie: Movie?,
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
-    fixedWidth: Dp? = 150.dp
+    fixedWidth: Dp? = 150.dp,
+    staggerIndex: Int = 0
 ) {
     // Poster cards now follow the web catalogue pattern: artwork first, title below,
     // and compact rating/year metadata outside the poster (not oversized overlay badges).
     val sizeMod = if (fixedWidth != null) modifier.width(fixedWidth) else modifier.fillMaxWidth()
-    val clickMod = if (movie != null && onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    val clickMod = if (movie != null && onClick != null) Modifier.pressable(onClick) else Modifier
+    val animationKey: Any = movie?.let { "poster-${it.mediaType}-${it.id}" }
+        ?: "poster-loading-$staggerIndex"
 
     Column(
-        modifier = sizeMod.then(clickMod)
+        modifier = sizeMod
+            .then(clickMod)
+            .staggerIn(index = staggerIndex, key = animationKey)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.68f)
-                .clip(MovyzaShapes.Md)
+                .aspectRatio(2f / 3f)
+                .clip(MovyzaShapes.Poster)
                 .background(MovyzaColors.SurfaceElevated)
-                .border(1.dp, MovyzaColors.GlassBorder, MovyzaShapes.Md)
+                .border(0.8.dp, MovyzaColors.GlassStroke, MovyzaShapes.Poster)
         ) {
             AsyncImage(
                 model = movie?.posterUrl,
@@ -590,7 +783,7 @@ fun MovyzaPosterCardTemplate(
 
             if (movie != null) {
                 MovyzaBadge(
-                    text = if (movie.mediaType == "series") "مسلسل" else "فيلم",
+                    text = if (movie.mediaType == "series") stringResource(R.string.type_series) else stringResource(R.string.type_movie),
                     gold = false,
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -618,6 +811,7 @@ fun MovyzaPosterCardTemplate(
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(textDirection = TextDirection.Content),
             modifier = if (movie == null) {
                 Modifier
                     .fillMaxWidth(0.82f)
@@ -721,6 +915,7 @@ fun MovyzaHorizontalCardTemplate(
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                                        style = TextStyle(textDirection = TextDirection.Content),
                     modifier = if (movie == null) {
                         Modifier
                             .fillMaxWidth(0.65f)
@@ -734,7 +929,7 @@ fun MovyzaHorizontalCardTemplate(
                 val meta = if (movie != null) {
                     listOfNotNull(
                         "★ " + String.format(Locale.US, "%.1f", movie.rating),
-                        if (movie.mediaType == "series") "مسلسل" else "فيلم",
+                        if (movie.mediaType == "series") stringResource(R.string.genre_series) else stringResource(R.string.type_movie),
                         movie.yearText.takeIf { it.isNotBlank() }
                     ).joinToString("  •  ")
                 } else {
@@ -758,7 +953,7 @@ fun MovyzaHorizontalCardTemplate(
                 Spacer(Modifier.height(5.dp))
 
                 Text(
-                    text = movie?.overview?.ifBlank { "اضغط لعرض التفاصيل والمشاهدة المباشرة." }
+                    text = movie?.overview?.ifBlank { stringResource(R.string.poster_overview_placeholder) }
                         ?: "٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠",
                     color = if (movie != null) MovyzaColors.Text3 else Color.Transparent,
                     fontSize = 12.sp,
@@ -813,7 +1008,7 @@ fun MovyzaContinueWatchingCard(
             )
 
             MovyzaBadge(
-                text = if (entry.mediaType == "series") "م${entry.season} • ح${entry.episode}" else "متابعة الفيلم",
+                text = if (entry.mediaType == "series") stringResource(R.string.continue_episode_format, entry.season, entry.episode) else stringResource(R.string.continue_movie),
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(8.dp)
@@ -829,7 +1024,7 @@ fun MovyzaContinueWatchingCard(
             ) {
                 Icon(
                     Icons.Outlined.PlayArrow,
-                    contentDescription = "استئناف",
+                    contentDescription = stringResource(R.string.btn_resume),
                     tint = MovyzaColors.Bg,
                     modifier = Modifier.size(22.dp)
                 )
@@ -856,7 +1051,7 @@ fun MovyzaContinueWatchingCard(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "التفاصيل",
+                        text = stringResource(R.string.btn_details),
                         color = MovyzaColors.Gold300,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
