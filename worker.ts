@@ -803,7 +803,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
         const genreNames = (sourceData?.genres || []).map((genre: any) => String(genre?.name || '').trim()).filter(Boolean);
         const original = String(isEpisodePage ? (seriesForEpisode?.original_name || '') : alternateTitle || '').trim();
         const releaseDate = String(isEpisodePage ? (episodeForPage?.air_date || '') : (detailSeoData?.release_date || detailSeoData?.first_air_date || '')).trim();
-        const vote = Number(sourceData?.vote_average || 0);
+        const vote = Number((isEpisodePage ? episodeForPage?.vote_average : sourceData?.vote_average) || 0);
         const overview = String(isEpisodePage ? (episodeForPage?.overview || seriesForEpisode?.overview || description) : description || '').trim();
         const pageTitle = String(contentTitle).trim();
         const row = (label: string, value: string) => value
@@ -833,8 +833,11 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
         const metadataSource = isEpisodePage ? seriesForEpisode : detailSeoData;
         const statusValue = String(metadataSource?.status || '').trim();
         const statusBlock = statusValue ? row(labels.status, statusValue) : '';
-        const countryNames = (metadataSource?.production_countries || [])
+        const productionCountryNames = (metadataSource?.production_countries || [])
           .map((country: any) => String(country?.name || '').trim()).filter(Boolean);
+        const countryNames = productionCountryNames.length
+          ? productionCountryNames
+          : (metadataSource?.origin_country || []).map((country: any) => String(country || '').trim()).filter(Boolean);
         const countriesBlock = countryNames.length ? row(labels.countries, countryNames.join(', ')) : '';
         const seasonCount = Number(metadataSource?.number_of_seasons || 0);
         const episodeCount = Number(metadataSource?.number_of_episodes || 0);
