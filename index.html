@@ -28,21 +28,23 @@
           const resetKey = isStamped ? 'movyz:frontend-reset:' + buildId : '';
           const resetDone = resetKey ? sessionStorage.getItem(resetKey) === '1' : true;
 
-          if ('serviceWorker' in navigator) {
-            const registrations = await navigator.serviceWorker.getRegistrations();
-            await Promise.all(
-              registrations
-                .filter((registration) => !registration.active?.scriptURL.endsWith('/sw.js'))
-                .map((registration) => registration.unregister()),
-            );
-          }
-
-          if ('caches' in window) {
-            const cacheNames = await caches.keys();
-            await Promise.all(cacheNames.map((name) => caches.delete(name)));
-          }
-
+          // Clear stale client assets only once when a new production build is detected.
+          // Running this on every navigation defeats browser caching and slows repeat visits.
           if (isStamped && !resetDone) {
+            if ('serviceWorker' in navigator) {
+              const registrations = await navigator.serviceWorker.getRegistrations();
+              await Promise.all(
+                registrations
+                  .filter((registration) => !registration.active?.scriptURL.endsWith('/sw.js'))
+                  .map((registration) => registration.unregister()),
+              );
+            }
+
+            if ('caches' in window) {
+              const cacheNames = await caches.keys();
+              await Promise.all(cacheNames.map((name) => caches.delete(name)));
+            }
+
             sessionStorage.setItem(resetKey, '1');
             const next = new URL(window.location.href);
             next.searchParams.set('__movyz_build', buildId);
