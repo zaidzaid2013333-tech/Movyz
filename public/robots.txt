@@ -1,6 +1,15 @@
 # Movyza crawler policy
 # robots.txt manages crawling; it is not an access-control mechanism.
 
+# Explicit allow for GSC Wizard on-page audits. Keep private/internal exclusions in this group.
+User-agent: GSCWizard-Bot
+Allow: /
+Disallow: /admin
+Disallow: /*/admin
+Disallow: /tmdb
+Disallow: /tmdb/
+Disallow: /api/v1/playback/resolve
+
 User-agent: *
 Allow: /
 Disallow: /admin
