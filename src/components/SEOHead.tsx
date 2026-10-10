@@ -56,7 +56,7 @@ const keywordTerms: Record<Language, string[]> = {
 
 export type FreeContentKind = 'movie' | 'series' | 'episode';
 
-const FREE_CONTENT_TITLES: Record<Language, Record<FreeContentKind, string>> = {
+const FREE_CONTENT_TITLES: Record<Language, Record<FreeContentKind, string> | string> = {
   ar: { movie: 'مشاهدة {title} مجانًا', series: 'مشاهدة مسلسل {title} مجانًا', episode: 'مشاهدة حلقة {title} مجانًا' },
   en: { movie: 'Watch {title} Online Free', series: 'Watch {title} Series Online Free', episode: 'Watch {title} Episode Free' },
   fr: { movie: 'Regarder {title} gratuitement', series: 'Regarder la série {title} gratuitement', episode: 'Regarder l’épisode {title} gratuitement' },
