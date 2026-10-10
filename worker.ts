@@ -102,11 +102,6 @@ const isAppHtmlPath = (pathname: string) =>
   !pathname.includes('.') &&
   !pathname.startsWith('/tmdb');
 
-const titleKeywords = (locale: LocaleCode, title: string) => {
-  const terms = {"ar":["مترجم عربي","مشاهدة","فيلم","مسلسل"],"en":["watch","watch","movie","series"],"fr":["film","regarder","streaming"],"de":["Film","Stream","online"],"es":["película","ver","online"],"it":["film","guardare","streaming"],"pt":["filme","assistir","online"],"ru":["фильм","смотреть","онлайн"],"tr":["film izle","izle","online"],"hi":["movie","watch","series"],"ja":["映画","見る","ドラマ"],"ko":["영화","보기","드라마"],"zh":["电影","观看","剧集"],"nl":["film","serie","kijken"],"sv":["film","se","serie"],"da":["film","se","serie"],"no":["film","se","serie"],"fi":["elokuva","katso","sarja"],"pl":["film","oglądaj","serial"],"cs":["film","sledovat","seriál"],"uk":["фільм","дивитися","серіал"],"he":["סרט","צפייה","סדרה"],"vi":["phim","xem","series"],"id":["film","nonton","serial"],"ms":["filem","tonton","siri"],"th":["หนัง","ดู","ซีรีส์"],"ro":["filmul","vezi","serial"],"hu":["film","nézd","sorozat"],"el":["ταινία","δες","σειρά"],"bn":["সিনেমা","দেখুন","সিরিজ"],"ur":["فلم","دیکھیں","سیریز"],"fa":["فیلم","تماشای","سریال"]}[locale] || {"ar":["مترجم عربي","مشاهدة","فيلم","مسلسل"],"en":["watch","watch","movie","series"],"fr":["film","regarder","streaming"],"de":["Film","Stream","online"],"es":["película","ver","online"],"it":["film","guardare","streaming"],"pt":["filme","assistir","online"],"ru":["фильм","смотреть","онлайн"],"tr":["film izle","izle","online"],"hi":["movie","watch","series"],"ja":["映画","見る","ドラマ"],"ko":["영화","보기","드라마"],"zh":["电影","观看","剧集"],"nl":["film","serie","kijken"],"sv":["film","se","serie"],"da":["film","se","serie"],"no":["film","se","serie"],"fi":["elokuva","katso","sarja"],"pl":["film","oglądaj","serial"],"cs":["film","sledovat","seriál"],"uk":["фільм","дивитися","серіал"],"he":["סרט","צפייה","סדרה"],"vi":["phim","xem","series"],"id":["film","nonton","serial"],"ms":["filem","tonton","siri"],"th":["หนัง","ดู","ซีรีส์"],"ro":["filmul","vezi","serial"],"hu":["film","nézd","sorozat"],"el":["ταινία","δες","σειρά"],"bn":["সিনেমা","দেখুন","সিরিজ"],"ur":["فلم","دیکھیں","سیریز"],"fa":["فیلم","تماشای","سریال"]}.en;
-  return Array.from(new Set([title, ...terms.map((term) => term + ' ' + title)])).join(', ');
-};
-
 const HOME_SEO: Record<LocaleCode, { title: string; description: string }> = {
   "ar": {
     "title": "مشاهدة الأفلام والمسلسلات مجانًا | Movyza",
@@ -273,39 +268,39 @@ const FREE_SEO_TITLES: Record<LocaleCode, { movie: string; series: string; episo
   fa: { movie: '{title} را رایگان آنلاین تماشا کنید', series: 'سریال {title} را رایگان تماشا کنید', episode: 'قسمت {title} را رایگان تماشا کنید', movies: 'تماشای رایگان فیلم', seriesList: 'تماشای رایگان سریال', discover: 'کشف فیلم و سریال رایگان', catalog: '۱۰۰۰ فیلم و سریال برتر رایگان' },
 };
 
-const DETAIL_SEO_LABELS: Record<LocaleCode, { details: string; originalTitle: string; genres: string; cast: string; release: string; rating: string; related: string; allMovies: string; allSeries: string; discover: string; viewSeries: string }> = {
-  ar: { details: 'تفاصيل العمل', originalTitle: 'العنوان الأصلي', genres: 'التصنيفات', cast: 'بطولة', release: 'تاريخ الإصدار', rating: 'التقييم', related: 'استكشف المزيد', allMovies: 'كل الأفلام', allSeries: 'كل المسلسلات', discover: 'اكتشف المزيد', viewSeries: 'صفحة المسلسل' },
-  en: { details: 'Movie and series information', originalTitle: 'Original title', genres: 'Genres', cast: 'Cast', release: 'Release date', rating: 'Rating', related: 'Explore more', allMovies: 'Browse movies', allSeries: 'Browse series', discover: 'Discover titles', viewSeries: 'Series details' },
-  fr: { details: 'Informations sur le film ou la série', originalTitle: 'Titre original', genres: 'Genres', cast: 'Distribution', release: 'Date de sortie', rating: 'Note', related: 'À découvrir', allMovies: 'Voir les films', allSeries: 'Voir les séries', discover: 'Découvrir', viewSeries: 'Détails de la série' },
-  de: { details: 'Film- und Serieninformationen', originalTitle: 'Originaltitel', genres: 'Genres', cast: 'Besetzung', release: 'Veröffentlichungsdatum', rating: 'Bewertung', related: 'Mehr entdecken', allMovies: 'Filme ansehen', allSeries: 'Serien ansehen', discover: 'Titel entdecken', viewSeries: 'Seriendetails' },
-  es: { details: 'Información de películas y series', originalTitle: 'Título original', genres: 'Géneros', cast: 'Reparto', release: 'Fecha de estreno', rating: 'Valoración', related: 'Descubre más', allMovies: 'Ver películas', allSeries: 'Ver series', discover: 'Explorar títulos', viewSeries: 'Detalles de la serie' },
-  it: { details: 'Informazioni su film e serie', originalTitle: 'Titolo originale', genres: 'Generi', cast: 'Cast', release: 'Data di uscita', rating: 'Valutazione', related: 'Scopri di più', allMovies: 'Film', allSeries: 'Serie TV', discover: 'Scopri titoli', viewSeries: 'Dettagli della serie' },
-  pt: { details: 'Informações sobre filmes e séries', originalTitle: 'Título original', genres: 'Gêneros', cast: 'Elenco', release: 'Data de lançamento', rating: 'Avaliação', related: 'Descubra mais', allMovies: 'Ver filmes', allSeries: 'Ver séries', discover: 'Explorar títulos', viewSeries: 'Detalhes da série' },
-  ru: { details: 'Информация о фильме или сериале', originalTitle: 'Оригинальное название', genres: 'Жанры', cast: 'В ролях', release: 'Дата выхода', rating: 'Рейтинг', related: 'Больше материалов', allMovies: 'Фильмы', allSeries: 'Сериалы', discover: 'Открыть подборку', viewSeries: 'Страница сериала' },
-  tr: { details: 'Film ve dizi bilgileri', originalTitle: 'Orijinal ad', genres: 'Türler', cast: 'Oyuncular', release: 'Yayın tarihi', rating: 'Puan', related: 'Daha fazlasını keşfet', allMovies: 'Filmler', allSeries: 'Diziler', discover: 'İçerikleri keşfet', viewSeries: 'Dizi bilgileri' },
-  hi: { details: 'फ़िल्म और सीरीज़ की जानकारी', originalTitle: 'मूल शीर्षक', genres: 'शैलियाँ', cast: 'कलाकार', release: 'रिलीज़ तारीख', rating: 'रेटिंग', related: 'और खोजें', allMovies: 'फ़िल्में देखें', allSeries: 'सीरीज़ देखें', discover: 'शीर्षक खोजें', viewSeries: 'सीरीज़ विवरण' },
-  ja: { details: '映画・シリーズ情報', originalTitle: '原題', genres: 'ジャンル', cast: '出演者', release: '公開日', rating: '評価', related: 'さらに探す', allMovies: '映画一覧', allSeries: 'シリーズ一覧', discover: '作品を探す', viewSeries: 'シリーズ詳細' },
-  ko: { details: '영화 및 시리즈 정보', originalTitle: '원제', genres: '장르', cast: '출연진', release: '공개일', rating: '평점', related: '더 알아보기', allMovies: '영화 보기', allSeries: '시리즈 보기', discover: '작품 찾기', viewSeries: '시리즈 정보' },
-  zh: { details: '电影与剧集信息', originalTitle: '原名', genres: '类型', cast: '演员', release: '上映日期', rating: '评分', related: '探索更多', allMovies: '浏览电影', allSeries: '浏览剧集', discover: '发现作品', viewSeries: '剧集详情' },
-  nl: { details: 'Film- en serie-informatie', originalTitle: 'Originele titel', genres: 'Genres', cast: 'Cast', release: 'Releasedatum', rating: 'Beoordeling', related: 'Ontdek meer', allMovies: 'Films bekijken', allSeries: 'Series bekijken', discover: 'Titels ontdekken', viewSeries: 'Seriegegevens' },
-  sv: { details: 'Film- och serieinformation', originalTitle: 'Originaltitel', genres: 'Genrer', cast: 'Medverkande', release: 'Premiärdatum', rating: 'Betyg', related: 'Upptäck mer', allMovies: 'Visa filmer', allSeries: 'Visa serier', discover: 'Upptäck titlar', viewSeries: 'Seriedetaljer' },
-  da: { details: 'Film- og serieinformation', originalTitle: 'Originaltitel', genres: 'Genrer', cast: 'Medvirkende', release: 'Udgivelsesdato', rating: 'Bedømmelse', related: 'Udforsk mere', allMovies: 'Se film', allSeries: 'Se serier', discover: 'Find titler', viewSeries: 'Seriedetaljer' },
-  no: { details: 'Film- og serieinformasjon', originalTitle: 'Originaltittel', genres: 'Sjangre', cast: 'Medvirkende', release: 'Utgivelsesdato', rating: 'Vurdering', related: 'Utforsk mer', allMovies: 'Se filmer', allSeries: 'Se serier', discover: 'Utforsk titler', viewSeries: 'Seriedetaljer' },
-  fi: { details: 'Elokuva- ja sarjatiedot', originalTitle: 'Alkuperäinen nimi', genres: 'Tyylilajit', cast: 'Näyttelijät', release: 'Julkaisupäivä', rating: 'Arvio', related: 'Tutustu lisää', allMovies: 'Elokuvat', allSeries: 'Sarjat', discover: 'Tutustu nimikkeisiin', viewSeries: 'Sarjan tiedot' },
-  pl: { details: 'Informacje o filmie lub serialu', originalTitle: 'Tytuł oryginalny', genres: 'Gatunki', cast: 'Obsada', release: 'Data premiery', rating: 'Ocena', related: 'Odkryj więcej', allMovies: 'Filmy', allSeries: 'Seriale', discover: 'Odkryj tytuły', viewSeries: 'Szczegóły serialu' },
-  cs: { details: 'Informace o filmu nebo seriálu', originalTitle: 'Původní název', genres: 'Žánry', cast: 'Obsazení', release: 'Datum vydání', rating: 'Hodnocení', related: 'Objevte více', allMovies: 'Filmy', allSeries: 'Seriály', discover: 'Objevovat tituly', viewSeries: 'Podrobnosti seriálu' },
-  uk: { details: 'Інформація про фільм або серіал', originalTitle: 'Оригінальна назва', genres: 'Жанри', cast: 'У ролях', release: 'Дата виходу', rating: 'Рейтинг', related: 'Досліджуйте далі', allMovies: 'Фільми', allSeries: 'Серіали', discover: 'Знайти твори', viewSeries: 'Деталі серіалу' },
-  he: { details: 'מידע על סרטים וסדרות', originalTitle: 'שם מקורי', genres: 'ז׳אנרים', cast: 'שחקנים', release: 'תאריך יציאה', rating: 'דירוג', related: 'לגלות עוד', allMovies: 'סרטים', allSeries: 'סדרות', discover: 'לגלות תכנים', viewSeries: 'פרטי הסדרה' },
-  vi: { details: 'Thông tin phim và series', originalTitle: 'Tên gốc', genres: 'Thể loại', cast: 'Diễn viên', release: 'Ngày phát hành', rating: 'Đánh giá', related: 'Khám phá thêm', allMovies: 'Xem phim', allSeries: 'Xem series', discover: 'Khám phá nội dung', viewSeries: 'Thông tin series' },
-  id: { details: 'Informasi film dan serial', originalTitle: 'Judul asli', genres: 'Genre', cast: 'Pemeran', release: 'Tanggal rilis', rating: 'Rating', related: 'Jelajahi lainnya', allMovies: 'Lihat film', allSeries: 'Lihat serial', discover: 'Jelajahi judul', viewSeries: 'Detail serial' },
-  ms: { details: 'Maklumat filem dan siri', originalTitle: 'Tajuk asal', genres: 'Genre', cast: 'Pelakon', release: 'Tarikh keluaran', rating: 'Penilaian', related: 'Terokai lagi', allMovies: 'Lihat filem', allSeries: 'Lihat siri', discover: 'Terokai tajuk', viewSeries: 'Butiran siri' },
-  th: { details: 'ข้อมูลภาพยนตร์และซีรีส์', originalTitle: 'ชื่อเรื่องต้นฉบับ', genres: 'ประเภท', cast: 'นักแสดง', release: 'วันเข้าฉาย', rating: 'คะแนน', related: 'ค้นหาเพิ่มเติม', allMovies: 'ดูภาพยนตร์', allSeries: 'ดูซีรีส์', discover: 'ค้นหาผลงาน', viewSeries: 'รายละเอียดซีรีส์' },
-  ro: { details: 'Informații despre filme și seriale', originalTitle: 'Titlu original', genres: 'Genuri', cast: 'Distribuție', release: 'Data lansării', rating: 'Evaluare', related: 'Descoperă mai mult', allMovies: 'Vezi filme', allSeries: 'Vezi seriale', discover: 'Descoperă titluri', viewSeries: 'Detalii serial' },
-  hu: { details: 'Film- és sorozatinformációk', originalTitle: 'Eredeti cím', genres: 'Műfajok', cast: 'Szereplők', release: 'Megjelenés dátuma', rating: 'Értékelés', related: 'Fedezz fel többet', allMovies: 'Filmek', allSeries: 'Sorozatok', discover: 'Címek felfedezése', viewSeries: 'Sorozat adatai' },
-  el: { details: 'Πληροφορίες ταινιών και σειρών', originalTitle: 'Πρωτότυπος τίτλος', genres: 'Είδη', cast: 'Ηθοποιοί', release: 'Ημερομηνία κυκλοφορίας', rating: 'Βαθμολογία', related: 'Εξερευνήστε περισσότερα', allMovies: 'Ταινίες', allSeries: 'Σειρές', discover: 'Ανακαλύψτε τίτλους', viewSeries: 'Λεπτομέρειες σειράς' },
-  bn: { details: 'সিনেমা ও সিরিজের তথ্য', originalTitle: 'মূল শিরোনাম', genres: 'ধরন', cast: 'অভিনয়ে', release: 'মুক্তির তারিখ', rating: 'রেটিং', related: 'আরও দেখুন', allMovies: 'সিনেমা দেখুন', allSeries: 'সিরিজ দেখুন', discover: 'শিরোনাম খুঁজুন', viewSeries: 'সিরিজের বিবরণ' },
-  ur: { details: 'فلموں اور سیریز کی معلومات', originalTitle: 'اصل عنوان', genres: 'اقسام', cast: 'اداکار', release: 'ریلیز کی تاریخ', rating: 'درجہ بندی', related: 'مزید دریافت کریں', allMovies: 'فلمیں دیکھیں', allSeries: 'سیریز دیکھیں', discover: 'عنوانات دریافت کریں', viewSeries: 'سیریز کی تفصیل' },
-  fa: { details: 'اطلاعات فیلم و سریال', originalTitle: 'عنوان اصلی', genres: 'ژانرها', cast: 'بازیگران', release: 'تاریخ انتشار', rating: 'امتیاز', related: 'بیشتر کشف کنید', allMovies: 'فیلم‌ها', allSeries: 'سریال‌ها', discover: 'کشف آثار', viewSeries: 'جزئیات سریال' },
+const DETAIL_SEO_LABELS: Record<LocaleCode, { details: string; originalTitle: string; genres: string; cast: string; release: string; rating: string; runtime: string; status: string; countries: string; seasons: string; episodeCount: string; networks: string; related: string; allMovies: string; allSeries: string; discover: string; viewSeries: string }> = {
+  ar: { details: 'تفاصيل العمل', originalTitle: 'العنوان الأصلي', genres: 'التصنيفات', cast: 'بطولة', release: 'تاريخ الإصدار', rating: 'التقييم', runtime: 'المدة', status: 'الحالة', countries: 'بلد الإنتاج', seasons: 'المواسم', episodeCount: 'عدد الحلقات', networks: 'الشبكات', related: 'استكشف المزيد', allMovies: 'كل الأفلام', allSeries: 'كل المسلسلات', discover: 'اكتشف المزيد', viewSeries: 'صفحة المسلسل' },
+  en: { details: 'Movie and series information', originalTitle: 'Original title', genres: 'Genres', cast: 'Cast', release: 'Release date', rating: 'Rating', runtime: 'Runtime', status: 'Status', countries: 'Production countries', seasons: 'Seasons', episodeCount: 'Episodes', networks: 'Networks', related: 'Explore more', allMovies: 'Browse movies', allSeries: 'Browse series', discover: 'Discover titles', viewSeries: 'Series details' },
+  fr: { details: 'Informations sur le film ou la série', originalTitle: 'Titre original', genres: 'Genres', cast: 'Distribution', release: 'Date de sortie', rating: 'Note', runtime: 'Durée', status: 'Statut', countries: 'Pays de production', seasons: 'Saisons', episodeCount: 'Épisodes', networks: 'Chaînes', related: 'À découvrir', allMovies: 'Voir les films', allSeries: 'Voir les séries', discover: 'Découvrir', viewSeries: 'Détails de la série' },
+  de: { details: 'Film- und Serieninformationen', originalTitle: 'Originaltitel', genres: 'Genres', cast: 'Besetzung', release: 'Veröffentlichungsdatum', rating: 'Bewertung', runtime: 'Laufzeit', status: 'Status', countries: 'Produktionsländer', seasons: 'Staffeln', episodeCount: 'Episoden', networks: 'Sender', related: 'Mehr entdecken', allMovies: 'Filme ansehen', allSeries: 'Serien ansehen', discover: 'Titel entdecken', viewSeries: 'Seriendetails' },
+  es: { details: 'Información de películas y series', originalTitle: 'Título original', genres: 'Géneros', cast: 'Reparto', release: 'Fecha de estreno', rating: 'Valoración', runtime: 'Duración', status: 'Estado', countries: 'Países de producción', seasons: 'Temporadas', episodeCount: 'Episodios', networks: 'Cadenas', related: 'Descubre más', allMovies: 'Ver películas', allSeries: 'Ver series', discover: 'Explorar títulos', viewSeries: 'Detalles de la serie' },
+  it: { details: 'Informazioni su film e serie', originalTitle: 'Titolo originale', genres: 'Generi', cast: 'Cast', release: 'Data di uscita', rating: 'Valutazione', runtime: 'Durata', status: 'Stato', countries: 'Paesi di produzione', seasons: 'Stagioni', episodeCount: 'Episodi', networks: 'Reti', related: 'Scopri di più', allMovies: 'Film', allSeries: 'Serie TV', discover: 'Scopri titoli', viewSeries: 'Dettagli della serie' },
+  pt: { details: 'Informações sobre filmes e séries', originalTitle: 'Título original', genres: 'Gêneros', cast: 'Elenco', release: 'Data de lançamento', rating: 'Avaliação', runtime: 'Duração', status: 'Estado', countries: 'Países de produção', seasons: 'Temporadas', episodeCount: 'Episódios', networks: 'Emissoras', related: 'Descubra mais', allMovies: 'Ver filmes', allSeries: 'Ver séries', discover: 'Explorar títulos', viewSeries: 'Detalhes da série' },
+  ru: { details: 'Информация о фильме или сериале', originalTitle: 'Оригинальное название', genres: 'Жанры', cast: 'В ролях', release: 'Дата выхода', rating: 'Рейтинг', runtime: 'Продолжительность', status: 'Статус', countries: 'Страны производства', seasons: 'Сезоны', episodeCount: 'Эпизоды', networks: 'Телеканалы', related: 'Больше материалов', allMovies: 'Фильмы', allSeries: 'Сериалы', discover: 'Открыть подборку', viewSeries: 'Страница сериала' },
+  tr: { details: 'Film ve dizi bilgileri', originalTitle: 'Orijinal ad', genres: 'Türler', cast: 'Oyuncular', release: 'Yayın tarihi', rating: 'Puan', runtime: 'Süre', status: 'Durum', countries: 'Yapım ülkeleri', seasons: 'Sezonlar', episodeCount: 'Bölümler', networks: 'Yayın ağları', related: 'Daha fazlasını keşfet', allMovies: 'Filmler', allSeries: 'Diziler', discover: 'İçerikleri keşfet', viewSeries: 'Dizi bilgileri' },
+  hi: { details: 'फ़िल्म और सीरीज़ की जानकारी', originalTitle: 'मूल शीर्षक', genres: 'शैलियाँ', cast: 'कलाकार', release: 'रिलीज़ तारीख', rating: 'रेटिंग', runtime: 'अवधि', status: 'स्थिति', countries: 'निर्माण देश', seasons: 'सीज़न', episodeCount: 'एपिसोड', networks: 'नेटवर्क', related: 'और खोजें', allMovies: 'फ़िल्में देखें', allSeries: 'सीरीज़ देखें', discover: 'शीर्षक खोजें', viewSeries: 'सीरीज़ विवरण' },
+  ja: { details: '映画・シリーズ情報', originalTitle: '原題', genres: 'ジャンル', cast: '出演者', release: '公開日', rating: '評価', runtime: '再生時間', status: '状態', countries: '制作国', seasons: 'シーズン数', episodeCount: 'エピソード数', networks: '放送局', related: 'さらに探す', allMovies: '映画一覧', allSeries: 'シリーズ一覧', discover: '作品を探す', viewSeries: 'シリーズ詳細' },
+  ko: { details: '영화 및 시리즈 정보', originalTitle: '원제', genres: '장르', cast: '출연진', release: '공개일', rating: '평점', runtime: '상영 시간', status: '상태', countries: '제작 국가', seasons: '시즌 수', episodeCount: '에피소드 수', networks: '방송사', related: '더 알아보기', allMovies: '영화 보기', allSeries: '시리즈 보기', discover: '작품 찾기', viewSeries: '시리즈 정보' },
+  zh: { details: '电影与剧集信息', originalTitle: '原名', genres: '类型', cast: '演员', release: '上映日期', rating: '评分', runtime: '时长', status: '状态', countries: '制作国家/地区', seasons: '季数', episodeCount: '集数', networks: '播出平台', related: '探索更多', allMovies: '浏览电影', allSeries: '浏览剧集', discover: '发现作品', viewSeries: '剧集详情' },
+  nl: { details: 'Film- en serie-informatie', originalTitle: 'Originele titel', genres: 'Genres', cast: 'Cast', release: 'Releasedatum', rating: 'Beoordeling', runtime: 'Speelduur', status: 'Status', countries: 'Productielanden', seasons: 'Seizoenen', episodeCount: 'Afleveringen', networks: 'Omroepen', related: 'Ontdek meer', allMovies: 'Films bekijken', allSeries: 'Series bekijken', discover: 'Titels ontdekken', viewSeries: 'Seriegegevens' },
+  sv: { details: 'Film- och serieinformation', originalTitle: 'Originaltitel', genres: 'Genrer', cast: 'Medverkande', release: 'Premiärdatum', rating: 'Betyg', runtime: 'Speltid', status: 'Status', countries: 'Produktionsländer', seasons: 'Säsonger', episodeCount: 'Avsnitt', networks: 'Kanaler', related: 'Upptäck mer', allMovies: 'Visa filmer', allSeries: 'Visa serier', discover: 'Upptäck titlar', viewSeries: 'Seriedetaljer' },
+  da: { details: 'Film- og serieinformation', originalTitle: 'Originaltitel', genres: 'Genrer', cast: 'Medvirkende', release: 'Udgivelsesdato', rating: 'Bedømmelse', runtime: 'Spilletid', status: 'Status', countries: 'Produktionslande', seasons: 'Sæsoner', episodeCount: 'Afsnit', networks: 'Netværk', related: 'Udforsk mere', allMovies: 'Se film', allSeries: 'Se serier', discover: 'Find titler', viewSeries: 'Seriedetaljer' },
+  no: { details: 'Film- og serieinformasjon', originalTitle: 'Originaltittel', genres: 'Sjangre', cast: 'Medvirkende', release: 'Utgivelsesdato', rating: 'Vurdering', runtime: 'Spilletid', status: 'Status', countries: 'Produksjonsland', seasons: 'Sesonger', episodeCount: 'Episoder', networks: 'Nettverk', related: 'Utforsk mer', allMovies: 'Se filmer', allSeries: 'Se serier', discover: 'Utforsk titler', viewSeries: 'Seriedetaljer' },
+  fi: { details: 'Elokuva- ja sarjatiedot', originalTitle: 'Alkuperäinen nimi', genres: 'Tyylilajit', cast: 'Näyttelijät', release: 'Julkaisupäivä', rating: 'Arvio', runtime: 'Kesto', status: 'Tila', countries: 'Tuotantomaat', seasons: 'Kaudet', episodeCount: 'Jaksot', networks: 'Verkostot', related: 'Tutustu lisää', allMovies: 'Elokuvat', allSeries: 'Sarjat', discover: 'Tutustu nimikkeisiin', viewSeries: 'Sarjan tiedot' },
+  pl: { details: 'Informacje o filmie lub serialu', originalTitle: 'Tytuł oryginalny', genres: 'Gatunki', cast: 'Obsada', release: 'Data premiery', rating: 'Ocena', runtime: 'Czas trwania', status: 'Status', countries: 'Kraje produkcji', seasons: 'Sezony', episodeCount: 'Odcinki', networks: 'Nadawcy', related: 'Odkryj więcej', allMovies: 'Filmy', allSeries: 'Seriale', discover: 'Odkryj tytuły', viewSeries: 'Szczegóły serialu' },
+  cs: { details: 'Informace o filmu nebo seriálu', originalTitle: 'Původní název', genres: 'Žánry', cast: 'Obsazení', release: 'Datum vydání', rating: 'Hodnocení', runtime: 'Délka', status: 'Stav', countries: 'Země výroby', seasons: 'Řady', episodeCount: 'Epizody', networks: 'Vysílatelé', related: 'Objevte více', allMovies: 'Filmy', allSeries: 'Seriály', discover: 'Objevovat tituly', viewSeries: 'Podrobnosti seriálu' },
+  uk: { details: 'Інформація про фільм або серіал', originalTitle: 'Оригінальна назва', genres: 'Жанри', cast: 'У ролях', release: 'Дата виходу', rating: 'Рейтинг', runtime: 'Тривалість', status: 'Статус', countries: 'Країни виробництва', seasons: 'Сезони', episodeCount: 'Епізоди', networks: 'Мережі', related: 'Досліджуйте далі', allMovies: 'Фільми', allSeries: 'Серіали', discover: 'Знайти твори', viewSeries: 'Деталі серіалу' },
+  he: { details: 'מידע על סרטים וסדרות', originalTitle: 'שם מקורי', genres: 'ז׳אנרים', cast: 'שחקנים', release: 'תאריך יציאה', rating: 'דירוג', runtime: 'משך', status: 'סטטוס', countries: 'מדינות הפקה', seasons: 'עונות', episodeCount: 'פרקים', networks: 'רשתות שידור', related: 'לגלות עוד', allMovies: 'סרטים', allSeries: 'סדרות', discover: 'לגלות תכנים', viewSeries: 'פרטי הסדרה' },
+  vi: { details: 'Thông tin phim và series', originalTitle: 'Tên gốc', genres: 'Thể loại', cast: 'Diễn viên', release: 'Ngày phát hành', rating: 'Đánh giá', runtime: 'Thời lượng', status: 'Trạng thái', countries: 'Quốc gia sản xuất', seasons: 'Mùa', episodeCount: 'Tập', networks: 'Mạng phát sóng', related: 'Khám phá thêm', allMovies: 'Xem phim', allSeries: 'Xem series', discover: 'Khám phá nội dung', viewSeries: 'Thông tin series' },
+  id: { details: 'Informasi film dan serial', originalTitle: 'Judul asli', genres: 'Genre', cast: 'Pemeran', release: 'Tanggal rilis', rating: 'Rating', runtime: 'Durasi', status: 'Status', countries: 'Negara produksi', seasons: 'Musim', episodeCount: 'Episode', networks: 'Jaringan', related: 'Jelajahi lainnya', allMovies: 'Lihat film', allSeries: 'Lihat serial', discover: 'Jelajahi judul', viewSeries: 'Detail serial' },
+  ms: { details: 'Maklumat filem dan siri', originalTitle: 'Tajuk asal', genres: 'Genre', cast: 'Pelakon', release: 'Tarikh keluaran', rating: 'Penilaian', runtime: 'Tempoh', status: 'Status', countries: 'Negara pengeluaran', seasons: 'Musim', episodeCount: 'Episod', networks: 'Rangkaian', related: 'Terokai lagi', allMovies: 'Lihat filem', allSeries: 'Lihat siri', discover: 'Terokai tajuk', viewSeries: 'Butiran siri' },
+  th: { details: 'ข้อมูลภาพยนตร์และซีรีส์', originalTitle: 'ชื่อเรื่องต้นฉบับ', genres: 'ประเภท', cast: 'นักแสดง', release: 'วันเข้าฉาย', rating: 'คะแนน', runtime: 'ความยาว', status: 'สถานะ', countries: 'ประเทศผู้ผลิต', seasons: 'ซีซัน', episodeCount: 'ตอน', networks: 'เครือข่าย', related: 'ค้นหาเพิ่มเติม', allMovies: 'ดูภาพยนตร์', allSeries: 'ดูซีรีส์', discover: 'ค้นหาผลงาน', viewSeries: 'รายละเอียดซีรีส์' },
+  ro: { details: 'Informații despre filme și seriale', originalTitle: 'Titlu original', genres: 'Genuri', cast: 'Distribuție', release: 'Data lansării', rating: 'Evaluare', runtime: 'Durată', status: 'Stare', countries: 'Țări de producție', seasons: 'Sezoane', episodeCount: 'Episoade', networks: 'Rețele', related: 'Descoperă mai mult', allMovies: 'Vezi filme', allSeries: 'Vezi seriale', discover: 'Descoperă titluri', viewSeries: 'Detalii serial' },
+  hu: { details: 'Film- és sorozatinformációk', originalTitle: 'Eredeti cím', genres: 'Műfajok', cast: 'Szereplők', release: 'Megjelenés dátuma', rating: 'Értékelés', runtime: 'Játékidő', status: 'Állapot', countries: 'Gyártási országok', seasons: 'Évadok', episodeCount: 'Epizódok', networks: 'Hálózatok', related: 'Fedezz fel többet', allMovies: 'Filmek', allSeries: 'Sorozatok', discover: 'Címek felfedezése', viewSeries: 'Sorozat adatai' },
+  el: { details: 'Πληροφορίες ταινιών και σειρών', originalTitle: 'Πρωτότυπος τίτλος', genres: 'Είδη', cast: 'Ηθοποιοί', release: 'Ημερομηνία κυκλοφορίας', rating: 'Βαθμολογία', runtime: 'Διάρκεια', status: 'Κατάσταση', countries: 'Χώρες παραγωγής', seasons: 'Σεζόν', episodeCount: 'Επεισόδια', networks: 'Δίκτυα', related: 'Εξερευνήστε περισσότερα', allMovies: 'Ταινίες', allSeries: 'Σειρές', discover: 'Ανακαλύψτε τίτλους', viewSeries: 'Λεπτομέρειες σειράς' },
+  bn: { details: 'সিনেমা ও সিরিজের তথ্য', originalTitle: 'মূল শিরোনাম', genres: 'ধরন', cast: 'অভিনয়ে', release: 'মুক্তির তারিখ', rating: 'রেটিং', runtime: 'সময়কাল', status: 'অবস্থা', countries: 'প্রযোজনা দেশ', seasons: 'সিজন', episodeCount: 'পর্ব', networks: 'নেটওয়ার্ক', related: 'আরও দেখুন', allMovies: 'সিনেমা দেখুন', allSeries: 'সিরিজ দেখুন', discover: 'শিরোনাম খুঁজুন', viewSeries: 'সিরিজের বিবরণ' },
+  ur: { details: 'فلموں اور سیریز کی معلومات', originalTitle: 'اصل عنوان', genres: 'اقسام', cast: 'اداکار', release: 'ریلیز کی تاریخ', rating: 'درجہ بندی', runtime: 'دورانیہ', status: 'حیثیت', countries: 'پروڈکشن ممالک', seasons: 'سیزن', episodeCount: 'اقساط', networks: 'نیٹ ورکس', related: 'مزید دریافت کریں', allMovies: 'فلمیں دیکھیں', allSeries: 'سیریز دیکھیں', discover: 'عنوانات دریافت کریں', viewSeries: 'سیریز کی تفصیل' },
+  fa: { details: 'اطلاعات فیلم و سریال', originalTitle: 'عنوان اصلی', genres: 'ژانرها', cast: 'بازیگران', release: 'تاریخ انتشار', rating: 'امتیاز', runtime: 'مدت', status: 'وضعیت', countries: 'کشورهای تولیدکننده', seasons: 'فصل‌ها', episodeCount: 'قسمت‌ها', networks: 'شبکه‌ها', related: 'بیشتر کشف کنید', allMovies: 'فیلم‌ها', allSeries: 'سریال‌ها', discover: 'کشف آثار', viewSeries: 'جزئیات سریال' },
 };
 
 const freeTitle = (locale: LocaleCode, kind: 'movie' | 'series' | 'episode' | 'movies' | 'seriesList' | 'discover' | 'catalog', title = '') => {
@@ -330,7 +325,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   let schemaType = route === '/' ? 'WebSite' : 'WebPage';
   let ogType = 'website';
   let watchVideo: { embedUrl: string; uploadDate?: string; duration?: number } | null = null;
-  let episodeDetails: { seriesData: any; episodeData: any; seasonNumber: number; episodeNumber: number } | null = null;
+  let episodeDetails: { seriesData: any; episodeData: any; seasonData: any; seasonNumber: number; episodeNumber: number } | null = null;
   let detailSeoData: any = null;
   const detailMovie = route.match(/^\/movies\/(\d+)$/);
   const detailSeries = route.match(/^\/series\/(\d+)$/);
@@ -399,7 +394,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     const id = Number((detailMovie || detailSeries)?.[1] || 0);
     if (id && env.TMDB_API_READ_ACCESS_TOKEN) {
       try {
-        const upstream = await fetch(`https://api.themoviedb.org/3/${type}/${id}?language=${encodeURIComponent(config.tmdb)}&append_to_response=credits`, {
+        const upstream = await fetch(`https://api.themoviedb.org/3/${type}/${id}?language=${encodeURIComponent(config.tmdb)}&append_to_response=credits,similar,recommendations`, {
           headers: tmdbHeaders(env),
         });
         const data = await upstream.json().catch(() => null) as any;
@@ -423,7 +418,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
       try {
         const seriesUrl = new URL(`https://api.themoviedb.org/3/tv/${id}`);
         seriesUrl.searchParams.set('language', config.tmdb);
-        seriesUrl.searchParams.set('append_to_response', 'credits');
+        seriesUrl.searchParams.set('append_to_response', 'credits,similar,recommendations');
         const seasonUrl = new URL(`https://api.themoviedb.org/3/tv/${id}/season/${seasonNumber}`);
         seasonUrl.searchParams.set('language', config.tmdb);
         const [seriesResponse, seasonResponse] = await Promise.all([
@@ -444,7 +439,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
           : (seriesData?.backdrop_path ? `https://image.tmdb.org/t/p/w1280${seriesData.backdrop_path}` : '');
         schemaType = 'TVEpisode';
         ogType = 'video.tv_show';
-        episodeDetails = { seriesData, episodeData, seasonNumber, episodeNumber };
+        episodeDetails = { seriesData, episodeData, seasonData, seasonNumber, episodeNumber };
       } catch {
         contentTitle = `Episode ${episodeNumber} | Movyza`;
         description = locale === 'ar' ? 'معلومات الحلقة وتاريخ عرضها وتفاصيل المسلسل.' : 'Episode information, air date, and series details.';
@@ -568,7 +563,6 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
   const xDefault = !isNoIndex
     ? `<link rel="alternate" hreflang="x-default" href="${origin}/en${route === '/' ? '/' : route}" />`
     : '';
-  const keywords = titleKeywords(locale, contentTitle + (alternateTitle && alternateTitle !== contentTitle ? `, ${alternateTitle}` : ''));
   const metaDescriptionSource = String(description || HOME_SEO[locale].description).replace(/\s+/g, ' ').trim();
   const metaDescriptionChars = Array.from(metaDescriptionSource);
   const metaDescription = metaDescriptionChars.length <= 155
@@ -634,7 +628,6 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
     `<meta name="movyz-country" content="${String(countryFromRequest(request) || 'XX').toUpperCase()}" />` +
     `<meta name="movyz-subtitle-language" content="${subtitleLocale}" />` +
     `<meta name="movyz-subtitle-priority" content="${subtitlePriorityForLanguage(subtitleLocale)}" />` +
-    `<meta name="keywords" content="${keywords.replace(/"/g, '&quot;')}" />` +
     `<meta name="robots" content="${isNoIndex ? 'noindex,follow' : 'index,follow,max-image-preview:large'}" />` +
     `<meta property="og:site_name" content="Movyza" />` +
     `<meta name="application-name" content="Movyza" />` +
@@ -810,7 +803,7 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
         const genreNames = (sourceData?.genres || []).map((genre: any) => String(genre?.name || '').trim()).filter(Boolean);
         const original = String(isEpisodePage ? (seriesForEpisode?.original_name || '') : alternateTitle || '').trim();
         const releaseDate = String(isEpisodePage ? (episodeForPage?.air_date || '') : (detailSeoData?.release_date || detailSeoData?.first_air_date || '')).trim();
-        const vote = Number(sourceData?.vote_average || 0);
+        const vote = Number((isEpisodePage ? episodeForPage?.vote_average : sourceData?.vote_average) || 0);
         const overview = String(isEpisodePage ? (episodeForPage?.overview || seriesForEpisode?.overview || description) : description || '').trim();
         const pageTitle = String(contentTitle).trim();
         const row = (label: string, value: string) => value
@@ -831,6 +824,75 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
         const dateBlock = releaseDate ? row(labels.release, releaseDate) : '';
         const ratingBlock = Number.isFinite(vote) && vote > 0 ? row(labels.rating, vote.toFixed(1) + '/10') : '';
         const originalBlock = original && original !== pageTitle ? row(labels.originalTitle, original) : '';
+        const runtimeMinutes = Number(isEpisodePage
+          ? (episodeForPage?.runtime || seriesForEpisode?.episode_run_time?.[0] || 0)
+          : detailMovie
+            ? (detailSeoData?.runtime || 0)
+            : (detailSeoData?.episode_run_time?.[0] || 0));
+        const runtimeBlock = runtimeMinutes > 0 ? row(labels.runtime, Math.round(runtimeMinutes) + ' min') : '';
+        const metadataSource = isEpisodePage ? seriesForEpisode : detailSeoData;
+        const statusValue = String(metadataSource?.status || '').trim();
+        const statusBlock = statusValue ? row(labels.status, statusValue) : '';
+        const productionCountryNames = (metadataSource?.production_countries || [])
+          .map((country: any) => String(country?.name || '').trim()).filter(Boolean);
+        const countryNames = productionCountryNames.length
+          ? productionCountryNames
+          : (metadataSource?.origin_country || []).map((country: any) => String(country || '').trim()).filter(Boolean);
+        const countriesBlock = countryNames.length ? row(labels.countries, countryNames.join(', ')) : '';
+        const seasonCount = Number(metadataSource?.number_of_seasons || 0);
+        const episodeCount = Number(metadataSource?.number_of_episodes || 0);
+        const seasonsBlock = seasonCount > 0 ? row(labels.seasons, String(seasonCount)) : '';
+        const episodeCountBlock = episodeCount > 0 ? row(labels.episodeCount, String(episodeCount)) : '';
+        const networkNames = (metadataSource?.networks || [])
+          .map((network: any) => String(network?.name || '').trim()).filter(Boolean);
+        const networksBlock = networkNames.length ? row(labels.networks, networkNames.join(', ')) : '';
+        const relatedLinkItems: string[] = [];
+        if (isEpisodePage && episodeInfo && episodeDetails?.seasonData?.episodes) {
+          const seasonEpisodes = [...episodeDetails.seasonData.episodes]
+            .sort((a: any, b: any) => Number(a?.episode_number || 0) - Number(b?.episode_number || 0));
+          const currentEpisodeIndex = seasonEpisodes.findIndex(
+            (item: any) => Number(item?.episode_number || 0) === Number(episodeInfo[3]),
+          );
+          const adjacentEpisodes = [
+            currentEpisodeIndex > 0 ? seasonEpisodes[currentEpisodeIndex - 1] : null,
+            currentEpisodeIndex >= 0 ? seasonEpisodes[currentEpisodeIndex + 1] : null,
+          ].filter(Boolean);
+          const seriesId = Number(episodeInfo[1]);
+          for (const adjacent of adjacentEpisodes as any[]) {
+            const adjacentNumber = Number(adjacent?.episode_number || 0);
+            const adjacentTitle = String(adjacent?.name || '').trim();
+            if (!seriesId || adjacentNumber < 1 || !adjacentTitle) continue;
+            relatedLinkItems.push(
+              '<a href="/' + locale + '/episodes/' + seriesId + '/' + episodeDetails.seasonNumber + '/' + adjacentNumber +
+              '" style="color:#fbbf24;text-decoration:underline;text-underline-offset:4px">' +
+              escapeXml('S' + episodeDetails.seasonNumber + ' E' + adjacentNumber + ' — ' + adjacentTitle) + '</a>',
+            );
+          }
+        }
+        const relatedCandidates = [
+          ...(metadataSource?.recommendations?.results || []),
+          ...(metadataSource?.similar?.results || []),
+        ];
+        const relatedIds = new Set<number>([Number((detailMovie || detailSeries || episodeInfo)?.[1] || 0)]);
+        const relatedRoute = detailMovie ? 'movies' : 'series';
+        for (const item of relatedCandidates) {
+          if (relatedLinkItems.length >= 6) break;
+          const relatedId = Number(item?.id || 0);
+          const relatedTitle = String(item?.title || item?.name || '').trim();
+          if (!relatedId || relatedIds.has(relatedId) || !relatedTitle) continue;
+          relatedIds.add(relatedId);
+          relatedLinkItems.push(
+            '<a href="/' + locale + '/' + relatedRoute + '/' + relatedId +
+            '" style="color:#fbbf24;text-decoration:underline;text-underline-offset:4px">' +
+            escapeXml(relatedTitle) + '</a>',
+          );
+        }
+        const relatedLinksBlock = relatedLinkItems.length
+          ? '<section aria-label="' + escapeXml(labels.related) +
+            '" style="margin-top:18px"><h2 style="margin:0 0 10px;color:#fafafa;font-size:18px;font-weight:600">' +
+            escapeXml(labels.related) + '</h2><div style="display:flex;flex-wrap:wrap;gap:12px">' +
+            relatedLinkItems.join('') + '</div></section>'
+          : '';
         const poster = imageUrl
           ? '<img src="' + escapeXml(imageUrl) + '" alt="' + escapeXml(pageTitle) + '" loading="lazy" decoding="async" style="width:min(100%,220px);max-height:320px;object-fit:cover;border-radius:12px;border:1px solid #3f3f46" />'
           : '';
@@ -842,11 +904,11 @@ const localizedHtml = async (request: Request, env: MovyzEnvironment, response: 
           '<h1 style="margin:0 0 14px;font-size:clamp(22px,3vw,32px);line-height:1.35;font-weight:700;color:#fafafa">' + escapeXml(pageTitle) + '</h1>' +
           '<p style="max-width:900px;margin:0 0 14px;color:#d4d4d8;font-size:15px;line-height:1.9">' + escapeXml(overview) + '</p>' +
           castBlock +
-          '<dl style="margin:12px 0;font-size:14px;line-height:1.7">' + originalBlock + genresBlock + dateBlock + ratingBlock + '</dl>' +
+          '<dl style="margin:12px 0;font-size:14px;line-height:1.7">' + originalBlock + genresBlock + dateBlock + ratingBlock + runtimeBlock + statusBlock + countriesBlock + seasonsBlock + episodeCountBlock + networksBlock + '</dl>' +
           '<nav aria-label="' + escapeXml(labels.related) + '" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:18px">' +
           '<a href="' + escapeXml(relatedHref) + '" style="color:#fbbf24;text-decoration:underline;text-underline-offset:4px">' + escapeXml(relatedLabel) + '</a>' +
           '<a href="/' + locale + '/discover" style="color:#fbbf24;text-decoration:underline;text-underline-offset:4px">' + escapeXml(labels.discover) + '</a>' +
-          '</nav></article></div></section>';
+          '</nav>' + relatedLinksBlock + '</article></div></section>';
       })()
     : '';
 
