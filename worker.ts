@@ -1048,11 +1048,16 @@ const buildHomepagesSitemap = (origin: string) => {
 const buildStaticSitemapSegment = (request: Request, locale: LocaleCode) => {
   const origin = SITEMAP_PUBLIC_ORIGIN;
   const routes = ['/', '/movies', '/series', '/discover', '/catalog', '/legal'];
-  const urls = routes
+  const localizedUrls = routes
     .map((route) =>
       `<url><loc>${escapeXml(`${origin}/${locale}${route === '/' ? '/' : route}`)}</loc><changefreq>daily</changefreq><priority>${route === '/' ? '1.0' : '0.8'}</priority></url>`
     )
     .join('');
+  // Also expose the geo-localized root entry point through the primary sitemap index.
+  const defaultRootUrl = locale === 'en'
+    ? `<url><loc>${escapeXml(origin + '/')}</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`
+    : '';
+  const urls = defaultRootUrl + localizedUrls;
 
   const xml =
     `<?xml version="1.0" encoding="UTF-8"?>` +
