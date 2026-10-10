@@ -14,6 +14,7 @@ import { MoviesPage } from './pages/MoviesPage';
 import { SeriesPage } from './pages/SeriesPage';
 import { MovieDetailsPage } from './pages/MovieDetailsPage';
 import { SeriesDetailsPage } from './pages/SeriesDetailsPage';
+import { EpisodeDetailsPage } from './pages/EpisodeDetailsPage';
 import { WatchPage } from './pages/WatchPage';
 import { SearchPage } from './pages/SearchPage';
 import { DiscoverPage } from './pages/DiscoverPage';
@@ -163,6 +164,26 @@ function MainApp() {
           onNavigate={navigate}
         />
       );
+    }
+
+    // Public episode information route. Playback remains isolated under /watch/.
+    if (pathOnly.startsWith('/episodes/')) {
+      const segments = pathOnly.split('/').filter(Boolean);
+      const seriesId = segments[1] || '';
+      const seasonNumber = Number(segments[2]);
+      const episodeNumber = Number(segments[3]);
+      if (segments.length === 4 && /^\\d+$/.test(seriesId) &&
+          Number.isInteger(seasonNumber) && seasonNumber > 0 &&
+          Number.isInteger(episodeNumber) && episodeNumber > 0) {
+        return (
+          <EpisodeDetailsPage
+            seriesId={seriesId}
+            seasonNumber={seasonNumber}
+            episodeNumber={episodeNumber}
+            onNavigate={navigate}
+          />
+        );
+      }
     }
 
     // Movie Details route
