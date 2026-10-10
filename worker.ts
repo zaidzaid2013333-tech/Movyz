@@ -1023,11 +1023,11 @@ const escapeXml = (value: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 
-const SITEMAP_DISCOVERY_PAGES = 20;
-// Retain the episode sitemap endpoint for direct requests, but keep it bounded.
-const SITEMAP_EPISODE_PAGES = 20;
-// The root sitemap advertises only the localized homepages. Keep catalog/detail
-// URLs out of the submitted sitemap so Google is first directed to the language entry pages.
+// TMDB discovery exposes at most 500 pages per content type. Keep each sitemap
+// segment to one API page so each sitemap request stays lightweight on Cloudflare Free.
+const SITEMAP_DISCOVERY_PAGES = 500;
+// Five series per episode sitemap segment; 100 segments cover 500 popular series.
+const SITEMAP_EPISODE_PAGES = 100;
 const SITEMAP_CRAWL_ORIGIN = 'https://movyza.sbs';
 
 const buildHomepagesSitemap = (origin: string) => {
@@ -1213,16 +1213,25 @@ const buildGscSitemap = () => {
 
 const buildSitemapIndex = () => {
   const entries: string[] = [];
+
+  // Every language gets its own homepage and stable category/legal URLs.
+  // Full content discovery runs once in English; each detail page publishes
+  // reciprocal hreflang URLs for all 33 localized information pages.
   for (const locale of Object.keys(LOCALES) as LocaleCode[]) {
     entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${locale}/static.xml</loc></sitemap>`);
-    for (let page = 1; page <= SITEMAP_DISCOVERY_PAGES; page += 1) {
-      entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${locale}/movies/${page}.xml</loc></sitemap>`);
-      entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${locale}/series/${page}.xml</loc></sitemap>`);
-    }
-    for (let page = 1; page <= SITEMAP_EPISODE_PAGES; page += 1) {
-      entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${locale}/episodes/${page}.xml</loc></sitemap>`);
-    }
   }
+
+  // Do not multiply thousands of dynamic sitemap requests by every language.
+  // Google can discover translations through the hreflang set on each detail page.
+  const contentLocale: LocaleCode = 'en';
+  for (let page = 1; page <= SITEMAP_DISCOVERY_PAGES; page += 1) {
+    entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${contentLocale}/movies/${page}.xml</loc></sitemap>`);
+    entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${contentLocale}/series/${page}.xml</loc></sitemap>`);
+  }
+  for (let page = 1; page <= SITEMAP_EPISODE_PAGES; page += 1) {
+    entries.push(`<sitemap><loc>${SITEMAP_PUBLIC_ORIGIN}/sitemap/${contentLocale}/episodes/${page}.xml</loc></sitemap>`);
+  }
+
   return `<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries.join('')}</sitemapindex>`;
 };
 
