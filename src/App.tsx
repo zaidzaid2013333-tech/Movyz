@@ -172,7 +172,7 @@ function MainApp() {
       const seriesId = segments[1] || '';
       const seasonNumber = Number(segments[2]);
       const episodeNumber = Number(segments[3]);
-      if (segments.length === 4 && /^\\d+$/.test(seriesId) &&
+      if (segments.length === 4 && /^\d+$/.test(seriesId) &&
           Number.isInteger(seasonNumber) && seasonNumber > 0 &&
           Number.isInteger(episodeNumber) && episodeNumber > 0) {
         return (
